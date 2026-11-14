@@ -67,9 +67,9 @@ func withWarner(ctx context.Context, warn func(format string, a ...any)) context
 }
 
 // Warnf reports a problem that does not fail the check, such as a truncated
-// result. Like View.Warn it is shown only with --verbose. A context that did not
-// come from the runner has no warner, and the call does nothing, so stages stay
-// testable without one.
+// result. Like View.Warn it is a WARN line, shown by default and written once
+// per run for the same text. A context that did not come from the runner has no
+// warner, and the call does nothing, so stages stay testable without one.
 func Warnf(ctx context.Context, format string, a ...any) {
 	if warn, ok := ctx.Value(warnerKey{}).(func(string, ...any)); ok {
 		warn(format, a...)
@@ -160,7 +160,8 @@ type View struct {
 func (v View) Scope() *scope.Scope { return v.sc }
 
 // Warn reports a problem that does not fail a check, such as a stage running
-// with reduced capability. It is shown only with --verbose, like other warnings.
+// with reduced capability. It is a WARN line, shown by default; the same text is
+// written once per run, however many passes call it.
 func (v View) Warn(format string, a ...any) { v.r.warn(format, a...) }
 
 // Settings are the run's settings.

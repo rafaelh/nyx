@@ -24,7 +24,7 @@ import (
 var sourcePatterns = []string{
 	"crt.sh", "web.archive.org", "index.commoncrawl.org", "www.virustotal.com", "api.securitytrails.com",
 	"api.shodan.io", "reverse-whois.whoisxmlapi.com", "stat.ripe.net", "ip-ranges.amazonaws.com", "www.gstatic.com",
-	"otx.alienvault.com", "api.hackertarget.com", "urlscan.io", "jldc.me", "api.certspotter.com",
+	"api.hackertarget.com", "urlscan.io", "api.certspotter.com",
 	"api.platform.censys.io", "dns.projectdiscovery.io",
 	// The range publishers after AWS and GCP.
 	"www.cloudflare.com", "api.fastly.com", "www.digitalocean.com", "docs.oracle.com", "geoip.linode.com",

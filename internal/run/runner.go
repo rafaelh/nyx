@@ -60,7 +60,6 @@ type Config struct {
 	Clock               func() time.Time
 	Passive             bool
 	AllowLargeNetblocks bool
-	Verbose             bool
 	Redo                string
 }
 
@@ -93,6 +92,7 @@ type Runner struct {
 	aborted map[string]bool
 
 	guarded sync.Map // value+"\x00"+reason already sent to the guard pseudo-stage
+	warned  sync.Map // warning texts already emitted this run (see warn)
 
 	derivedSig     string                          // what the findings were last derived from (see deriveFindings)
 	attribution    map[string]findings.StorageAttr // the storage attribution of that derivation
@@ -140,10 +140,16 @@ func (r *Runner) emit(typ string, fields map[string]any) {
 	r.cfg.Emitter.Emit(report.Event{Type: typ, Fields: fields})
 }
 
+// warn emits a warning event, a WARN line on the console. A text already
+// emitted in this run is not emitted again: View.Warn is called from Checks,
+// which runs on every pass, so the same warning would otherwise repeat. A
+// message whose text differs is a different warning.
 func (r *Runner) warn(format string, a ...any) {
-	if r.cfg.Verbose {
-		r.emit("warning", map[string]any{"message": fmt.Sprintf(format, a...)})
+	msg := fmt.Sprintf(format, a...)
+	if _, seen := r.warned.LoadOrStore(msg, struct{}{}); seen {
+		return
 	}
+	r.emit("warning", map[string]any{"message": msg})
 }
 
 func (r *Runner) today() string { return r.cfg.Clock().UTC().Format(time.DateOnly) }
@@ -172,6 +178,7 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 			len(r.inputs.Roots), len(r.inputs.Orgs), len(r.inputs.ASNs), len(r.inputs.CIDRs), len(r.inputs.Exclusions)),
 		"passive": r.cfg.Passive, "authorised": eng.Acked(),
 	})
+	r.warnUnauthorised()
 
 	code, err := r.passes(ctx)
 	if err == nil && code == ExitOK {
@@ -394,8 +401,13 @@ func (r *Runner) stat(stage string) *stageStats {
 	return r.stats[stage]
 }
 
-func (r *Runner) gate(s Stage) (bool, string) {
-	eng := r.cfg.Engagement
+// reasonNoAuthorisation is the reason a Target stage is left out until the
+// operator confirms authorisation.
+const reasonNoAuthorisation = "no authorisation"
+
+// gateByRun is the part of gate that depends only on the operator's choices:
+// --skip, --passive and the authorisation. It never asks the stage.
+func (r *Runner) gateByRun(s Stage) (bool, string) {
 	// Skipped comes before every other reason: it is the operator's choice, and
 	// it must not depend on a key, --passive or the authorisation.
 	if slices.Contains(r.cfg.Settings.Skip, s.Name()) {
@@ -405,11 +417,35 @@ func (r *Runner) gate(s Stage) (bool, string) {
 		if r.cfg.Passive {
 			return false, "passive-only"
 		}
-		if !eng.Acked() {
-			return false, "no authorisation"
+		if !r.cfg.Engagement.Acked() {
+			return false, reasonNoAuthorisation
 		}
 	}
-	return s.Configured(Env{Settings: r.cfg.Settings, Passive: r.cfg.Passive, Authorised: eng.Acked()})
+	return true, ""
+}
+
+func (r *Runner) gate(s Stage) (bool, string) {
+	if ok, reason := r.gateByRun(s); !ok {
+		return false, reason
+	}
+	return s.Configured(Env{Settings: r.cfg.Settings, Passive: r.cfg.Passive, Authorised: r.cfg.Engagement.Acked()})
+}
+
+// warnUnauthorised warns, once, that stages are left out for lack of
+// authorisation. It names exactly the stages whose stage line reads
+// not-configured (no authorisation), in registry order, and asks no stage
+// whether it is configured. It is written right after the run header so that an
+// interrupted run still shows it.
+func (r *Runner) warnUnauthorised() {
+	var names []string
+	for _, s := range r.cfg.Stages {
+		if ok, reason := r.gateByRun(s); !ok && reason == reasonNoAuthorisation {
+			names = append(names, s.Name())
+		}
+	}
+	if len(names) > 0 {
+		r.warn("not authorised, so these stages are left out: %s; --authorised confirms authorisation", strings.Join(names, ", "))
+	}
 }
 
 func (r *Runner) setState(name, state, reason string, checks, failed int) {
@@ -650,10 +686,12 @@ func (r *Runner) isAborted(stage string) bool {
 	return r.aborted[stage]
 }
 
-// failCheck records a transient failure and warns about it.
+// failCheck records a transient failure and reports it as a debug event: a
+// failed check is retried on the next run, so it is not a warning. The stage
+// line and the summary count it.
 func (r *Runner) failCheck(stage, key, msg string) {
 	r.recordFailure(stage, key, msg)
-	r.warn("%s check %s failed: %s", stage, key, msg)
+	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, msg)})
 }
 
 // recordFailure records a transient failure: not a completion, not retried this run.
@@ -696,46 +734,37 @@ func (r *Runner) emitSummary() {
 	for _, f := range findings.Headline(recs) {
 		listed = append(listed, map[string]any{"category": f.Category, "severity": f.Severity, "target": f.Target, "detail": f.Detail})
 	}
-	high, medium := r.rankedCandidates()
+	high := r.rankedCandidates()
 	for _, c := range high {
 		r.emit("candidate", c)
 	}
-	fields := map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": listed, "candidates": high}
-	if r.cfg.Verbose {
-		fields["medium_candidates"] = medium
-	}
-	r.emit("summary", fields)
+	r.emit("summary", map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": listed, "candidates": high})
 }
 
-// rankedCandidates are the current candidates of high and of medium confidence,
-// best first, each with the input that promotes it. A candidate that is no
-// longer current keeps its rank for candidates.csv but is not listed.
-func (r *Runner) rankedCandidates() (high, medium []map[string]any) {
-	high, medium = []map[string]any{}, []map[string]any{}
+// rankedCandidates are the current candidates of high confidence, best first,
+// each with the input that promotes it. A candidate that is no longer current
+// keeps its rank for candidates.csv but is not listed; the rest of the ranked
+// candidates are in candidates.csv only.
+func (r *Runner) rankedCandidates() []map[string]any {
 	recs, _ := r.currentRecords(kinds.CandidateRank)
 	var ranked []kinds.CandidateRankAttrs
 	for _, rec := range recs {
-		if a := kinds.CandidateRank.Attrs(rec); a.Current {
+		if a := kinds.CandidateRank.Attrs(rec); a.Current && candidates.Confidence(a.Confidence) == candidates.High {
 			ranked = append(ranked, a)
 		}
 	}
 	entry := func(a kinds.CandidateRankAttrs) candidates.Entry {
-		return candidates.Entry{Value: a.Value, Current: true, Confidence: candidates.Confidence(a.Confidence), Count: a.EvidenceCount}
+		return candidates.Entry{Value: a.Value, Current: true, Confidence: candidates.High, Count: a.EvidenceCount}
 	}
 	slices.SortFunc(ranked, func(a, b kinds.CandidateRankAttrs) int {
 		return cmp.Or(candidates.Compare(entry(a), entry(b)), strings.Compare(a.Type, b.Type))
 	})
+	high := make([]map[string]any, 0, len(ranked))
 	for _, a := range ranked {
-		c := map[string]any{"kind": a.Type, "value": a.Value, "sources": a.Sources, "evidence_count": a.EvidenceCount,
-			"confidence": a.Confidence, "promote": candidates.Promote(a.Type, a.Value)}
-		switch candidates.Confidence(a.Confidence) {
-		case candidates.High:
-			high = append(high, c)
-		case candidates.Medium:
-			medium = append(medium, c)
-		}
+		high = append(high, map[string]any{"kind": a.Type, "value": a.Value, "sources": a.Sources, "evidence_count": a.EvidenceCount,
+			"confidence": a.Confidence, "promote": candidates.Promote(a.Type, a.Value)})
 	}
-	return high, medium
+	return high
 }
 
 // onNewRecord prints records of Printed kinds the first time the engagement sees them.

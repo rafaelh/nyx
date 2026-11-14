@@ -35,28 +35,6 @@ func fetchNames(ctx context.Context, c egress.Clients, u string, parse func([]by
 	return result{names: names}, err
 }
 
-// --- AlienVault OTX (passive DNS) ---
-
-func otx(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
-	return fetchNames(ctx, c, "https://otx.alienvault.com/api/v1/indicators/domain/"+url.PathEscape(in.root)+"/passive_dns", otxNames)
-}
-
-func otxNames(body []byte) ([]string, error) {
-	var r struct {
-		PassiveDNS []struct {
-			Hostname string `json:"hostname"`
-		} `json:"passive_dns"`
-	}
-	if err := json.Unmarshal(body, &r); err != nil || r.PassiveDNS == nil {
-		return nil, errors.New("unreadable OTX response")
-	}
-	names := make([]string, len(r.PassiveDNS))
-	for i, p := range r.PassiveDNS {
-		names[i] = p.Hostname
-	}
-	return names, nil
-}
-
 // --- HackerTarget (hostsearch) ---
 
 func hackertarget(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
@@ -125,20 +103,6 @@ func urlscanNames(body []byte) ([]string, bool, error) {
 		names = append(names, x.Page.Domain, x.Task.Domain)
 	}
 	return names, r.HasMore || r.Total > len(r.Results), nil
-}
-
-// --- Anubis (jldc.me) ---
-
-func anubis(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
-	return fetchNames(ctx, c, "https://jldc.me/anubis/subdomains/"+url.PathEscape(in.root), anubisNames)
-}
-
-func anubisNames(body []byte) ([]string, error) {
-	var names []string
-	if err := json.Unmarshal(body, &names); err != nil || names == nil {
-		return nil, errors.New("unreadable Anubis response")
-	}
-	return names, nil
 }
 
 // --- Cert Spotter (issuances) ---

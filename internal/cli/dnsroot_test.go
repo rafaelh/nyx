@@ -383,7 +383,7 @@ func TestDNSRoot_FoundLine(t *testing.T) {
 	if code := w.h.exec("--passive", "--rate-dns", "100000", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	out := w.h.stdout.String()
+	out := strings.Join(w.h.logMsgs("INFO"), "\n")
 	for _, want := range []string{
 		"+ third-party Google via txt-verification on example.com",
 		"+ third-party Cloudflare via ns on example.com",

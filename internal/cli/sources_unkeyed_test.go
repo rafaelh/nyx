@@ -14,7 +14,7 @@ import (
 	"github.com/rafaelh/recon/internal/testkit"
 )
 
-// unkeyedSource describes one of the five sources that need no key: the answers
+// unkeyedSource describes one of the three sources that need no key: the answers
 // it gives and the names its good answer must yield.
 type unkeyedSource struct {
 	stage, host string
@@ -29,17 +29,6 @@ type unkeyedSource struct {
 }
 
 var unkeyedSources = []unkeyedSource{
-	{
-		stage: "otx", host: "otx.alienvault.com", checkKey: "example.com",
-		ok: `{"passive_dns":[
-			{"hostname":"otx.example.com","address":"198.51.100.7"},
-			{"hostname":"off.example.org","address":"198.51.100.8"},
-			{"hostname":"198.51.100.9","address":"198.51.100.9"},
-			{"hostname":"https://url.example.com/x","address":"198.51.100.10"}]}`,
-		names: []string{"otx.example.com"},
-		empty: `{"passive_dns":[]}`,
-		bad:   `{"error":"nope"}`,
-	},
 	{
 		stage: "hackertarget", host: "api.hackertarget.com", checkKey: "example.com",
 		ok: "ht.example.com,198.51.100.7\noff.example.org,198.51.100.8\n198.51.100.9,198.51.100.9\n" +
@@ -56,13 +45,6 @@ var unkeyedSources = []unkeyedSource{
 		names: []string{"us.example.com", "us2.example.com"},
 		empty: `{"results":[],"total":0}`,
 		bad:   `{"message":"nope"}`,
-	},
-	{
-		stage: "anubis", host: "jldc.me", checkKey: "example.com",
-		ok:    `["an.example.com","off.example.org","198.51.100.9","https://url.example.com/x"]`,
-		names: []string{"an.example.com"},
-		empty: `[]`,
-		bad:   `{"error":"nope"}`,
 	},
 	{
 		stage: "certspotter", host: "api.certspotter.com", checkKey: "example.com|pages=10",
@@ -148,7 +130,7 @@ func TestUnkeyed_ExcludedRootIsNotQueried(t *testing.T) {
 	if code := w.run("--passive", "-x", "example.org", "example.com", "example.org"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, host := range []string{"otx.alienvault.com", "api.hackertarget.com", "urlscan.io", "jldc.me", "api.certspotter.com", "crt.sh"} {
+	for _, host := range []string{"api.hackertarget.com", "urlscan.io", "api.certspotter.com", "crt.sh"} {
 		for _, r := range w.requests(host) {
 			if strings.Contains(r.URI, "example.org") {
 				t.Errorf("%s was asked about the excluded root: %s", host, r.URI)
@@ -163,9 +145,8 @@ func TestUnkeyed_ExcludedRootIsNotQueried(t *testing.T) {
 // Scope decides which file a returned name appears in.
 func TestUnkeyed_ScopeDecidesTheFile(t *testing.T) {
 	w := newWorld(t)
-	w.handle("otx.alienvault.com", jsonBody(`{"passive_dns":[
-		{"hostname":"junk1.example.com"},{"hostname":"junk2.example.com"},
-		{"hostname":"real.example.com"},{"hostname":"ex.example.com"}]}`))
+	w.handle("api.hackertarget.com", jsonBody("junk1.example.com,203.0.113.1\njunk2.example.com,203.0.113.2\n"+
+		"real.example.com,203.0.113.50\nex.example.com,203.0.113.51\n"))
 	w.dns.Wildcard("example.com", "203.0.113.1", "203.0.113.2")
 	w.dns.A("real.example.com", "203.0.113.50")
 	w.dns.A("ex.example.com", "203.0.113.51")
@@ -191,7 +172,8 @@ func TestUnkeyed_NamesAreNormalised(t *testing.T) {
 	// crt.sh and a new source both give a wildcard; the new source also gives
 	// upper case, a trailing dot, a Unicode name and one that is not a hostname.
 	w.crtsh(map[string][]string{"example.com": {"*.dev.example.com"}}, nil)
-	w.handle("jldc.me", jsonBody(`["*.stage.example.com","UP.Example.com.","Bücher.example.com","under_score.example.com","sp ace.example.com"]`))
+	w.handle("api.hackertarget.com", jsonBody("*.stage.example.com,198.51.100.1\nUP.Example.com.,198.51.100.2\nBücher.example.com,198.51.100.3\n"+
+		"under_score.example.com,198.51.100.4\nsp ace.example.com,198.51.100.5\n"))
 	resolveAll(w, "dev", "stage", "up", "xn--bcher-kva")
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -257,7 +239,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				v.serve(w, s)
 				w.crtsh(map[string][]string{"example.com": {"c.example.com"}}, nil)
 				w.dns.A("c.example.com", "203.0.113.5")
-				if code := w.run("--passive", "--verbose", "--concurrency", "1", "example.com", "example.org"); code != 0 {
+				if code := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); code != 0 {
 					t.Fatalf("exit %d", code)
 				}
 				if st, _ := stateOf(w, s.stage); st != "failed" {
@@ -280,10 +262,10 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 					t.Errorf("other sources' names must still be recorded: %v", w.lines(eng, "subdomains.txt"))
 				}
 
-				// Without --verbose there is no warning at all.
+				// The warning needs no flag: a repeat run warns again.
 				w.run("--passive", "--concurrency", "1", "--redo", s.stage, "example.com", "example.org")
-				if warns := ofType(w.h.events(), "warning"); len(warns) != 0 {
-					t.Errorf("warnings without --verbose: %v", warns)
+				if warns := messages(w, "warning", s.stage); len(warns) != 1 {
+					t.Errorf("want the quota warning again on a repeat run, got %q", warns)
 				}
 
 				// The next run retries every check.
@@ -316,7 +298,7 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 			return nil, fmt.Errorf("HTTP 429: %w", run.ErrQuota)
 		}}
 	h := newHarness(t, st)
-	if code := h.exec("a.com", "--json", "--verbose", "--concurrency", "1"); code != 0 {
+	if code := h.exec("a.com", "--json", "--concurrency", "1"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
 	var inside, abort []string
@@ -330,7 +312,7 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 		}
 	}
 	if len(inside) != 1 {
-		t.Errorf("a Warnf inside Run is shown under --verbose: %v", inside)
+		t.Errorf("a Warnf inside Run is shown without any flag: %v", inside)
 	}
 	if want := "quota: quota spent or key rejected; 4 checks will be retried next run"; len(abort) != 1 || abort[0] != want {
 		t.Errorf("abort warnings = %q, want one %q", abort, want)
@@ -339,11 +321,11 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 		t.Errorf("state = %v", s)
 	}
 
-	// Not verbose: Warnf is silent too.
+	// No flag is needed: the same run warns again in a fresh run.
 	h2 := newHarness(t, st)
 	h2.exec("a.com", "--json", "--concurrency", "1")
-	if w := ofType(h2.events(), "warning"); len(w) != 0 {
-		t.Errorf("warnings without --verbose: %v", w)
+	if w := ofType(h2.events(), "warning"); len(w) != 2 {
+		t.Errorf("want the Warnf and the abort warning, got %v", w)
 	}
 }
 
@@ -441,7 +423,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	w.crtsh(map[string][]string{"example.com": {"old.example.com"}}, nil)
 	w.dns.A("old.example.com", "203.0.113.5")
 	w.dns.A("new.example.com", "203.0.113.6")
-	w.handle("otx.alienvault.com", jsonBody(`{"passive_dns":[{"hostname":"new.example.com"},{"hostname":"old.example.com"}]}`))
+	w.handle("api.hackertarget.com", jsonBody("new.example.com,203.0.113.6\nold.example.com,203.0.113.5\n"))
 	var skipNew []string
 	for _, s := range unkeyedSources {
 		skipNew = append(skipNew, "--skip", s.stage)
@@ -454,7 +436,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	if crtBefore == 0 || oldBefore == 0 {
 		t.Fatalf("first run did nothing: %d crt.sh requests, %d lookups", crtBefore, oldBefore)
 	}
-	if n := len(w.requests("otx.alienvault.com")); n != 0 {
+	if n := len(w.requests("api.hackertarget.com")); n != 0 {
 		t.Fatalf("skipped stage made %d requests", n)
 	}
 
@@ -464,8 +446,8 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	if n := len(w.requests("crt.sh")); n != crtBefore {
 		t.Errorf("crtsh repeated its check: %d requests, then %d", crtBefore, n)
 	}
-	if n := len(w.requests("otx.alienvault.com")); n != 1 {
-		t.Errorf("otx should run once: %d requests", n)
+	if n := len(w.requests("api.hackertarget.com")); n != 1 {
+		t.Errorf("hackertarget should run once: %d requests", n)
 	}
 	if w.dns.Count("new.example.com", "A") == 0 {
 		t.Error("the name the new stage added was not resolved")
@@ -498,15 +480,15 @@ func TestUnkeyed_HelpAndRedo(t *testing.T) {
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	otx, crt := len(w.requests("otx.alienvault.com")), len(w.requests("crt.sh"))
-	if code := w.run("--passive", "--redo", "otx", "-e", eng); code != 0 {
-		t.Fatalf("--redo otx exited %d", code)
+	hackertarget, crt := len(w.requests("api.hackertarget.com")), len(w.requests("crt.sh"))
+	if code := w.run("--passive", "--redo", "hackertarget", "-e", eng); code != 0 {
+		t.Fatalf("--redo hackertarget exited %d", code)
 	}
-	if n := len(w.requests("otx.alienvault.com")); n != otx+1 {
-		t.Errorf("--redo otx should repeat the check: %d requests, then %d", otx, n)
+	if n := len(w.requests("api.hackertarget.com")); n != hackertarget+1 {
+		t.Errorf("--redo hackertarget should repeat the check: %d requests, then %d", hackertarget, n)
 	}
 	if n := len(w.requests("crt.sh")); n != crt {
-		t.Errorf("--redo otx repeated crtsh: %d requests, then %d", crt, n)
+		t.Errorf("--redo hackertarget repeated crtsh: %d requests, then %d", crt, n)
 	}
 }
 
@@ -576,7 +558,7 @@ func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
 	t.Setenv("RECON_KEYS_CERTSPOTTER", certspotterKey)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
-	if code := w.run("--passive", "--verbose", "example.com"); code != 0 {
+	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if st, _ := stateOf(w, "certspotter"); st != "done" {
@@ -598,7 +580,7 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 			w := newWorld(t)
 			t.Setenv("RECON_KEYS_CERTSPOTTER", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
-			if c := w.run("--passive", "--verbose", "--concurrency", "1", "example.com", "example.org"); c != 0 {
+			if c := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); c != 0 {
 				t.Fatalf("exit %d", c)
 			}
 			if st, _ := stateOf(w, "certspotter"); st != "failed" {
@@ -630,7 +612,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 		t.Fatalf("without the key the server refuses: state = %s", st)
 	}
 	t.Setenv("RECON_KEYS_CERTSPOTTER", certspotterKey)
-	if code := w.run("--passive", "--verbose", "example.com"); code != 0 {
+	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=10"}) {
@@ -659,7 +641,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 	w := newWorld(t)
 	certspotterPages(w, always)
 	resolveAll(w, "p1", "p1b", "p2", "p3")
-	if code := w.run("--passive", "--no-permutations", "--verbose", "--certspotter-max-pages", "2", "example.com"); code != 0 {
+	if code := w.run("--passive", "--no-permutations", "--certspotter-max-pages", "2", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if st, _ := stateOf(w, "certspotter"); st != "done" {
@@ -680,7 +662,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 	}
 
 	// Raising the cap makes a new check, and the longer result is not truncated.
-	if code := w.run("--passive", "--no-permutations", "--verbose", "-e", eng); code != 0 {
+	if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
@@ -708,7 +690,7 @@ func TestCertSpotter_MaxPagesMustBePositive(t *testing.T) {
 
 func TestReadme_NamesTheNewSources(t *testing.T) {
 	section, readme := readmeSection(t, "## Passive boundary")
-	for _, src := range []string{"alienvault otx", "hackertarget", "urlscan", "anubis", "cert spotter"} {
+	for _, src := range []string{"hackertarget", "urlscan", "cert spotter"} {
 		if !strings.Contains(section, src) {
 			t.Errorf("the passive-boundary section does not name %q", src)
 		}
@@ -739,7 +721,7 @@ func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 			w := newWorld(t)
 			w.handle("urlscan.io", jsonBody(c.body))
 			w.dns.A("us.example.com", "203.0.113.5")
-			if code := w.run("--passive", "--verbose", "example.com"); code != 0 {
+			if code := w.run("--passive", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
 			if st, _ := stateOf(w, "urlscan"); st != "done" {

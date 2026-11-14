@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -31,6 +32,8 @@ type harness struct {
 	stdin     string
 	stdinTTY  bool
 	stdoutTTY bool
+	stderrTTY bool
+	loc       *time.Location
 	eopts     egress.Options
 	now       time.Time
 	version   string
@@ -48,10 +51,14 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 			os.Unsetenv(strings.SplitN(kv, "=", 2)[0])
 		}
 	}
+	// Pin the terminal environment so a developer's shell cannot change a result.
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm")
+	t.Setenv("COLORTERM", "")
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	t.Setenv("HOME", cfgHome)
-	h := &harness{t: t, out: t.TempDir(), stages: stages, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)}
+	h := &harness{t: t, out: t.TempDir(), stages: stages, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), loc: time.UTC}
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -101,6 +108,8 @@ func (h *harness) deps() cli.Deps {
 		Stderr:      &h.stderr,
 		StdinIsTTY:  func() bool { return h.stdinTTY },
 		StdoutIsTTY: func() bool { return h.stdoutTTY },
+		StderrIsTTY: func() bool { return h.stderrTTY },
+		Location:    h.loc,
 		Clock:       func() time.Time { return h.now },
 		Version:     h.version,
 	}
@@ -156,6 +165,38 @@ func (h *harness) events() []event {
 	}
 	return out
 }
+
+// logLine is one line the run wrote to stderr in the plain layout.
+type logLine struct{ time, level, msg string }
+
+// logLayout is the start of a plain log line: "HH:MM:SS | LEVEL | ".
+var logLayout = regexp.MustCompile(`^(\d\d:\d\d:\d\d) \| (DEBUG|INFO |WARN |ERROR|CRIT ) \| `)
+
+// logLines parses stderr's plain log lines; a line in another form (the
+// prompt, an error: line) is skipped.
+func (h *harness) logLines() []logLine {
+	var out []logLine
+	for _, l := range strings.Split(h.stderr.String(), "\n") {
+		if m := logLayout.FindStringSubmatch(l); m != nil {
+			out = append(out, logLine{m[1], strings.TrimSpace(m[2]), l[len(m[0]):]})
+		}
+	}
+	return out
+}
+
+// logMsgs are the messages of the log lines of one level.
+func (h *harness) logMsgs(level string) []string {
+	var out []string
+	for _, l := range h.logLines() {
+		if l.level == level {
+			out = append(out, l.msg)
+		}
+	}
+	return out
+}
+
+// debugLines are the messages of the DEBUG lines on stderr.
+func (h *harness) debugLines() []string { return h.logMsgs("DEBUG") }
 
 // lines are the lines of an engagement output file, none for a missing or empty file.
 func (h *harness) lines(eng, name string) []string {

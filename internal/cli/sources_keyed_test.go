@@ -116,7 +116,7 @@ func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 		for _, n := range s.names {
 			w.dns.A(n, "203.0.113.5")
 		}
-		if code := w.run("--passive", "--verbose", "example.com"); code != 0 {
+		if code := w.run("--passive", "example.com"); code != 0 {
 			t.Fatalf("exit %d", code)
 		}
 		if st, _ := stateOf(w, s.stage); st != "done" {
@@ -202,7 +202,7 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 					}
 				}
 				w.handle(s.host, status(code))
-				if c := w.run("--passive", "--verbose", "--concurrency", "1", "example.com", "example.org"); c != 0 {
+				if c := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); c != 0 {
 					t.Fatalf("exit %d", c)
 				}
 				if st, _ := stateOf(w, s.stage); st != "failed" {
@@ -237,7 +237,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 			w := newWorld(t)
 			t.Setenv("RECON_KEYS_CHAOS", chaosKey)
 			w.handle("dns.projectdiscovery.io", h)
-			if code := w.run("--passive", "--verbose", "example.com"); code != 0 {
+			if code := w.run("--passive", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
 			if st, _ := stateOf(w, "chaos"); st != "done" {
@@ -318,7 +318,7 @@ func TestKeyed_PageCap(t *testing.T) {
 			t.Setenv(s.env, s.key)
 			s.serve(w)
 			resolveAll(w, "p1", "p2", "p3")
-			if code := w.run("--passive", "--no-permutations", "--verbose", s.flag, "2", "example.com"); code != 0 {
+			if code := w.run("--passive", "--no-permutations", s.flag, "2", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
 			if st, _ := stateOf(w, s.stage); st != "done" {
@@ -344,7 +344,7 @@ func TestKeyed_PageCap(t *testing.T) {
 				t.Errorf("want one truncation warning, got %q", warns)
 			}
 
-			if code := w.run("--passive", "--no-permutations", "--verbose", "-e", eng); code != 0 {
+			if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
 			if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
@@ -367,7 +367,7 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 			w := newWorld(t)
 			t.Setenv(s.env, s.key)
 			s.serve(w)
-			if code := w.run("--passive", "--verbose", s.flag, "3", "example.com"); code != 0 {
+			if code := w.run("--passive", s.flag, "3", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
 			if warns := messages(w, "warning", "truncated"); len(warns) != 0 {
@@ -383,7 +383,7 @@ func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
 	w := newWorld(t)
 	t.Setenv("RECON_KEYS_CHAOS", chaosKey)
 	w.handle("dns.projectdiscovery.io", jsonBody(`{"domain":"example.com","subdomains":["a"],"count":1}`))
-	if code := w.run("--passive", "--verbose", "--chaos-max-pages", "3", "example.com"); code != 0 {
+	if code := w.run("--passive", "--chaos-max-pages", "3", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if done := w.h.completed(eng, "chaos"); !slices.Equal(done, []string{"example.com|pages=3"}) {

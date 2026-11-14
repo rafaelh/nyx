@@ -1,7 +1,8 @@
 // Package subdomains has the per-source stages that list subdomains of an
-// in-scope root: crtsh, wayback, commoncrawl, virustotal, securitytrails, otx,
-// hackertarget, urlscan, anubis, certspotter, censys and chaos. They share one check and
-// enumeration type; each source is a fetcher.
+// in-scope root: crtsh, wayback, commoncrawl, virustotal, securitytrails,
+// hackertarget, urlscan, certspotter, censys and chaos. They share one check and
+// enumeration type; each source is a fetcher. OTX and Anubis are no longer
+// here: neither answers an unkeyed client.
 package subdomains
 
 import (
@@ -71,10 +72,8 @@ func New() []run.Stage {
 		&Stage{name: "commoncrawl", sources: []string{"index.commoncrawl.org"}, archive: true, fetch: commoncrawl},
 		&Stage{name: "virustotal", sources: []string{"www.virustotal.com"}, keyed: true, fetch: virustotal},
 		&Stage{name: "securitytrails", sources: []string{"api.securitytrails.com"}, keyed: true, fetch: securitytrails},
-		&Stage{name: "otx", sources: []string{"otx.alienvault.com"}, fetch: otx},
 		&Stage{name: "hackertarget", sources: []string{"api.hackertarget.com"}, fetch: hackertarget},
 		&Stage{name: "urlscan", sources: []string{"urlscan.io"}, fetch: urlscan},
-		&Stage{name: "anubis", sources: []string{"jldc.me"}, fetch: anubis},
 		&Stage{name: "certspotter", sources: []string{"api.certspotter.com"}, optionalKey: true,
 			pageCap: func(c config.Settings) int { return c.Certspotter.MaxPages }, fetch: certspotter},
 		&Stage{name: "censys", sources: []string{"api.platform.censys.io"}, keyed: true,

@@ -33,15 +33,15 @@ func TestSkip_StateAndNoChecks(t *testing.T) {
 	if done := w.h.completed(eng, "crtsh"); len(done) != 0 {
 		t.Errorf("a skipped stage completed checks: %v", done)
 	}
-	if st, _ := stateOf(w, "otx"); st != "done" {
-		t.Errorf("other stages still run: otx = %s", st)
+	if st, _ := stateOf(w, "hackertarget"); st != "done" {
+		t.Errorf("other stages still run: hackertarget = %s", st)
 	}
 	// The console form.
 	if code := w.h.exec("--passive", "--rate-per-source", "1000", "--rate-dns", "100000", "--skip", "crtsh", "-e", eng); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(w.h.stdout.String(), "not-configured (skipped)") {
-		t.Errorf("console does not show not-configured (skipped):\n%s", w.h.stdout.String())
+	if !slices.ContainsFunc(w.h.logLines(), func(l logLine) bool { return strings.Contains(l.msg, "not-configured (skipped)") }) {
+		t.Errorf("console does not show not-configured (skipped):\n%s", w.h.stderr.String())
 	}
 }
 
@@ -101,13 +101,13 @@ func TestSkip_InvalidExits2(t *testing.T) {
 				t.Errorf("message %q does not mention %q", msg, c.want)
 			}
 			if c.listsStages {
-				for _, stage := range []string{"crtsh", "otx", "certspotter"} {
+				for _, stage := range []string{"crtsh", "hackertarget", "certspotter"} {
 					if !strings.Contains(msg, stage) {
 						t.Errorf("message does not list the stage names (missing %s): %q", stage, msg)
 					}
 				}
 			}
-			if w.dns.Total() != 0 || len(w.requests("crt.sh")) != 0 || len(w.requests("otx.alienvault.com")) != 0 {
+			if w.dns.Total() != 0 || len(w.requests("crt.sh")) != 0 || len(w.requests("api.hackertarget.com")) != 0 {
 				t.Error("an invalid --skip must exit before any stage runs")
 			}
 		})
@@ -128,7 +128,7 @@ func TestSkip_InvalidSettingExits2(t *testing.T) {
 func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	skipped := func(w *world) []string {
 		var out []string
-		for _, s := range []string{"crtsh", "wayback", "otx", "anubis"} {
+		for _, s := range []string{"crtsh", "wayback", "hackertarget", "urlscan"} {
 			if st, reason := stateOf(w, s); st == "not-configured" && reason == "skipped" {
 				out = append(out, s)
 			}
@@ -154,8 +154,8 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	t.Run("flag replaces the setting", func(t *testing.T) {
 		w := newWorld(t)
 		t.Setenv("RECON_SKIP", "crtsh,wayback")
-		w.run("--passive", "--skip", "otx", "--skip", "anubis", "example.com")
-		if got := skipped(w); !slices.Equal(got, []string{"otx", "anubis"}) {
+		w.run("--passive", "--skip", "hackertarget", "--skip", "urlscan", "example.com")
+		if got := skipped(w); !slices.Equal(got, []string{"hackertarget", "urlscan"}) {
 			t.Errorf("skipped = %v", got)
 		}
 	})

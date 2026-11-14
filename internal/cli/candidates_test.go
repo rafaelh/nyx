@@ -352,7 +352,7 @@ func highHarness(t *testing.T) *harness {
 }
 
 // The console lists up to 20 high candidates with the input that promotes each,
-// then how many more there are; --verbose also lists the medium ones.
+// then how many more there are. Medium and low candidates are not listed.
 func TestCandidates_ConsoleSummary(t *testing.T) {
 	h := highHarness(t)
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
@@ -371,15 +371,7 @@ func TestCandidates_ConsoleSummary(t *testing.T) {
 		t.Errorf("missing the overflow line:\n%s", out)
 	}
 	if strings.Contains(out, "mid.org") || strings.Contains(out, "low.org") {
-		t.Errorf("medium and low candidates are not listed without --verbose:\n%s", out)
-	}
-
-	if code := h.exec("-e", "a.com", "--org", "Acme", "--verbose"); code != 0 {
-		t.Fatal(h.stderr.String())
-	}
-	out = h.stdout.String()
-	if !strings.Contains(out, "promote: mid.org") || strings.Contains(out, "low.org") {
-		t.Errorf("--verbose lists the medium candidates, not the low ones:\n%s", out)
+		t.Errorf("medium and low candidates are not listed:\n%s", out)
 	}
 }
 
@@ -387,7 +379,7 @@ func TestCandidates_ConsoleSummary(t *testing.T) {
 // the summary carries the same list.
 func TestCandidates_JSONEvents(t *testing.T) {
 	h := highHarness(t)
-	if code := h.exec("a.com", "--org", "Acme", "--json", "--verbose"); code != 0 {
+	if code := h.exec("a.com", "--org", "Acme", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
 	evs := h.events()
@@ -423,8 +415,5 @@ func TestCandidates_JSONEvents(t *testing.T) {
 	listed, _ := evs[summaryAt]["candidates"].([]any)
 	if len(listed) != 23 {
 		t.Errorf("summary candidates = %d, want 23", len(listed))
-	}
-	if med, _ := evs[summaryAt]["medium_candidates"].([]any); len(med) != 1 {
-		t.Errorf("--verbose summary medium_candidates = %v", evs[summaryAt]["medium_candidates"])
 	}
 }

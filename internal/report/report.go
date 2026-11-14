@@ -11,17 +11,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
-
 	"github.com/rafaelh/recon/internal/config"
+	"github.com/rafaelh/recon/internal/palette"
 	"github.com/rafaelh/recon/internal/sanitize"
 )
 
 // Event is one thing that happened in a run. Types: run_start, stage, found,
-// count, warning, error, candidate, summary, run_end. A candidate event is one
-// high-confidence candidate, emitted before the summary; the console prints it
-// only as part of the summary.
+// count, warning, debug, error, candidate, summary, run_end. A candidate event
+// is one high-confidence candidate, emitted before the summary; the console
+// prints it only as part of the summary. A debug event is one failed check; the
+// JSON stream does not carry it.
 type Event struct {
 	Type   string
 	Time   string // RFC 3339; filled in by the emitter if empty
@@ -41,7 +40,8 @@ func timestamp(ev Event, clock func() time.Time) string {
 	return clock().UTC().Format(time.RFC3339)
 }
 
-// JSONEmitter writes one JSON object per line.
+// JSONEmitter writes one JSON object per line. It drops debug events, so that
+// the stream is the same with or without --debug.
 type JSONEmitter struct {
 	mu    sync.Mutex
 	w     io.Writer
@@ -55,6 +55,9 @@ func NewJSON(w io.Writer, clock func() time.Time) *JSONEmitter {
 
 // Emit writes the event as a JSON line.
 func (j *JSONEmitter) Emit(ev Event) {
+	if ev.Type == "debug" {
+		return
+	}
 	m := make(map[string]any, len(ev.Fields)+2)
 	for k, v := range ev.Fields {
 		m[k] = v
@@ -84,35 +87,96 @@ func (e redacting) Emit(ev Event) {
 	e.next.Emit(ev)
 }
 
-// Console renders events as lipgloss-styled lines. Prompts and fatal errors go
-// to the error writer when one is set.
+// Only passes the events of one type to next and drops the rest.
+func Only(typ string, next Emitter) Emitter { return only{typ, next} }
+
+type only struct {
+	typ  string
+	next Emitter
+}
+
+func (f only) Emit(ev Event) {
+	if ev.Type == f.typ {
+		f.next.Emit(ev)
+	}
+}
+
+// Tee sends every event to both emitters.
+func Tee(a, b Emitter) Emitter { return tee{a, b} }
+
+type tee struct{ a, b Emitter }
+
+func (t tee) Emit(ev Event) { t.a.Emit(ev); t.b.Emit(ev) }
+
+// Level is a log line's severity.
+type Level int
+
+// The levels a log line can have, lowest first.
+const (
+	Debug Level = iota
+	Info
+	Warn
+	Error
+	Crit
+)
+
+// Label is the level's name in a log line.
+func (l Level) Label() string {
+	if l < Debug || l > Crit {
+		return ""
+	}
+	return levelLabels[l]
+}
+
+var levelLabels = palette.Labels(palette.Level)
+
+// Line formats one log line from the time t as it is to be shown. The message
+// is written literally: it is not wrapped, and each line after its first is
+// indented to the message column. Nothing here sanitises or redacts, so a
+// caller does both first.
+//
+// A plain line is "HH:MM:SS | LEVEL | message"; a coloured one has the
+// timestamp and separators in the palette's chrome colours and a level badge.
+func Line(d palette.Depth, t time.Time, l Level, msg string) string {
+	sep, badge := " | ", palette.Width(palette.Level)
+	if d != palette.None {
+		sep, badge = d.Text(palette.Chrome, "SEPARATOR", " │ "), badge+2 // a coloured badge has a space each side
+	}
+	ts := t.Format("15:04:05")
+	prefix := d.Text(palette.Chrome, "TIMESTAMP", ts) + sep + d.Badge(palette.Level, l.Label()) + sep
+	indent := len(ts) + badge + 2*len(" | ") // each separator is three cells
+	return prefix + strings.ReplaceAll(msg, "\n", "\n"+strings.Repeat(" ", indent))
+}
+
+// ConsoleOptions are what NewConsole needs.
+type ConsoleOptions struct {
+	Log          io.Writer // the log lines and the error line (stderr)
+	LogDepth     palette.Depth
+	Summary      io.Writer // the end-of-run summary (stdout)
+	SummaryDepth palette.Depth
+	Min          Level // the lowest level of log line written
+	Clock        func() time.Time
+	Location     *time.Location // the time zone lines are shown in
+}
+
+// Console renders events as log lines on one stream and the summary on
+// another. Each event has a level (see Emit) and is written only when it
+// reaches Min; the summary and the error line are always written.
 type Console struct {
-	mu    sync.Mutex
-	w, ew io.Writer
-	clock func() time.Time
-	r     *lipgloss.Renderer
+	mu sync.Mutex
+	o  ConsoleOptions
 }
 
-// NewConsole returns the console renderer; style=false disables all styling.
-func NewConsole(w io.Writer, style bool, clock func() time.Time) *Console {
-	r := lipgloss.NewRenderer(w)
-	if style {
-		r.SetColorProfile(termenv.ANSI)
-	} else {
-		r.SetColorProfile(termenv.Ascii)
+// NewConsole returns the console renderer. A nil Clock is time.Now and a nil
+// Location is time.Local.
+func NewConsole(o ConsoleOptions) *Console {
+	if o.Clock == nil {
+		o.Clock = time.Now
 	}
-	return &Console{w: w, ew: w, clock: clock, r: r}
-}
-
-// WithErr sends error events to ew (normally stderr).
-func (c *Console) WithErr(ew io.Writer) *Console { c.ew = ew; return c }
-
-func (c *Console) st(color string, bold bool) lipgloss.Style {
-	s := c.r.NewStyle().Bold(bold)
-	if color != "" {
-		s = s.Foreground(lipgloss.Color(color))
+	if o.Location == nil {
+		o.Location = time.Local
 	}
-	return s
+	return &Console{o: o}
 }
 
 func str(f map[string]any, k string) string {
@@ -126,73 +190,76 @@ func str(f map[string]any, k string) string {
 	}
 }
 
-func severityColor(sev string) string {
-	switch sev {
-	case "high":
-		return "1"
-	case "medium":
-		return "3"
-	}
-	return "4"
-}
-
-// Emit renders one event.
+// Emit renders one event. run_start, found and count are INFO; stage is INFO,
+// or ERROR when its state is failed; warning is WARN and debug is DEBUG.
+// candidate, run_end and unknown types print nothing.
 func (c *Console) Emit(ev Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	f := ev.Fields
-	var b strings.Builder
-	out := c.w
+	d := c.o.LogDepth
+	level, msg := Info, ""
 	switch ev.Type {
 	case "run_start":
-		b.WriteString(c.st("6", true).Render("recon") + " " + str(f, "engagement"))
+		msg = "recon " + str(f, "engagement")
 		if s := str(f, "scope"); s != "" {
-			b.WriteString("  " + s)
+			msg += "  " + s
 		}
 		if p, _ := f["passive"].(bool); p {
-			b.WriteString("  " + c.st("3", false).Render("[passive-only]"))
+			msg += "  [passive-only]"
 		}
 		if a, _ := f["authorised"].(bool); a {
-			b.WriteString("  " + c.st("2", false).Render("[authorised]"))
+			msg += "  [authorised]"
 		}
 	case "stage":
 		state := str(f, "state")
-		color := map[string]string{"done": "2", "done-previously": "8", "running": "6", "failed": "1", "not-configured": "3"}[state]
-		line := c.st("", true).Render(fmt.Sprintf("%-14s", str(f, "name"))) + " " + c.st(color, false).Render(state)
+		if state == "failed" {
+			level = Error
+		}
+		msg = fmt.Sprintf("%-14s %s", str(f, "name"), state)
 		if r := str(f, "reason"); r != "" {
-			line += " (" + r + ")"
+			msg += " (" + r + ")"
 		}
 		if state == "done" {
-			line += fmt.Sprintf(" (%s checks, %s failed)", str(f, "checks"), str(f, "failed"))
+			msg += fmt.Sprintf(" (%s checks, %s failed)", str(f, "checks"), str(f, "failed"))
 		}
-		b.WriteString(line)
 	case "found":
 		body := str(f, "category") + ": " + str(f, "value")
 		if text := str(f, "text"); text != "" {
 			body = text
 		}
-		line := c.st("2", false).Render("+") + " " + body
+		msg = "+ "
 		if sev := str(f, "severity"); sev != "" {
-			line += " " + c.st(severityColor(sev), true).Render("["+sev+"]")
+			msg += d.Value(palette.Severity, sev) + " "
 		}
-		b.WriteString(line)
+		msg += body
 	case "count":
-		b.WriteString("  " + c.st("8", false).Render(fmt.Sprintf("%s: %s", str(f, "category"), str(f, "n"))))
+		msg = fmt.Sprintf("  %s: %s", str(f, "category"), str(f, "n"))
 	case "warning":
-		b.WriteString(c.st("3", false).Render("warning:") + " " + str(f, "message"))
+		level, msg = Warn, str(f, "message")
+	case "debug":
+		level, msg = Debug, str(f, "message")
 	case "error":
-		out = c.ew
-		b.WriteString(c.st("1", true).Render("error:") + " " + str(f, "message"))
+		// The line that ends a run is not a log line: no timestamp or level.
+		fmt.Fprintln(c.o.Log, d.Text(palette.Semantic, "error", "error:")+" "+str(f, "message"))
+		return
 	case "summary":
+		var b strings.Builder
 		c.summary(&b, f)
-	default: // run_end and unknown events print nothing on the console
+		fmt.Fprintln(c.o.Summary, b.String())
+		return
+	default:
 		return
 	}
-	fmt.Fprintln(out, b.String())
+	if level < c.o.Min {
+		return
+	}
+	fmt.Fprintln(c.o.Log, Line(d, c.o.Clock().In(c.o.Location), level, msg))
 }
 
 func (c *Console) summary(b *strings.Builder, f map[string]any) {
-	b.WriteString(c.st("6", true).Render("Summary"))
+	d := c.o.SummaryDepth
+	b.WriteString(d.Bold("Summary"))
 	counts := func(m map[string]int) {
 		for _, k := range sortedKeys(m) {
 			fmt.Fprintf(b, "\n  %-16s %d", sanitize.Text(k), m[k])
@@ -202,45 +269,35 @@ func (c *Console) summary(b *strings.Builder, f map[string]any) {
 		counts(totals)
 	}
 	for _, blk := range []struct{ key, heading string }{
-		{"failed", "Failed checks (retried on the next run)"},
+		{"failed", "Failed checks (retried on the next run; --debug shows each failure)"},
 		{"deferred", "Deferred to the next run"},
 	} {
 		if m, ok := f[blk.key].(map[string]int); ok && len(m) > 0 {
-			b.WriteString("\n" + c.st("3", true).Render(blk.heading))
+			b.WriteString("\n" + d.Bold(blk.heading))
 			counts(m)
 		}
 	}
 	if fs, ok := f["findings"].([]map[string]any); ok && len(fs) > 0 {
-		b.WriteString("\n" + c.st("1", true).Render("Findings (high and medium)"))
+		b.WriteString("\n" + d.Bold("Findings (high and medium)"))
 		for _, x := range fs {
-			sev := str(x, "severity")
-			fmt.Fprintf(b, "\n  %s %s %s", c.st(severityColor(sev), true).Render("["+sev+"]"), str(x, "category"), str(x, "target"))
-			if d := str(x, "detail"); d != "" {
-				b.WriteString(" - " + d)
+			fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, str(x, "severity")), str(x, "category"), str(x, "target"))
+			if det := str(x, "detail"); det != "" {
+				b.WriteString(" - " + det)
 			}
 		}
 	}
-	c.candidates(b, f, "candidates", "Candidates worth promoting (high confidence)")
-	c.candidates(b, f, "medium_candidates", "Candidates of medium confidence")
+	if list, _ := f["candidates"].([]map[string]any); len(list) > 0 {
+		b.WriteString("\n" + d.Bold("Candidates worth promoting (high confidence)"))
+		for _, x := range list[:min(len(list), maxListedCandidates)] {
+			fmt.Fprintf(b, "\n  %s  %s evidence (%s)  promote: %s", str(x, "value"), str(x, "evidence_count"), str(x, "sources"), str(x, "promote"))
+		}
+		if more := len(list) - maxListedCandidates; more > 0 {
+			fmt.Fprintf(b, "\n  and %d more in candidates.csv", more)
+		}
+	}
 }
 
-// maxListedCandidates is how many candidates of one confidence the summary lists.
+// maxListedCandidates is how many candidates the summary lists.
 const maxListedCandidates = 20
-
-// candidates lists the candidates of one confidence with the input that
-// promotes each, then how many more candidates.csv holds.
-func (c *Console) candidates(b *strings.Builder, f map[string]any, field, title string) {
-	list, _ := f[field].([]map[string]any)
-	if len(list) == 0 {
-		return
-	}
-	b.WriteString("\n" + c.st("2", true).Render(title))
-	for _, x := range list[:min(len(list), maxListedCandidates)] {
-		fmt.Fprintf(b, "\n  %s  %s evidence (%s)  promote: %s", str(x, "value"), str(x, "evidence_count"), str(x, "sources"), str(x, "promote"))
-	}
-	if more := len(list) - maxListedCandidates; more > 0 {
-		fmt.Fprintf(b, "\n  and %d more in candidates.csv", more)
-	}
-}
 
 func sortedKeys(m map[string]int) []string { return slices.Sorted(maps.Keys(m)) }

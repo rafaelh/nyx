@@ -611,7 +611,7 @@ func TestAckPromptYes(t *testing.T) {
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	if !strings.Contains(h.stderr.String(), "authorised") {
+	if !strings.Contains(h.stderr.String(), "Confirm you are authorised") {
 		t.Errorf("prompt missing on stderr: %q", h.stderr.String())
 	}
 	if len(st.Executed()) != 3 {
@@ -624,7 +624,7 @@ func TestAckPromptYes(t *testing.T) {
 	st.Reset()
 	h.stdin = "n\n"
 	h.exec("-e", "a.com", "b.com")
-	if strings.Contains(h.stderr.String(), "authorised") {
+	if strings.Contains(h.stderr.String(), "Confirm you are authorised") {
 		t.Error("ack must not be asked again")
 	}
 	if got := st.Executed(); len(got) != 1 || got[0] != "r:b.com" {
@@ -642,8 +642,8 @@ func TestAckPromptNo(t *testing.T) {
 	if len(st.Executed()) != 0 {
 		t.Error("stage must not run")
 	}
-	if !strings.Contains(h.stdout.String(), "no authorisation") {
-		t.Errorf("console should show not-configured reason: %q", h.stdout.String())
+	if !strings.Contains(h.stderr.String(), "no authorisation") {
+		t.Errorf("console should show not-configured reason: %q", h.stderr.String())
 	}
 	if _, ok := h.meta("a.com", "ack_at"); ok {
 		t.Error("ack stored on n")
@@ -665,7 +665,7 @@ func TestAckNoPromptWithoutTTYOrInJSON(t *testing.T) {
 		if code := h.exec(append([]string{"a.com"}, c.args...)...); code != 0 {
 			t.Fatalf("%s: %s", name, h.stderr.String())
 		}
-		if strings.Contains(h.stderr.String(), "authorised") || len(st.Executed()) != 0 {
+		if strings.Contains(h.stderr.String(), "Confirm you are authorised") || len(st.Executed()) != 0 {
 			t.Errorf("%s: prompt=%q executed=%v", name, h.stderr.String(), st.Executed())
 		}
 	}
@@ -930,10 +930,17 @@ func TestNonTTYNoANSI(t *testing.T) {
 	if strings.Contains(h.stdout.String(), "\x1b") || h.stdout.Len() == 0 {
 		t.Errorf("non-TTY stdout: %q", h.stdout.String())
 	}
+	if strings.Contains(h.stderr.String(), "\x1b") || h.stderr.Len() == 0 {
+		t.Errorf("non-TTY stderr: %q", h.stderr.String())
+	}
+	// On a terminal stdout carries only the summary, whose headings are bold.
 	h.stdoutTTY = true
 	h.exec("b.com")
 	if !strings.Contains(h.stdout.String(), "\x1b[") {
 		t.Errorf("TTY stdout should be styled: %q", h.stdout.String())
+	}
+	if strings.Contains(h.stderr.String(), "\x1b") {
+		t.Errorf("stderr is not a terminal, so it must stay plain: %q", h.stderr.String())
 	}
 }
 
@@ -1086,7 +1093,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 		h := newHarness(t, a, b)
 		h.eopts.SourceBaseURLs = map[string]string{"api.example.net": "http://127.0.0.1:1"} // refuses connections; error text includes the URL
 		t.Setenv("RECON_KEYS_FAKE", envKey)
-		args := []string{"a.com", "--verbose", "--config", cfg}
+		args := []string{"a.com", "--debug", "--config", cfg}
 		if jsonMode {
 			args = append(args, "--json")
 		}

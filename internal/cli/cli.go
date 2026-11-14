@@ -27,6 +27,7 @@ import (
 	"github.com/rafaelh/recon/internal/findings"
 	"github.com/rafaelh/recon/internal/input"
 	"github.com/rafaelh/recon/internal/output"
+	"github.com/rafaelh/recon/internal/palette"
 	"github.com/rafaelh/recon/internal/report"
 	"github.com/rafaelh/recon/internal/run"
 	"github.com/rafaelh/recon/internal/stages/asn"
@@ -50,6 +51,8 @@ type Deps struct {
 	Stderr        io.Writer
 	StdinIsTTY    func() bool
 	StdoutIsTTY   func() bool
+	StderrIsTTY   func() bool    // nil means false
+	Location      *time.Location // the time zone log lines are shown in; nil means time.Local
 	Clock         func() time.Time
 	HandleSignals bool   // SIGINT, SIGTERM and SIGHUP cancel the run; a second one exits at once
 	Version       string // shown by --version; empty means "devel"
@@ -63,6 +66,7 @@ func DefaultDeps() Deps {
 		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 		StdinIsTTY:  func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
 		StdoutIsTTY: func() bool { return term.IsTerminal(int(os.Stdout.Fd())) },
+		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
 		Clock:       time.Now, HandleSignals: true,
 	}
 }
@@ -76,7 +80,7 @@ func DefaultDeps() Deps {
 // them); storage follows the crawl so references found in the same pass are
 // checked, and the Target stages run before the port sweep.
 func defaultStages() []run.Stage {
-	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, otx, hackertarget, urlscan, anubis, certspotter, censys, chaos
+	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, hackertarget, urlscan, certspotter, censys, chaos
 	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
 	stages = append(stages, sub...)
 	return append(stages,
@@ -89,8 +93,12 @@ func defaultStages() []run.Stage {
 type options struct {
 	domainsFile, excludeFile, engagement, redo, configPath string
 	orgs, asns, cidrs, exclude                             []string
-	passive, authorised, allowLarge, json, verbose         bool
+	passive, authorised, allowLarge, json, quiet, debug    bool
+	palette                                                bool
 }
+
+// depths are the colour depths of the two output streams, each decided once.
+type depths struct{ out, err palette.Depth }
 
 const ackPrompt = "Confirm you are authorised to test this engagement's scope [y/N] "
 
@@ -111,19 +119,26 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	if d.StdoutIsTTY == nil {
 		d.StdoutIsTTY = func() bool { return false }
 	}
+	if d.StderrIsTTY == nil {
+		d.StderrIsTTY = func() bool { return false }
+	}
+	if d.Location == nil {
+		d.Location = time.Local
+	}
+	dp := depths{out: palette.Detect(d.StdoutIsTTY(), os.Getenv), err: palette.Detect(d.StderrIsTTY(), os.Getenv)}
 	if d.Stdin == nil {
 		d.Stdin = strings.NewReader("")
 	}
 	var o options
 	code := run.ExitOK
 	cmd := newCommand(&o, d, func(c *cobra.Command, positional []string) {
-		code = runCommand(ctx, c, positional, &o, d)
+		code = runCommand(ctx, c, positional, &o, d, dp)
 	})
 	cmd.SetArgs(args)
 	cmd.SetOut(d.Stdout)
 	cmd.SetErr(d.Stderr)
 	if err := cmd.ExecuteContext(ctx); err != nil {
-		return fail(newEmitter(d, o.json), run.ExitInvalid, err)
+		return fail(newEmitter(d, &o, dp), run.ExitInvalid, err)
 	}
 	return code
 }
@@ -143,11 +158,30 @@ func stageNames(stages []run.Stage) []string {
 	return names
 }
 
-func newEmitter(d Deps, jsonMode bool) report.Emitter {
-	if jsonMode {
-		return report.NewJSON(d.Stdout, d.Clock)
+// newEmitter builds the run's event sink. The console writes the log to stderr
+// and the summary to stdout. Under --json stdout is the JSON event stream, which
+// never carries a debug event so that stdout is the same with or without
+// --debug, and there is no console, except that --debug adds one on stderr which
+// passes only the debug events: a level threshold there would also write the
+// summary and a second copy of the error.
+func newEmitter(d Deps, o *options, dp depths) report.Emitter {
+	minLevel := report.Info
+	switch {
+	case o.debug:
+		minLevel = report.Debug
+	case o.quiet:
+		minLevel = report.Warn
 	}
-	return report.NewConsole(d.Stdout, d.StdoutIsTTY(), d.Clock).WithErr(d.Stderr)
+	console := report.ConsoleOptions{Log: d.Stderr, LogDepth: dp.err, Summary: d.Stdout, SummaryDepth: dp.out,
+		Min: minLevel, Clock: d.Clock, Location: d.Location}
+	if !o.json {
+		return report.NewConsole(console)
+	}
+	js := report.NewJSON(d.Stdout, d.Clock)
+	if !o.debug {
+		return js
+	}
+	return report.Tee(js, report.Only("debug", report.NewConsole(console)))
 }
 
 func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra.Command {
@@ -181,9 +215,12 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 	f.BoolVar(&o.allowLarge, "allow-large-netblocks", false, "proceed even if in-scope IPv4 netblocks exceed --netblock-limit")
 	f.StringVar(&o.redo, "redo", "", "re-perform every check of one stage (see the stage list below)")
 	f.BoolVar(&o.json, "json", false, "emit one JSON event per line on stdout, with no styling or prompts")
-	f.BoolVar(&o.verbose, "verbose", false, "show warnings, including failed checks")
+	f.BoolVarP(&o.quiet, "quiet", "q", false, "write only warnings and errors to stderr; the summary is still printed")
+	f.BoolVar(&o.debug, "debug", false, "also write each failed check to stderr")
+	f.BoolVar(&o.palette, "palette", false, "print the colour palette sheet and exit")
+	_ = f.MarkHidden("palette") // only fails for an unknown flag
 	f.StringVar(&o.configPath, "config", "", "config file (default $XDG_CONFIG_HOME/recon/config.yaml, else ~/.config/recon/config.yaml)")
-	f.Bool("version", false, "print the version and exit") // long-only: -v would be confused with --verbose
+	f.Bool("version", false, "print the version and exit") // long-only: -v is usually read as verbose
 	config.RegisterFlags(f)
 	f.SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
 		if name == "authorized" {
@@ -191,6 +228,8 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 		}
 		return pflag.NormalizedName(name)
 	})
+
+	cmd.MarkFlagsMutuallyExclusive("quiet", "debug")
 
 	cmd.SetVersionTemplate("recon {{.Version}}\n")
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
@@ -215,6 +254,14 @@ Configuration:
   RECON_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
   RECON_KEYS_<SOURCE> in the environment.
 
+Console:
+  The log (the run header, stage lines, + lines for what was found, counts and warnings) is written to
+  stderr, one line each with a time, a level and a message. The summary is the only thing written to
+  stdout, and only when the run completes. --quiet keeps warnings and errors; --debug adds one line
+  for each failed check. With --json, stdout is one JSON event per line and stderr is empty, except
+  that --debug writes the debug lines there. Each stream is coloured only when it is a terminal,
+  NO_COLOR is unset or empty and TERM is not dumb; FORCE_COLOR and CLICOLOR_FORCE do nothing.
+
 Findings and their default severities (fixed in code, not configurable; the summary lists high and medium):
 ` + findings.HelpTable() + `
 Stages accepted by --redo: ` + strings.Join(stageNames(stages), ", ") + `
@@ -222,8 +269,18 @@ Stages accepted by --redo: ` + strings.Join(stageNames(stages), ", ") + `
 `
 }
 
-func runCommand(ctx context.Context, cmd *cobra.Command, positional []string, o *options, d Deps) (code int) {
-	em := newEmitter(d, o.json)
+func runCommand(ctx context.Context, cmd *cobra.Command, positional []string, o *options, d Deps, dp depths) (code int) {
+	if o.palette {
+		// First, so that a broken config, a missing scope or stray inputs do not
+		// matter, and nothing is created or contacted.
+		sheetDepth := dp.out
+		if o.json {
+			sheetDepth = palette.None
+		}
+		report.Sheet(d.Stdout, sheetDepth, d.Clock().In(d.Location))
+		return run.ExitOK
+	}
+	em := newEmitter(d, o, dp)
 	bail := func(code int, err error) int { return fail(em, code, err) }
 
 	settings, err := config.Load(cmd.Flags(), o.configPath)
@@ -301,7 +358,7 @@ func runCommand(ctx context.Context, cmd *cobra.Command, positional []string, o 
 	runner := run.New(run.Config{
 		Engagement: eng, Settings: settings, Stages: d.Stages, Egress: eg, Emitter: em,
 		Files: d.Files, Clock: d.Clock,
-		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Verbose: o.verbose, Redo: o.redo,
+		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo,
 	})
 	code, err = runner.Run(ctx)
 	if err != nil {

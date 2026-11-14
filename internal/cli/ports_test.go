@@ -99,12 +99,19 @@ func (p *pworld) listenOn(bind, key, banner string, delay time.Duration) *portSr
 				p.peak = max(p.peak, p.cur)
 				p.mu.Unlock()
 				s.conns.Add(1)
-				defer func() { p.mu.Lock(); p.cur--; p.mu.Unlock() }()
+				// A connection stops counting as in flight once the banner is
+				// written (or at once, for a silent server), not when the client's
+				// close reaches this goroutine: that lags the client, so the next
+				// connect would be counted on top of the one just finished.
+				var once sync.Once
+				settle := func() { once.Do(func() { p.mu.Lock(); p.cur--; p.mu.Unlock() }) }
+				defer settle()
 				if banner == "" {
 					return
 				}
 				time.Sleep(delay)
 				_, _ = c.Write([]byte(banner))
+				settle()
 				n, _ := io.Copy(io.Discard, c) // until the client hangs up
 				s.bytes.Add(n)
 			}()
@@ -345,7 +352,7 @@ func TestPorts_UnknownOwnerSkippedThenChecked(t *testing.T) {
 	p.dns.Rcode(origin, int(mdns.RcodeServerFailure)) // the owner source is down
 	srv := p.serve("192.0.2.77", 8080, hello)
 
-	p.sweep([]int{8080}, "--verbose")
+	p.sweep([]int{8080})
 	if srv.conns.Load() != 0 {
 		t.Fatal("an address of unknown owner was contacted")
 	}

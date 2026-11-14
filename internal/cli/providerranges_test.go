@@ -148,7 +148,7 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	}
 }
 
-// A list that cannot be read is a failed check named in the --verbose warning;
+// A list that cannot be read is a failed check named in a --debug line;
 // the ranges fetched before still apply and nothing is reported as a finding.
 func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 	for _, c := range []struct {
@@ -176,15 +176,17 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 			}
 
 			w.handle("www.digitalocean.com", c.serve)
-			if code := w.run("--passive", "--verbose", "--redo", "providerranges", "example.com"); code != 0 {
+			if code := w.run("--passive", "--debug", "--redo", "providerranges", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
 			done := sorted(w.h.completed(eng, "providerranges"))
 			if want := allRangeChecksBut("digitalocean"); !slices.Equal(done, want) {
 				t.Errorf("completed = %v, want every list but digitalocean", done)
 			}
-			if !slices.ContainsFunc(messages(w, "warning", "providerranges"), func(m string) bool { return strings.Contains(m, "digitalocean") }) {
-				t.Errorf("no --verbose warning names digitalocean: %q", messages(w, "warning", ""))
+			if !slices.ContainsFunc(w.h.debugLines(), func(m string) bool {
+				return strings.Contains(m, "providerranges") && strings.Contains(m, "digitalocean")
+			}) {
+				t.Errorf("no --debug line names digitalocean: %q", w.h.debugLines())
 			}
 			if s := lastState(w.h.events(), "providerranges"); s.num("failed") != 1 {
 				t.Errorf("state = %v, want one failed check", s)

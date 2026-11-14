@@ -39,7 +39,8 @@ recon example.com --authorised     # confirm authorisation up front (needed with
 recon -e example-com               # re-run or resume an existing engagement by name
 ```
 
-Results are written to `<output-dir>/<engagement>/` and summarised on the console.
+Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and the summary to stdout
+(see [Console and JSON](#console-and-json)).
 
 ## Inputs and engagements
 
@@ -84,7 +85,7 @@ Results are written to `<output-dir>/<engagement>/` and summarised on the consol
   token and searches certificates for names under each root. `keys.chaos` is a ProjectDiscovery
   Chaos key. A 401, 403 or 429 stops that stage for the run. Each of these three follows result pages
   up to `shodan_dns.max_pages`, `censys.max_pages` or `chaos.max_pages` (default 10; raising one
-  repeats the stage's checks, and reaching one is reported with `--verbose`). Chaos answers with the
+  repeats the stage's checks, and reaching one is a warning). Chaos answers with the
   whole list in one page, so its cap is not reached. `certspotter` takes an
   optional key: it runs without one, and sends `keys.certspotter` when it is set. The other sources
   need no key.
@@ -121,16 +122,18 @@ recon limits what target-owned systems can receive. It sends only:
 It never sends credentials, submits forms, uses other HTTP methods, puts payloads in parameters or
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
 scope) and excluded hosts are never contacted. Everything else comes from third parties: CT logs
-(crt.sh and Cert Spotter), web archives, passive DNS and search (AlienVault OTX, HackerTarget,
-urlscan.io and Anubis), public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage
-provider endpoints. Only hostnames are recorded from Cert Spotter, OTX, HackerTarget, urlscan.io and
-Anubis. When one of these five reports that its free quota is spent, its stage alone stops, and its
-checks are retried on the next run.
+(crt.sh and Cert Spotter), web archives, passive DNS and search (HackerTarget and urlscan.io),
+public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage provider endpoints. Only
+hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
+reports that its free quota is spent, its stage alone stops, and its checks are retried on the next
+run. The `otx` and `anubis` stages no longer exist, because neither service answers an unkeyed
+client any more. An engagement that already holds their results keeps them, and a `skip` setting
+that names either is rejected as an unknown stage.
 
 The `providerranges` stage fetches the address ranges that seven providers publish: AWS, GCP,
 Cloudflare (IPv4 and IPv6), Fastly, DigitalOcean, Oracle Cloud and Linode. Each list is its own
 check, fetched once per engagement and refreshed only by `--redo providerranges`. A list that fails
-to download, or has no ranges in it, is a failed check (named by `--verbose`): the ranges fetched
+to download, or has no ranges in it, is a failed check (named by `--debug`): the ranges fetched
 before keep applying. Azure is classified by ASN only, because Microsoft publishes its ranges at a
 changing URL.
 
@@ -154,7 +157,11 @@ authorised to test the engagement's scope.
 - On a terminal, you can confirm at the prompt or with `--authorised` (`--authorized` also works).
 - With `--json` or no terminal there is no prompt, and only `--authorised` counts.
 - The confirmation is remembered per engagement.
-- Without it, those stages are shown as `not-configured (no authorisation)`.
+- Without it, those stages are shown as `not-configured (no authorisation)`, and the run writes one
+  warning right after its header that names them and says that `--authorised` confirms
+  authorisation. It names exactly the stages shown that way, so a stage left out by `--skip` is not
+  named, and there is no warning under `--passive` or when no stage is left out. It appears on every
+  run until authorisation is confirmed. Under `--json` it is a `warning` event.
 
 ## Large netblocks
 
@@ -261,18 +268,52 @@ the rest.
 
 ## Console and JSON
 
-The console shows each stage's state as it changes: `running`, `done` (with the number of checks and
-failures), `done-previously`, `failed` or `not-configured` (with the reason). A `+` line is printed
-for each find, with its severity for findings. A summary lists counts, the checks that failed, the
-work a per-run cap deferred, the high and medium findings, and the high-confidence candidates (see
-[Ranked candidates](#ranked-candidates)). `--verbose` also shows warnings, including failed checks,
-and lists the medium-confidence candidates.
+A run writes two things, to two streams.
 
-`--json` prints one JSON event per line on stdout, with no styling or prompts. A `candidate` event
-for each high-confidence candidate comes before the `summary` event. It has `kind` (`root`,
-`hostname` or `netblock`), `value`, `sources`, `evidence_count`, `confidence` and `promote`. The
-`summary` event's `candidates` field lists the same candidates, and with `--verbose` its
-`medium_candidates` field lists the medium ones.
+- **The log is on stderr.** One line each for the run header, each change of a stage's state
+  (`running`, `done` with the number of checks and failures, `done-previously`, `failed` or
+  `not-configured` with the reason), each `+` find (with a severity badge for a finding), each
+  changed count and each warning. A line is `HH:MM:SS | LEVEL | message`, with the time in the local
+  time zone (`TZ`) and the level one of `DEBUG`, `INFO`, `WARN` or `ERROR`. The header, finds,
+  counts and the lines of stages that are `running`, `done`, `done-previously` or `not-configured`
+  are `INFO`; a stage that `failed` is `ERROR`. Every warning is `WARN` and is shown without any
+  flag: a truncated result, a spent quota, addresses skipped because their owner is unknown,
+  technology detection being off, the stages left out for lack of authorisation, an interrupted
+  run. The same warning is written once per run. A message is never wrapped to the terminal width, and a line is never redrawn.
+- **The summary is on stdout,** and is all that stdout holds. It lists counts, the checks that
+  failed (a check that failed is retried on the next run; `--debug` shows each failure), the work a
+  per-run cap deferred, the high and medium findings, and the high-confidence candidates (see
+  [Ranked candidates](#ranked-candidates)). A run that ends without a summary (interrupted, stopped
+  by the netblock limit or ended by an error) writes nothing to stdout. The authorisation prompt and
+  the `error:` line that ends a failed run are on stderr, with no time or level.
+
+`recon example.com 2> run.log` therefore keeps the log in a file and prints the summary.
+
+- **`--quiet` (`-q`)** writes only `WARN` and above to stderr. The summary is still printed.
+- **`--debug`** also writes a `DEBUG` line for each check that failed
+  (`<stage> check <key> failed: <message>`). A failed check is not a warning: the stage line and the
+  summary count it, and it is retried on the next run.
+- `--quiet` with `--debug` exits 2. Neither is a setting: there is no config key or `RECON_*`
+  variable for them.
+
+A finding's `+` line and the summary show its severity as a badge: the severity as recorded (`high`,
+`medium`, `low`) in a fixed-width column.
+
+**Colour.** A stream is coloured only when it is a terminal, `NO_COLOR` is unset or empty and `TERM`
+is not `dumb`. `FORCE_COLOR` and `CLICOLOR_FORCE` do nothing. stdout and stderr are decided
+separately. When coloured, the timestamp and separators are grey, the level is a badge, the severity
+is a badge, the summary's headings are bold and the `error:` prefix is red. Nothing else is
+coloured. Colours are 24-bit when `COLORTERM` is `truecolor` or `24bit`, 256-colour when `TERM`
+contains `256color`, and 16-colour otherwise; those variables choose the depth and never turn colour
+on. The palette is in `docs/log-colors.md`.
+
+`--json` prints one JSON event per line on stdout, with no styling or prompts. Warnings are events
+of type `warning` with no flag, and `--quiet` changes nothing. A failed check is not an event.
+stderr is empty unless `--debug` is given, which writes only the `DEBUG` lines there (coloured by
+the rule above) and leaves stdout unchanged. A `candidate` event for each high-confidence candidate
+comes before the `summary` event. It has `kind` (`root`, `hostname` or `netblock`), `value`,
+`sources`, `evidence_count`, `confidence` and `promote`. The `summary` event's `candidates` field
+lists the same candidates.
 
 ## Ranked candidates
 
@@ -289,9 +330,9 @@ Each row says how well supported it is, so you can tell which are worth promotin
 
 The `sources` values are the stages and mechanisms that can find a candidate. Each belongs to one
 family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), web archive
-(`wayback`, `commoncrawl`), passive DNS (`otx`, `virustotal`, `securitytrails`, `shodan`,
-`shodan-dns`, `chaos`, `urlscan`, `anubis`, `hackertarget`) and registrant (`whoisxml`,
-`org-asn`). `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other
+(`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`,
+`chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
+results still count) and registrant (`whoisxml`, `org-asn`). `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other
 source. The names `rdap` (registrant), `reverseip` (reverse IP), `nsreverse` (shared
 infrastructure) and `identifier-pivot` (web identifier) are reserved for stages that are not built
 yet.
@@ -318,8 +359,8 @@ confidence (high first), then by evidence count (most first), then by value. A r
 current sorts last and shows the confidence it last had.
 
 The summary lists up to 20 `high` candidates with the input that promotes each (a root or hostname
-as a positional domain, a netblock as `--cidr`), then `and N more in candidates.csv`. `--verbose`
-adds the medium ones the same way.
+as a positional domain, a netblock as `--cidr`), then `and N more in candidates.csv`, which counts
+the high candidates beyond the 20 listed. The medium and low ones are in `candidates.csv` only.
 
 ## Output files
 

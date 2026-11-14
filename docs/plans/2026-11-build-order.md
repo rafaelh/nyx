@@ -6,7 +6,8 @@ plumbing, and how to keep parallel branches from colliding. Each design repeats 
 applies to it; this file is the whole picture.
 
 Updated 2026-11-14: Specs 1, 2, 3, 5, 6, 12 and 15 have merged, and their files are in
-`docs/specs/done/`. Spec 22 (log colours) was added the same day; it has no `# Design` yet. The
+`docs/specs/done/`. Spec 22 (log colours) was added and designed the same day, and has since been
+built (it removed the `otx` and `anubis` stages). The
 designs of the fifteen specs still to build were then re-checked against the code: the ones that
 did not match a seam as built were corrected, and the follow-ups of the built specs were carried
 into the specs they bear on (each has a `## Carried from built specs` section; the table near the
@@ -19,17 +20,17 @@ on each other.
 
 | Wave | Specs | Why they wait |
 |---|---|---|
-| 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, 18, 21, 22 | Nothing. Each owns a shared seam or is self-contained. |
+| 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, 18, 21, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
 | 2 | ~~2~~, 4, 8, 9, 10, 11, 13, 17, 19 | Use seams from wave 1 (see the table below). |
 | 3 | 7, 14, 16, 20 | Use kinds, files or stages from wave 2, or (Spec 20) the final set of kinds. |
 
 Struck-through specs are built. What can be built now:
 
 - **Ready now:** 18 and 21 (the rest of wave 1), and all of wave 2: 4, 8, 9, 10, 11, 13, 17, 19.
-  Spec 22 depends on nothing but needs `/spec-design` first.
+  Spec 22 is built: the `otx` and `anubis` stages are gone from the registry.
 - **Wave 3:** 7 waits on 18; 14 on 4; 16 on 9; 20 on all others.
 - **Waiting on the user:** 7 (how Akamai addresses in Linode's list classify), 10 (the reading of
-  behaviour 4), 16 (its open point) and 22 (its design). See "Decisions still open" below.
+  behaviour 4) and 16 (its open point). See "Decisions still open" below.
 
 Per-spec dependencies. "Still waits on" leaves out the specs already built:
 
@@ -56,7 +57,7 @@ Per-spec dependencies. "Still waits on" leaves out the specs already built:
 | 19 SRV records | 3, 6 | none | ready; `dnsroot` and the permutations keys written as built |
 | 20 changes report | all others | all unbuilt | **review before building**; corrected: the baseline keeps scope and severity |
 | 21 export | none | none | ready; the kind list it moves is also the rank deriver's `reads` |
-| 22 log colours | none | none | **not designed**; build early (see `report.go` below) |
+| 22 log colours | none | | **built** |
 
 ## Shared seams and their owners
 
@@ -68,7 +69,7 @@ once their owner merges.
 |---|---|---|---|
 | `--skip` and the `skip` setting (read from `Settings.Skip`; there is no `Config.Skip`) | 1 | all later stages (they are skippable for free) | **built** |
 | `run.ErrQuota` and `httpsrc.GetQuota`: a spent quota aborts the stage with one warning | 1 | 8, 10, 13, 16, 17 | **built** |
-| `run.Warnf(ctx, …)`: a `--verbose` warning from inside `Run` (a WARN line shown by default once 22 merges) | 1 | 8, 10, 11, 13, 16, 17 | **built** |
+| `run.Warnf(ctx, …)`: a warning from inside `Run`, a WARN line shown by default and written once per run for the same text | 1 | 8, 10, 11, 13, 16, 17 | **built** |
 | `httpsrc.CleanName` (lower-case, strip `*.`, validate) | 1 | 4, 10, 13, 17 | **built** |
 | `ThirdPartyRequest.KeyPrefix` (`Bearer `) and `Accept` | 1 | 17 | **built** |
 | `third_party` kind, `third-parties.csv`, `OutsideAttr` showing rule | 3 | 9, 19 | **built** |
@@ -83,7 +84,7 @@ once their owner merges.
 | `reported_port` kind, `source`/`confirmed` on ports, severity-raise `+` line, `run.Noter`, `View.Done` | 4 | 14 | |
 | Wider TLS offer for target requests, `Response.TLSVersion/TLSCipher/CertTrust` | 18 | 7 | |
 | `run.BuildScope` (scope and inventory from records, outside the Runner) | 21 | 20 | |
-| Console streams and levels: log lines on stderr, the summary alone on stdout, `--quiet` and `--debug` in place of `--verbose`, the palette and severity badges | 22 | 4, 7, 20 (each adds a `+` line or a summary line) | |
+| Console streams and levels: log lines on stderr, the summary alone on stdout, `--quiet` and `--debug` in place of `--verbose`, the palette and severity badges | 22 | 4, 7, 20 (each adds a `+` line or a summary line) | **built** |
 
 Notes from the builds that later specs should know:
 
@@ -118,8 +119,7 @@ Notes from the builds that later specs should know:
   budget, and a budget below 1 counts as 1. A check that fails still spends its share. The
   `Deferred to the next run` summary line gives a bare number per stage; the README names the
   unit (names, requests). Specs 4, 7 and 13 add one README clause each for their unit
-  (addresses, hostnames, searches). Whether the block should label its units is carried to
-  Spec 22.
+  (addresses, hostnames, searches). Spec 22 decided the block keeps bare numbers.
 - **A record that is no longer current has no attributes.** The store keeps them only from
   current observations. A kind with an output file must therefore put in its key whatever a
   not-current row should still show, or accept blank cells; `ThirdPartyOf` and
@@ -179,26 +179,27 @@ These rules make almost every conflict a keep-both conflict.
   replaces `tls_error` and `tls_self_signed` in place, before 12's columns. Spec 13 then appends
   after 12's.
 - **`crawl.go` in wave 2.** Specs 11 and 13 each add one emit to `observations()`.
-- **`report.go` and console text.** Spec 22 rewrites the console renderer: stage, `+` and warning
-  lines become levelled log lines on stderr, the summary stays on stdout, and `--verbose` goes.
-  Specs 6 and 15 have already added summary lines (`Deferred to the next run` and the two candidate
-  lists), asserted on stdout; 22 keeps them on stdout. Specs 4 and 7 add `+` lines, and 4 and 20
-  add summary lines. Merge 22 before them where possible. A spec that merges before 22 asserts its
-  console text on stdout, and 22 then moves those assertions. A spec that merges after 22 writes
-  its `+` lines through the log formatter, asserts them on stderr, and reads "shown with
-  `--verbose`" in its design as "a WARN line".
+- **`report.go` and console text.** Spec 22 (built) rewrote the console renderer: stage, `+` and
+  warning lines are levelled log lines on stderr, the summary stays on stdout, and `--verbose` is
+  gone. The deferred block and the high-candidate list stay on stdout; the medium list went with
+  `--verbose`. Specs 4 and 7 add `+` lines, and 4 and 20 add summary lines. A spec that merges
+  after 22 writes its `+` lines through the log formatter (`report.Line`; a `found` event does it),
+  asserts them on stderr (`h.logLines()` in the harness), and reads "shown with `--verbose`" in its
+  design as "a WARN line", written once per run for the same text. A warning is a `View.Warn` or a
+  `run.Warnf`; a per-check failure is a `debug` event, shown only with `--debug`.
 - **Tests.** Each spec adds its behaviour tests in a new `internal/cli/<feature>_test.go`.
 - **README.** One table row or bullet per addition; keep lists in the order of the stage registry.
 
 ### Final stage registry order
 
-Built so far, in this order: every stage up to `chaos`, then `shodan`, `shodan-dns`,
+Built so far, in this order: every stage up to `chaos` (without `otx` and `anubis`, which Spec 22
+removed), then `shodan`, `shodan-dns`,
 `providerranges`, `resolve`, `wildcard`, `permutations`, `rdns`, `ipowner`, `dnsroot`, `email`,
 `httpprobe`, `crawl`, `storage`, `takeover`, `sensitive-paths`, `ports`. (Specs 5, 6, 12 and 15
 added no stages.)
 
 `asn`, `org-asn`, `ct-org`, `whoisxml`, `crtsh`, `wayback`, `commoncrawl`, `virustotal`,
-`securitytrails`, `otx`, `hackertarget`, `urlscan`, `anubis`, `certspotter`, `censys`, `chaos`,
+`securitytrails`, `hackertarget`, `urlscan`, `certspotter`, `censys`, `chaos`,
 `github`, `shodan`, `shodan-dns`, `providerranges`, `resolve`, `wildcard`, `permutations`, `rdns`,
 `ipowner`, `dnsroot`, `rdap`, `shodan-host`, `reverseip`, `dnshistory`, `email`, `nsreverse`,
 `httpprobe`, `crawl`, `jsparse`, `identifier-pivot`, `storage`, `takeover`, `sensitive-paths`,
@@ -231,7 +232,6 @@ Each is written up in the spec named, with a recommendation where there is one.
 | 7 | Whether an address whose ASN is a `cdn` entry stays shared inside a dedicated published range (Linode's list covers Akamai space). It amends Spec 5's behaviour 2. Recommended: yes. |
 | 10 | Whether "hostnames already obtained from Shodan are not fetched again" means the stage never calls Shodan (the design's reading, which keeps it independent of Spec 4). |
 | 16 | Whether `dnsroot` and `email` may look up the addresses of name servers and mail hosts that are outside scope, or only in-scope hosts count as self-hosted. |
-| 22 | Its whole design, and with it: units in the deferred block, the reading of "and N more", and what to do with the OTX and Anubis stages before warnings show by default. |
 
 ## Follow-ups from the built specs
 
@@ -241,7 +241,7 @@ decisions.
 
 | From | Follow-up | Where it went |
 |---|---|---|
-| 1 | OTX and Anubis no longer answer; keep, key or drop | 22 (decide before warnings show by default) |
+| 1 | OTX and Anubis no longer answer; keep, key or drop | 22: **settled**, both stages removed |
 | 1 | `View.InScopeRoots` for the repeated in-scope-roots loop | 17 adds and uses it; the older loops are not carried |
 | 1 | Merge `httpsrc.CleanName`, `web.sanHost` and `orgpivot.rootObs` | Not carried: one change after 4, 10, 13 and 17 |
 | 2 | A second claim source would overwrite `dns_claim.source` | 7: does not arise, historical addresses are their own kind |
@@ -254,13 +254,13 @@ decisions.
 | 3 | `domains:` matches by suffix; Route 53 has no entry | 9 and 16 |
 | 5 | Linode's list covers Akamai `cdn` space | 7 (to settle first), 18 (noted) |
 | 5 | A `linodeobjects.com` CNAME entry | 7 |
-| 6 | Units in the `Deferred to the next run` block | 22; 4, 7 and 13 name their unit in the README |
+| 6 | Units in the `Deferred to the next run` block | 22: **settled**, the block keeps bare numbers; 4, 7 and 13 name their unit in the README |
 | 6 | A failed check spends budget | 4, 7, 13 |
 | 12 | A not-current finding keeps only its key's columns | 7, 14, 18, 20 |
 | 12 | The probe's `hop` chain and `lastSameOrigin` | 13 and 18 |
 | 15 | Re-check stage names against the family table; README "reserved" sentence | 4, 8, 10, 13, 16 |
 | 15 | A stage with a setting in its key must implement `Evidencer` | 4, 8, 10, 11, 13, 16, 17 |
-| 15 | The reading of "and N more"; the medium list under `--verbose` | 22 |
+| 15 | The reading of "and N more"; the medium list under `--verbose` | 22: **settled**, N counts the high candidates beyond the 20 listed, and the medium list went with `--verbose` |
 
 Not carried, because no remaining spec touches the code or the item needs a decision or a person:
 
