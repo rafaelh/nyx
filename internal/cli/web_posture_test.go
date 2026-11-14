@@ -29,16 +29,7 @@ func posturePage(body string, header map[string]string) http.HandlerFunc {
 func (x *web) postureRows() []map[string]string { return x.table(eng, "risk-web-posture.csv") }
 
 // postureTypes are the "type=url" of the current posture findings, sorted.
-func (x *web) postureTypes() []string {
-	var out []string
-	for _, r := range x.postureRows() {
-		if r["current"] == "true" {
-			out = append(out, r["type"]+"="+r["url"])
-		}
-	}
-	slices.Sort(out)
-	return out
-}
+func (x *web) postureTypes() []string { return typeURLs(x.postureRows()) }
 
 func TestWebPosture_ColumnsAndFindingsFromLoopbackServices(t *testing.T) {
 	x := newWeb(t)

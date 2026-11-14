@@ -381,13 +381,21 @@ func (x *web) plain(ip string, port int, h http.HandlerFunc) *site {
 
 func (x *web) secure(ip string, port int, cert tls.Certificate, h http.HandlerFunc) *site {
 	x.t.Helper()
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}}
+	return x.secureConfig(ip, port, func() *tls.Config { return cfg }, h)
+}
+
+// secureConfig serves HTTPS on ip:port with whatever configuration pick returns
+// for each handshake, recording the SNI of each.
+func (x *web) secureConfig(ip string, port int, pick func() *tls.Config, h http.HandlerFunc) *site {
+	x.t.Helper()
 	s := &site{}
 	srv := httptest.NewUnstartedServer(s.wrap(h))
-	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}, GetConfigForClient: func(hi *tls.ClientHelloInfo) (*tls.Config, error) {
+	srv.TLS = &tls.Config{GetConfigForClient: func(hi *tls.ClientHelloInfo) (*tls.Config, error) {
 		s.mu.Lock()
 		s.snis = append(s.snis, hi.ServerName)
 		s.mu.Unlock()
-		return nil, nil
+		return pick(), nil
 	}}
 	srv.StartTLS()
 	x.t.Cleanup(srv.Close)

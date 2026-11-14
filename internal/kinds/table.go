@@ -1,5 +1,7 @@
 package kinds
 
+import "strings"
+
 // The record kinds. Each is a handle (Of or Bare) with its showing rules and,
 // for an Of, the struct of attributes its observations carry.
 //
@@ -116,6 +118,44 @@ type WebServiceAttrs struct {
 	TLSExpiry     string `json:"tls_expiry,omitempty"` // YYYY-MM-DD
 	TLSError      string `json:"tls_error,omitempty"`
 	TLSSelfSigned *bool  `json:"tls_self_signed,omitempty"`
+	TLSVersion    string `json:"tls_version,omitempty"`
+	TLSCipher     string `json:"tls_cipher,omitempty"`
+	TLSTrust      string `json:"tls_trust,omitempty"`
+}
+
+// The tls_trust values. They are the strings egress.Response.CertTrust
+// reports, which a test pins.
+const (
+	TrustExpired          = "expired" // including not yet valid
+	TrustHostnameMismatch = "hostname-mismatch"
+	TrustSelfSigned       = "self-signed"
+	TrustUntrustedChain   = "untrusted-chain"
+	TrustTrusted          = "trusted"
+)
+
+// TLSTrust is the trust state of the service's certificate, one of the Trust
+// values, and "" when no certificate was seen. A record stored before
+// tls_trust existed has it worked out from the tls_error text and
+// tls_self_signed it did carry, so the old and new records read alike.
+func TLSTrust(a WebServiceAttrs) string {
+	if a.TLSTrust != "" {
+		return a.TLSTrust
+	}
+	if a.TLSError == "" && a.TLSSelfSigned == nil {
+		return ""
+	}
+	switch {
+	case strings.Contains(a.TLSError, "certificate has expired or is not yet valid"):
+		return TrustExpired
+	case strings.Contains(a.TLSError, "certificate is valid for"), strings.Contains(a.TLSError, "is not valid for any names"),
+		strings.Contains(a.TLSError, "any IP SANs"), strings.Contains(a.TLSError, "relies on legacy Common Name field"):
+		return TrustHostnameMismatch
+	case a.TLSSelfSigned != nil && *a.TLSSelfSigned:
+		return TrustSelfSigned
+	case a.TLSError != "":
+		return TrustUntrustedChain
+	}
+	return TrustTrusted
 }
 
 // HTTPPortAttrs: a non-standard port that answered HTTP, for the probe.

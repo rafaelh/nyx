@@ -16,6 +16,7 @@ import (
 
 	"github.com/rafaelh/recon/internal/cloudstorage"
 	"github.com/rafaelh/recon/internal/config"
+	"github.com/rafaelh/recon/internal/input"
 	"github.com/rafaelh/recon/internal/inventory"
 	"github.com/rafaelh/recon/internal/kinds"
 	"github.com/rafaelh/recon/internal/scope"
@@ -224,16 +225,38 @@ func (d *deriver) certificates() []Finding {
 		case expiry < horizon:
 			types = append(types, "expiring")
 		}
+		if d.hostnameMismatch(a) {
+			types = append(types, "hostname-mismatch")
+		}
+		legacy := a.TLSVersion == "TLS 1.0" || a.TLSVersion == "TLS 1.1"
+		if legacy {
+			types = append(types, "legacy-tls")
+		}
 		if isTrue(a.TLSSelfSigned) {
 			types = append(types, "self-signed")
 		}
 		if len(types) == 0 {
 			continue
 		}
-		typ := strings.Join(types, ";") // "expired", "expiring" sort before "self-signed"
-		out = append(out, newFinding(Certificates, typ, Severity(Certificates, typ), r.Key,
-			fmt.Sprintf("%s certificate (%s), expires %s", typ, a.TLSSubject, expiry),
+		typ := strings.Join(types, ";") // in the order of the types, which is alphabetical
+		detail := fmt.Sprintf("%s certificate (%s), expires %s", typ, a.TLSSubject, expiry)
+		if legacy {
+			detail += ", negotiated " + a.TLSVersion
+		}
+		out = append(out, newFinding(Certificates, typ, Severity(Certificates, typ), r.Key, detail,
 			map[string]any{"url": r.Key, "tls_subject": a.TLSSubject, "tls_issuer": a.TLSIssuer, "tls_expiry": expiry}))
 	}
 	return out
+}
+
+// hostnameMismatch reports whether the certificate does not name the host that
+// was probed, for a host whose certificate is the target's to fix: not an IP
+// literal, and not one that shared provider infrastructure (a CDN or SaaS
+// platform) serves.
+func (d *deriver) hostnameMismatch(a kinds.WebServiceAttrs) bool {
+	if kinds.TLSTrust(a) != kinds.TrustHostnameMismatch {
+		return false
+	}
+	_, isIP := input.IPLiteral(a.Host)
+	return !isIP && !d.in.Inv.ProviderServed(a.Host)
 }

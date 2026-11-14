@@ -31,7 +31,7 @@ func TestRedirect_InScopeRedirectChain(t *testing.T) {
 	for k, v := range map[string]string{
 		"status": "301", "redirect": "https://a.example.com/login",
 		"title": "Login", "server": "Caddy", "final_url": "https://a.example.com/login",
-		"tls_subject": "", "tls_sans": "", "tls_issuer": "", "tls_expiry": "", "tls_error": "", "tls_self_signed": "",
+		"tls_subject": "", "tls_sans": "", "tls_issuer": "", "tls_expiry": "", "tls_version": "", "tls_cipher": "", "tls_trust": "",
 	} {
 		if r[k] != v {
 			t.Errorf("http service %s = %q, want %q (status and redirect come from hop 1; title, server and final_url from the last page)", k, r[k], v)

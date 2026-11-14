@@ -1,9 +1,7 @@
 package web
 
 import (
-	"bytes"
 	"context"
-	"crypto/x509"
 	"fmt"
 	"iter"
 	"net/netip"
@@ -271,18 +269,19 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 	if pg, ok := chain[len(chain)-1].page(); ok {
 		attrs.Title = pg.title()
 	}
+	attrs.TLSVersion, attrs.TLSCipher = first.TLSVersion, first.TLSCipher
 	if len(first.PeerCerts) > 0 {
 		leaf := first.PeerCerts[0]
 		sans := append([]string(nil), leaf.DNSNames...)
 		for _, ip := range leaf.IPAddresses {
 			sans = append(sans, ip.String())
 		}
-		isSelfSigned := selfSigned(leaf)
+		isSelfSigned := first.SelfSigned()
 		attrs.TLSSubject = leaf.Subject.String()
 		attrs.TLSSANs = strings.Join(sans, ";")
 		attrs.TLSIssuer = leaf.Issuer.String()
 		attrs.TLSExpiry = leaf.NotAfter.UTC().Format("2006-01-02")
-		attrs.TLSError = first.CertVerifyErr()
+		attrs.TLSTrust = first.CertTrust()
 		attrs.TLSSelfSigned = &isSelfSigned
 		for _, name := range leaf.DNSNames {
 			if d, ok := sanHost(name); ok && d != strings.ToLower(in.host) {
@@ -298,12 +297,4 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 func sanHost(name string) (string, bool) {
 	d := httpsrc.CleanName(name)
 	return d, d != ""
-}
-
-// selfSigned reports whether the certificate was issued and signed by itself.
-// Checking the signature directly, not CheckSignatureFrom, also covers a
-// self-signed leaf that is not marked as a CA.
-func selfSigned(c *x509.Certificate) bool {
-	return bytes.Equal(c.RawIssuer, c.RawSubject) &&
-		c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature) == nil
 }

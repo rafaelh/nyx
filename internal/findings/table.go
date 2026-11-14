@@ -54,6 +54,8 @@ var table = []Row{
 	{Ports, "risky-port", Medium, "a port on the risky list (RDP, SMB, Telnet, databases, ...) is open"},
 	{Certificates, "expired", Medium, "the certificate has expired"},
 	{Certificates, "expiring", Low, "the certificate expires within --cert-expiry-days"},
+	{Certificates, "hostname-mismatch", Low, "the certificate does not name the probed host (not for an IP literal or a host on shared provider infrastructure)"},
+	{Certificates, "legacy-tls", Low, "the service negotiated TLS 1.0 or 1.1 (an old version offered alongside a newer one is not seen)"},
 	{Certificates, "self-signed", Low, "the certificate is self-signed"},
 	{WebPosture, "missing-hsts", Low, "an HTTPS service's first response has no Strict-Transport-Security header"},
 	{WebPosture, "insecure-cookie", Low, "a cookie set over HTTPS lacks Secure"},

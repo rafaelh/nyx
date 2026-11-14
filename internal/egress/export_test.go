@@ -2,6 +2,7 @@ package egress
 
 // Exported for the external tests.
 var (
-	ClassifyDial = classifyDial
-	UDPRoute     = udpRoute
+	ClassifyDial  = classifyDial
+	UDPRoute      = udpRoute
+	CertTrustWith = certTrust
 )

@@ -339,7 +339,7 @@ func TestWebService_AllAttributes(t *testing.T) {
 	want := map[string]string{
 		"host": "a.example.com", "port": "443", "scheme": "https", "status": "200", "title": "Welcome",
 		"server": "nginx/1.25.3", "redirect": "", "final_url": "https://a.example.com/",
-		"tls_sans": "a.example.com;192.0.2.1", "tls_expiry": "2027-06-01", "tls_self_signed": "false", "current": "true",
+		"tls_sans": "a.example.com;192.0.2.1", "tls_expiry": "2027-06-01", "tls_version": "TLS 1.3", "tls_trust": "untrusted-chain", "current": "true",
 		"first_seen": "2026-11-01", "last_seen": "2026-11-01",
 	}
 	for k, v := range want {
@@ -350,8 +350,8 @@ func TestWebService_AllAttributes(t *testing.T) {
 	if !strings.Contains(r["tls_subject"], "a.example.com") || !strings.Contains(r["tls_issuer"], "Test Root CA") {
 		t.Errorf("subject %q, issuer %q", r["tls_subject"], r["tls_issuer"])
 	}
-	if !strings.Contains(r["tls_error"], "unknown authority") {
-		t.Errorf("tls_error = %q: an untrusted issuer must be recorded, not hidden", r["tls_error"])
+	if !strings.HasPrefix(r["tls_cipher"], "TLS_") {
+		t.Errorf("tls_cipher = %q", r["tls_cipher"])
 	}
 	tech := strings.Split(r["technologies"], ";")
 	if !slices.IsSorted(tech) {
@@ -394,12 +394,12 @@ func TestWebService_ExpiredAndSelfSignedCertificatesAreRecorded(t *testing.T) {
 	x.mustRun()
 
 	exp := x.service("https://exp.example.com")
-	if exp["status"] != "200" || !strings.Contains(exp["tls_error"], "expired") || exp["tls_self_signed"] != "false" || exp["tls_expiry"] != "2021-01-01" {
+	if exp["status"] != "200" || exp["tls_trust"] != "expired" || exp["tls_expiry"] != "2021-01-01" {
 		t.Errorf("expired: %v", exp)
 	}
 	for _, n := range []string{"self", "selfca"} {
 		r := x.service("https://" + n + ".example.com")
-		if r["status"] != "200" || r["tls_error"] == "" || r["tls_self_signed"] != "true" || r["title"] != n {
+		if r["status"] != "200" || r["tls_trust"] != "self-signed" || r["title"] != n {
 			t.Errorf("%s: %v", n, r)
 		}
 	}

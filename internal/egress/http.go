@@ -51,19 +51,12 @@ type Response struct {
 	Body      []byte // capped at 1 MiB; empty for HEAD
 	Location  string
 	PeerCerts []*x509.Certificate
+	// TLSVersion ("TLS 1.2") and TLSCipher (the IANA suite name) are what the
+	// handshake negotiated; both are empty for plain HTTP.
+	TLSVersion, TLSCipher string
 
 	tlsAt  time.Time // when a TLS response arrived; zero for plain HTTP
 	origin *origin
-}
-
-// CertVerifyErr is non-empty if the presented chain did not verify (expired,
-// self-signed, ...), as of when the response arrived; "" for plain HTTP. It is
-// computed on each call: most callers never ask.
-func (r Response) CertVerifyErr() string {
-	if r.tlsAt.IsZero() {
-		return ""
-	}
-	return verifyChain(r.origin.host, r.PeerCerts, r.tlsAt)
 }
 
 // NoService means nothing answered HTTP at that address and port.
@@ -330,7 +323,7 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		Proxy:              nil,
 		DisableKeepAlives:  true,
 		DisableCompression: true,
-		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true, ServerName: host},
+		TLSClientConfig:    targetTLSConfig(host),
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var last error
 			for _, a := range addrs {
@@ -383,6 +376,7 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 	}
 	if resp.TLS != nil {
 		out.PeerCerts, out.tlsAt = resp.TLS.PeerCertificates, e.opts.Now()
+		out.TLSVersion, out.TLSCipher = tls.VersionName(resp.TLS.Version), tls.CipherSuiteName(resp.TLS.CipherSuite)
 	}
 	return out, nil
 }
@@ -415,38 +409,4 @@ func classify(err error) string {
 		return NoServiceTimeout
 	}
 	return NoServiceOther
-}
-
-// verifyChain checks the presented chain separately from the connection
-// (which skips verification) so expiry and self-signing can be reported.
-func verifyChain(host string, certs []*x509.Certificate, now time.Time) string {
-	if len(certs) == 0 {
-		return "no certificate presented"
-	}
-	// Validity and hostname are checked here, in the order and wording of Go's
-	// own verifier, because on macOS and Windows Verify defers to the platform
-	// verifier. That verifier reports a different error for the same
-	// certificate (an expired leaf reads as "unknown authority" on macOS), so
-	// tls_error would otherwise depend on the operator's OS. Trust is still
-	// decided by Verify against the system roots.
-	leaf := certs[0]
-	if now.Before(leaf.NotBefore) {
-		return x509.CertificateInvalidError{Cert: leaf, Reason: x509.Expired, Detail: fmt.Sprintf(
-			"current time %s is before %s", now.Format(time.RFC3339), leaf.NotBefore.Format(time.RFC3339))}.Error()
-	}
-	if now.After(leaf.NotAfter) {
-		return x509.CertificateInvalidError{Cert: leaf, Reason: x509.Expired, Detail: fmt.Sprintf(
-			"current time %s is after %s", now.Format(time.RFC3339), leaf.NotAfter.Format(time.RFC3339))}.Error()
-	}
-	if err := leaf.VerifyHostname(host); err != nil {
-		return err.Error()
-	}
-	inter := x509.NewCertPool()
-	for _, c := range certs[1:] {
-		inter.AddCert(c)
-	}
-	if _, err := leaf.Verify(x509.VerifyOptions{DNSName: host, Intermediates: inter, CurrentTime: now}); err != nil {
-		return err.Error()
-	}
-	return ""
 }

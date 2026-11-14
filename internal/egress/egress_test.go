@@ -753,7 +753,7 @@ func TestRelativeSensitivePathRefused(t *testing.T) {
 }
 
 // HTTPS: verification is skipped for the connection but the chain is checked separately.
-func TestHTTPSCertVerifyErrReported(t *testing.T) {
+func TestHTTPSCertTrustReported(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("secure")) }))
 	defer srv.Close()
 	port := portOf(t, strings.TrimPrefix(srv.URL, "https://"))
@@ -768,8 +768,8 @@ func TestHTTPSCertVerifyErrReported(t *testing.T) {
 	if err != nil || !ok || string(resp.Body) != "secure" {
 		t.Fatalf("%#v %v", r, err)
 	}
-	if len(resp.PeerCerts) == 0 || resp.CertVerifyErr() == "" {
-		t.Errorf("self-signed certificate must be fetched and flagged: certs=%d verifyErr=%q", len(resp.PeerCerts), resp.CertVerifyErr())
+	if len(resp.PeerCerts) == 0 || resp.CertTrust() == "" || resp.CertTrust() == "trusted" {
+		t.Errorf("self-signed certificate must be fetched and flagged: certs=%d trust=%q", len(resp.PeerCerts), resp.CertTrust())
 	}
 	// A non-TLS port spoken to as https is NoService, not an error.
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))

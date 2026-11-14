@@ -20,15 +20,15 @@ on each other.
 
 | Wave | Specs | Why they wait |
 |---|---|---|
-| 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, 18, 21, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
+| 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, ~~18~~, 21, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
 | 2 | ~~2~~, 4, 8, 9, 10, 11, 13, 17, 19 | Use seams from wave 1 (see the table below). |
 | 3 | 7, 14, 16, 20 | Use kinds, files or stages from wave 2, or (Spec 20) the final set of kinds. |
 
 Struck-through specs are built. What can be built now:
 
-- **Ready now:** 18 and 21 (the rest of wave 1), and all of wave 2: 4, 8, 9, 10, 11, 13, 17, 19.
+- **Ready now:** 21 (the rest of wave 1), and all of wave 2: 4, 8, 9, 10, 11, 13, 17, 19.
   Spec 22 is built: the `otx` and `anubis` stages are gone from the registry.
-- **Wave 3:** 7 waits on 18; 14 on 4; 16 on 9; 20 on all others.
+- **Wave 3:** 7 is no longer waiting on 18; 14 waits on 4; 16 on 9; 20 on all others.
 - **Waiting on the user:** 7 (how Akamai addresses in Linode's list classify), 10 (the reading of
   behaviour 4) and 16 (its open point). See "Decisions still open" below.
 
@@ -53,7 +53,7 @@ Per-spec dependencies. "Still waits on" leaves out the specs already built:
 | 15 ranked candidates | none | | **built**; 4, 13 and 16 each change its family table |
 | 16 shared name servers | 3, 9, 15 | 9 | **review before building**; corrected: `shared-ns` and `shared-mx` in the family table; open point |
 | 17 GitHub search | 1 | none | ready; no correction |
-| 18 TLS detail | none | none | ready; the column and probe seams written as 12 built them |
+| 18 TLS detail | none | | **built** |
 | 19 SRV records | 3, 6 | none | ready; `dnsroot` and the permutations keys written as built |
 | 20 changes report | all others | all unbuilt | **review before building**; corrected: the baseline keeps scope and severity |
 | 21 export | none | none | ready; the kind list it moves is also the rank deriver's `reads` |
@@ -82,7 +82,7 @@ once their owner merges.
 | `internal/orgname` (`Tokens`, `Matches`: the organisation word rule) | 15 | 8 | **built** |
 | Provider class passed through for every class (`provider.ClassCDN`) | 5 | 7 | **built** |
 | `reported_port` kind, `source`/`confirmed` on ports, severity-raise `+` line, `run.Noter`, `View.Done` | 4 | 14 | |
-| Wider TLS offer for target requests, `Response.TLSVersion/TLSCipher/CertTrust` | 18 | 7 | |
+| Wider TLS offer for target requests, `Response.TLSVersion/TLSCipher/CertTrust/SelfSigned` (egress `Trust*` constants, `kinds.TLSTrust`, `Inventory.ProviderServed`) | 18 | 7 | **built** |
 | `run.BuildScope` (scope and inventory from records, outside the Runner) | 21 | 20 | |
 | Console streams and levels: log lines on stderr, the summary alone on stdout, `--quiet` and `--debug` in place of `--verbose`, the palette and severity badges | 22 | 4, 7, 20 (each adds a `+` line or a summary line) | **built** |
 

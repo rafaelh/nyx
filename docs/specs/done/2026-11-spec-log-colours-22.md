@@ -474,8 +474,8 @@ Built bottom up, tests first at each layer, each shown failing on its assertions
   dependencies). `report.Line` is the one formatter for both layouts (B2, D13). `Console` takes
   `ConsoleOptions` (log writer and depth, summary writer and depth, minimum level, clock,
   location) and assigns levels by event type (D6). `Only` and `Tee` give the `--json --debug`
-  wiring (D7). `debug` events are kept off stdout under `--json` (D6); after the simplify pass this is a
-  filter in `newEmitter`, not inside `JSONEmitter` (see `## Simplify`). `sheet.go` writes the palette sheet (D12).
+  wiring (D7). `debug` events are kept off stdout under `--json` (D6); `JSONEmitter` drops them itself (the
+  simplify pass moved this into `newEmitter`; verification moved it back). `sheet.go` writes the palette sheet (D12).
   `report_test.go` was rewritten: byte-exact plain and coloured lines (the coloured one is the
   example in `docs/log-colors.md`), the 19 and 21 offsets, continuation lines, levels and the
   minimum level, found-line badges, the `error:` line, sanitising (B13), the summary (B8) and the

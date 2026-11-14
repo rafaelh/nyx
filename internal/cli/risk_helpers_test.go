@@ -30,6 +30,16 @@ func current(rows []map[string]string) []map[string]string {
 	return out
 }
 
+// typeURLs are the "type=url" of the current rows, sorted.
+func typeURLs(rows []map[string]string) []string {
+	var out []string
+	for _, r := range current(rows) {
+		out = append(out, r["type"]+"="+r["url"])
+	}
+	sort.Strings(out)
+	return out
+}
+
 // col is the sorted values of a column.
 func col(rows []map[string]string, name string) []string {
 	var out []string

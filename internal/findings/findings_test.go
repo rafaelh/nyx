@@ -118,6 +118,8 @@ func TestSeverityTable(t *testing.T) {
 		"certificates/expired":           "medium",
 		"certificates/expiring":          "low",
 		"certificates/self-signed":       "low",
+		"certificates/legacy-tls":        "low",
+		"certificates/hostname-mismatch": "low",
 		"sensitive-paths/<path>":         "medium",
 		"web-posture/missing-hsts":       "low",
 		"web-posture/insecure-cookie":    "low",

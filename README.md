@@ -222,6 +222,46 @@ An engagement probed by an earlier version has these columns blank, and none of 
 until you run `--redo httpprobe`. A condition that is gone after a redo marks its finding not
 current.
 
+## TLS detail
+
+`httpprobe` records the TLS version, cipher and trust of each HTTPS service from the one handshake
+it already makes, with no further connection. `web-services.csv` has them in three columns, which
+take the place of the old `tls_error` and `tls_self_signed`:
+
+- `tls_version`: the version the handshake negotiated (`TLS 1.2`).
+- `tls_cipher`: the IANA name of the suite it chose (`TLS_AES_128_GCM_SHA256`).
+- `tls_trust`: the first that applies of `expired` (including not yet valid), `hostname-mismatch`
+  (the certificate does not name the host that was probed), `self-signed`, `untrusted-chain` or
+  `trusted`. `untrusted-chain` depends on the root store of the machine running recon: a private or
+  newly added root reads as `untrusted-chain` on a machine that does not hold it. The values come
+  from the service's own first response, not from where it redirects, and are as of the probe.
+
+To reach a service that has not moved on, every request recon sends to an in-scope service accepts
+TLS 1.0 and 1.1, and offers CBC-mode and RSA key-exchange cipher suites as well as the modern ones.
+RC4 and 3DES are never offered, and SSL 3.0 is not supported, so a service that offers only those
+fails the handshake and is not recorded, as before. Requests to third-party sources keep the
+default minimum of TLS 1.2. A service that supports TLS 1.2 or later is recorded with the version it
+negotiates, as before.
+
+recon sees only the version the service negotiates, so a service that offers an old version
+alongside a newer one is **not** detected: only a service whose best version is 1.0 or 1.1 is
+recorded as such. Enumerating the versions a server offers would take extra handshakes, and is not
+done.
+
+`risk-certificates.csv` has two new low findings, joined with `;` to the expiry and self-signed types
+of the same service in the one row it has for each:
+
+- `legacy-tls`: the service negotiated TLS 1.0 or 1.1.
+- `hostname-mismatch`: the certificate does not name the probed host. A service addressed by an IP
+  literal, or a host on shared provider infrastructure (any known provider's CNAME on its chain,
+  such as a CDN, SaaS platform or cloud load balancer, or an address in shared provider space), has
+  none.
+
+An engagement probed by an earlier version has empty `tls_version` and `tls_cipher` until you run
+`--redo httpprobe`. Its `tls_trust` is worked out from what was stored, so `hostname-mismatch` shows
+without a redo. A finding that is gone after a redo (a modern version, a matching certificate) is
+marked not current.
+
 ## Built-in lists and per-run limits
 
 Two stages work from lists built into the binary. `--wordlist` and `--sensitive-paths` each replace
@@ -377,7 +417,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
 | `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
-| `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details and web posture evidence (see Web posture above) |
+| `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)) and web posture evidence (see Web posture above) |
 | `urls.csv` | URLs from crawling and web archives, with status and source |
 | `open-ports.csv` | Open TCP ports with the banner the service sent, if any |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain |
@@ -388,7 +428,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `risk-sensitive-paths.csv` | Sensitive paths that answered with their expected signature |
 | `risk-email.csv` | SPF and DMARC weaknesses |
 | `risk-ports.csv` | Open ports on the risky-port list |
-| `risk-certificates.csv` | Expired or soon-to-expire certificates |
+| `risk-certificates.csv` | Expired, soon-to-expire and self-signed certificates, certificates that do not name the host, and services that negotiate only TLS 1.0 or 1.1 (see [TLS detail](#tls-detail)) |
 | `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |
 
 A file is only written when it has rows, so a missing `risk-*.csv` means no findings of that kind

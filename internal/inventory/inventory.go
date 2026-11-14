@@ -329,20 +329,38 @@ func (i *Inventory) ProviderHosts(sc *scope.Scope) []ProviderHost {
 // SaaS. host may be a name or an IP literal (such a service is judged by its
 // address alone).
 func (i *Inventory) SaaSServed(host string) bool {
+	return i.served(host,
+		func(e provider.Entry) bool { return e.Class == provider.ClassSaaS },
+		func(r provider.Result) bool { return r.Class == provider.ClassSaaS })
+}
+
+// ProviderServed reports whether a host is served by shared provider
+// infrastructure of any kind (CDN, SaaS or other): a known provider's CNAME
+// anywhere on its chain, or an address in shared provider space. It is wider
+// than SaaSServed. host may be a name or an IP literal (judged by its address).
+func (i *Inventory) ProviderServed(host string) bool {
+	return i.served(host,
+		func(provider.Entry) bool { return true },
+		func(r provider.Result) bool { return r.Shared })
+}
+
+// served reports whether a CNAME entry on host's chain passes byCNAME or one
+// of its addresses passes byAddr; an IP literal is judged by byAddr alone.
+func (i *Inventory) served(host string, byCNAME func(provider.Entry) bool, byAddr func(provider.Result) bool) bool {
 	host = input.NormaliseHost(host)
 	if a, ok := input.IPLiteral(host); ok {
-		return i.result(a).Class == provider.ClassSaaS
+		return byAddr(i.result(a))
 	}
-	saas := false
+	found := false
 	i.chainProviders(host, func(_ string, e provider.Entry) bool {
-		saas = saas || e.Class == provider.ClassSaaS
-		return !saas
+		found = byCNAME(e)
+		return !found
 	})
-	if saas {
+	if found {
 		return true
 	}
 	for _, a := range i.addr[host] {
-		if i.result(a).Class == provider.ClassSaaS {
+		if byAddr(i.result(a)) {
 			return true
 		}
 	}

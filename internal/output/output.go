@@ -219,19 +219,15 @@ func Default() []File {
 }
 
 var webServiceColumns = []string{"url", "host", "port", "scheme", "status", "title", "server", "technologies", "redirect",
-	"final_url", "tls_subject", "tls_sans", "tls_issuer", "tls_expiry", "tls_error", "tls_self_signed",
+	"final_url", "tls_subject", "tls_sans", "tls_issuer", "tls_expiry", "tls_version", "tls_cipher", "tls_trust",
 	"hsts", "insecure_cookies", "directory_listing", "version_disclosure"}
 
 // webServiceCells are a web service's cells, in webServiceColumns order. p is
 // the service's posture evidence, or nil for a service probed before posture
 // was recorded (its posture cells are blank until httpprobe is redone).
 func webServiceCells(key string, a kinds.WebServiceAttrs, p *kinds.WebPostureAttrs) []string {
-	selfSigned := ""
-	if a.TLSSelfSigned != nil {
-		selfSigned = strconv.FormatBool(*a.TLSSelfSigned)
-	}
 	cells := []string{key, a.Host, strconv.Itoa(a.Port), a.Scheme, strconv.Itoa(a.Status), a.Title, a.Server, a.Technologies,
-		a.Redirect, a.FinalURL, a.TLSSubject, a.TLSSANs, a.TLSIssuer, a.TLSExpiry, a.TLSError, selfSigned}
+		a.Redirect, a.FinalURL, a.TLSSubject, a.TLSSANs, a.TLSIssuer, a.TLSExpiry, a.TLSVersion, a.TLSCipher, kinds.TLSTrust(a)}
 	if p == nil {
 		return append(cells, "", "", "", "")
 	}

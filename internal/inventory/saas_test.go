@@ -44,6 +44,44 @@ func TestSaaSServed(t *testing.T) {
 	}
 }
 
+// ProviderServed is wider than SaaSServed: any provider CNAME on the chain, or an
+// address in shared provider space, counts.
+func TestProviderServed(t *testing.T) {
+	var d inventory.Data
+	d.Resolutions = []inventory.Resolution{
+		{Name: "help.example.com", Type: "CNAME", Value: "acme.zendesk.com"},
+		{Name: "help.example.com", Type: "A", Value: "203.0.113.20"},
+		{Name: "pages.example.com", Type: "A", Value: "185.199.108.153"},
+		{Name: "cdn.example.com", Type: "CNAME", Value: "d1.cloudfront.net"},
+		{Name: "cdn.example.com", Type: "A", Value: "203.0.113.21"},
+		{Name: "www.example.com", Type: "A", Value: "203.0.113.22"},
+		{Name: "app.example.com", Type: "CNAME", Value: "acme.herokuapp.com"},
+		{Name: "app.example.com", Type: "A", Value: "203.0.113.23"},
+		{Name: "alias.example.com", Type: "CNAME", Value: "www.example.com"},
+		{Name: "via.example.com", Type: "CNAME", Value: "help.example.com"},
+	}
+	for _, n := range []string{"help", "pages", "cdn", "www", "app", "alias", "via"} {
+		d.Hosts = append(d.Hosts, inventory.Host{Name: n + ".example.com", Stages: []string{"crtsh"}})
+	}
+	inv := inventory.New(d, provider.Default())
+	for host, want := range map[string]bool{
+		"help.example.com":  true,  // SaaS CNAME
+		"cdn.example.com":   true,  // CDN CNAME
+		"app.example.com":   true,  // PaaS CNAME
+		"pages.example.com": true,  // shared address, no CNAME
+		"via.example.com":   true,  // a provider further down the chain
+		"www.example.com":   false, // dedicated address, no CNAME
+		"alias.example.com": false, // a CNAME to a host that is not a provider
+		"unknown.test":      false,
+		"185.199.108.153":   true,
+		"203.0.113.22":      false,
+	} {
+		if got := inv.ProviderServed(host); got != want {
+			t.Errorf("ProviderServed(%s) = %v, want %v", host, got, want)
+		}
+	}
+}
+
 // ProviderHosts carries the matched entry, with its fingerprint.
 func TestProviderHostEntry(t *testing.T) {
 	var d inventory.Data
