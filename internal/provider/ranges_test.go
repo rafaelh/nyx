@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/provider"
+	"github.com/rafaelh/nyx/internal/provider"
 )
 
 func rng(prefix, prov, service, region string) provider.Range {

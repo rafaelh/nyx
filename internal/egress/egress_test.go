@@ -15,10 +15,10 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }

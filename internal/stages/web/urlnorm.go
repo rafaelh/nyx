@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/input"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 )
 
 // NormaliseURL returns the canonical form of an absolute http or https URL:

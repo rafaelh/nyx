@@ -8,7 +8,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/recon/internal/egress/egresstest"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
 )
 
 // mail describes the DNS of a root's email: the defaults are a healthy domain.

@@ -8,9 +8,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/palette"
-	"github.com/rafaelh/recon/internal/report"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/report"
 )
 
 var (
@@ -209,7 +209,7 @@ func TestConsoleMessageText(t *testing.T) {
 		got = append(got, l[19:])
 	}
 	want := []string{
-		"recon eng  1 roots  [passive-only]  [authorised]",
+		"nyx eng  1 roots  [passive-only]  [authorised]",
 		"ports          not-configured (passive-only)",
 		"asn            done (3 checks, 1 failed)",
 		"dns            running",

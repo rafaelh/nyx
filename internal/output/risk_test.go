@@ -5,13 +5,13 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/output"
-	"github.com/rafaelh/recon/internal/provider"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/output"
+	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // The findings files' columns and rows are tested in the findings package;

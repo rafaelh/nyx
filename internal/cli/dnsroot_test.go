@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // runRoot runs a passive engagement for example.com.

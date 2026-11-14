@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // src is a fake stage named after a real source. Each of its check keys finds

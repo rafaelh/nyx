@@ -5,9 +5,9 @@ import (
 	"iter"
 	"net/netip"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // Resolve looks up A and AAAA for each in-scope or excluded hostname and for

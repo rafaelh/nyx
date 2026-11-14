@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// passive runs recon with third-party sources only.
+// passive runs nyx with third-party sources only.
 func (x *web) passive(args ...string) int {
 	x.t.Helper()
 	x.fill()
@@ -151,10 +151,10 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 		}
 	}
 	x := archiveWorld(t)
-	t.Setenv("RECON_ARCHIVE_MAX_URLS", "4") // after the harness, which clears RECON_*
+	t.Setenv("NYX_ARCHIVE_MAX_URLS", "4") // after the harness, which clears NYX_*
 	x.mustPassive()
 	if got := x.completedKeys("wayback"); !slices.Equal(got, []string{"example.com|urls=4"}) {
-		t.Errorf("RECON_ARCHIVE_MAX_URLS ignored: %v", got)
+		t.Errorf("NYX_ARCHIVE_MAX_URLS ignored: %v", got)
 	}
 
 	h := newHarness(t, defaultStageList()...)

@@ -11,10 +11,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/cloudstorage"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/cloudstorage"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // Storage checks cloud storage: buckets and accounts that

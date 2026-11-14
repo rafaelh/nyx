@@ -5,13 +5,13 @@ TARGETS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 .PHONY: build dist test clean
 
 build:
-	CGO_ENABLED=0 go build -trimpath -o recon ./cmd/recon
+	CGO_ENABLED=0 go build -trimpath -o nyx ./cmd/nyx
 
 dist:
 	@for t in $(TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; \
-		echo "dist/recon-$$os-$$arch"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o dist/recon-$$os-$$arch ./cmd/recon || exit 1; \
+		echo "dist/nyx-$$os-$$arch"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o dist/nyx-$$os-$$arch ./cmd/nyx || exit 1; \
 	done
 
 # The cross-target vet type-checks every target's files, so an untagged
@@ -27,4 +27,4 @@ test:
 	go test -race ./...
 
 clean:
-	rm -rf recon dist
+	rm -rf nyx dist

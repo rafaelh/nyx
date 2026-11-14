@@ -9,7 +9,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/recon/internal/stages/providerranges"
+	"github.com/rafaelh/nyx/internal/stages/providerranges"
 )
 
 // The seven publishers, as the stage fetches them. The addresses are ones no

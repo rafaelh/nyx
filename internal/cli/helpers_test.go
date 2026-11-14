@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/stages/asn"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/stages/asn"
 )
 
 func newASN() run.Stage { return asn.New() }

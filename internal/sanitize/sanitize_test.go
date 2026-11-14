@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
 func TestText(t *testing.T) {

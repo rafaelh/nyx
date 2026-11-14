@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // Visibility applies the showing rules for one Scope and Inventory. The rules

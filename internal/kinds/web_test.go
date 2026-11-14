@@ -3,7 +3,7 @@ package kinds_test
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 // web_service and url name the attribute holding their host so

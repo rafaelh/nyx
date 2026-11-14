@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/config"
+	"github.com/rafaelh/nyx/internal/config"
 )
 
 func pathsFile(t *testing.T, body string) string {
@@ -35,11 +35,11 @@ func TestStorageAndCertificateSettings(t *testing.T) {
 	if s, err = load(t, writeFile(t, "storage:\n  max_names: 12\ncert_expiry_days: 90\n")); err != nil || s.Storage.MaxNames != 12 || s.CertExpiryDays != 90 {
 		t.Errorf("file: %+v %v", s, err)
 	}
-	t.Setenv("RECON_STORAGE_MAX_NAMES", "4")
+	t.Setenv("NYX_STORAGE_MAX_NAMES", "4")
 	if s, err = load(t, ""); err != nil || s.Storage.MaxNames != 4 {
 		t.Errorf("env: %+v %v", s, err)
 	}
-	os.Unsetenv("RECON_STORAGE_MAX_NAMES")
+	os.Unsetenv("NYX_STORAGE_MAX_NAMES")
 	for _, args := range [][]string{{"--storage-max-names", "0"}, {"--cert-expiry-days", "-1"}} {
 		if _, err := load(t, "", args...); err == nil {
 			t.Errorf("%v accepted", args)

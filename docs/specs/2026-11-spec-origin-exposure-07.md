@@ -2,9 +2,9 @@
 
 ## Goal
 
-recon records the historical addresses of CDN-fronted hostnames, and when such a hostname's
+nyx records the historical addresses of CDN-fronted hostnames, and when such a hostname's
 origin server is also reachable directly it reports the exposed origin as a medium finding,
-confirmed by one GET to an address recon is already allowed to contact.
+confirmed by one GET to an address nyx is already allowed to contact.
 
 ## Behaviours
 
@@ -49,7 +49,7 @@ confirmed by one GET to an address recon is already allowed to contact.
    matches) or when `--redo origincheck` fails to confirm it.
 8. Without a SecurityTrails key, `dnshistory` is `not-configured (no key)` and `origincheck` runs
    over sibling-derived candidates only.
-9. The README's passive-boundary section says recon may send one GET of `/` to an address it is
+9. The README's passive-boundary section says nyx may send one GET of `/` to an address it is
    already allowed to contact, with an in-scope hostname as the server name and Host header, and
    why; `origincheck` joins the list of stages skipped under `--passive`.
 

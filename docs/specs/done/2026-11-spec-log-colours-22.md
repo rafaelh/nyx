@@ -40,7 +40,7 @@ B4. **Stages skipped for lack of authorisation.** When a run leaves stages out b
 
 B5. **Flags.** By default INFO and above are written; with `--quiet` (`-q`) WARN and above; with
     `--debug` DEBUG and above. `--quiet` together with `--debug` is rejected with exit 2. Both are
-    flags only: there is no config setting or `RECON_*` variable for either. `--verbose` is
+    flags only: there is no config setting or `NYX_*` variable for either. `--verbose` is
     removed and is rejected like any unknown flag.
 
 B6. **Message text.** The header, stage and count messages keep today's text (count lines keep
@@ -63,7 +63,7 @@ B8. **Summary.** A completed run writes the summary to stdout, with `--quiet` or
 
 B9. **Colour decision.** A stream is coloured only when it is a terminal, `NO_COLOR` is unset or
     empty and `TERM` is not `dumb`. stdout and stderr are decided separately, so
-    `recon example.com 2> run.log` on a terminal writes a plain log and a coloured summary.
+    `nyx example.com 2> run.log` on a terminal writes a plain log and a coloured summary.
     `FORCE_COLOR` and `CLICOLOR_FORCE` force nothing. An uncoloured stream has no escape bytes.
 
 B10. **Palette and colour depth.** Colours are those of the tables in `docs/log-colors.md`. They
@@ -111,7 +111,7 @@ B15. **OTX and Anubis.** The `otx` and `anubis` stages are removed: neither serv
 - The `{data, meta}` envelope, error codes and the other agent-tools rules. `--json` keeps its
   event stream, with warnings and errors as events on stdout.
 - Catching unexpected internal failures and hiding their stack trace unless `--debug` is given. A
-  Go panic keeps printing its own trace, as today: recon catches no panics, and checks run on
+  Go panic keeps printing its own trace, as today: nyx catches no panics, and checks run on
   worker goroutines, so this is its own change.
 - DEBUG lines for each check as it runs or for each outbound request.
 - Outcome badges or coloured state words on stage lines: the level badge carries the status.
@@ -204,10 +204,10 @@ D1. **A pure `internal/palette` package holds the palette as data.** Base styles
     when unknown), foreground-only text, and bold. On depth none a badge is the label padded to
     the category width with no side spaces and no escapes. Nothing else in the code holds a
     colour value. The document's synonym table and its "unknown name is an error" lookup are not
-    built: recon only prints level names it holds as constants and record values, which never use
+    built: nyx only prints level names it holds as constants and record values, which never use
     synonyms. This is a deliberate gap against the checklist in `docs/log-colors.md`.
 
-D2. **recon writes its own escape codes; lipgloss and termenv are removed.** Only `report.go`
+D2. **nyx writes its own escape codes; lipgloss and termenv are removed.** Only `report.go`
     uses them. The fixed 16-colour table (D4) and byte-exact tests of the sequences need direct
     control, and the amount of code is small. Run `go mod tidy` afterwards; it should also drop
     `charmbracelet/x/term` and `go-colorful`. Each styled span is followed by `ESC[0m`. A 24-bit
@@ -272,7 +272,7 @@ D10. **The authorisation warning comes from the runner, right after `run_start`.
 
 D11. **Flags.** `--quiet` (`-q`) and `--debug` are plain bools in `cli.options`, registered in
     `newCommand` beside `--json`, not through `config.RegisterFlags`, so they have no setting and
-    no `RECON_*` variable. `cmd.MarkFlagsMutuallyExclusive("quiet", "debug")` gives the exit 2.
+    no `NYX_*` variable. `cmd.MarkFlagsMutuallyExclusive("quiet", "debug")` gives the exit 2.
     `--verbose` and `options.verbose` are deleted. `--palette` is registered and marked hidden.
     Help text: `--quiet`: "write only warnings and errors to stderr; the summary is still
     printed"; `--debug`: "also write each failed check to stderr"; `--json`: unchanged. The help
@@ -394,7 +394,7 @@ mutation check.
   still shows it. A second run of the same unauthorised engagement shows it again; after
   `--authorised` it is gone. Under `--json` it is a `warning` event.
 - **B5.** Default, `--quiet`, `-q` and `--debug` each show the right levels. `--quiet --debug`
-  exits 2. `--verbose` exits 2 as an unknown flag. `RECON_QUIET=1` and `RECON_DEBUG=1` change
+  exits 2. `--verbose` exits 2 as an unknown flag. `NYX_QUIET=1` and `NYX_DEBUG=1` change
   nothing, and `quiet: true` in a config file is rejected as an unknown key.
 - **B6, B7.** Header, stage and count messages equal today's text after the prefix. A found line
   for a high, medium and low finding, plain and coloured (badge widths 8 and 10, styles by
@@ -557,7 +557,7 @@ Skipped:
   helper: they live in different packages and are a few lines each.
 - Unexporting `Style`/`Styles()` (only `TestDepthTables` uses them): it would mean moving that
   test into an internal test file for no change in behaviour.
-- Passing the environment to `Detect` through a `Deps.Getenv`: viper reads `RECON_*` from the
+- Passing the environment to `Detect` through a `Deps.Getenv`: viper reads `NYX_*` from the
   process environment anyway, so the tests would still need `t.Setenv` (see Known limitations).
 - Dropping the `depths` struct, and checking the console's level before it formats the message:
   both are minor, and nothing on that path is hot.
@@ -591,8 +591,8 @@ does not list (Follow-ups).
   right after `run_start`, so the names are exactly the `no authorisation` stages, in registry
   order, and a skipped stage is not named. It is cross-checked against the real registry.
 - **B5 met.** `--quiet`/`-q` and `--debug` are plain flags outside `config.RegisterFlags`, made
-  exclusive by cobra (exit 2). `--verbose` is gone and fails as an unknown flag; `RECON_QUIET`,
-  `RECON_DEBUG` and the config keys do nothing or are rejected.
+  exclusive by cobra (exit 2). `--verbose` is gone and fails as an unknown flag; `NYX_QUIET`,
+  `NYX_DEBUG` and the config keys do nothing or are rejected.
 - **B6, B7 met.** Header, stage and count text is unchanged and unstyled. A found line carries
   `Depth.Value(Severity, …)`: the recorded text padded to 8 (10 cells coloured), the style looked up
   case-insensitively, DEBUG for an unknown value.
@@ -649,16 +649,16 @@ Left unfixed:
 
 # Follow-ups
 
-1. Anyone with `otx` or `anubis` in a config file's `skip` list must remove it: recon now rejects
-   the name as an unknown stage (D18). Check `$XDG_CONFIG_HOME/recon/config.yaml` (or
-   `~/.config/recon/config.yaml`) and any `--config` files in use.
-2. Decide whether recon should build the synonym table and the erroring lookup of
+1. Anyone with `otx` or `anubis` in a config file's `skip` list must remove it: nyx now rejects
+   the name as an unknown stage (D18). Check `$XDG_CONFIG_HOME/nyx/config.yaml` (or
+   `~/.config/nyx/config.yaml`) and any `--config` files in use.
+2. Decide whether nyx should build the synonym table and the erroring lookup of
    `docs/log-colors.md` ("Lookup rules"), or whether to record the gap. D1 left them out, but
    `## Out of scope` does not, so the goal's "follows `docs/log-colors.md`" is met except for them.
    Either add a line to `## Out of scope` here or note the gap in `docs/log-colors.md` (it is
    shared, so it may be better left as it is).
-3. Eyeball the palette on the terminals and themes you use: `make build && ./recon --palette`, and
-   again with `TERM=xterm-256color ./recon --palette` and `COLORTERM=truecolor ./recon --palette`.
+3. Eyeball the palette on the terminals and themes you use: `make build && ./nyx --palette`, and
+   again with `TERM=xterm-256color ./nyx --palette` and `COLORTERM=truecolor ./nyx --palette`.
    Only byte-exact tests have checked the colours so far.
 4. Clear the existing lint warnings this change did not introduce: `golangci-lint run ./...`
    (an unused `newRangeHosts` in `internal/cli/providerranges_test.go`, two staticcheck warnings

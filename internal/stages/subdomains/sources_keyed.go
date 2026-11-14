@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net/url"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/stages/httpsrc"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // The sources here need a key. A 401, 403 or 429 aborts the stage (httpsrc.Get),

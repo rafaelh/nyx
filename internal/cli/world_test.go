@@ -13,11 +13,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/cli"
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/egress/egresstest"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/cli"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // Every third-party host pattern the discovery and storage stages declare.
@@ -108,7 +108,7 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("RECON_WORDLIST", words)
+	t.Setenv("NYX_WORDLIST", words)
 	w.dns = egresstest.NewDNS(t)
 	// The input root is resolved too, like any in-scope name; give it an address.
 	w.dns.A("example.com", "203.0.113.250")
@@ -186,7 +186,7 @@ func (w *world) requests(pattern string) []loggedReq {
 	return append([]loggedReq(nil), s.reqs...)
 }
 
-// run executes recon in JSON mode with rates high enough for tests.
+// run executes nyx in JSON mode with rates high enough for tests.
 func (w *world) run(args ...string) int {
 	w.t.Helper()
 	full := append([]string{"--json", "--rate-per-source", "1000", "--rate-dns", "100000"}, args...)

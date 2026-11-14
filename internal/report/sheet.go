@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/recon/internal/palette"
+	"github.com/rafaelh/nyx/internal/palette"
 )
 
 // Sheet writes the palette sheet: every entry of every table of the palette,

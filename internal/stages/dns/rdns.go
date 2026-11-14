@@ -5,11 +5,11 @@ import (
 	"iter"
 	"net/netip"
 
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // RDNS looks up PTR records for every address of an in-scope IPv4 netblock

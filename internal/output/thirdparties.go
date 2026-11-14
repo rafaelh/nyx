@@ -3,7 +3,7 @@ package output
 import (
 	"strconv"
 
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 var thirdPartyColumns = []string{"root", "mechanism", "domain", "provider", "depth"}

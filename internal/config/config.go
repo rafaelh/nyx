@@ -1,4 +1,4 @@
-// Package config loads and validates recon settings from a YAML file,
+// Package config loads and validates nyx settings from a YAML file,
 // environment variables and flags (file < env < flag).
 package config
 
@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/rafaelh/recon/internal/input"
+	"github.com/rafaelh/nyx/internal/input"
 )
 
 //go:embed builtin/wordlist.txt builtin/sensitive_paths.yaml
@@ -169,7 +169,7 @@ func builtinSensitivePaths() []SensitivePath {
 	return list
 }
 
-// DefaultConfigPath is $XDG_CONFIG_HOME/recon/config.yaml, or ~/.config/recon/config.yaml.
+// DefaultConfigPath is $XDG_CONFIG_HOME/nyx/config.yaml, or ~/.config/nyx/config.yaml.
 // It is "" when neither XDG_CONFIG_HOME nor the home directory is known, so a
 // missing $HOME never resolves to a config file relative to the working directory.
 // os.UserConfigDir is deliberately not used: on macOS it would move the file to
@@ -183,7 +183,7 @@ func DefaultConfigPath() string {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "recon", "config.yaml")
+	return filepath.Join(base, "nyx", "config.yaml")
 }
 
 // setting binds a flag to its config key.
@@ -278,13 +278,13 @@ type rawSettings struct {
 	SensitivePathMaxRequests string `mapstructure:"sensitive_path_max_requests"`
 }
 
-// Load merges defaults, the config file, RECON_* environment variables and the
+// Load merges defaults, the config file, NYX_* environment variables and the
 // flags in fs that were set (flags win over env, env over file). configPath
 // "" means the default location, which is optional; an explicit path must exist.
 func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	d := Defaults()
 	v := viper.New()
-	v.SetEnvPrefix("RECON")
+	v.SetEnvPrefix("NYX")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	defaults := map[string]any{
@@ -337,7 +337,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	}
 	for _, kv := range os.Environ() {
 		name, val, _ := strings.Cut(kv, "=")
-		if src, ok := strings.CutPrefix(name, "RECON_KEYS_"); ok && val != "" {
+		if src, ok := strings.CutPrefix(name, "NYX_KEYS_"); ok && val != "" {
 			s.Keys[strings.ToLower(src)] = Secret(val)
 		}
 	}

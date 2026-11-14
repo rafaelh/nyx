@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // unkeyedSource describes one of the three sources that need no key: the answers
@@ -555,7 +555,7 @@ func TestCertSpotter_UnkeyedSendsNoCredentials(t *testing.T) {
 
 func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_CERTSPOTTER", certspotterKey)
+	t.Setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
 	if code := w.run("--passive", "example.com"); code != 0 {
@@ -578,7 +578,7 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 	for _, code := range []int{401, 403} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv("RECON_KEYS_CERTSPOTTER", certspotterKey)
+			t.Setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
 			if c := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); c != 0 {
 				t.Fatalf("exit %d", c)
@@ -611,7 +611,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 	if st, _ := stateOf(w, "certspotter"); st != "failed" {
 		t.Fatalf("without the key the server refuses: state = %s", st)
 	}
-	t.Setenv("RECON_KEYS_CERTSPOTTER", certspotterKey)
+	t.Setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

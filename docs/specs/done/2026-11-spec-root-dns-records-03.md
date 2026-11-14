@@ -2,7 +2,7 @@
 
 ## Goal
 
-For each in-scope root domain, recon records the name server, start-of-authority, TXT and CAA
+For each in-scope root domain, nyx records the name server, start-of-authority, TXT and CAA
 records, so later pivots can use them, and from the TXT records tells the user which SaaS
 platforms the organisation has verified domain ownership with.
 

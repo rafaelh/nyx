@@ -9,8 +9,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
 // The built-in wordlist is big enough to use without a list of one's own, and
@@ -253,10 +253,10 @@ func TestPerRunCapSettings(t *testing.T) {
 		def                  int
 		get                  func(config.Settings) int
 	}{
-		{"permutations.max_names", "--permutations-max-names", "RECON_PERMUTATIONS_MAX_NAMES", "permutations.max_names",
+		{"permutations.max_names", "--permutations-max-names", "NYX_PERMUTATIONS_MAX_NAMES", "permutations.max_names",
 			func(n int) string { return fmt.Sprintf("permutations:\n  max_names: %d\n", n) }, 200000,
 			func(s config.Settings) int { return s.Permutations.MaxNames }},
-		{"sensitive_path_max_requests", "--sensitive-path-max-requests", "RECON_SENSITIVE_PATH_MAX_REQUESTS", "sensitive_path_max_requests",
+		{"sensitive_path_max_requests", "--sensitive-path-max-requests", "NYX_SENSITIVE_PATH_MAX_REQUESTS", "sensitive_path_max_requests",
 			func(n int) string { return fmt.Sprintf("sensitive_path_max_requests: %d\n", n) }, 50000,
 			func(s config.Settings) int { return s.SensitivePathMaxRequests }},
 	} {

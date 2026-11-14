@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/cloudstorage"
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/cloudstorage"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 // evidence collects every kind of takeover evidence for one target (a hostname,

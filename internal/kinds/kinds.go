@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // Kind describes how the records of a kind are shown.

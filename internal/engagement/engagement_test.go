@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/engagement"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,7 +20,7 @@ func open(t *testing.T, dir string) (*engagement.Engagement, error) {
 	return engagement.Open(dir, engagement.Options{Clock: clock})
 }
 
-// Empty dir adopted; non-recon dir refused naming it.
+// Empty dir adopted; non-nyx dir refused naming it.
 func TestOpenCreatesAndAdopts(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "eng")
 	e, err := open(t, dir)
@@ -28,7 +28,7 @@ func TestOpenCreatesAndAdopts(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.Close()
-	if _, err := os.Stat(filepath.Join(dir, ".recon", "state.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".nyx", "state.db")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,18 +50,18 @@ func TestRefusesNonEngagement(t *testing.T) {
 	if !errors.As(err, &ne) || ne.Dir != dir {
 		t.Fatalf("err = %v", err)
 	}
-	if _, serr := os.Stat(filepath.Join(dir, ".recon")); serr == nil {
-		t.Error("must not create .recon in a foreign dir")
+	if _, serr := os.Stat(filepath.Join(dir, ".nyx")); serr == nil {
+		t.Error("must not create .nyx in a foreign dir")
 	}
 }
 
-// .recon with a lock but no DB (crash during creation) is adopted.
+// .nyx with a lock but no DB (crash during creation) is adopted.
 func TestAdoptsInterruptedCreation(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".recon"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".nyx"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".recon", "lock"), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".nyx", "lock"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	e, err := open(t, dir)
@@ -91,7 +91,7 @@ func TestLock(t *testing.T) {
 	e.Close()
 
 	// Someone else holds the flock.
-	f, _ := os.OpenFile(filepath.Join(dir, ".recon", "lock"), os.O_RDWR, 0)
+	f, _ := os.OpenFile(filepath.Join(dir, ".nyx", "lock"), os.O_RDWR, 0)
 	defer f.Close()
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestOpenReadOnlyCreatesNothing(t *testing.T) {
 	if err := os.Mkdir(other, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	hollow := filepath.Join(base, "hollow", ".recon")
+	hollow := filepath.Join(base, "hollow", ".nyx")
 	if err := os.MkdirAll(hollow, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestOpenReadOnlyCreatesNothing(t *testing.T) {
 			t.Errorf("%s was opened", d)
 		}
 	}
-	for _, p := range []string{"missing", "other/.recon", "hollow/.recon/lock", "hollow/.recon/state.db"} {
+	for _, p := range []string{"missing", "other/.nyx", "hollow/.nyx/lock", "hollow/.nyx/state.db"} {
 		if _, err := os.Stat(filepath.Join(base, p)); err == nil {
 			t.Errorf("%s was created", p)
 		}
@@ -210,14 +210,14 @@ func TestOpenReadOnlyCreatesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.Close()
-	before, _ := os.ReadDir(filepath.Join(dir, ".recon"))
+	before, _ := os.ReadDir(filepath.Join(dir, ".nyx"))
 	ro, err := engagement.OpenReadOnly(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ro.Close()
-	after, _ := os.ReadDir(filepath.Join(dir, ".recon"))
+	after, _ := os.ReadDir(filepath.Join(dir, ".nyx"))
 	if len(before) != len(after) {
-		t.Errorf(".recon had %d entries, now %d", len(before), len(after))
+		t.Errorf(".nyx had %d entries, now %d", len(before), len(after))
 	}
 }

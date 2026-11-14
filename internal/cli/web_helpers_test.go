@@ -23,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/cli"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/cli"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // --- certificates ---
@@ -482,7 +482,7 @@ func (x *web) fillOne(ip string, port int) {
 	}
 }
 
-// run executes recon for example.com as an authorised, non-passive run.
+// run executes nyx for example.com as an authorised, non-passive run.
 // Permutations are off unless a test sets x.perms.
 func (x *web) run(args ...string) int {
 	x.t.Helper()

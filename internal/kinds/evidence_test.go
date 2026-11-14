@@ -3,7 +3,7 @@ package kinds_test
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 // The evidence kinds are internal, with no category, so totals count findings only.

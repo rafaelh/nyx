@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/rafaelh/recon/internal/config"
+	"github.com/rafaelh/nyx/internal/config"
 )
 
 // Every default risky port is scanned by default.
@@ -43,11 +43,11 @@ func TestPortConcurrency(t *testing.T) {
 	if s, err = load(t, writeFile(t, "port_concurrency: 33\n")); err != nil || s.PortConcurrency != 33 {
 		t.Errorf("file: %d, %v", s.PortConcurrency, err)
 	}
-	t.Setenv("RECON_PORT_CONCURRENCY", "44")
+	t.Setenv("NYX_PORT_CONCURRENCY", "44")
 	if s, err = load(t, ""); err != nil || s.PortConcurrency != 44 {
 		t.Errorf("env: %d, %v", s.PortConcurrency, err)
 	}
-	t.Setenv("RECON_PORT_CONCURRENCY", "")
+	t.Setenv("NYX_PORT_CONCURRENCY", "")
 	for _, bad := range []string{"0", "-3"} {
 		if _, err := load(t, "", "--port-concurrency", bad); err == nil || !strings.Contains(err.Error(), "port_concurrency") {
 			t.Errorf("--port-concurrency %s: err = %v, want an error naming port_concurrency", bad, err)

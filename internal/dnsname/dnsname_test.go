@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
 // Reverse names for PTR sweeps and Team Cymru lookups.

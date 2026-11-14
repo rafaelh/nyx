@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/candidates"
+	"github.com/rafaelh/nyx/internal/candidates"
 )
 
 func ev(pairs ...string) []candidates.Evidence {

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/orgname"
+	"github.com/rafaelh/nyx/internal/orgname"
 )
 
 func TestTokens(t *testing.T) {

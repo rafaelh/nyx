@@ -1,4 +1,4 @@
-// Package engagement opens an engagement directory: it recognises recon's own
+// Package engagement opens an engagement directory: it recognises nyx's own
 // directories, takes the single-run lock and holds scope inputs, the
 // authorisation acknowledgement and the netblock approval.
 package engagement
@@ -13,23 +13,23 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
-// NotEngagementError means the directory exists, is non-empty and is not a recon engagement.
+// NotEngagementError means the directory exists, is non-empty and is not a nyx engagement.
 type NotEngagementError struct{ Dir string }
 
 func (e *NotEngagementError) Error() string {
-	return fmt.Sprintf("%s exists but is not a recon engagement (no .recon directory); refusing to use it", e.Dir)
+	return fmt.Sprintf("%s exists but is not a nyx engagement (no .nyx directory); refusing to use it", e.Dir)
 }
 
 // LockedError means another run holds the engagement.
 type LockedError struct{ Dir string }
 
 func (e *LockedError) Error() string {
-	return fmt.Sprintf("another recon run is using the engagement in %s (lock held)", e.Dir)
+	return fmt.Sprintf("another nyx run is using the engagement in %s (lock held)", e.Dir)
 }
 
 // Options configure Open.
@@ -51,7 +51,7 @@ func Open(dir string, o Options) (*Engagement, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	marker := filepath.Join(dir, ".recon")
+	marker := filepath.Join(dir, ".nyx")
 	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
 		entries, rerr := os.ReadDir(dir)
 		if rerr != nil {
@@ -88,9 +88,9 @@ func Open(dir string, o Options) (*Engagement, error) {
 }
 
 // OpenReadOnly opens the state database of an existing engagement for reading
-// only. It creates nothing (no directory, no .recon, no lock file) and takes no
+// only. It creates nothing (no directory, no .nyx, no lock file) and takes no
 // lock, so it works while a run holds the engagement. A directory that does not
-// exist, or has no .recon/state.db, is an error.
+// exist, or has no .nyx/state.db, is an error.
 func OpenReadOnly(dir string) (*store.ReadOnly, error) {
 	fi, err := os.Stat(dir)
 	switch {
@@ -99,11 +99,11 @@ func OpenReadOnly(dir string) (*store.ReadOnly, error) {
 	case err != nil:
 		return nil, err
 	case !fi.IsDir():
-		return nil, fmt.Errorf("%s is not a recon engagement (not a directory)", dir)
+		return nil, fmt.Errorf("%s is not a nyx engagement (not a directory)", dir)
 	}
-	st, err := store.OpenReadOnly(filepath.Join(dir, ".recon", "state.db"))
+	st, err := store.OpenReadOnly(filepath.Join(dir, ".nyx", "state.db"))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("%s is not a recon engagement (no .recon/state.db)", dir)
+		return nil, fmt.Errorf("%s is not a nyx engagement (no .nyx/state.db)", dir)
 	}
 	return st, err
 }

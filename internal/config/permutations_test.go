@@ -28,7 +28,7 @@ func TestPermutationSettings(t *testing.T) {
 		s.Permutations.Enabled || s.Permutations.MaxPerSeed != 7 {
 		t.Errorf("file: %+v %v", s.Permutations, err)
 	}
-	t.Setenv("RECON_PERMUTATIONS_MAX_PER_SEED", "9")
+	t.Setenv("NYX_PERMUTATIONS_MAX_PER_SEED", "9")
 	if s, err = load(t, writeFile(t, "permutations:\n  max_per_seed: 7\n")); err != nil || s.Permutations.MaxPerSeed != 9 {
 		t.Errorf("env over file: %+v %v", s.Permutations, err)
 	}

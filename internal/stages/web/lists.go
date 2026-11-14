@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress"
 )
 
 // readLists fetches robots.txt and the sitemaps (sitemap.xml, those robots.txt

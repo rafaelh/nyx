@@ -1,4 +1,4 @@
-module github.com/rafaelh/recon
+module github.com/rafaelh/nyx
 
 go 1.27.3
 

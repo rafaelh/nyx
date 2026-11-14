@@ -11,13 +11,13 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/orgname"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/stages/httpsrc"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/orgname"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // maxASNsPerOrg caps the autonomous systems taken for one organisation. The
@@ -143,7 +143,7 @@ func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Ob
 	if len(orgname.Tokens(c.Key)) == 0 {
 		return nil, nil
 	}
-	q := url.Values{"resource": {c.Key}, "limit": {"50"}, "sourceapp": {"recon"}}
+	q := url.Values{"resource": {c.Key}, "limit": {"50"}, "sourceapp": {"nyx"}}
 	body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: "https://stat.ripe.net/data/searchcomplete/data.json?" + q.Encode()})
 	if err != nil {
 		return nil, fmt.Errorf("org-asn %s: %w", c.Key, err)
@@ -175,7 +175,7 @@ func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Ob
 	}
 	var obs []run.Observation
 	for _, asn := range asns {
-		pq := url.Values{"resource": {asn}, "sourceapp": {"recon"}}
+		pq := url.Values{"resource": {asn}, "sourceapp": {"nyx"}}
 		body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: "https://stat.ripe.net/data/announced-prefixes/data.json?" + pq.Encode()})
 		if err != nil {
 			return nil, fmt.Errorf("org-asn %s %s: %w", c.Key, asn, err)

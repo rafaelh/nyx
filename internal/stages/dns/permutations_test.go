@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/egress/egresstest"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // A permutation whose CNAME dangles (NXDOMAIN) exists, and is a takeover

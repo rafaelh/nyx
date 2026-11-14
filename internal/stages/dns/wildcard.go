@@ -10,12 +10,12 @@ import (
 	"net/netip"
 	"slices"
 
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Wildcard probes each parent zone with two random labels. It records the zone's

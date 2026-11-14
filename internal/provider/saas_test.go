@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/provider"
+	"github.com/rafaelh/nyx/internal/provider"
 )
 
 // The cname entries carry a class, an nxdomain flag and a body fingerprint.

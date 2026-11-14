@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 var tlsNow = time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)

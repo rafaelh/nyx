@@ -4,7 +4,7 @@
 //
 // The tables follow docs/log-colors.md. Nothing outside this package holds a
 // colour value. The document's synonym table and its "unknown name is an
-// error" lookup are not built: recon prints only level names it holds as
+// error" lookup are not built: nyx prints only level names it holds as
 // constants and record values, and a value the palette does not know takes the
 // DEBUG style.
 package palette

@@ -40,7 +40,7 @@ only in-scope and excluded names. Deciding whether such a host is self-hosted "b
 its A and AAAA records. This design proposes that `dnsroot` and `email` look those up through the
 public resolvers and store them in a kind nothing else reads. That is a DNS lookup of a name that
 is not in scope: allowed by the passive boundary (a public resolver is asked, the host is not
-contacted), but new for recon. The alternative is to treat only in-scope hosts as self-hosted and
+contacted), but new for nyx. The alternative is to treat only in-scope hosts as self-hosted and
 drop the address clauses of behaviour 1. Confirm before building.
 
 ## Decisions

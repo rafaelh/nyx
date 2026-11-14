@@ -16,7 +16,7 @@ inside a script is ever requested.
    nothing; a timeout is a transient failure.
 2. At most `jsparse.max_scripts` (default 50) scripts are fetched per script origin, in URL order;
    the rest are not fetched and a `--verbose` warning says how many were skipped.
-3. From the script body recon records, in `urls.csv` with `found_by` including `jsparse` and no
+3. From the script body nyx records, in `urls.csv` with `found_by` including `jsparse` and no
    status: absolute URLs and protocol-relative references whose host is under an in-scope root;
    and quoted paths beginning with `/`, at least two characters long, without whitespace,
    backslashes or template placeholders (`${`, `{{`), joined to the script's own origin.

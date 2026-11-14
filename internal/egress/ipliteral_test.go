@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Web services on IP literals. The request is allowed iff the

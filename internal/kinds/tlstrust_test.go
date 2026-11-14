@@ -3,7 +3,7 @@ package kinds
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress"
 )
 
 // The stored tls_trust values are the strings egress reports.

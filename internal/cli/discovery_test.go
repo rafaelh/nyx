@@ -102,7 +102,7 @@ func TestSources_KeyedSources(t *testing.T) {
 	w := newWorld(t)
 	keys := map[string]string{"VIRUSTOTAL": "vt-SECRET-1", "SECURITYTRAILS": "st-SECRET-2", "SHODAN": "sh-SECRET-3", "WHOISXML": "wx-SECRET-4"}
 	for k, v := range keys {
-		t.Setenv("RECON_KEYS_"+k, v)
+		t.Setenv("NYX_KEYS_"+k, v)
 	}
 	w.handle("www.virustotal.com", func(rw http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-apikey") != "vt-SECRET-1" {
@@ -161,7 +161,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 	for _, code := range []int{401, 403, 429} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv("RECON_KEYS_VIRUSTOTAL", "vt-key")
+			t.Setenv("NYX_KEYS_VIRUSTOTAL", "vt-key")
 			w.handle("www.virustotal.com", status(code))
 			if c := w.run("--concurrency", "1", "--passive", "example.com", "example.org"); c != 0 {
 				t.Fatalf("exit %d", c)
@@ -177,7 +177,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 			}
 			// Fix the key: the same checks run and complete.
 			w.handle("www.virustotal.com", jsonBody(`{"data":[{"id":"fixed.example.com"}],"meta":{}}`))
-			t.Setenv("RECON_KEYS_VIRUSTOTAL", "vt-key-fixed")
+			t.Setenv("NYX_KEYS_VIRUSTOTAL", "vt-key-fixed")
 			if c := w.run("--passive", "example.com"); c != 0 {
 				t.Fatalf("exit %d", c)
 			}
@@ -196,7 +196,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 // blocks, not matches).
 func TestSources_NotFoundIsNoData(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_VIRUSTOTAL", "vt-key")
+	t.Setenv("NYX_KEYS_VIRUSTOTAL", "vt-key")
 	w.handle("www.virustotal.com", status(404))
 	w.handle("index.commoncrawl.org", func(rw http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -715,7 +715,7 @@ func TestOwnerLookupFailureFailsClosed(t *testing.T) {
 
 func TestOrganisationPivots(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_WHOISXML", "wx-key")
+	t.Setenv("NYX_KEYS_WHOISXML", "wx-key")
 	w.crtsh(nil, map[string][]string{"Acme Corp": {"www.acme-global.com", "*.acme-global.net", "someone@acme-global.org"}})
 	w.handle("reverse-whois.whoisxmlapi.com", jsonBody(`{"domainsCount":1,"domainsList":["acme-brands.com"]}`))
 	var cats []string
@@ -778,7 +778,7 @@ func TestOrganisationPivots(t *testing.T) {
 
 func TestReverseDNSAndShodan(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_SHODAN", "sh-key")
+	t.Setenv("NYX_KEYS_SHODAN", "sh-key")
 	w.dns.PTR("198.51.100.1", "host1.example.com")
 	w.dns.PTR("198.51.100.2", "ptr.other.org")
 	w.dns.A("host1.example.com", "198.51.100.1")

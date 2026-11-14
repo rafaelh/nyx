@@ -18,14 +18,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/stages/httpsrc"
-	"github.com/rafaelh/recon/internal/stages/web"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/stages/httpsrc"
+	"github.com/rafaelh/nyx/internal/stages/web"
 )
 
 // maxPages caps archive and API paging inside one check.

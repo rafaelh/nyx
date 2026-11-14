@@ -1,4 +1,4 @@
-// Package egress is the only place recon performs network I/O. Every request
+// Package egress is the only place nyx performs network I/O. Every request
 // to a target-owned system passes through the policy checks here, and the
 // package returns its own types so that nothing from net, net/http or
 // crypto/tls reaches the stages (see the import-boundary test).
@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Policy is what egress enforces. The runner builds a new Policy whenever the

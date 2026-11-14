@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/rafaelh/recon/internal/candidates"
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/candidates"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 var candidateColumns = []string{"type", "value", "sources", "evidence_count", "confidence"}

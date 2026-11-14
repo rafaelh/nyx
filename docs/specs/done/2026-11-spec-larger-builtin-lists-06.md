@@ -183,7 +183,7 @@ package compiling, so it was redone with a comparator that returns 0).
   `d` is a word and permutations observe `d.example.com` too; with the fixture list below that no
   longer happens, and it keeps the more precise query of Common Crawl's own observation. The `world`
   fixtures set
-  `RECON_WORDLIST` to the previous 104-word list (`internal/cli/testdata/words-default.txt`) so the
+  `NYX_WORDLIST` to the previous 104-word list (`internal/cli/testdata/words-default.txt`) so the
   suite does not run thousands of lookups per root in every test; the suite took 100 s instead of
   39 s without it. A test of the built-in list clears it.
 - `.claude/hooks/go-check.sh` could not run in the worktree: it vets
@@ -288,7 +288,7 @@ and kept; `make test` passes afterwards.
    `internal/config/testdata/sensitive/`: replace a sample with a real (redacted) file and run
    `go test ./internal/config/ -run TestBuiltinSensitivePathsSamples -count=1`.
 3. Measure a real authorised run against a few hundred services, for example
-   `./recon --authorised --output-dir /tmp/recon-measure <root>` after `make build`, to confirm the
+   `./nyx --authorised --output-dir /tmp/nyx-measure <root>` after `make build`, to confirm the
    README's time estimate (54 s per service, about 9 minutes for 100) and whether 50,000 is a
    sensible `sensitive_path_max_requests` default.
 4. Consider trimming the low-severity development-file entries (`/package.json`, `/Dockerfile` and

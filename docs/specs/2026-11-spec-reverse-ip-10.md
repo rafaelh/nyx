@@ -2,7 +2,7 @@
 
 ## Goal
 
-Every dedicated address recon has recorded is asked which other hostnames point at it, so sibling
+Every dedicated address nyx has recorded is asked which other hostnames point at it, so sibling
 sites and related domains hosted on the organisation's own servers are found.
 
 ## Behaviours

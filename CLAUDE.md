@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-recon is a passive-first reconnaissance CLI for authorised engagements: a single static Go binary
+nyx is a passive-first reconnaissance CLI for authorised engagements: a single static Go binary
 for macOS and Linux (Windows is not supported). `README.md` is the user-facing behaviour contract
 (flags, output files, exit codes, the passive boundary). The domain vocabulary (engagement, scope
 input, stage, check, observation, record, record kind, shown, evidence, finding) is defined in the
@@ -11,9 +11,9 @@ doc comments of the packages that own each term.
 ## Commands
 
 ```sh
-make build                      # ./recon (CGO_ENABLED=0, -trimpath)
+make build                      # ./nyx (CGO_ENABLED=0, -trimpath)
 make test                       # go vet for all 4 GOOS/GOARCH targets, then go test -race ./...
-make dist                       # dist/recon-{darwin,linux}-{amd64,arm64}
+make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
 golangci-lint run ./...         # config in .golangci.yml (v2, std-error-handling exclusions)
 ```
@@ -45,9 +45,9 @@ golangci-lint run ./...         # config in .golangci.yml (v2, std-error-handlin
 
 ## Architecture
 
-Flow: `cmd/recon` → `internal/cli` (cobra/viper flags, validation, authorisation prompt,
+Flow: `cmd/nyx` → `internal/cli` (cobra/viper flags, validation, authorisation prompt,
 signals, exit codes) → `internal/run.Runner` → stages → `internal/store` (SQLite via
-`modernc.org/sqlite`, under `<engagement>/.recon/`) → `internal/output` (CSV/TXT files) and
+`modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output` (CSV/TXT files) and
 `internal/report` (console or `--json` event lines).
 
 **Stages** (`internal/run/stage.go`) implement `Name/Contact/Sources/Configured/Checks/Run`.
@@ -92,7 +92,7 @@ records (the `candidate_rank` of each candidate, ranked by `internal/candidates`
 runner's list of derivers in `internal/run/derive.go`, each stored under its own pseudo-stage and
 re-derived only when the kinds it reads, the inputs or the date change.
 
-`recon export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
+`nyx export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
 takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives one snapshot, and
 `run.BuildScope` classifies records with the same rules as a run. A kind a new stage's scope depends on goes in `scopeKinds`
 (`internal/run/scopebuild.go`), which the rank deriver also reads.
@@ -103,11 +103,11 @@ embedded `providers.yaml`), `dnsname`, `sanitize` (strips terminal-acting charac
 target-supplied text), `input`. The built-in wordlist and sensitive-path list are embedded in
 `internal/config/builtin/`.
 
-**Config** (`internal/config`): precedence is file < `RECON_*` env < flags, and unknown keys are
-rejected. API keys come only from `keys.<source>` or `RECON_KEYS_<SOURCE>`. They are
+**Config** (`internal/config`): precedence is file < `NYX_*` env < flags, and unknown keys are
+rejected. API keys come only from `keys.<source>` or `NYX_KEYS_<SOURCE>`. They are
 `config.Secret` values and get redacted from all output, so never add a key flag or log a key.
 
-**Output** files are written to `.recon/tmp` and then renamed into place. A file is written only
+**Output** files are written to `.nyx/tmp` and then renamed into place. A file is written only
 when it has rows, and is removed once it has none.
 
 ## Testing
@@ -117,8 +117,8 @@ when it has rows, and is removed once it has none.
   stages pointed at loopback fakes. `egress.Options.SourceBaseURLs`, `ResolverAddrs` and
   `DialMap` redirect traffic without changing policy logic. The harness has UDP/HTTP/TCP
   "canaries" that detect any unexpected request. The clock is fixed at 2026-11-01 UTC.
-- `crash_test.go` re-executes the test binary as a child process (`RECON_TEST_CHILD=1`) and uses
-  `internal/fault` crash points (`RECON_FAULT=<point>`, such as `in-check-tx`, `after-commit`,
+- `crash_test.go` re-executes the test binary as a child process (`NYX_TEST_CHILD=1`) and uses
+  `internal/fault` crash points (`NYX_FAULT=<point>`, such as `in-check-tx`, `after-commit`,
   `in-flight` or `render-mid-file`) to kill the process at known moments and verify resume and atomic output.
 
 ## Conventions

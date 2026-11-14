@@ -18,11 +18,11 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // Open ports. The tests drive cli.Execute with the real ports stage
@@ -166,7 +166,7 @@ func (p *pworld) sequence() []string {
 	return slices.Clone(p.seq)
 }
 
-// sweep runs recon with the given port list and requires success.
+// sweep runs nyx with the given port list and requires success.
 func (p *pworld) sweep(ports []int, args ...string) {
 	p.t.Helper()
 	var list []string

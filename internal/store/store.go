@@ -17,8 +17,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/fault"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/fault"
 )
 
 const (
@@ -157,7 +157,7 @@ type fileStamp struct {
 }
 
 // OpenReadOnly opens an existing state database for reading: it creates no
-// file and never runs the schema. A database that is not recon's is an error.
+// file and never runs the schema. A database that is not nyx's is an error.
 // While a run holds the database (it has a write-ahead log) the reads see the
 // committed state under WAL. With no log file there is no run, and the
 // database is opened immutable, because a read-only WAL connection would
@@ -235,7 +235,7 @@ func (r *ReadOnly) moved() bool {
 // Close closes the database.
 func (r *ReadOnly) Close() error { return r.db.Close() }
 
-// checkDB reports whether db is a recon state database this version reads.
+// checkDB reports whether db is a nyx state database this version reads.
 func checkDB(db *sql.DB) error {
 	appID, version, err := dbIDs(db)
 	if err != nil {
@@ -256,13 +256,13 @@ func dbIDs(db *sql.DB) (appID, version int, err error) {
 }
 
 // checkIDs reports whether an application id and schema version are those of
-// a recon state database this version reads.
+// a nyx state database this version reads.
 func checkIDs(appID, version int) error {
 	switch {
 	case appID != applicationID:
-		return errors.New("not a recon state database")
+		return errors.New("not a nyx state database")
 	case version > schemaVersion:
-		return fmt.Errorf("state database version %d is newer than this recon understands (%d)", version, schemaVersion)
+		return fmt.Errorf("state database version %d is newer than this nyx understands (%d)", version, schemaVersion)
 	}
 	return nil
 }

@@ -230,7 +230,7 @@ output and report change only.
 
 ### 4.3 Whole-engagement export
 
-`recon export -e <name> --format json` writing every current record with kind and attributes,
+`nyx export -e <name> --format json` writing every current record with kind and attributes,
 for feeding other tooling. Keeps the CSV columns free to change as the README promises.
 
 ## Suggested order and effort

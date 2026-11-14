@@ -3,12 +3,12 @@ package run
 import (
 	"net/netip"
 
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/provider"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // scopeKinds are the kinds BuildScope reads. The candidate-rank deriver reads the

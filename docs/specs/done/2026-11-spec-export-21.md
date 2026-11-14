@@ -2,12 +2,12 @@
 
 ## Goal
 
-Everything recon has recorded about an engagement can be exported as machine-readable lines for
+Everything nyx has recorded about an engagement can be exported as machine-readable lines for
 other tooling, without the CSV columns having to stay stable.
 
 ## Behaviours
 
-1. `recon export -e <name>` writes to stdout one JSON object per line for every record in the
+1. `nyx export -e <name>` writes to stdout one JSON object per line for every record in the
    engagement, current or not: `kind`, `key`, `attrs`, `current`, `first_seen`, `last_seen`, the
    stages currently observing it (empty for records that are not current), and either `scope`
    (`in-scope`, `candidate`, `excluded`) for hostnames, roots, netblocks and excluded items, or
@@ -18,11 +18,11 @@ other tooling, without the CSV columns having to stay stable.
 2. `--output <file>` writes to a file instead, replacing an existing file atomically; a write
    failure exits 1. `--current` limits the export to current records and `--kind <kind>`
    (repeatable) to the given kinds; both filters combine. Kind names are listed by
-   `recon export --help`, and an unknown kind exits 2.
+   `nyx export --help`, and an unknown kind exits 2.
 3. Secrets are never present: the export contains no API keys.
 4. `export` does not take the run lock: it reads a consistent snapshot and works while a run is in
    progress, and never writes to the engagement. It exits 1 for an engagement that does not exist
-   (creating nothing) or a directory that is not a recon engagement, found under `--output-dir`
+   (creating nothing) or a directory that is not a nyx engagement, found under `--output-dir`
    or `output_dir` as for a run. It makes no network requests.
 5. Target-supplied text (titles, banners) is sanitised as for console output.
 6. The README documents the command and says that the stable names are the stored attribute
@@ -42,7 +42,7 @@ functions it moves have the names given below, and one shared list was added to 
   `cobra.ArbitraryArgs`; `export` is not a valid domain, so nothing is ambiguous. It takes `-e`
   (required), `--output`, `--current`, `--kind`, and the root's `--output-dir` and `--config`.
 - **Read-only open.** `engagement.OpenReadOnly(dir)` creates nothing and takes no lock: a missing
-  directory, or one without `.recon/state.db`, is an error (exit 1). `store.OpenReadOnly` opens
+  directory, or one without `.nyx/state.db`, is an error (exit 1). `store.OpenReadOnly` opens
   with `mode=ro` and `query_only`, checks the application id and never runs the schema.
 - **One snapshot.** Every read happens inside one read transaction (`store.View(func(Reader))`),
   which under WAL is a consistent snapshot while a run writes. `Store.Records`, `Inputs` and
@@ -118,7 +118,7 @@ Importing; formats other than JSON lines; exporting settings.
 
 ## Develop
 
-`recon export` is a cobra subcommand in `internal/cli/export.go`, registered in `Execute`. It
+`nyx export` is a cobra subcommand in `internal/cli/export.go`, registered in `Execute`. It
 validates `--kind`, loads the configuration (for `output_dir` and the key redactor), opens the
 engagement with `engagement.OpenReadOnly` and reads everything inside one `ReadOnly.View`. The
 lines are built in memory and written after the transaction ends, to stdout or through a temporary
@@ -129,7 +129,7 @@ file beside `--output` that is synced and renamed into place.
   checks the application id and schema version (`checkDB`, shared with `initDB`) and returns a
   `store.ReadOnly`, which has only `View` (one read transaction handing out a `Reader`) and
   `Close`. It is its own type, not a `Store` made to look closed, so a write does not compile.
-- **Engagement.** `engagement.OpenReadOnly(dir)` stats the directory and `.recon/state.db`, creates
+- **Engagement.** `engagement.OpenReadOnly(dir)` stats the directory and `.nyx/state.db`, creates
   nothing and returns the `ReadOnly`. `engagement.ParseInputs` was split out of `Inputs` so the
   export can group the snapshot's input rows.
 - **Scope build.** `run.BuildScope(in, src ScopeSource)` in `internal/run/scopebuild.go` is the
@@ -157,8 +157,8 @@ file beside `--output` that is synced and renamed into place.
   temporary file left); a key that only the export's redactor can mask; a title with escape
   sequences; export during a run that holds the lock, equal to the state before it; byte-identical
   directory snapshots; a missing engagement, an empty directory, a directory with files and an
-  empty `.recon` (1, nothing created); the canaries seeing no traffic; the engagement found under
-  `RECON_OUTPUT_DIR`. `store_test.go` and `engagement_test.go` cover the read-only opens, that they create
+  empty `.nyx` (1, nothing created); the canaries seeing no traffic; the engagement found under
+  `NYX_OUTPUT_DIR`. `store_test.go` and `engagement_test.go` cover the read-only opens, that they create
   nothing and that a `View` is one snapshot. The new tests failed on their assertions before the code existed (the command was read
   as a domain argument); `TestExport_RequiresEngagementName` passed already, by coincidence, and
   now pins the required flag.
@@ -232,7 +232,7 @@ Skipped:
 - `snapshotSource.CurrentRecords` filters on each call instead of caching the current slice as the
   runner's `recordsCache` does. It is called once per scope kind.
 - Temp-file-then-rename in `writeExport` duplicates the logic in `internal/output`, which is inline
-  in `Render`, tied to `.recon/tmp` and to fault points, and is not a reusable helper.
+  in `Render`, tied to `.nyx/tmp` and to fault points, and is not a reusable helper.
 - `"exclude"` in `internal/output/output.go` was left alone, because it is outside this change.
 - Streaming the lines from inside the transaction was rejected: it would hold the read snapshot
   open, and stall a running run's checkpoints, for as long as the write takes.
@@ -245,7 +245,7 @@ All six behaviours and the goal are met. `make test` passes; `golangci-lint run 
 five issues, all in files this change does not touch (`sources_keyed_test.go`,
 `sanitize_test.go`, `providerranges_test.go`).
 
-- **Goal.** `recon export` writes every record, input and exclusion as JSON lines whose field and
+- **Goal.** `nyx export` writes every record, input and exclusion as JSON lines whose field and
   kind names are fixed in `exportLine`/`exportInputLine`, independent of the CSV columns.
 - **B1: met.** Every record of every kind in `kinds.All()`, current or not, is exported once, in
   kind then key order, with `kind`, `key`, `attrs`, `current`, `first_seen`, `last_seen` and
@@ -261,17 +261,17 @@ five issues, all in files this change does not touch (`sources_keyed_test.go`,
 - **B2: met.** `--output` writes a synced temporary file beside the target and renames it; a
   failed create, write or rename exits 1 and leaves the old file and no temporary file.
   `--current`, repeated `--kind` and both combine; `--kind` is validated against the kind names plus
-  `input` and `exclusion` before anything is opened, and an unknown one exits 2. `recon export
-  --help` (and `recon help export`) ends with the kind list. `--current` keeps the input and
+  `input` and `exclusion` before anything is opened, and an unknown one exits 2. `nyx export
+  --help` (and `nyx help export`) ends with the kind list. `--current` keeps the input and
   exclusion lines, which are not records and have no currency.
 - **B3: met.** Every string in `key`, `attrs` and the input values passes through the redactor
-  built from the configured keys (file and `RECON_KEYS_*`), on top of the store's redaction on
+  built from the configured keys (file and `NYX_KEYS_*`), on top of the store's redaction on
   write; error messages go through the same redactor.
 - **B4: met** (see the change below). The export opens with `engagement.OpenReadOnly`, which
   creates nothing and takes no lock, and `store.OpenReadOnly` (`mode=ro`, `query_only`, the
   application id checked, no schema). Everything is read in one read transaction. A missing
-  engagement, a plain or empty directory and an empty `.recon` exit 1 and create nothing; the
-  engagement is found under `--output-dir`, `RECON_OUTPUT_DIR` or the config file's `output_dir`.
+  engagement, a plain or empty directory and an empty `.nyx` exit 1 and create nothing; the
+  engagement is found under `--output-dir`, `NYX_OUTPUT_DIR` or the config file's `output_dir`.
   No egress is built, and the canaries see no traffic. The stale-log case (a `-wal` left by a
   killed run) is opened read-only under WAL and was checked by hand only during development.
 - **B5: met.** `sanitize.Text` is applied to every string, map key included, before redaction; a
@@ -292,9 +292,9 @@ Changed during verification:
   lines on each call. `TestViewRereadsWhenARunStarts` pins it (it fails without the check). The
   first limitation under `## Known limitations` is therefore closed.
 - **No completion command.** Adding the first subcommand made cobra add its default `completion`
-  command to `recon`, which the spec does not ask for and the README does not document. It is
+  command to `nyx`, which the spec does not ask for and the README does not document. It is
   turned off (`CompletionOptions.DisableDefaultCmd`), and `TestExport_HelpListsKinds` checks the
-  root help lists `export` and no `completion`. `recon help <command>` remains, as cobra's help.
+  root help lists `export` and no `completion`. `nyx help <command>` remains, as cobra's help.
 
 ## Code review
 
@@ -329,14 +329,14 @@ Left unfixed:
 
 1. Move or delete the untracked `config.yaml` in the repository root. It holds real API keys, was
    not part of this change and was not committed. Its place is
-   `~/.config/recon/config.yaml` (`mv /home/rafael/git/recon/config.yaml ~/.config/recon/config.yaml`),
+   `~/.config/nyx/config.yaml` (`mv /home/rafael/git/recon/config.yaml ~/.config/nyx/config.yaml`),
    and if any of its keys may have been shared, rotate them with each provider.
 2. Check the stale-log case of B4 by hand once more: start a run, kill it with
-   `kill -9`, then compare `sha256sum /tmp/recon-out/<name>/.recon/state.db*` before and after
-   `recon --output-dir /tmp/recon-out export -e <name> > /dev/null`. No test covers it.
+   `kill -9`, then compare `sha256sum /tmp/nyx-out/<name>/.nyx/state.db*` before and after
+   `nyx --output-dir /tmp/nyx-out export -e <name> > /dev/null`. No test covers it.
 3. Decide whether to close the race in which a run ends between the export's `-wal` check and its
    first read (SQLite may then create `-shm`/`-wal`), in `store.OpenReadOnly`
    (`internal/store/store.go`).
-4. Decide whether `recon export` should load only `output_dir` and the keys, so an unrelated bad
+4. Decide whether `nyx export` should load only `output_dir` and the keys, so an unrelated bad
    setting does not stop it (`runExport` in `internal/cli/export.go`, `config.Load` in
    `internal/config`).

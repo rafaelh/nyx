@@ -1,4 +1,4 @@
-// Command recon performs passive-first reconnaissance of a target's domains,
+// Command nyx performs passive-first reconnaissance of a target's domains,
 // organisations and netblocks.
 package main
 
@@ -6,7 +6,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/rafaelh/recon/internal/cli"
+	"github.com/rafaelh/nyx/internal/cli"
 )
 
 func main() {

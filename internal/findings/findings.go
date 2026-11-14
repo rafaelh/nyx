@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/recon/internal/cloudstorage"
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/cloudstorage"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // Input is everything Derive reads. Records returns the records of a kind

@@ -3,7 +3,7 @@
 ## Goal
 
 Mail, identity, voice, collaboration and game infrastructure advertised through SRV records and
-well-known hostnames is discovered for each in-scope root, without widening what recon connects to.
+well-known hostnames is discovered for each in-scope root, without widening what nyx connects to.
 
 ## Behaviours
 

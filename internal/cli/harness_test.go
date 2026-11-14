@@ -19,9 +19,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/rafaelh/recon/internal/cli"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/cli"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // harness drives cli.Execute in-process with fakes.
@@ -47,7 +47,7 @@ type harness struct {
 func newHarness(t *testing.T, stages ...run.Stage) *harness {
 	t.Helper()
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "RECON_") {
+		if strings.HasPrefix(kv, "NYX_") {
 			os.Unsetenv(strings.SplitN(kv, "=", 2)[0])
 		}
 	}
@@ -115,7 +115,7 @@ func (h *harness) deps() cli.Deps {
 	}
 }
 
-// exec runs recon with --output-dir pointing at the temp dir.
+// exec runs nyx with --output-dir pointing at the temp dir.
 func (h *harness) exec(args ...string) int {
 	return h.execCtx(context.Background(), args...)
 }
@@ -253,7 +253,7 @@ func lastState(evs []event, name string) event {
 
 func (h *harness) openDB(name string) *sql.DB {
 	h.t.Helper()
-	return openDB(h.t, filepath.Join(h.out, name, ".recon", "state.db"))
+	return openDB(h.t, filepath.Join(h.out, name, ".nyx", "state.db"))
 }
 
 func openDB(t *testing.T, path string) *sql.DB {

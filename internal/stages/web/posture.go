@@ -7,9 +7,9 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
 // hop is one response of a probe's redirect chain, reduced to what posture

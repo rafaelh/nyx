@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/egress/egresstest"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/stages/dns"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/stages/dns"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 func clients(t *testing.T, d *egresstest.DNS) egress.Clients {

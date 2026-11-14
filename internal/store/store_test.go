@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 type clock struct{ t time.Time }

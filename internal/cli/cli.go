@@ -1,4 +1,4 @@
-// Package cli is the recon command line: flags, validation, the
+// Package cli is the nyx command line: flags, validation, the
 // authorisation prompt, signals and exit codes.
 package cli
 
@@ -21,24 +21,24 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/engagement"
-	"github.com/rafaelh/recon/internal/findings"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/output"
-	"github.com/rafaelh/recon/internal/palette"
-	"github.com/rafaelh/recon/internal/report"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/stages/asn"
-	"github.com/rafaelh/recon/internal/stages/dns"
-	"github.com/rafaelh/recon/internal/stages/orgpivot"
-	"github.com/rafaelh/recon/internal/stages/ports"
-	"github.com/rafaelh/recon/internal/stages/providerranges"
-	"github.com/rafaelh/recon/internal/stages/risk"
-	"github.com/rafaelh/recon/internal/stages/shodan"
-	"github.com/rafaelh/recon/internal/stages/subdomains"
-	"github.com/rafaelh/recon/internal/stages/web"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/output"
+	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/report"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/stages/asn"
+	"github.com/rafaelh/nyx/internal/stages/dns"
+	"github.com/rafaelh/nyx/internal/stages/orgpivot"
+	"github.com/rafaelh/nyx/internal/stages/ports"
+	"github.com/rafaelh/nyx/internal/stages/providerranges"
+	"github.com/rafaelh/nyx/internal/stages/risk"
+	"github.com/rafaelh/nyx/internal/stages/shodan"
+	"github.com/rafaelh/nyx/internal/stages/subdomains"
+	"github.com/rafaelh/nyx/internal/stages/web"
 )
 
 // Deps are the collaborators of Execute, replaceable in tests.
@@ -101,11 +101,11 @@ type options struct {
 type depths struct{ out, err palette.Depth }
 
 // configFlagUsage is the help of --config, for a run and for export.
-const configFlagUsage = "config file (default $XDG_CONFIG_HOME/recon/config.yaml, else ~/.config/recon/config.yaml)"
+const configFlagUsage = "config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)"
 
 const ackPrompt = "Confirm you are authorised to test this engagement's scope [y/N] "
 
-// Execute runs recon with args and returns the process exit code.
+// Execute runs nyx with args and returns the process exit code.
 func Execute(ctx context.Context, args []string, d Deps) int {
 	if d.Version == "" {
 		d.Version = develVersion // cobra only adds --version when Version is set
@@ -191,12 +191,12 @@ func newEmitter(d Deps, o *options, dp depths) report.Emitter {
 
 func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "recon [domain...] [flags]",
+		Use:   "nyx [domain...] [flags]",
 		Short: "Passive-first reconnaissance of a target's domains, organisations and netblocks",
-		Long: "recon records a target's hosts, IPs, web services, URLs and open ports, plus a severity-ranked\n" +
+		Long: "nyx records a target's hosts, IPs, web services, URLs and open ports, plus a severity-ranked\n" +
 			"list of obvious exposures, using only third-party sources and the kind of contact any member of\n" +
 			"the public could make. Results go to the console and to TXT/CSV files in an engagement directory.\n" +
-			"Re-run with the same engagement (recon -e <name>) to resume.",
+			"Re-run with the same engagement (nyx -e <name>) to resume.",
 		Args:          cobra.ArbitraryArgs,
 		Version:       d.Version,
 		SilenceUsage:  true,
@@ -238,7 +238,7 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 
 	cmd.MarkFlagsMutuallyExclusive("quiet", "debug")
 
-	cmd.SetVersionTemplate("recon {{.Version}}\n")
+	cmd.SetVersionTemplate("nyx {{.Version}}\n")
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
 		fmt.Fprintf(c.OutOrStdout(), "%s\n\n%s\n%s", c.Long, c.UsageString(), helpFooter(d.Stages))
 	})
@@ -254,12 +254,12 @@ Engagement name (a directory under --output-dir):
   sanitised.
 
 Configuration:
-  Settings come from a YAML config file, RECON_* environment variables or flags; flags override
+  Settings come from a YAML config file, NYX_* environment variables or flags; flags override
   environment variables, which override the file. The default config file is
-  $XDG_CONFIG_HOME/recon/config.yaml (default ~/.config/recon/config.yaml).
-  Environment variables are RECON_<SETTING> with dots as underscores, e.g. RECON_CONCURRENCY and
-  RECON_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
-  RECON_KEYS_<SOURCE> in the environment.
+  $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml).
+  Environment variables are NYX_<SETTING> with dots as underscores, e.g. NYX_CONCURRENCY and
+  NYX_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
+  NYX_KEYS_<SOURCE> in the environment.
 
 Console:
   The log (the run header, stage lines, + lines for what was found, counts and warnings) is written to

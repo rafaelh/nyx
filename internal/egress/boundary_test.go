@@ -89,7 +89,7 @@ func checkBoundary(t *testing.T, root, goos, goarch string) {
 		for _, imp := range p.Imports {
 			switch {
 			case imp == "os/exec": // forbidden even in internal/egress
-				t.Errorf("%s imports %s; recon runs no external programs", p.ImportPath, imp)
+				t.Errorf("%s imports %s; nyx runs no external programs", p.ImportPath, imp)
 			case inEgress:
 			case forbidden[imp]:
 				t.Errorf("%s imports %s directly; route it through internal/egress", p.ImportPath, imp)

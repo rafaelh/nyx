@@ -4,7 +4,7 @@
 
 Users who already hold a Shodan key get its subdomain data, and users with Censys or Chaos
 subscriptions can plug them in, through the same keyed-source rules as today, without any
-third-party DNS claim ever deciding what recon contacts.
+third-party DNS claim ever deciding what nyx contacts.
 
 ## Behaviours
 
@@ -52,15 +52,15 @@ third-party DNS claim ever deciding what recon contacts.
   on every stage and the README says it is not reached.
 - **`shodan-dns` is its own stage** in `internal/stages/shodan/dns.go`, because it records more
   than names. It reads `GET /dns/domain/<root>?page=<n>` with the existing `key` parameter.
-- **A third party's DNS records are a different kind from recon's own.** They are stored as
+- **A third party's DNS records are a different kind from nyx's own.** They are stored as
   `dns_claim` (key `name|TYPE|value`, attributes `name`, `type`, `value`, `source`), never as
   `resolution`. The inventory, scope and egress policy do not read `dns_claim`, so by construction
   a Shodan record cannot resolve a name, make an address eligible, or feed wildcard, provider,
   takeover or exclusion logic. The stage records no `ip` observation, so a Shodan-only address is
   not in `ips.csv` and no stage can enumerate it.
-- **`resolutions.csv` merges the two kinds by key** and adds `source`: `resolve` when recon's own
+- **`resolutions.csv` merges the two kinds by key** and adds `source`: `resolve` when nyx's own
   lookup holds the record (any DNS stage), `shodan` for a claim alone, `resolve;shodan` for both.
-  Dates and `current` come from recon's record when there is one.
+  Dates and `current` come from nyx's record when there is one.
 - **Hostnames**: names under the root, and CNAME, MX and NS targets that are in scope (the check
   input carries the scope), are `hostname` observations after `httpsrc.CleanName`.
 
@@ -152,7 +152,7 @@ Shodan DNS records as inputs to any decision; Censys host data.
 - Behaviour 1: a Shodan 402 (no query credits) is an ordinary failed check, not a stopped stage, so each
   remaining root is still tried.
 - Behaviour 2: a claim and a resolution with the same key merge, but the claim's own dates are not shown
-  when recon holds the record.
+  when nyx holds the record.
 
 ## Simplify
 
@@ -172,7 +172,7 @@ Checked against the goal, B1–B7 and `## Out of scope` by reading every changed
 passes. The goal is met. The three stages are `ThirdParty` stages that are `not-configured` without
 their key. A Shodan DNS record is stored only as `dns_claim`, and the scope, the inventory, the egress
 policy, the wildcard and takeover stages, and the findings read only `resolution` and `ip`. So a
-third party's claim cannot decide what recon contacts. To confirm the canary test is meaningful, I
+third party's claim cannot decide what nyx contacts. To confirm the canary test is meaningful, I
 stored A claims as `resolution` records by hand: `TestShodanDNS_ClaimedAddressIsNeverContacted`
 failed, showing the address dialled four times, put in `ips.csv` and its name probed. I then undid
 the change.
@@ -185,7 +185,7 @@ the change.
   added afterwards) becomes a hostname only if the check runs again.
 - **B2 met.** `resolutions.csv` has a `source` column in the order the build plan gives. It merges
   by the `name|TYPE|value` key, which `resolve` also uses (IPv6 values are canonicalised the same
-  way), and shows `resolve`, `shodan` or `resolve;shodan`. Dates and `current` come from recon's own
+  way), and shows `resolve`, `shodan` or `resolve;shodan`. Dates and `current` come from nyx's own
   record when there is one. A name that returns NXDOMAIN is in both `unresolved.txt` and
   `resolutions.csv`. The canary test runs the real web and ports stages, and a listener on the
   Shodan-only address receives no connection.

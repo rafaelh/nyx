@@ -1,15 +1,20 @@
-# recon
+# nyx recon
 
-Passive-first reconnaissance for an authorised engagement. Give it domains, organisations, ASNs or
-netblocks and it records the hosts, IPs, web services, URLs and open ports it can find, plus a
-severity-ranked list of obvious exposures (dangling CNAMEs, public cloud storage, weak email
-policy, risky open ports, sensitive paths, expiring certificates). It is a single Go binary for
-macOS and Linux, with no external tools to install.
+This is a reconnaissance tool for gaining a rapid understanding of a new attack surface, such as a
+newly acquired company. It is inspired by a variety of bug bounty methodologies, which start with
+subdomain enumeration, go on to port and service enumeration, url discovery, etc. The end result is
+a set of asset lists that help prioritise what to look at.
+
+It can be kicked off by giving it domains, organisations, ASNs or netblocks. It records the hosts,
+IPs, web services, URLs and open ports it can find, plus a severity-ranked list of obvious exposures
+(dangling CNAMEs, public cloud storage, weak email policy, risky open ports, sensitive paths,
+expiring certificates). It is a single Go binary for macOS and Linux, with no external tools to
+install.
 
 ## Install
 
 ```sh
-go install github.com/rafaelh/recon/cmd/recon@latest
+go install github.com/rafaelh/nyx/cmd/nyx@latest
 ```
 
 Go 1.21 or later is enough when `GOTOOLCHAIN=auto`, the upstream default: it fetches the toolchain
@@ -20,12 +25,12 @@ named in `go.mod`. Some Linux distributions' Go packages set `GOTOOLCHAIN=local`
 From a clone:
 
 ```sh
-make build   # ./recon for this machine
-make dist    # dist/recon-{darwin,linux}-{amd64,arm64}
+make build   # ./nyx for this machine
+make dist    # dist/nyx-{darwin,linux}-{amd64,arm64}
 make test    # vet, race tests, and a cross-target vet for all four platforms
 ```
 
-`recon --version` prints the build's version (`devel` when there is none). Windows is not supported.
+`nyx --version` prints the build's version (`devel` when there is none). Windows is not supported.
 
 ## Quick start
 
@@ -33,10 +38,10 @@ make test    # vet, race tests, and a cross-target vet for all four platforms
 `--output-dir`.
 
 ```sh
-recon example.com                  # all stages; asks you to confirm authorisation on a terminal
-recon example.com --passive        # third-party sources only; nothing at the target is contacted
-recon example.com --authorised     # confirm authorisation up front (needed with --json or no terminal)
-recon -e example-com               # re-run or resume an existing engagement by name
+nyx example.com                  # all stages; asks you to confirm authorisation on a terminal
+nyx example.com --passive        # third-party sources only; nothing at the target is contacted
+nyx example.com --authorised     # confirm authorisation up front (needed with --json or no terminal)
+nyx -e example-com               # re-run or resume an existing engagement by name
 ```
 
 Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and the summary to stdout
@@ -58,8 +63,8 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
 - **Resume:** a re-run performs only the checks not yet done. Checks that failed (a transient
   error, not a negative result) are retried on later runs. An interrupted run resumes the same way.
 - **`--redo <stage>`:** performs every check of one stage again. The stage names are listed in
-  `recon --help`.
-- **`--skip <stage>`:** turns a stage off (repeatable; the `skip` setting, or `RECON_SKIP` as a
+  `nyx --help`.
+- **`--skip <stage>`:** turns a stage off (repeatable; the `skip` setting, or `NYX_SKIP` as a
   comma-separated list, does the same). A skipped stage is shown as `not-configured (skipped)`,
   whatever else would stop it, and does nothing: results it found earlier stay in the files. The flag
   replaces the setting for that run, and `--skip none` runs every stage. An unknown stage, a stage
@@ -69,13 +74,13 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
 
 ## Configuration
 
-- **Config file:** `$XDG_CONFIG_HOME/recon/config.yaml`, which defaults to
-  `~/.config/recon/config.yaml`. Use `--config <file>` to choose another. Unknown keys are
+- **Config file:** `$XDG_CONFIG_HOME/nyx/config.yaml`, which defaults to
+  `~/.config/nyx/config.yaml`. Use `--config <file>` to choose another. Unknown keys are
   rejected.
-- **Precedence:** flags override `RECON_*` environment variables, which override the file. An
-  environment variable is `RECON_<UPPER_SNAKE>` with `.` replaced by `_`, for example
-  `RECON_RATE_PER_HOST` and `RECON_CRAWL_MAX_DEPTH`.
-- **API keys:** set only as `keys.<source>` in the file or `RECON_KEYS_<SOURCE>` in the
+- **Precedence:** flags override `NYX_*` environment variables, which override the file. An
+  environment variable is `NYX_<UPPER_SNAKE>` with `.` replaced by `_`, for example
+  `NYX_RATE_PER_HOST` and `NYX_CRAWL_MAX_DEPTH`.
+- **API keys:** set only as `keys.<source>` in the file or `NYX_KEYS_<SOURCE>` in the
   environment. There are no key flags, so keys never appear in shell history or process lists.
   Keys are redacted from all output and files.
 - **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys` and `chaos`. A
@@ -89,7 +94,7 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   whole list in one page, so its cap is not reached. `certspotter` takes an
   optional key: it runs without one, and sends `keys.certspotter` when it is set. The other sources
   need no key.
-- **Settings:** all settings and their defaults are listed by `recon --help`.
+- **Settings:** all settings and their defaults are listed by `nyx --help`.
 
 Example `config.yaml` (a leading `~/` in `output_dir`, `wordlist` or `sensitive_paths` is your home
 directory):
@@ -105,12 +110,12 @@ keys:
 ```
 
 ```sh
-RECON_KEYS_SHODAN=your-shodan-key recon example.com
+NYX_KEYS_SHODAN=your-shodan-key nyx example.com
 ```
 
 ## Passive boundary
 
-recon limits what target-owned systems can receive. It sends only:
+nyx limits what target-owned systems can receive. It sends only:
 
 - **DNS lookups.** Zone transfers are never attempted.
 - **TCP handshakes** to the configured port list. It reads only what the service sends
@@ -151,7 +156,7 @@ the skipped checks.
 
 ## Authorisation acknowledgement
 
-Before any stage that contacts target-owned systems, recon requires you to confirm you are
+Before any stage that contacts target-owned systems, nyx requires you to confirm you are
 authorised to test the engagement's scope.
 
 - On a terminal, you can confirm at the prompt or with `--authorised` (`--authorized` also works).
@@ -166,7 +171,7 @@ authorised to test the engagement's scope.
 ## Large netblocks
 
 If the in-scope IPv4 address count (ASN-expanded netblocks included) exceeds `netblock_limit`,
-recon stops before contacting any address in them, shows the total and exits with code 3. Re-run
+nyx stops before contacting any address in them, shows the total and exits with code 3. Re-run
 with `--allow-large-netblocks` to proceed. The approval is remembered with the engagement.
 
 ## Root DNS records and third parties
@@ -198,7 +203,7 @@ name-server provider names are in the embedded `providers.yaml`.
 
 ## Web posture
 
-From the responses `httpprobe` already receives, with no further request, recon records a few
+From the responses `httpprobe` already receives, with no further request, nyx records a few
 obvious weaknesses of each live in-scope web service, and reports each as a low finding in
 `risk-web-posture.csv`, one row per service and condition:
 
@@ -232,18 +237,18 @@ take the place of the old `tls_error` and `tls_self_signed`:
 - `tls_cipher`: the IANA name of the suite it chose (`TLS_AES_128_GCM_SHA256`).
 - `tls_trust`: the first that applies of `expired` (including not yet valid), `hostname-mismatch`
   (the certificate does not name the host that was probed), `self-signed`, `untrusted-chain` or
-  `trusted`. `untrusted-chain` depends on the root store of the machine running recon: a private or
+  `trusted`. `untrusted-chain` depends on the root store of the machine running nyx: a private or
   newly added root reads as `untrusted-chain` on a machine that does not hold it. The values come
   from the service's own first response, not from where it redirects, and are as of the probe.
 
-To reach a service that has not moved on, every request recon sends to an in-scope service accepts
+To reach a service that has not moved on, every request nyx sends to an in-scope service accepts
 TLS 1.0 and 1.1, and offers CBC-mode and RSA key-exchange cipher suites as well as the modern ones.
 RC4 and 3DES are never offered, and SSL 3.0 is not supported, so a service that offers only those
 fails the handshake and is not recorded, as before. Requests to third-party sources keep the
 default minimum of TLS 1.2. A service that supports TLS 1.2 or later is recorded with the version it
 negotiates, as before.
 
-recon sees only the version the service negotiates, so a service that offers an old version
+nyx sees only the version the service negotiates, so a service that offers an old version
 alongside a newer one is **not** detected: only a service whose best version is 1.0 or 1.1 is
 recorded as such. Enumerating the versions a server offers would take extra handshakes, and is not
 done.
@@ -327,13 +332,13 @@ A run writes two things, to two streams.
   by the netblock limit or ended by an error) writes nothing to stdout. The authorisation prompt and
   the `error:` line that ends a failed run are on stderr, with no time or level.
 
-`recon example.com 2> run.log` therefore keeps the log in a file and prints the summary.
+`nyx example.com 2> run.log` therefore keeps the log in a file and prints the summary.
 
 - **`--quiet` (`-q`)** writes only `WARN` and above to stderr. The summary is still printed.
 - **`--debug`** also writes a `DEBUG` line for each check that failed
   (`<stage> check <key> failed: <message>`). A failed check is not a warning: the stage line and the
   summary count it, and it is retried on the next run.
-- `--quiet` with `--debug` exits 2. Neither is a setting: there is no config key or `RECON_*`
+- `--quiet` with `--debug` exits 2. Neither is a setting: there is no config key or `NYX_*`
   variable for them.
 
 A finding's `+` line and the summary show its severity as a badge: the severity as recorded (`high`,
@@ -412,7 +417,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `candidates.csv` | Related domains, hostnames and netblocks found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](#ranked-candidates)); pass one as an input to promote it |
 | `excluded.csv` | Excluded items and the reason |
 | `subdomains.txt` | In-scope hostnames |
-| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, and the NS, SOA, TXT and CAA records of each root, see below), with a `source` column: `resolve` (recon's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. |
+| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, and the NS, SOA, TXT and CAA records of each root, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. |
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
 | `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
@@ -434,19 +439,19 @@ Everything is in `<output-dir>/<engagement>/`:
 A file is only written when it has rows, so a missing `risk-*.csv` means no findings of that kind
 (a file that later has no rows is removed). Files are sorted, except `candidates.csv`, which is
 sorted by confidence. Every CSV ends with `current`, `first_seen` and `last_seen` columns, and records
-that were not found by a later run are kept and marked not current. The `.recon/` directory holds
+that were not found by a later run are kept and marked not current. The `.nyx/` directory holds
 the state database and the run lock. Don't edit it. Finding severities are listed by
-`recon --help`.
+`nyx --help`.
 
 ## Exporting an engagement
 
-`recon export -e <name>` writes everything recorded about an engagement to stdout as JSON lines, for
+`nyx export -e <name>` writes everything recorded about an engagement to stdout as JSON lines, for
 other tooling. The CSV columns are for people and may change; the export is the form to read from
 a program. `--output-dir` and `--config` find the engagement as they do for a run.
 
 ```sh
-recon export -e acme > acme.jsonl
-recon export -e acme --current --kind hostname --kind web_service --output hosts.jsonl
+nyx export -e acme > acme.jsonl
+nyx export -e acme --current --kind hostname --kind web_service --output hosts.jsonl
 ```
 
 - **Lines.** There is one line for each input (`kind` `input`, with `type` of `root`, `org`, `asn` or
@@ -466,7 +471,7 @@ recon export -e acme --current --kind hostname --kind web_service --output hosts
   but their `stages` name the pseudo-stage that derived them (`findings`, `candidate-rank`), which
   is not a stage you can `--redo`.
 - **`--current`** keeps only current records. **`--kind`** (repeatable) keeps only the kinds
-  named; `recon export --help` lists them, including `input` and `exclusion`. The two combine. An
+  named; `nyx export --help` lists them, including `input` and `exclusion`. The two combine. An
   unknown kind exits 2.
 - **`--output <file>`** writes to the file instead, replacing it atomically: the lines go to a
   temporary file beside it, which is renamed into place, so a failed write leaves an existing
@@ -476,7 +481,7 @@ recon export -e acme --current --kind hostname --kind web_service --output hosts
   Text a target supplied (titles, banners) is sanitised as for console output.
 - **Reading only.** `export` takes no lock, so it works while a run is in progress and shows the
   state as of one moment, writes nothing to the engagement and makes no network requests. It exits 1
-  for an engagement that does not exist (creating nothing) or a directory that is not a recon
+  for an engagement that does not exist (creating nothing) or a directory that is not a nyx
   engagement.
 
 **What stays stable.** The names of the stored attributes (they are what the state database keeps,
@@ -489,14 +494,14 @@ CSV files.
 | Code | Meaning |
 |---|---|
 | 0 | The run completed, including with failed checks or `not-configured` stages |
-| 1 | Fatal runtime error, an engagement already locked by another run, or an output directory that is not a recon engagement. For `recon export`, also an engagement that does not exist and a failure to write the export |
+| 1 | Fatal runtime error, an engagement already locked by another run, or an output directory that is not a nyx engagement. For `nyx export`, also an engagement that does not exist and a failure to write the export |
 | 2 | Invalid input or configuration. Nothing was contacted |
 | 3 | The netblock limit was exceeded without `--allow-large-netblocks` |
 | 130 | Interrupted (SIGINT, SIGTERM or SIGHUP). Completed work is saved; re-run to continue |
 
 ## Migrating from the Python version
 
-- **Old output directories** are not resumable. recon refuses them (exit 1, naming the directory)
+- **Old output directories** are not resumable. nyx refuses them (exit 1, naming the directory)
   and never writes into them. Use a different `-e` name, or move the old directory away.
 - **Retired:** the `reconsite` single-site command and XSS and SQL injection testing are gone.
 - **No external tools:** Amass, subfinder, massdns, httprobe, hakrawler, dalfox and the rest are

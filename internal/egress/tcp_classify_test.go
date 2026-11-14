@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress"
 )
 
 // dialError is shaped like the error net.Dialer returns, so errors.Is has to

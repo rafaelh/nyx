@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/palette"
+	"github.com/rafaelh/nyx/internal/palette"
 )
 
 func env(kv map[string]string) func(string) string {

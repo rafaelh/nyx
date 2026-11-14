@@ -7,9 +7,9 @@ import (
 	"iter"
 	"sync"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // Stage is a configurable fake run.Stage that records what it executes.

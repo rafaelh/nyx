@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func excl(t *testing.T, entries ...string) []input.Exclusion {

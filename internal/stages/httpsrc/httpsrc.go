@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // Configured is the Configured result for a source: a keyed source needs keys.<name>.

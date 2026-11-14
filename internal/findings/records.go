@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/cloudstorage"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/cloudstorage"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // This file is everything outside the package needs to know about a stored

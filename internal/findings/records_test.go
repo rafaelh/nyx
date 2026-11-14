@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/findings"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 func srec(kind, key string, current bool, kv ...any) store.Record {

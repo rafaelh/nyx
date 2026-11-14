@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/cli"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/cli"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // exportWorld is an engagement "a.com" recorded by a run, and the stages it was
@@ -95,7 +95,7 @@ type exported struct {
 	stdout, stderr string
 }
 
-// export runs `recon export` with its own output buffers, so it can run while
+// export runs `nyx export` with its own output buffers, so it can run while
 // another run uses the harness's.
 func export(h *harness, args ...string) exported {
 	var stdout, stderr bytes.Buffer
@@ -550,7 +550,7 @@ func TestExport_NoSecrets(t *testing.T) {
 		t.Fatal("the test needs the value in the database")
 	}
 
-	t.Setenv("RECON_KEYS_SHODAN", secret)
+	t.Setenv("NYX_KEYS_SHODAN", secret)
 	e := export(h, "-e", "a.com")
 	if e.code != 0 {
 		t.Fatalf("exit %d: %s", e.code, e.stderr)
@@ -708,8 +708,8 @@ func TestExport_NoEngagement(t *testing.T) {
 			t.Errorf("%s: exit %d, stdout %q, want 1 and nothing", name, e.code, e.stdout)
 		}
 	}
-	// A .recon directory without a state database is not an engagement either.
-	if err := os.MkdirAll(filepath.Join(h.out, "hollow", ".recon"), 0o755); err != nil {
+	// A .nyx directory without a state database is not an engagement either.
+	if err := os.MkdirAll(filepath.Join(h.out, "hollow", ".nyx"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotDir(t, h.out)
@@ -736,7 +736,7 @@ func inode(fi fs.FileInfo) uint64 {
 // The engagement is found under output_dir from the configuration, as for a run.
 func TestExport_FindsEngagementUnderConfiguredOutputDir(t *testing.T) {
 	w := newExportWorld(t)
-	t.Setenv("RECON_OUTPUT_DIR", w.h.out)
+	t.Setenv("NYX_OUTPUT_DIR", w.h.out)
 	var stdout, stderr bytes.Buffer
 	d := w.h.deps()
 	d.Stdout, d.Stderr = &stdout, &stderr

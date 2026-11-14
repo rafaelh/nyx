@@ -3,7 +3,7 @@ package kinds_test
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 // A third party is shown while its root is in scope and, when it names a

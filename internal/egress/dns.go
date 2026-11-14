@@ -8,7 +8,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/rafaelh/recon/internal/input"
+	"github.com/rafaelh/nyx/internal/input"
 )
 
 // Record types for Resolver.Query, so stages never import a DNS library.

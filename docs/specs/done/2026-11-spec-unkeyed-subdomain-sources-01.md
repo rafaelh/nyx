@@ -10,9 +10,9 @@ contact with the target is introduced.
 
 1. Five new third-party stages exist and run under `--passive`: `otx` (AlienVault OTX passive
    DNS), `hackertarget` (hostsearch), `urlscan` (urlscan.io search), `anubis` (jldc.me) and
-   `certspotter` (Cert Spotter issuances). Each is listed by `recon --help` and can be named in
+   `certspotter` (Cert Spotter issuances). Each is listed by `nyx --help` and can be named in
    `--redo`.
-2. A repeatable `--skip <stage>` flag and a matching `skip` setting (`RECON_SKIP` takes a
+2. A repeatable `--skip <stage>` flag and a matching `skip` setting (`NYX_SKIP` takes a
    comma-separated list) turn stages off. The flag replaces the setting for that run, as other
    list settings do, and `--skip none` runs every stage. A skipped stage is shown as
    `not-configured (skipped)`, shown before any other reason, and performs no checks. An unknown
@@ -87,7 +87,7 @@ contact with the target is introduced.
   swept and no record changes. Validation is in `cli`: unknown name, a name also given to
   `--redo`, or one of `resolve`, `wildcard`, `ipowner`, `providerranges` exits 2 with the stage
   list. `acknowledge` ignores skipped stages when deciding whether to prompt.
-- **`skip` is a list setting**: `skip: [a, b]` in the file, `RECON_SKIP=a,b`, `--skip a --skip b`;
+- **`skip` is a list setting**: `skip: [a, b]` in the file, `NYX_SKIP=a,b`, `--skip a --skip b`;
   the flag replaces the setting; `none` clears it.
 
 ## Changes
@@ -220,7 +220,7 @@ reaches `subdomains.txt`. No new contact with the target is added.
 
 - **B1 met.** All five stages are registered, listed in `--help` and accepted by `--redo`.
 - **B2 met after one fix.** Skipping is checked first in `Runner.gate`, before `Checks`, so a
-  skipped stage runs no checks and retires nothing. Precedence is flag over `RECON_SKIP` (comma
+  skipped stage runs no checks and retires nothing. Precedence is flag over `NYX_SKIP` (comma
   list) over the file, and `none` clears the list. `acknowledge` ignores skipped target stages.
   *Fixed:* naming a stage in both `--redo` and `--skip` exited 2 but did not list the stage names,
   which B2 requires. The message now lists the stages that can be skipped, and
@@ -263,7 +263,7 @@ services.
 A high-effort review fixed five issues and left five. *Fixed:* the README overstated which sources
 record only hostnames and stop on a spent quota (it is the five new ones); urlscan gave no warning
 when its first page was not the whole result; the unknown-stage message said `--skip` even for the
-setting or `RECON_SKIP`; `web.sanHost` was a copy of `CleanName` and now calls it; `validateSkip` built
+setting or `NYX_SKIP`; `web.sanHost` was a copy of `CleanName` and now calls it; `validateSkip` built
 its stage list on every run. *Left:* the abort warning's fixed text drops the error that caused it
 (`# Design` fixes the wording); a Cert Spotter 429 on a late page discards the pages already read, so
 a large root can fail on every unkeyed run (needs a design change, such as keeping paging progress);

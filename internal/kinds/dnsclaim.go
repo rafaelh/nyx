@@ -1,7 +1,7 @@
 package kinds
 
 // DNSClaim is a DNS record a third party says exists, as opposed to a Resolution,
-// which recon's own lookup found. It is a separate kind so that no reader of
+// which nyx's own lookup found. It is a separate kind so that no reader of
 // resolutions (the inventory, the scope, the egress policy) can mistake one for
 // the other: a claim is shown in resolutions.csv and decides nothing.
 var DNSClaim = define[DNSClaimAttrs](Kind{Name: "dns_claim"})

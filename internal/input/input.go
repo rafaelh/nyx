@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )

@@ -1,5 +1,5 @@
 // Package cloudstorage is pure knowledge of the three public object stores
-// recon looks at (AWS S3, Google Cloud Storage and Azure Blob Storage): how a
+// nyx looks at (AWS S3, Google Cloud Storage and Azure Blob Storage): how a
 // URL or host names a bucket, which names to guess for a company, and how a
 // bucket is keyed and shown. It does no I/O.
 package cloudstorage
@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
 // Providers.

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/stages/asn"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/stages/asn"
 )
 
 func clients(t *testing.T, h http.HandlerFunc) (egress.Clients, *string) {
@@ -46,7 +46,7 @@ func TestRun(t *testing.T) {
 	if len(obs) != 2 || obs[0].Kind != "netblock" || obs[0].Key != "1.1.1.0/24" || obs[0].Attrs["asn"] != "AS13335" || obs[1].Key != "2606:4700::/32" {
 		t.Errorf("obs = %+v", obs)
 	}
-	for _, w := range []string{"/data/announced-prefixes/data.json", "resource=AS13335", "sourceapp=recon"} {
+	for _, w := range []string{"/data/announced-prefixes/data.json", "resource=AS13335", "sourceapp=nyx"} {
 		if !strings.Contains(*uri, w) {
 			t.Errorf("request %q missing %q", *uri, w)
 		}

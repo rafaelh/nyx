@@ -213,7 +213,7 @@ func TestListsPermutations_ChangedListRepeatsChecksOnce(t *testing.T) {
 	}
 	// The upgrade: the engagement now runs with a different list (here the real
 	// built-in one, which a new release has changed).
-	t.Setenv("RECON_WORDLIST", "")
+	t.Setenv("NYX_WORDLIST", "")
 	w.run("--passive", "--permutations-max", "5", "example.com")
 	upgraded := w.h.completed(eng, "permutations")
 	if len(upgraded) != 6 {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/rafaelh/recon/internal/config"
+	"github.com/rafaelh/nyx/internal/config"
 )
 
 func load(t *testing.T, cfgPath string, args ...string) (config.Settings, error) {
@@ -35,7 +35,7 @@ func writeFile(t *testing.T, body string) string {
 func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "RECON_") {
+		if strings.HasPrefix(kv, "NYX_") {
 			t.Setenv(strings.SplitN(kv, "=", 2)[0], "")
 			os.Unsetenv(strings.SplitN(kv, "=", 2)[0])
 		}
@@ -82,8 +82,8 @@ func TestPrecedence(t *testing.T) {
 		t.Fatalf("file: %d %v", s.Concurrency, s.Ports)
 	}
 
-	t.Setenv("RECON_CONCURRENCY", "3")
-	t.Setenv("RECON_PORTS", "8080,8081")
+	t.Setenv("NYX_CONCURRENCY", "3")
+	t.Setenv("NYX_PORTS", "8080,8081")
 	s, err = load(t, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestPrecedence(t *testing.T) {
 func TestNestedSettings(t *testing.T) {
 	clearEnv(t)
 	cfg := writeFile(t, "rate:\n  per_host: 2\ncrawl:\n  max_depth: 4\n")
-	t.Setenv("RECON_RATE_DNS", "10")
+	t.Setenv("NYX_RATE_DNS", "10")
 	s, err := load(t, cfg, "--crawl-pages", "7")
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestNestedSettings(t *testing.T) {
 func TestKeys(t *testing.T) {
 	clearEnv(t)
 	cfg := writeFile(t, "keys:\n  shodan: filesecret123\n")
-	t.Setenv("RECON_KEYS_CENSYS", "envsecret456")
+	t.Setenv("NYX_KEYS_CENSYS", "envsecret456")
 	s, err := load(t, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestValidation(t *testing.T) {
 		{"port range reversed", "", nil, []string{"--ports", "90-80"}, "ports", "90-80"},
 		{"risky port", "", nil, []string{"--risky-ports", "99999"}, "risky_ports", "99999"},
 		{"concurrency zero", "concurrency: 0\n", nil, nil, "concurrency", "0"},
-		{"concurrency env text", "", map[string]string{"RECON_CONCURRENCY": "lots"}, nil, "concurrency", "lots"},
+		{"concurrency env text", "", map[string]string{"NYX_CONCURRENCY": "lots"}, nil, "concurrency", "lots"},
 		{"rate negative", "", nil, []string{"--rate-per-host", "-1"}, "rate.per_host", "-1"},
 		{"rate dns zero", "rate:\n  dns: 0\n", nil, nil, "rate.dns", "0"},
 		{"unknown key", "concurency: 3\n", nil, nil, "concurency", "concurency"},
@@ -213,12 +213,12 @@ func TestExplicitConfigMissing(t *testing.T) {
 
 func TestDefaultConfigPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
-	if got := config.DefaultConfigPath(); got != "/xdg/recon/config.yaml" {
+	if got := config.DefaultConfigPath(); got != "/xdg/nyx/config.yaml" {
 		t.Errorf("got %s", got)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "/home/u")
-	if got := config.DefaultConfigPath(); got != "/home/u/.config/recon/config.yaml" {
+	if got := config.DefaultConfigPath(); got != "/home/u/.config/nyx/config.yaml" {
 		t.Errorf("got %s", got)
 	}
 }
@@ -236,10 +236,10 @@ func TestLoadWithoutHomeIgnoresWorkingDirectoryConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".config", "recon"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".config", "nyx"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".config", "recon", "config.yaml"), []byte("not: [valid"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".config", "nyx", "config.yaml"), []byte("not: [valid"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)

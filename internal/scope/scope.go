@@ -9,8 +9,8 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/rafaelh/recon/internal/dnsname"
-	"github.com/rafaelh/recon/internal/input"
+	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/input"
 )
 
 // Class is the scope classification of a hostname.

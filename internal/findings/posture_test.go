@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/findings"
+	"github.com/rafaelh/nyx/internal/findings"
 )
 
 // posture adds a web_posture record, as the probe stores it, for a service.

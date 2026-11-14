@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/engagement"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 func noop() *testkit.Stage { return &testkit.Stage{StageName: "noop", Kind: run.ThirdParty} }
@@ -132,7 +132,7 @@ func TestHelp(t *testing.T) {
 	for _, w := range []string{
 		"--ports", "21-23", "--risky-ports", "21,23,445,1433", "--concurrency", "10", "--rate-per-host", "--rate-per-source", "--rate-dns", "50",
 		"--crawl-depth", "--crawl-pages", "100", "--output-dir", "--netblock-limit", "4096", "--wordlist", "--sensitive-paths", config.BuiltinSensitivePathsLabel(), "--storage-max-names", "--cert-expiry-days",
-		"config.yaml", ".config/recon", "RECON_", "RECON_KEYS_", "alpha", "beta", "--redo", "order", "--passive", "--authorised", "--json",
+		"config.yaml", ".config/nyx", "NYX_", "NYX_KEYS_", "alpha", "beta", "--redo", "order", "--passive", "--authorised", "--json",
 	} {
 		if !strings.Contains(help, w) {
 			t.Errorf("help missing %q", w)
@@ -209,7 +209,7 @@ func TestNonEngagementDirRefused(t *testing.T) {
 	if code := h.exec("-e", "legacy", "a.com"); code != 1 || !strings.Contains(h.stderr.String(), legacy) {
 		t.Errorf("exit %d stderr %q", code, h.stderr.String())
 	}
-	if _, err := os.Stat(filepath.Join(legacy, ".recon")); err == nil {
+	if _, err := os.Stat(filepath.Join(legacy, ".nyx")); err == nil {
 		t.Error("must not write into a foreign directory")
 	}
 
@@ -219,10 +219,10 @@ func TestNonEngagementDirRefused(t *testing.T) {
 	if code := h.exec("-e", "empty", "a.com"); code != 0 {
 		t.Errorf("empty dir should be adopted: %d %s", code, h.stderr.String())
 	}
-	if err := os.MkdirAll(filepath.Join(h.eng("half"), ".recon"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(h.eng("half"), ".nyx"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.eng("half"), ".recon", "lock"), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.eng("half"), ".nyx", "lock"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code := h.exec("-e", "half", "a.com"); code != 0 {
@@ -489,7 +489,7 @@ func TestRedactedCheckKeyCompletes(t *testing.T) {
 	st := &testkit.Stage{StageName: "asnish", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return []run.Check{{Key: "AS4123"}} }}
 	h := newHarness(t, st)
-	t.Setenv("RECON_KEYS_FAKE", "123")
+	t.Setenv("NYX_KEYS_FAKE", "123")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if code := h.execCtx(ctx, "a.com"); code != 0 {
@@ -1028,10 +1028,10 @@ func TestExitCodes(t *testing.T) {
 	}
 
 	// A corrupt store is a fatal runtime error.
-	if err := os.MkdirAll(filepath.Join(h.eng("bad"), ".recon"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(h.eng("bad"), ".nyx"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.eng("bad"), ".recon", "state.db"), []byte("this is not a sqlite database, just some text padding padding padding padding"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.eng("bad"), ".nyx", "state.db"), []byte("this is not a sqlite database, just some text padding padding padding padding"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if code = h.exec("-e", "bad", "a.com"); code != 1 {
@@ -1092,7 +1092,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 		a, b := mk("viaenv", "fake", &gotEnv), mk("viafile", "other", &gotFile)
 		h := newHarness(t, a, b)
 		h.eopts.SourceBaseURLs = map[string]string{"api.example.net": "http://127.0.0.1:1"} // refuses connections; error text includes the URL
-		t.Setenv("RECON_KEYS_FAKE", envKey)
+		t.Setenv("NYX_KEYS_FAKE", envKey)
 		args := []string{"a.com", "--debug", "--config", cfg}
 		if jsonMode {
 			args = append(args, "--json")
@@ -1120,6 +1120,6 @@ func TestSecretsNeverLeak(t *testing.T) {
 			}
 			return nil
 		})
-		os.Unsetenv("RECON_KEYS_FAKE")
+		os.Unsetenv("NYX_KEYS_FAKE")
 	}
 }

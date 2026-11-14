@@ -198,7 +198,7 @@ offering RC4 and, separately, 3DES (`TestTargetHTTPDoesNotOfferRC4Or3DES`); a TL
 - **Behaviour 1.** A service that offers TLS 1.0 or 1.1 alongside TLS 1.2 or later negotiates the
   newer one and is not detected. The spec accepts this and the README says so.
 - **Behaviour 2.** `untrusted-chain` and `trusted` depend on the root store of the machine running
-  recon. The CLI tests cannot produce `trusted` (a fake server's chain is never in the system
+  nyx. The CLI tests cannot produce `trusted` (a fake server's chain is never in the system
   roots); it is covered only by `TestCertTrustValues`, with a root pool passed in.
 - **Behaviour 3.** An Akamai address in Linode's published list classifies as dedicated, so a host
   on one with no Akamai CNAME can get `hostname-mismatch` for a CDN certificate (Spec 5's
@@ -336,10 +336,10 @@ Left unfixed:
 3. On a Mac, check whether `certTrust`'s `leaf.Verify` against the system roots
    (`internal/egress/tls.go`) makes network requests for AIA or revocation (for example probe a
    test host whose leaf has an AIA URL pointing at a host you watch, with
-   `recon --output-dir /tmp/recon-out ...`). If it does, verify with an explicit root pool on darwin
+   `nyx --output-dir /tmp/nyx-out ...`). If it does, verify with an explicit root pool on darwin
    so the passive boundary holds.
 4. Run a live probe against a real TLS 1.0/1.1-only service you are authorised to test, and check
-   `web-services.csv` and `risk-certificates.csv` (`go run ./cmd/recon --output-dir /tmp/recon-out
+   `web-services.csv` and `risk-certificates.csv` (`go run ./cmd/nyx --output-dir /tmp/nyx-out
    <target>`), including an existing engagement before and after `--redo httpprobe`.
 5. Fix the five `golangci-lint run ./...` issues in files outside this change
    (`internal/cli/sources_keyed_test.go`, `internal/sanitize/sanitize_test.go`,

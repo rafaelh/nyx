@@ -3,8 +3,8 @@ package kinds
 import (
 	"strings"
 
-	"github.com/rafaelh/recon/internal/provider"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // ThirdParty is an organisation the engagement's roots depend on or have

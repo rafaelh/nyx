@@ -3,8 +3,8 @@ package output
 import (
 	"strconv"
 
-	"github.com/rafaelh/recon/internal/findings"
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 // findingsFile writes a findings file like the other CSV files. The findings

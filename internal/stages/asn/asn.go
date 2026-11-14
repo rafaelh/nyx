@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/stages/httpsrc"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // Stage is the asn stage. A netblock it observes under a check for an input
@@ -51,7 +51,7 @@ type announced struct {
 // "ok" answer is a transient failure.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	asn := c.Key
-	q := url.Values{"resource": {asn}, "sourceapp": {"recon"}}
+	q := url.Values{"resource": {asn}, "sourceapp": {"nyx"}}
 	raw, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
 		Method: "GET", URL: "https://stat.ripe.net/data/announced-prefixes/data.json?" + q.Encode(),
 	})

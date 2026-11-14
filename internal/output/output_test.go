@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/output"
+	"github.com/rafaelh/nyx/internal/output"
 )
 
 func rows(rs ...output.Row) func(output.Snapshot) []output.Row {
@@ -25,7 +25,7 @@ func read(t *testing.T, dir, name string) string {
 
 func newDir(t *testing.T) string {
 	d := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(d, ".recon"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(d, ".nyx"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return d
@@ -165,22 +165,22 @@ func TestCSVSafety(t *testing.T) {
 	}
 }
 
-// Rendered through .recon/tmp then renamed; no leftovers; sweep clears stale temp files.
+// Rendered through .nyx/tmp then renamed; no leftovers; sweep clears stale temp files.
 func TestAtomicRenderAndSweep(t *testing.T) {
 	dir := newDir(t)
 	f := output.File{Name: "a.txt", Format: output.TXT, Rows: rows(output.Row{Cells: []string{"one"}, Current: true})}
 	if err := output.Render(dir, []output.File{f}, output.Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(filepath.Join(dir, ".recon", "tmp"))
+	entries, _ := os.ReadDir(filepath.Join(dir, ".nyx", "tmp"))
 	if len(entries) != 0 {
 		t.Errorf("temp files left behind: %v", entries)
 	}
 	// A stale partial file from a crash.
-	if err := os.MkdirAll(filepath.Join(dir, ".recon", "tmp"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".nyx", "tmp"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stale := filepath.Join(dir, ".recon", "tmp", "a.txt")
+	stale := filepath.Join(dir, ".nyx", "tmp", "a.txt")
 	if err := os.WriteFile(stale, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
 	}

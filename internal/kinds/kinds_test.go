@@ -3,7 +3,7 @@ package kinds_test
 import (
 	"testing"
 
-	"github.com/rafaelh/recon/internal/kinds"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 // The discovery kinds (addresses, owners, wildcards, resolutions) and which of

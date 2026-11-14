@@ -15,9 +15,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/provider"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Host is a hostname record and the stages currently observing it.

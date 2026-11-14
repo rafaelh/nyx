@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // The one function that decides whether a web service or URL host

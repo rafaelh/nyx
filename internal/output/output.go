@@ -1,5 +1,5 @@
 // Package output renders the engagement's TXT and CSV files from the store.
-// Files are written to .recon/tmp and renamed into place, so a reader never
+// Files are written to .nyx/tmp and renamed into place, so a reader never
 // sees a truncated file.
 package output
 
@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/recon/internal/fault"
-	"github.com/rafaelh/recon/internal/findings"
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/kinds"
-	"github.com/rafaelh/recon/internal/sanitize"
-	"github.com/rafaelh/recon/internal/scope"
-	"github.com/rafaelh/recon/internal/store"
+	"github.com/rafaelh/nyx/internal/fault"
+	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // Format is TXT (plain list, current records only) or CSV (all records).
@@ -68,12 +68,12 @@ type File struct {
 	Order func(a, b Row) int
 }
 
-// Render writes every file via .recon/tmp and renames it into dir.
+// Render writes every file via .nyx/tmp and renames it into dir.
 func Render(dir string, files []File, snap Snapshot) error {
 	if snap.Vis == nil {
 		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
 	}
-	tmp := filepath.Join(dir, ".recon", "tmp")
+	tmp := filepath.Join(dir, ".nyx", "tmp")
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func Render(dir string, files []File, snap Snapshot) error {
 
 // Sweep removes stale temporary files left by an interrupted render.
 func Sweep(dir string) error {
-	tmp := filepath.Join(dir, ".recon", "tmp")
+	tmp := filepath.Join(dir, ".nyx", "tmp")
 	entries, err := os.ReadDir(tmp)
 	if os.IsNotExist(err) {
 		return nil
@@ -405,10 +405,10 @@ func unresolvedRows(s Snapshot) []Row {
 	return rows
 }
 
-// resolutionRows merges recon's own DNS answers with the records third parties
-// reported, by key. source is "resolve" for a record recon's lookup holds,
+// resolutionRows merges nyx's own DNS answers with the records third parties
+// reported, by key. source is "resolve" for a record nyx's lookup holds,
 // the reporting source for a claim alone, and both, joined with ";", when both
-// hold it. A record recon holds takes its dates and currency from recon.
+// hold it. A record nyx holds takes its dates and currency from nyx.
 func resolutionRows(s Snapshot) []Row {
 	var rows []Row
 	at := map[string]int{}

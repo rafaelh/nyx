@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/cli"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/palette"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/cli"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 const esc = "\x1b"
@@ -79,7 +79,7 @@ func summaryOnly(t *testing.T, h *harness) {
 		t.Fatalf("stdout does not start with the summary:\n%s", out)
 	}
 	for _, l := range strings.Split(out, "\n") {
-		if logLayout.MatchString(l) || strings.HasPrefix(l, "recon ") || strings.HasPrefix(l, "+ ") || strings.HasPrefix(l, "error:") {
+		if logLayout.MatchString(l) || strings.HasPrefix(l, "nyx ") || strings.HasPrefix(l, "+ ") || strings.HasPrefix(l, "error:") {
 			t.Errorf("a log line on stdout: %q", l)
 		}
 	}
@@ -93,7 +93,7 @@ func TestLog_StreamsOfACompletedRun(t *testing.T) {
 	}
 	summaryOnly(t, h)
 	err := h.stderr.String()
-	for _, want := range []string{"| INFO  | recon a.com  ", "| INFO  | s              running", "| INFO  | s              done (1 checks, 0 failed)",
+	for _, want := range []string{"| INFO  | nyx a.com  ", "| INFO  | s              running", "| INFO  | s              done (1 checks, 0 failed)",
 		"| INFO  | + host: www.a.com", "| INFO  |   hosts: 1"} {
 		if !strings.Contains(err, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, err)
@@ -324,7 +324,7 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 			t.Fatalf("warnings = %q", got)
 		}
 		lines := h.logLines()
-		if !strings.HasPrefix(lines[0].msg, "recon a.com") || lines[1].level != "WARN" || !strings.HasPrefix(lines[2].msg, "src ") {
+		if !strings.HasPrefix(lines[0].msg, "nyx a.com") || lines[1].level != "WARN" || !strings.HasPrefix(lines[2].msg, "src ") {
 			t.Errorf("order: %v", lines[:3])
 		}
 	})
@@ -465,13 +465,13 @@ func TestLog_Flags(t *testing.T) {
 
 	// Neither is a setting.
 	h = newHarness(t, stages()...)
-	t.Setenv("RECON_QUIET", "1")
-	t.Setenv("RECON_DEBUG", "1")
+	t.Setenv("NYX_QUIET", "1")
+	t.Setenv("NYX_DEBUG", "1")
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
 	if got := levels(h); got != "INFO,WARN" {
-		t.Errorf("RECON_QUIET and RECON_DEBUG changed the levels: %s", got)
+		t.Errorf("NYX_QUIET and NYX_DEBUG changed the levels: %s", got)
 	}
 	for _, key := range []string{"quiet", "debug"} {
 		cfg := writeFile(t, t.TempDir(), "config.yaml", key+": true\n")
@@ -507,7 +507,7 @@ func TestLog_FoundLinesPlain(t *testing.T) {
 	if strings.Contains(h.stderr.String(), "[high]") || strings.Contains(h.stdout.String(), "[high]") {
 		t.Error("the [severity] suffix is back")
 	}
-	if want := "recon a.com  1 roots, 0 orgs, 0 asns, 0 cidrs, 0 exclusions"; h.logLines()[0].msg != want {
+	if want := "nyx a.com  1 roots, 0 orgs, 0 asns, 0 cidrs, 0 exclusions"; h.logLines()[0].msg != want {
 		t.Errorf("header = %q, want %q", h.logLines()[0].msg, want)
 	}
 }
@@ -613,11 +613,11 @@ func TestLog_ColourDecision(t *testing.T) {
 		}
 		return h
 	}
-	h := run1(t, true, false, nil) // recon example.com 2> run.log
+	h := run1(t, true, false, nil) // nyx example.com 2> run.log
 	if strings.Contains(h.stderr.String(), esc) || !strings.Contains(h.stdout.String(), "\x1b[1mSummary") {
 		t.Errorf("redirected log: stderr %q, stdout %q", h.stderr.String(), h.stdout.String())
 	}
-	h = run1(t, false, true, nil) // recon example.com > summary.txt
+	h = run1(t, false, true, nil) // nyx example.com > summary.txt
 	if !strings.Contains(h.stderr.String(), "\x1b[38;2;124;129;145m") || strings.Contains(h.stdout.String(), esc) {
 		t.Errorf("redirected summary: stderr %q, stdout %q", h.stderr.String(), h.stdout.String())
 	}
@@ -692,7 +692,7 @@ func TestLog_JSON(t *testing.T) {
 			continue // --quiet and --debug are exclusive
 		}
 		h := newHarness(t, mk()...)
-		t.Setenv("RECON_KEYS_FAKE", key)
+		t.Setenv("NYX_KEYS_FAKE", key)
 		if code := h.exec(append([]string{"a.com", "--json"}, args...)...); code != 0 {
 			t.Fatalf("%v: exit %d", args, code)
 		}
@@ -766,7 +766,7 @@ func TestLog_MessageHandling(t *testing.T) {
 		}}
 	for _, coloured := range []bool{false, true} {
 		h := newHarness(t, st)
-		t.Setenv("RECON_KEYS_FAKE", key)
+		t.Setenv("NYX_KEYS_FAKE", key)
 		if coloured {
 			colourAt(t, h, palette.TrueColor)
 		}

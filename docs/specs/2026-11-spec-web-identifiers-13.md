@@ -7,7 +7,7 @@ can pivot to related sites, and with a Shodan key the pivot is done for them.
 
 ## Behaviours
 
-1. From pages the probe and crawl fetched, recon records per web service, as the union over its
+1. From pages the probe and crawl fetched, nyx records per web service, as the union over its
    fetched pages: Google Analytics and Tag Manager IDs found in `gtag/js?id=`, `gtag('config',
    …)` or GTM snippet contexts; Facebook pixel IDs found in `fbq('init','<digits>')` or
    `facebook.com/tr?id=`; the first line of the root page's visible text containing `©` or `(c)`

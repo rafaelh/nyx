@@ -2,13 +2,13 @@
 
 ## Goal
 
-From responses recon already has, obvious web configuration weaknesses are reported as low
+From responses nyx already has, obvious web configuration weaknesses are reported as low
 findings, without any additional request or probing technique, and without burying the user in
 near-universal conditions.
 
 ## Behaviours
 
-1. For each live in-scope web service the probe requested, recon records: whether the first HTTPS
+1. For each live in-scope web service the probe requested, nyx records: whether the first HTTPS
    response carries `Strict-Transport-Security`; each cookie set by any response in the redirect
    chain that lacks `Secure` on an HTTPS service, or lacks `HttpOnly` on any service (cookie names
    only, never values, sanitised); whether the final same-origin page of `/` is a directory listing
@@ -25,7 +25,7 @@ near-universal conditions.
    platform. Headers such as CSP and `X-Frame-Options` are intentionally not assessed.
 4. A condition absent after `--redo httpprobe` marks its finding not current. Existing
    engagements gain the columns and findings only after `--redo httpprobe`; the README says so.
-5. `recon --help`'s severity list includes the new finding types and the README's output table
+5. `nyx --help`'s severity list includes the new finding types and the README's output table
    adds `risk-web-posture.csv`.
 
 # Design
@@ -196,8 +196,8 @@ All five behaviours and the goal are met. `make test` (cross-target `go vet` and
   `--redo httpprobe` adds the evidence. A condition that is gone after a redo leaves its finding on
   record but not current. The README says this. The test simulates an older engagement by deleting
   records, as `## Known limitations` says. That is a limit of the test, not of the behaviour.
-- **B5: met.** `recon --help` prints the severity table, which includes the four new types (checked
-  by running `go run ./cmd/recon --help`). The README output table has the `risk-web-posture.csv`
+- **B5: met.** `nyx --help` prints the severity table, which includes the four new types (checked
+  by running `go run ./cmd/nyx --help`). The README output table has the `risk-web-posture.csv`
   row.
 
 Changed during verification: the README's `web-services.csv` row said the posture columns were

@@ -3,12 +3,12 @@
 ## Goal
 
 A web server, framework or network service whose detected version is past the end of security
-support for its release cycle is reported as a finding, from versions recon already captures.
+support for its release cycle is reported as a finding, from versions nyx already captures.
 
 ## Behaviours
 
-1. recon embeds a table of products and the end of security support of each release cycle, as
-   endoflife.date records them, for each product endoflife.date tracks that recon can version
+1. nyx embeds a table of products and the end of security support of each release cycle, as
+   endoflife.date records them, for each product endoflife.date tracks that nyx can version
    from Wappalyzer or from SSH, FTP and SMTP banners. The README lists the products, the data
    source and the date the data was taken. A run warns once when the embedded data is older than
    twelve months.

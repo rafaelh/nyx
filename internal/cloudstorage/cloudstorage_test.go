@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/cloudstorage"
+	"github.com/rafaelh/nyx/internal/cloudstorage"
 )
 
 // ParseRef recognises S3, GCS and Azure hosts and URLs.

@@ -15,24 +15,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/recon/internal/cli"
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
-	"github.com/rafaelh/recon/internal/testkit"
+	"github.com/rafaelh/nyx/internal/cli"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// TestMain lets the test binary re-execute itself as `recon` with a fake stage.
+// TestMain lets the test binary re-execute itself as `nyx` with a fake stage.
 func TestMain(m *testing.M) {
-	if os.Getenv("RECON_TEST_CHILD") == "1" {
+	if os.Getenv("NYX_TEST_CHILD") == "1" {
 		os.Exit(childMain())
 	}
 	os.Exit(m.Run())
 }
 
 func childMain() int {
-	n, _ := strconv.Atoi(os.Getenv("RECON_TEST_N"))
-	delay, _ := time.ParseDuration(os.Getenv("RECON_TEST_DELAY"))
-	logPath := os.Getenv("RECON_TEST_LOG")
+	n, _ := strconv.Atoi(os.Getenv("NYX_TEST_N"))
+	delay, _ := time.ParseDuration(os.Getenv("NYX_TEST_DELAY"))
+	logPath := os.Getenv("NYX_TEST_LOG")
 	st := &testkit.Stage{StageName: "fake", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", n) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -52,7 +52,7 @@ func childMain() int {
 		}}
 	d := cli.DefaultDeps()
 	d.Stages = []run.Stage{st}
-	return cli.Execute(context.Background(), strings.Split(os.Getenv("RECON_TEST_ARGS"), "\x1f"), d)
+	return cli.Execute(context.Background(), strings.Split(os.Getenv("NYX_TEST_ARGS"), "\x1f"), d)
 }
 
 type child struct {
@@ -76,11 +76,11 @@ func startChild(t *testing.T, out string, o childOpts) *child {
 	args := append([]string{"--output-dir", out, "--json"}, o.args...)
 	c.cmd = exec.Command(os.Args[0], "-test.run=NoSuchTestEver")
 	c.cmd.Env = append(os.Environ(),
-		"RECON_TEST_CHILD=1", "RECON_TEST_N="+strconv.Itoa(o.n), "RECON_TEST_DELAY="+o.delay.String(),
-		"RECON_TEST_LOG="+c.log, "RECON_TEST_ARGS="+strings.Join(args, "\x1f"),
+		"NYX_TEST_CHILD=1", "NYX_TEST_N="+strconv.Itoa(o.n), "NYX_TEST_DELAY="+o.delay.String(),
+		"NYX_TEST_LOG="+c.log, "NYX_TEST_ARGS="+strings.Join(args, "\x1f"),
 		"XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
 	if o.fault != "" {
-		c.cmd.Env = append(c.cmd.Env, "RECON_FAULT="+o.fault, "RECON_FAULT_FILE="+o.faultFile)
+		c.cmd.Env = append(c.cmd.Env, "NYX_FAULT="+o.fault, "NYX_FAULT_FILE="+o.faultFile)
 	}
 	if err := c.cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func engDirOf(out string) string { return filepath.Join(out, "a.com") }
 
 func committed(t *testing.T, out string) map[string]bool {
 	t.Helper()
-	db := openDB(t, filepath.Join(engDirOf(out), ".recon", "state.db"))
+	db := openDB(t, filepath.Join(engDirOf(out), ".nyx", "state.db"))
 	m := map[string]bool{}
 	for _, k := range queryStrings(t, db, "SELECT key FROM checks WHERE stage='fake'") {
 		m[k] = true
@@ -209,7 +209,7 @@ func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 	if got := committed(t, out); len(got) != nChecks {
 		t.Errorf("after recovery %d checks recorded, want %d", len(got), nChecks)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".recon", "tmp")); len(entries) != 0 {
+	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".nyx", "tmp")); len(entries) != 0 {
 		t.Errorf("tmp not swept: %v", entries)
 	}
 	assertOutputsIntact(t, out)
@@ -229,7 +229,7 @@ func TestCrashRenderMidFile(t *testing.T) {
 	c2.waitFault(ff)
 	c2.kill(syscall.SIGKILL)
 	c2.wait()
-	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".recon", "tmp")); len(entries) == 0 {
+	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".nyx", "tmp")); len(entries) == 0 {
 		t.Error("fault did not leave a partial temp file; the hook may not be reached")
 	}
 	assertOutputsIntact(t, out)
@@ -241,7 +241,7 @@ func TestCrashRenderMidFile(t *testing.T) {
 	if code := c3.wait(); code != 0 {
 		t.Fatalf("next run exit %d", code)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".recon", "tmp")); len(entries) != 0 {
+	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".nyx", "tmp")); len(entries) != 0 {
 		t.Errorf("tmp not swept: %v", entries)
 	}
 	assertOutputsIntact(t, out)
@@ -293,7 +293,7 @@ func TestCrashDuringRedo(t *testing.T) {
 	c2.waitFault(ff)
 	c2.kill(syscall.SIGKILL)
 	c2.wait()
-	db := openDB(t, filepath.Join(engDirOf(out), ".recon", "state.db"))
+	db := openDB(t, filepath.Join(engDirOf(out), ".nyx", "state.db"))
 	if v := queryStrings(t, db, "SELECT key FROM meta WHERE key='redo:fake'"); len(v) != 1 {
 		t.Fatalf("redo marker must survive the crash: %v", v)
 	}
@@ -302,7 +302,7 @@ func TestCrashDuringRedo(t *testing.T) {
 		t.Fatalf("want a partial redo at the crash point, got %d of %d checks recorded", len(done), nChecks)
 	}
 	finishAndCheck(t, out, setDiff(allKeys(nChecks), done), childOpts{args: []string{"-e", "a.com"}}) // no --redo
-	db2 := openDB(t, filepath.Join(engDirOf(out), ".recon", "state.db"))
+	db2 := openDB(t, filepath.Join(engDirOf(out), ".nyx", "state.db"))
 	if v := queryStrings(t, db2, "SELECT key FROM meta WHERE key='redo:fake'"); len(v) != 0 {
 		t.Errorf("redo marker should be cleared: %v", v)
 	}

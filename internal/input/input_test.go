@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/input"
+	"github.com/rafaelh/nyx/internal/input"
 )
 
 // Domain forms.

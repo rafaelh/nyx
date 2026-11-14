@@ -37,7 +37,7 @@ type keyedSource struct {
 
 var keyedSources = []keyedSource{
 	{
-		stage: "shodan-dns", host: "api.shodan.io", env: "RECON_KEYS_SHODAN", key: shodanKey,
+		stage: "shodan-dns", host: "api.shodan.io", env: "NYX_KEYS_SHODAN", key: shodanKey,
 		auth: func(r *http.Request) bool { return r.URL.Query().Get("key") == shodanKey && r.Method == "GET" },
 		ok: `{"domain":"example.com","tags":[],"subdomains":["sd","only"],"more":false,"data":[
 			{"subdomain":"sd","type":"A","value":"198.51.100.7","last_seen":"2026-01-01T00:00:00"},
@@ -45,7 +45,7 @@ var keyedSources = []keyedSource{
 		names: []string{"sd.example.com", "only.example.com"},
 	},
 	{
-		stage: "censys", host: "api.platform.censys.io", env: "RECON_KEYS_CENSYS", key: censysKey,
+		stage: "censys", host: "api.platform.censys.io", env: "NYX_KEYS_CENSYS", key: censysKey,
 		auth: func(r *http.Request) bool {
 			return r.Header.Get("Authorization") == "Bearer "+censysKey && r.Method == "POST"
 		},
@@ -55,7 +55,7 @@ var keyedSources = []keyedSource{
 		names: []string{"cs.example.com", "wild.example.com"},
 	},
 	{
-		stage: "chaos", host: "dns.projectdiscovery.io", env: "RECON_KEYS_CHAOS", key: chaosKey,
+		stage: "chaos", host: "dns.projectdiscovery.io", env: "NYX_KEYS_CHAOS", key: chaosKey,
 		auth: func(r *http.Request) bool { return r.Header.Get("Authorization") == chaosKey && r.Method == "GET" },
 		ok:   `{"domain":"example.com","subdomains":["ch","*.wild","*",""],"count":4}`,
 		// "*" is the root itself and "" is nothing: neither is a new name.
@@ -150,9 +150,9 @@ func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 // The three request shapes, as far as the sources document them.
 func TestKeyed_RequestShapes(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_SHODAN", shodanKey)
-	t.Setenv("RECON_KEYS_CENSYS", censysKey)
-	t.Setenv("RECON_KEYS_CHAOS", chaosKey)
+	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	t.Setenv("NYX_KEYS_CENSYS", censysKey)
+	t.Setenv("NYX_KEYS_CHAOS", chaosKey)
 	for _, s := range keyedSources {
 		s.serveOK(w)
 	}
@@ -235,7 +235,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv("RECON_KEYS_CHAOS", chaosKey)
+			t.Setenv("NYX_KEYS_CHAOS", chaosKey)
 			w.handle("dns.projectdiscovery.io", h)
 			if code := w.run("--passive", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
@@ -280,7 +280,7 @@ type pagedSource struct {
 
 func pagedSources() []pagedSource {
 	return []pagedSource{
-		{stage: "shodan-dns", host: "api.shodan.io", env: "RECON_KEYS_SHODAN", key: shodanKey, flag: "--shodan-dns-max-pages",
+		{stage: "shodan-dns", host: "api.shodan.io", env: "NYX_KEYS_SHODAN", key: shodanKey, flag: "--shodan-dns-max-pages",
 			serve: func(w *world) {
 				w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 					var n int
@@ -288,7 +288,7 @@ func pagedSources() []pagedSource {
 					fmt.Fprintf(rw, `{"domain":"example.com","subdomains":["p%d"],"data":[{"subdomain":"p%d","type":"A","value":"203.0.113.5"}],"more":%v}`, n, n, n < 3)
 				})
 			}},
-		{stage: "censys", host: "api.platform.censys.io", env: "RECON_KEYS_CENSYS", key: censysKey, flag: "--censys-max-pages",
+		{stage: "censys", host: "api.platform.censys.io", env: "NYX_KEYS_CENSYS", key: censysKey, flag: "--censys-max-pages",
 			serve: func(w *world) {
 				w.handle("api.platform.censys.io", func(rw http.ResponseWriter, r *http.Request) {
 					var req struct {
@@ -381,7 +381,7 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 // still part of the check.
 func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_CHAOS", chaosKey)
+	t.Setenv("NYX_KEYS_CHAOS", chaosKey)
 	w.handle("dns.projectdiscovery.io", jsonBody(`{"domain":"example.com","subdomains":["a"],"count":1}`))
 	if code := w.run("--passive", "--chaos-max-pages", "3", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -429,7 +429,7 @@ func resolutionSource(w *world, name, typ, value string) string {
 
 func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_SHODAN", shodanKey)
+	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
 			_, _ = rw.Write([]byte(claimsBody))
@@ -479,7 +479,7 @@ func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "dead.example.com") {
 		t.Errorf("subdomains.txt = %v, want the name Shodan lists", w.lines(eng, "subdomains.txt"))
 	}
-	// Shodan's addresses are not addresses recon found.
+	// Shodan's addresses are not addresses nyx found.
 	for _, r := range w.table(eng, "ips.csv") {
 		if r["ip"] == "198.51.100.77" || r["ip"] == "198.51.100.88" || r["ip"] == "2001:db8::1" {
 			t.Errorf("ips.csv lists a Shodan-only address: %v", r)
@@ -494,7 +494,7 @@ func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
 // recorded, so they are not even candidates.
 func TestShodanDNS_TargetsBecomeHostnamesOnlyInScope(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_KEYS_SHODAN", shodanKey)
+	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
 			_, _ = rw.Write([]byte(`{"domain":"example.com","subdomains":["www"],"more":false,"data":[
@@ -540,7 +540,7 @@ func TestShodanDNS_TargetsBecomeHostnamesOnlyInScope(t *testing.T) {
 // and its name is neither resolved nor probed because of it.
 func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
 	p := newPorts(t)
-	t.Setenv("RECON_KEYS_SHODAN", shodanKey)
+	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
 	const ghost = "198.51.100.77"
 	p.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {

@@ -4,8 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/provider"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/provider"
 )
 
 // SaaSServed is true when a CNAME on the chain, an address's ASN or an address range is SaaS.

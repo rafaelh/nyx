@@ -6,17 +6,17 @@ import (
 	"os"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/cli"
+	"github.com/rafaelh/nyx/internal/cli"
 )
 
-// --version prints "recon <version>" and exits without doing any work.
+// --version prints "nyx <version>" and exits without doing any work.
 func TestVersionFlag(t *testing.T) {
 	h := newHarness(t, noop())
 	h.version = "v0.0.0-20261106032157-7e34c1b8d74f"
 	if code := h.exec("--version"); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
-	if got, want := h.stdout.String(), "recon "+h.version+"\n"; got != want {
+	if got, want := h.stdout.String(), "nyx "+h.version+"\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 	if h.stderr.Len() != 0 {
@@ -37,7 +37,7 @@ func TestVersionFlagZeroDeps(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
-	if got := stdout.String(); got != "recon devel\n" {
+	if got := stdout.String(); got != "nyx devel\n" {
 		t.Errorf("stdout = %q", got)
 	}
 }

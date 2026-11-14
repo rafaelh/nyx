@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/recon/internal/inventory"
-	"github.com/rafaelh/recon/internal/provider"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/provider"
 )
 
 // NS, SOA, TXT and CAA rows are not addresses, aliases or zones: adding them,

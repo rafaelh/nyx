@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rafaelh/recon/internal/config"
-	"github.com/rafaelh/recon/internal/palette"
-	"github.com/rafaelh/recon/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
 // Event is one thing that happened in a run. Types: run_start, stage, found,
@@ -201,7 +201,7 @@ func (c *Console) Emit(ev Event) {
 	level, msg := Info, ""
 	switch ev.Type {
 	case "run_start":
-		msg = "recon " + str(f, "engagement")
+		msg = "nyx " + str(f, "engagement")
 		if s := str(f, "scope"); s != "" {
 			msg += "  " + s
 		}

@@ -117,13 +117,13 @@ func TestSkip_InvalidExits2(t *testing.T) {
 // Naming an unknown stage in the environment or file exits 2 too.
 func TestSkip_InvalidSettingExits2(t *testing.T) {
 	w := newWorld(t)
-	t.Setenv("RECON_SKIP", "crtsh,nonesuch")
+	t.Setenv("NYX_SKIP", "crtsh,nonesuch")
 	if code := w.run("--passive", "example.com"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
 	}
 }
 
-// The flag, the file and RECON_SKIP all set the list; the flag replaces the
+// The flag, the file and NYX_SKIP all set the list; the flag replaces the
 // setting for the run, and none clears it.
 func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	skipped := func(w *world) []string {
@@ -137,7 +137,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	}
 	t.Run("environment is comma separated", func(t *testing.T) {
 		w := newWorld(t)
-		t.Setenv("RECON_SKIP", "crtsh,wayback")
+		t.Setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "example.com")
 		if got := skipped(w); !slices.Equal(got, []string{"crtsh", "wayback"}) {
 			t.Errorf("skipped = %v", got)
@@ -153,7 +153,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	})
 	t.Run("flag replaces the setting", func(t *testing.T) {
 		w := newWorld(t)
-		t.Setenv("RECON_SKIP", "crtsh,wayback")
+		t.Setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "--skip", "hackertarget", "--skip", "urlscan", "example.com")
 		if got := skipped(w); !slices.Equal(got, []string{"hackertarget", "urlscan"}) {
 			t.Errorf("skipped = %v", got)
@@ -161,7 +161,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	})
 	t.Run("none runs every stage", func(t *testing.T) {
 		w := newWorld(t)
-		t.Setenv("RECON_SKIP", "crtsh,wayback")
+		t.Setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "--skip", "none", "example.com")
 		if got := skipped(w); len(got) != 0 {
 			t.Errorf("skipped = %v, want nothing", got)

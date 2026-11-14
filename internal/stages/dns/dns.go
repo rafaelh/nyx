@@ -9,8 +9,8 @@ import (
 	"net/netip"
 	"slices"
 
-	"github.com/rafaelh/recon/internal/egress"
-	"github.com/rafaelh/recon/internal/run"
+	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/run"
 )
 
 // base is the contract shared by the DNS stages: no third-party hosts, always configured.

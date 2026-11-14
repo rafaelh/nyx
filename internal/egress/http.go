@@ -19,13 +19,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rafaelh/recon/internal/input"
-	"github.com/rafaelh/recon/internal/scope"
+	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 const (
 	maxTargetBody = 1 << 20
-	userAgent     = "recon/1"
+	userAgent     = "nyx/1"
 )
 
 // MaxTargetBody is the cap on Response.Body: a body of exactly this length may have been cut.
