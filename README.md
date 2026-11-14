@@ -438,12 +438,58 @@ that were not found by a later run are kept and marked not current. The `.recon/
 the state database and the run lock. Don't edit it. Finding severities are listed by
 `recon --help`.
 
+## Exporting an engagement
+
+`recon export -e <name>` writes everything recorded about an engagement to stdout as JSON lines, for
+other tooling. The CSV columns are for people and may change; the export is the form to read from
+a program. `--output-dir` and `--config` find the engagement as they do for a run.
+
+```sh
+recon export -e acme > acme.jsonl
+recon export -e acme --current --kind hostname --kind web_service --output hosts.jsonl
+```
+
+- **Lines.** There is one line for each input (`kind` `input`, with `type` of `root`, `org`, `asn` or
+  `cidr`, `value` and `added`) and each exclusion (`kind` `exclusion`, with `value` and `added`),
+  then one line for each record of the engagement, current or not, in kind order and then key order.
+  A record line has `kind`, `key`, `attrs`, `current`, `first_seen`, `last_seen` and `stages`, the
+  stages that observe it now (none when it is not current), and then either `scope` or `shown`.
+  `scope` is `in-scope`, `candidate` or `excluded`, for hostnames, roots, netblocks and excluded
+  items. `shown` is `true` or `false` for every other kind, as the files and summary decide it:
+  whether the record is shown for the engagement's scope. Both are worked out when you export,
+  from the engagement's inputs and your current configuration, the same way a run does, so an
+  exclusion added since a record was found is reflected.
+- **Attributes.** `attrs` are the record's attributes merged from the stages that observe it, later
+  stages in the registry winning a field, as in the CSV files. The store keeps attributes only
+  from current observations, so a record that is not current has `attrs` of `{}`. `finding` and
+  `candidate_rank` records are derived from the others: they are exported like any other record,
+  but their `stages` name the pseudo-stage that derived them (`findings`, `candidate-rank`), which
+  is not a stage you can `--redo`.
+- **`--current`** keeps only current records. **`--kind`** (repeatable) keeps only the kinds
+  named; `recon export --help` lists them, including `input` and `exclusion`. The two combine. An
+  unknown kind exits 2.
+- **`--output <file>`** writes to the file instead, replacing it atomically: the lines go to a
+  temporary file beside it, which is renamed into place, so a failed write leaves an existing
+  file as it was. A write failure exits 1.
+- **Left out.** The authorisation acknowledgement, the netblock approval and the settings are not
+  exported, and an API key never is: any configured key value in the text is replaced with `****`.
+  Text a target supplied (titles, banners) is sanitised as for console output.
+- **Reading only.** `export` takes no lock, so it works while a run is in progress and shows the
+  state as of one moment, writes nothing to the engagement and makes no network requests. It exits 1
+  for an engagement that does not exist (creating nothing) or a directory that is not a recon
+  engagement.
+
+**What stays stable.** The names of the stored attributes (they are what the state database keeps,
+so renaming one would break resuming an engagement) and the export's own field names and kind
+names. The attributes of a `finding` record are derived and may change, and so may anything in the
+CSV files.
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | The run completed, including with failed checks or `not-configured` stages |
-| 1 | Fatal runtime error, an engagement already locked by another run, or an output directory that is not a recon engagement |
+| 1 | Fatal runtime error, an engagement already locked by another run, or an output directory that is not a recon engagement. For `recon export`, also an engagement that does not exist and a failure to write the export |
 | 2 | Invalid input or configuration. Nothing was contacted |
 | 3 | The netblock limit was exceeded without `--allow-large-netblocks` |
 | 130 | Interrupted (SIGINT, SIGTERM or SIGHUP). Completed work is saved; re-run to continue |

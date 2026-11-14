@@ -92,6 +92,11 @@ records (the `candidate_rank` of each candidate, ranked by `internal/candidates`
 runner's list of derivers in `internal/run/derive.go`, each stored under its own pseudo-stage and
 re-derived only when the kinds it reads, the inputs or the date change.
 
+`recon export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
+takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives one snapshot, and
+`run.BuildScope` classifies records with the same rules as a run. A kind a new stage's scope depends on goes in `scopeKinds`
+(`internal/run/scopebuild.go`), which the rank deriver also reads.
+
 **Pure knowledge packages** with no I/O: `cloudstorage` (bucket naming, S3/GCS/Azure),
 `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data in the
 embedded `providers.yaml`), `dnsname`, `sanitize` (strips terminal-acting characters from

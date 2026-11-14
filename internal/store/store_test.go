@@ -2,8 +2,10 @@ package store_test
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -525,4 +527,189 @@ func TestObservers(t *testing.T) {
 	}
 	got, _ = s.Observers("root")
 	want(got, "z.org", "st/svc|fp=new")
+}
+
+// viewRecords reads the records of a kind in one View of ro.
+func viewRecords(t *testing.T, ro *store.ReadOnly, kind string) []store.Record {
+	t.Helper()
+	var recs []store.Record
+	if err := ro.View(func(r store.Reader) (err error) { recs, err = r.Records(kind, nil); return err }); err != nil {
+		t.Fatal(err)
+	}
+	return recs
+}
+
+// A read-only open reads what a run committed while the run still has it open.
+func TestOpenReadOnlyReads(t *testing.T) {
+	c := newClock()
+	s, p := open(t, c, nil)
+	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
+	if _, err := s.AddInput("root", "example.com"); err != nil {
+		t.Fatal(err)
+	}
+	mustFlush(t, s)
+
+	// The writer still has the database open, so a log file exists.
+	if _, err := os.Stat(p + "-wal"); err != nil {
+		t.Fatalf("expected a write-ahead log while the store is open: %v", err)
+	}
+	ro, err := store.OpenReadOnly(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recs := viewRecords(t, ro, "hostname"); len(recs) != 1 || recs[0].Key != "a.example.com" || !recs[0].Current {
+		t.Fatalf("records = %v", recs)
+	}
+	err = ro.View(func(r store.Reader) error {
+		if in, err := r.Inputs(); err != nil || len(in) != 1 {
+			t.Fatalf("inputs = %v, %v", in, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ro.Close(); err != nil {
+		t.Errorf("close: %v", err)
+	}
+}
+
+// With no run there is no log file, and opening must not create one.
+func TestOpenReadOnlyCreatesNothing(t *testing.T) {
+	c := newClock()
+	s, p := open(t, c, nil)
+	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snap := func() map[string]string {
+		m := map[string]string{}
+		entries, _ := os.ReadDir(filepath.Dir(p))
+		for _, e := range entries {
+			b, _ := os.ReadFile(filepath.Join(filepath.Dir(p), e.Name()))
+			m[e.Name()] = string(b)
+		}
+		return m
+	}
+	before := snap()
+	ro, err := store.OpenReadOnly(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recs := viewRecords(t, ro, "hostname"); len(recs) != 1 {
+		t.Fatalf("records = %v", recs)
+	}
+	if err := ro.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if after := snap(); !maps.Equal(before, after) {
+		t.Errorf("the directory changed: %v -> %v", slices.Sorted(maps.Keys(before)), slices.Sorted(maps.Keys(after)))
+	}
+}
+
+// With no log file the database is read immutable, without a lock, so a run
+// that starts during the read could change the file under it. The read is then
+// made again, under the run's log, and sees what the run committed.
+func TestViewRereadsWhenARunStarts(t *testing.T) {
+	c := newClock()
+	s, p := open(t, c, nil)
+	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ro, err := store.OpenReadOnly(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+
+	var calls, last int
+	err = ro.View(func(r store.Reader) error {
+		calls++
+		if calls == 1 {
+			w, err := store.Open(p, store.Options{Clock: c.now})
+			if err != nil {
+				return err
+			}
+			t.Cleanup(func() { w.Close() })
+			w.Complete("disc", "k2", []store.Obs{{Kind: "hostname", Key: "b.example.com"}})
+			if err := w.Flush(); err != nil {
+				return err
+			}
+		}
+		recs, err := r.Records("hostname", nil)
+		last = len(recs)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || last != 2 {
+		t.Errorf("read %d times, last seeing %d records; want a second read that sees the run's commit", calls, last)
+	}
+}
+
+func TestOpenReadOnlyRefusesWhatIsNotAStateDatabase(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := store.OpenReadOnly(filepath.Join(dir, "missing.db")); err == nil {
+		t.Error("a missing file was opened")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "missing.db")); err == nil {
+		t.Error("a missing file was created")
+	}
+	junk := filepath.Join(dir, "junk.db")
+	if err := writeGarbage(junk); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.OpenReadOnly(junk); err == nil {
+		t.Error("a junk file was opened")
+	}
+	empty := filepath.Join(dir, "empty.db")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.OpenReadOnly(empty); err == nil {
+		t.Error("an empty file was opened")
+	}
+	if fi, _ := os.Stat(empty); fi.Size() != 0 {
+		t.Error("the empty file was given a schema")
+	}
+}
+
+// Everything read in one View is one snapshot, whatever is committed meanwhile.
+func TestViewIsOneSnapshot(t *testing.T) {
+	c := newClock()
+	s, p := open(t, c, nil)
+	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
+	mustFlush(t, s)
+	ro, err := store.OpenReadOnly(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+
+	err = ro.View(func(r store.Reader) error {
+		first, err := r.Records("hostname", nil)
+		if err != nil {
+			return err
+		}
+		s.Complete("disc", "k2", []store.Obs{{Kind: "hostname", Key: "b.example.com"}})
+		if err := s.Flush(); err != nil {
+			return err
+		}
+		second, err := r.Records("hostname", nil)
+		if err != nil {
+			return err
+		}
+		if len(first) != 1 || len(second) != 1 {
+			t.Errorf("the snapshot moved: %d records, then %d", len(first), len(second))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recs := viewRecords(t, ro, "hostname"); len(recs) != 2 {
+		t.Errorf("a later read does not see the commit: %v", recs)
+	}
 }

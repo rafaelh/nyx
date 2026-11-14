@@ -63,7 +63,7 @@ const (
 	Excluded   = "excluded"
 )
 
-// Named is a kind handle: an Of or a Bare.
+// Named is a kind handle: an Of, a Bare, or one found by Lookup.
 type Named interface {
 	Name() string
 	kind() Kind
@@ -136,6 +136,19 @@ func Get(name string) (Kind, bool) {
 		return Kind{}, false
 	}
 	return table[i], true
+}
+
+// handle is a kind handle found by name. It reads; it cannot make observations.
+type handle struct{ k Kind }
+
+func (h handle) Name() string { return h.k.Name }
+func (h handle) kind() Kind   { return h.k }
+
+// Lookup returns the handle of a kind by name, for a reader that walks kinds by
+// name (see All) and asks the Visibility about them.
+func Lookup(name string) (Named, bool) {
+	k, ok := Get(name)
+	return handle{k}, ok
 }
 
 // All returns every kind sorted by name.

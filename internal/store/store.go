@@ -3,11 +3,13 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -114,8 +116,7 @@ func Open(path string, o Options) (*Store, error) {
 	q.Add("_pragma", "busy_timeout(10000)")
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
-	// SQLite decodes %HH in URI filenames, so escaping keeps ?, # and % in path literal.
-	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: path}).EscapedPath()+"?"+q.Encode())
+	db, err := sql.Open("sqlite", dsn(path, q))
 	if err != nil {
 		return nil, err
 	}
@@ -134,19 +135,148 @@ func Open(path string, o Options) (*Store, error) {
 	return s, nil
 }
 
-func initDB(db *sql.DB) error {
-	var appID, version, tables int
-	if err := db.QueryRow("PRAGMA application_id").Scan(&appID); err != nil {
+// dsn is the database/sql name of the database at path with the query q.
+// SQLite decodes %HH in URI filenames, so escaping keeps ?, # and % in path literal.
+func dsn(path string, q url.Values) string {
+	return "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + q.Encode()
+}
+
+// ReadOnly is an existing state database opened for reading only. It has no
+// writer, so nothing can be written through it.
+type ReadOnly struct {
+	path string
+	db   *sql.DB
+	// stamp is the database file's size and modification time when it was
+	// opened immutable, and nil when it was opened under WAL.
+	stamp *fileStamp
+}
+
+type fileStamp struct {
+	size int64
+	mod  time.Time
+}
+
+// OpenReadOnly opens an existing state database for reading: it creates no
+// file and never runs the schema. A database that is not recon's is an error.
+// While a run holds the database (it has a write-ahead log) the reads see the
+// committed state under WAL. With no log file there is no run, and the
+// database is opened immutable, because a read-only WAL connection would
+// create -wal and -shm files beside it (see View for a run that starts).
+func OpenReadOnly(path string) (*ReadOnly, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	q.Add("mode", "ro")
+	var stamp *fileStamp
+	if _, err := os.Stat(path + "-wal"); errors.Is(err, os.ErrNotExist) {
+		q.Add("immutable", "1")
+		stamp = &fileStamp{size: fi.Size(), mod: fi.ModTime()}
+	}
+	q.Add("_pragma", "busy_timeout(10000)")
+	q.Add("_pragma", "query_only(1)")
+	db, err := sql.Open("sqlite", dsn(path, q))
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(2)
+	if err := checkDB(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("state database %s: %w", path, err)
+	}
+	return &ReadOnly{path: path, db: db, stamp: stamp}, nil
+}
+
+// View runs fn with a Reader over a single read transaction, so everything fn
+// reads is one consistent snapshot, whatever a run commits meanwhile. A
+// database opened immutable takes no lock, so a run that starts while fn reads
+// could checkpoint into the file under it: when the file changed or a log
+// appeared, View opens the database again and calls fn again. fn must
+// therefore start afresh on each call.
+func (r *ReadOnly) View(fn func(Reader) error) error {
+	for range 3 {
+		err := r.view(fn)
+		if !r.moved() {
+			return err
+		}
+		n, oerr := OpenReadOnly(r.path)
+		if oerr != nil {
+			return oerr
+		}
+		_ = r.db.Close()
+		*r = *n
+	}
+	return errors.New("the state database changed each time it was read")
+}
+
+func (r *ReadOnly) view(fn func(Reader) error) error {
+	tx, err := r.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
 		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return fn(Reader{tx})
+}
+
+// moved reports whether a database opened immutable may have changed since:
+// a run has a log beside it, or the file is not as it was opened.
+func (r *ReadOnly) moved() bool {
+	if r.stamp == nil {
+		return false
+	}
+	if _, err := os.Stat(r.path + "-wal"); !errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	fi, err := os.Stat(r.path)
+	return err != nil || fi.Size() != r.stamp.size || !fi.ModTime().Equal(r.stamp.mod)
+}
+
+// Close closes the database.
+func (r *ReadOnly) Close() error { return r.db.Close() }
+
+// checkDB reports whether db is a recon state database this version reads.
+func checkDB(db *sql.DB) error {
+	appID, version, err := dbIDs(db)
+	if err != nil {
+		return err
+	}
+	return checkIDs(appID, version)
+}
+
+// dbIDs reads a database's application id and schema version.
+func dbIDs(db *sql.DB) (appID, version int, err error) {
+	if err := db.QueryRow("PRAGMA application_id").Scan(&appID); err != nil {
+		return 0, 0, err
 	}
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		return err
+		return 0, 0, err
 	}
+	return appID, version, nil
+}
+
+// checkIDs reports whether an application id and schema version are those of
+// a recon state database this version reads.
+func checkIDs(appID, version int) error {
+	switch {
+	case appID != applicationID:
+		return errors.New("not a recon state database")
+	case version > schemaVersion:
+		return fmt.Errorf("state database version %d is newer than this recon understands (%d)", version, schemaVersion)
+	}
+	return nil
+}
+
+func initDB(db *sql.DB) error {
+	var tables int
 	if err := db.QueryRow("SELECT count(*) FROM sqlite_master").Scan(&tables); err != nil {
 		return err
 	}
-	switch {
-	case appID == 0 && version == 0 && tables == 0:
+	appID, version, err := dbIDs(db)
+	if err != nil {
+		return err
+	}
+	if appID == 0 && version == 0 && tables == 0 {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -162,12 +292,8 @@ func initDB(db *sql.DB) error {
 			return err
 		}
 		return tx.Commit()
-	case appID != applicationID:
-		return errors.New("not a recon state database")
-	case version > schemaVersion:
-		return fmt.Errorf("state database version %d is newer than this recon understands (%d)", version, schemaVersion)
 	}
-	return nil // future migrations go here, keyed on user_version
+	return checkIDs(appID, version) // future migrations go after it, keyed on user_version
 }
 
 func (s *Store) today() string { return s.clock().UTC().Format(time.DateOnly) }
@@ -488,15 +614,30 @@ func (s *Store) Failures(stage string) ([]Failure, error) {
 	return out, rows.Err()
 }
 
+// querier is what a Reader reads through: the database or one transaction of it.
+type querier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// Reader reads the records, inputs and observations of one view of the
+// database: all of the store's committed state at the time of each call
+// (Store.Records and the others), or the one snapshot of a ReadOnly.View.
+type Reader struct{ q querier }
+
 // Records returns every record of a kind (current or not). Attrs merge the
 // current observations with stages later in order winning per field; stages
 // not in order sort first.
 func (s *Store) Records(kind string, order []string) ([]Record, error) {
+	return Reader{s.db}.Records(kind, order)
+}
+
+// Records returns every record of a kind (current or not); see Store.Records.
+func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 	rank := map[string]int{}
 	for i, st := range order {
 		rank[st] = i + 1
 	}
-	rows, err := s.db.Query("SELECT key,first_seen,last_seen,current FROM records WHERE kind=? ORDER BY key", kind)
+	rows, err := rd.q.Query("SELECT key,first_seen,last_seen,current FROM records WHERE kind=? ORDER BY key", kind)
 	if err != nil {
 		return nil, err
 	}
@@ -519,7 +660,7 @@ func (s *Store) Records(kind string, order []string) ([]Record, error) {
 		key, stage, check string
 		attrs             map[string]any
 	}
-	orows, err := s.db.Query("SELECT key,stage,check_key,attrs FROM observations WHERE kind=?", kind)
+	orows, err := rd.q.Query("SELECT key,stage,check_key,attrs FROM observations WHERE kind=?", kind)
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +709,12 @@ func (s *Store) Records(kind string, order []string) ([]Record, error) {
 
 // Observations lists the observations of a kind made by a stage.
 func (s *Store) Observations(kind, stage string) ([]ObsRow, error) {
-	rows, err := s.db.Query("SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, stage)
+	return Reader{s.db}.Observations(kind, stage)
+}
+
+// Observations lists the observations of a kind made by a stage.
+func (rd Reader) Observations(kind, stage string) ([]ObsRow, error) {
+	rows, err := rd.q.Query("SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, stage)
 	if err != nil {
 		return nil, err
 	}
@@ -640,8 +786,11 @@ func (s *Store) AddInput(kind, value string) (bool, error) {
 }
 
 // Inputs lists the stored inputs ordered by kind then value.
-func (s *Store) Inputs() ([]Input, error) {
-	rows, err := s.db.Query("SELECT kind,value,added_at FROM inputs ORDER BY kind,value")
+func (s *Store) Inputs() ([]Input, error) { return Reader{s.db}.Inputs() }
+
+// Inputs lists the stored inputs ordered by kind then value.
+func (rd Reader) Inputs() ([]Input, error) {
+	rows, err := rd.q.Query("SELECT kind,value,added_at FROM inputs ORDER BY kind,value")
 	if err != nil {
 		return nil, err
 	}

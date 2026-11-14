@@ -87,6 +87,27 @@ func Open(dir string, o Options) (*Engagement, error) {
 	return &Engagement{dir: dir, lock: lock, st: st, clock: clock}, nil
 }
 
+// OpenReadOnly opens the state database of an existing engagement for reading
+// only. It creates nothing (no directory, no .recon, no lock file) and takes no
+// lock, so it works while a run holds the engagement. A directory that does not
+// exist, or has no .recon/state.db, is an error.
+func OpenReadOnly(dir string) (*store.ReadOnly, error) {
+	fi, err := os.Stat(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil, fmt.Errorf("no engagement in %s", dir)
+	case err != nil:
+		return nil, err
+	case !fi.IsDir():
+		return nil, fmt.Errorf("%s is not a recon engagement (not a directory)", dir)
+	}
+	st, err := store.OpenReadOnly(filepath.Join(dir, ".recon", "state.db"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%s is not a recon engagement (no .recon/state.db)", dir)
+	}
+	return st, err
+}
+
 // Dir is the engagement directory.
 func (e *Engagement) Dir() string { return e.dir }
 
@@ -104,7 +125,7 @@ func (e *Engagement) Close() error {
 
 // MergeInputs adds inputs and exclusions to the stored scope (a union; nothing is removed).
 func (e *Engagement) MergeInputs(p input.Parsed) error {
-	for kind, vals := range map[string][]string{"root": p.Roots, "org": p.Orgs, "asn": p.ASNs, "cidr": p.CIDRs, "exclude": p.Exclusions} {
+	for kind, vals := range map[string][]string{"root": p.Roots, "org": p.Orgs, "asn": p.ASNs, "cidr": p.CIDRs, InputExclusion: p.Exclusions} {
 		for _, v := range vals {
 			if _, err := e.st.AddInput(kind, v); err != nil {
 				return err
@@ -120,6 +141,14 @@ func (e *Engagement) Inputs() (input.Parsed, error) {
 	if err != nil {
 		return input.Parsed{}, err
 	}
+	return ParseInputs(rows), nil
+}
+
+// InputExclusion is the stored input kind of an exclusion.
+const InputExclusion = "exclude"
+
+// ParseInputs groups stored inputs by kind, in their stored order.
+func ParseInputs(rows []store.Input) input.Parsed {
 	var p input.Parsed
 	for _, r := range rows {
 		switch r.Kind {
@@ -131,11 +160,11 @@ func (e *Engagement) Inputs() (input.Parsed, error) {
 			p.ASNs = append(p.ASNs, r.Value)
 		case "cidr":
 			p.CIDRs = append(p.CIDRs, r.Value)
-		case "exclude":
+		case InputExclusion:
 			p.Exclusions = append(p.Exclusions, r.Value)
 		}
 	}
-	return p, nil
+	return p
 }
 
 // Acked reports whether the operator's authorisation has been recorded.

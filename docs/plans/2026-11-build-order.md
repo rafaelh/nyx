@@ -20,7 +20,7 @@ on each other.
 
 | Wave | Specs | Why they wait |
 |---|---|---|
-| 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, ~~18~~, 21, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
+| 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, ~~18~~, ~~21~~, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
 | 2 | ~~2~~, 4, 8, 9, 10, 11, 13, 17, 19 | Use seams from wave 1 (see the table below). |
 | 3 | 7, 14, 16, 20 | Use kinds, files or stages from wave 2, or (Spec 20) the final set of kinds. |
 
@@ -56,7 +56,7 @@ Per-spec dependencies. "Still waits on" leaves out the specs already built:
 | 18 TLS detail | none | | **built** |
 | 19 SRV records | 3, 6 | none | ready; `dnsroot` and the permutations keys written as built |
 | 20 changes report | all others | all unbuilt | **review before building**; corrected: the baseline keeps scope and severity |
-| 21 export | none | none | ready; the kind list it moves is also the rank deriver's `reads` |
+| 21 export | none | | **built** |
 | 22 log colours | none | | **built** |
 
 ## Shared seams and their owners
@@ -83,7 +83,7 @@ once their owner merges.
 | Provider class passed through for every class (`provider.ClassCDN`) | 5 | 7 | **built** |
 | `reported_port` kind, `source`/`confirmed` on ports, severity-raise `+` line, `run.Noter`, `View.Done` | 4 | 14 | |
 | Wider TLS offer for target requests, `Response.TLSVersion/TLSCipher/CertTrust/SelfSigned` (egress `Trust*` constants, `kinds.TLSTrust`, `Inventory.ProviderServed`) | 18 | 7 | **built** |
-| `run.BuildScope` (scope and inventory from records, outside the Runner) | 21 | 20 | |
+| `run.BuildScope` (scope and inventory from inputs and records, outside the Runner; `run.ScopeSource`, `kinds.Lookup`, `Visibility.Placement`) | 21 | 20 | **built** |
 | Console streams and levels: log lines on stderr, the summary alone on stdout, `--quiet` and `--debug` in place of `--verbose`, the palette and severity badges | 22 | 4, 7, 20 (each adds a `+` line or a summary line) | **built** |
 
 Notes from the builds that later specs should know:

@@ -136,7 +136,7 @@ func (v *Visibility) category(k Kind, r store.Record) string {
 	}
 	switch k.Name {
 	case "hostname", "root":
-		switch v.sc.ClassifyHost(r.Key).Class {
+		switch v.placement(k, r) {
 		case scope.InScope:
 			if k.Name == "hostname" {
 				return Hosts
@@ -151,12 +151,32 @@ func (v *Visibility) category(k Kind, r store.Record) string {
 		if _, err := netip.ParsePrefix(r.Key); err != nil {
 			return ""
 		}
-		if v.sc.HasNetblock(r.Key) {
+		if v.placement(k, r) == scope.InScope {
 			return Netblocks
 		}
 		return Candidates
 	}
 	return k.Category
+}
+
+// Placement is where a record of an entity kind sits against the scope, the
+// decision behind its summary category. A record of any other kind is shown or
+// hidden instead (see Shown). The Visibility must not be nil.
+func (v *Visibility) Placement(kind Named, r store.Record) scope.Class {
+	return v.placement(kind.kind(), r)
+}
+
+func (v *Visibility) placement(k Kind, r store.Record) scope.Class {
+	switch k.Name {
+	case "hostname", "root":
+		return v.sc.ClassifyHost(r.Key).Class
+	case "netblock":
+		if v.sc.HasNetblock(r.Key) {
+			return scope.InScope
+		}
+		return scope.Candidate
+	}
+	return scope.Excluded // an address or name that triggered an exclusion
 }
 
 // Totals counts the current records by summary category. Hosts and the

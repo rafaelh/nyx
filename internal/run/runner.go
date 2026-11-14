@@ -246,13 +246,9 @@ func exitFor(err error) int {
 	return ExitFatal
 }
 
-// scopeKinds are the kinds buildScope reads.
-var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
-	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange}
-
 // buildScope builds the Scope and the egress Policy from stored inputs and
-// observations, then applies the netblock guard. It does nothing when
-// none of them has changed since the last build.
+// observations (see BuildScope), then applies the netblock guard. It does
+// nothing when none of them has changed since the last build.
 func (r *Runner) buildScope() error {
 	eng := r.cfg.Engagement
 	in, err := eng.Inputs()
@@ -269,59 +265,15 @@ func (r *Runner) buildScope() error {
 	if sig == r.scopeSig {
 		return nil
 	}
-	var excl []input.Exclusion
-	for _, e := range in.Exclusions {
-		x, err := input.ParseExclusion(e)
-		if err != nil {
-			return err
-		}
-		excl = append(excl, x)
-	}
-	var blocks []netip.Prefix
-	for _, c := range in.CIDRs {
-		p, err := input.ParseCIDR(c)
-		if err != nil {
-			return err
-		}
-		blocks = append(blocks, p)
-	}
-	asnBlocks, err := r.asnNetblocks(in)
+	built, err := BuildScope(in, runnerSource{r})
 	if err != nil {
 		return err
 	}
-	for k := range asnBlocks {
-		if p, err := netip.ParsePrefix(k); err == nil {
-			blocks = append(blocks, p.Masked())
-		}
-	}
-	data, err := r.inventoryData()
-	if err != nil {
-		return err
-	}
-	inv := inventory.New(data, provider.Default())
-	res := inv.Addrs()
-	sc := scope.New(scope.Config{Roots: in.Roots, Netblocks: blocks, Exclusions: excl, Resolutions: res, WildcardOnly: inv.WildcardOnly()})
+	sc, inv := built.Scope, built.Inv
 	r.sc.Store(sc)
 	r.inv.Store(inv)
-	r.vis.Store(kinds.NewVisibility(sc, inv))
+	r.vis.Store(built.Vis)
 
-	cands := map[string]bool{}
-	roots, err := r.currentRecords(kinds.Root)
-	if err != nil {
-		return err
-	}
-	names := make([]string, 0, len(data.Hosts)+len(roots))
-	for _, h := range data.Hosts {
-		names = append(names, h.Name)
-	}
-	for _, rec := range roots {
-		names = append(names, input.NormaliseHost(rec.Key))
-	}
-	for _, n := range names {
-		if sc.ClassifyHost(n).Class == scope.Candidate {
-			cands[n] = true
-		}
-	}
 	var sensitivePaths []string // egress addresses an entry by its index
 	for _, e := range r.cfg.Settings.SensitivePathEntries {
 		sensitivePaths = append(sensitivePaths, e.Path)
@@ -329,7 +281,7 @@ func (r *Runner) buildScope() error {
 	r.cfg.Egress.SetPolicy(&egress.Policy{
 		Scope: sc, Ack: eng.Acked(), Passive: r.cfg.Passive,
 		Ports: r.cfg.Settings.Ports, SensitivePaths: sensitivePaths,
-		Resolutions: res, Candidates: cands,
+		Resolutions: inv.Addrs(), Candidates: built.Candidates,
 		Shared:       inv.Shared,
 		OwnerUnknown: func(a netip.Addr) bool { return !inv.OwnerKnown(a, sc) },
 		Excluded:     r.guard,
@@ -359,26 +311,6 @@ func (r *Runner) guard(value, reason string) {
 		return
 	}
 	r.st.Complete("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
-}
-
-// asnNetblocks maps each current netblock observed by the asn stage under a
-// check for an input ASN to that ASN. It never depends on a mutable attribute.
-func (r *Runner) asnNetblocks(in input.Parsed) (map[string]string, error) {
-	rows, err := r.st.Observations(kinds.Netblock.Name(), "asn")
-	if err != nil {
-		return nil, err
-	}
-	want := map[string]bool{}
-	for _, a := range in.ASNs {
-		want[a] = true
-	}
-	out := map[string]string{}
-	for _, row := range rows {
-		if want[row.CheckKey] {
-			out[row.Key] = row.CheckKey
-		}
-	}
-	return out, nil
 }
 
 func (r *Runner) failedSet(stage string) map[string]bool {
@@ -820,7 +752,7 @@ func (r *Runner) render() (output.Snapshot, error) {
 		snap.Inv = inventory.New(inventory.Data{}, provider.Default())
 	}
 	snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
-	if snap.ASNNetblocks, err = r.asnNetblocks(r.inputs); err != nil {
+	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.inputs); err != nil {
 		return output.Snapshot{}, err
 	}
 	return snap, output.Render(eng.Dir(), r.cfg.Files, snap)
@@ -928,92 +860,4 @@ func (r *Runner) derivationSignature() string {
 func (r *Runner) currentRecords(k kinds.Named) ([]store.Record, error) {
 	c, err := r.cached(k.Name())
 	return c.curr, err
-}
-
-// inventoryData reads the current records the inventory is computed from.
-func (r *Runner) inventoryData() (inventory.Data, error) {
-	var d inventory.Data
-	hosts, err := r.currentRecords(kinds.Hostname)
-	if err != nil {
-		return d, err
-	}
-	for _, rec := range hosts {
-		d.Hosts = append(d.Hosts, inventory.Host{Name: input.NormaliseHost(rec.Key), Stages: rec.Stages})
-	}
-	recs, err := r.currentRecords(kinds.Resolution)
-	if err != nil {
-		return d, err
-	}
-	for _, rec := range recs {
-		a := kinds.Resolution.Attrs(rec)
-		if name := input.NormaliseHost(a.Name); name != "" {
-			d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: name, Type: a.Type, Value: a.Value})
-		}
-	}
-	if recs, err = r.currentRecords(kinds.Wildcard); err != nil {
-		return d, err
-	}
-	for _, rec := range recs {
-		a := kinds.Wildcard.Attrs(rec)
-		w := inventory.Wildcard{Zone: rec.Key, CNAME: a.CNAME}
-		for _, s := range a.Addrs {
-			if addr, err := netip.ParseAddr(s); err == nil {
-				w.Addrs = append(w.Addrs, addr)
-			}
-		}
-		d.Wildcards = append(d.Wildcards, w)
-	}
-	if recs, err = r.currentRecords(kinds.IP); err != nil {
-		return d, err
-	}
-	for _, rec := range recs {
-		if a, err := netip.ParseAddr(rec.Key); err == nil {
-			d.IPs = append(d.IPs, a.Unmap())
-		}
-	}
-	if recs, err = r.currentRecords(kinds.IPOwner); err != nil {
-		return d, err
-	}
-	d.Owners = map[netip.Addr]provider.Owner{}
-	for _, rec := range recs {
-		if addr, err := netip.ParseAddr(rec.Key); err == nil {
-			a := kinds.IPOwner.Attrs(rec)
-			d.Owners[addr.Unmap()] = provider.Owner{ASN: a.ASN, Holder: a.Holder, Known: true}
-		}
-	}
-	if d.Ranges, err = r.providerRanges(); err != nil {
-		return d, err
-	}
-	if recs, err = r.currentRecords(kinds.IPHostname); err != nil {
-		return d, err
-	}
-	for _, rec := range recs {
-		a := kinds.IPHostname.Attrs(rec)
-		if addr, err := netip.ParseAddr(a.IP); err == nil {
-			d.IPHostnames = append(d.IPHostnames, inventory.IPHostname{IP: addr.Unmap(), Hostname: input.NormaliseHost(a.Hostname), Source: a.Source})
-		}
-	}
-	return d, nil
-}
-
-// providerRanges returns the indexed provider_range records, re-reading them
-// only when the store says they have changed since the last call.
-func (r *Runner) providerRanges() (*provider.Ranges, error) {
-	ver := r.st.KindVersion(kinds.ProviderRange.Name())
-	if r.ranges != nil && ver == r.rangesVer {
-		return r.ranges, nil
-	}
-	recs, err := r.currentRecords(kinds.ProviderRange)
-	if err != nil {
-		return nil, err
-	}
-	var rs []provider.Range
-	for _, rec := range recs {
-		a := kinds.ProviderRange.Attrs(rec)
-		if p, err := netip.ParsePrefix(a.Prefix); err == nil {
-			rs = append(rs, provider.Range{Prefix: p.Masked(), Provider: a.Provider, Service: a.Service, Region: a.Region})
-		}
-	}
-	r.ranges, r.rangesVer = provider.NewRanges(rs), ver
-	return r.ranges, nil
 }

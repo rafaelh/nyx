@@ -152,14 +152,20 @@ func (e event) num(k string) int    { f, _ := e[k].(float64); return int(f) }
 // events parses stdout as JSON lines, failing on anything else.
 func (h *harness) events() []event {
 	h.t.Helper()
+	return jsonLines(h.t, h.stdout.String())
+}
+
+// jsonLines parses s as JSON lines, failing on anything else.
+func jsonLines(t *testing.T, s string) []event {
+	t.Helper()
 	var out []event
-	for _, line := range strings.Split(strings.TrimSpace(h.stdout.String()), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
 		if line == "" {
 			continue
 		}
 		var e event
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			h.t.Fatalf("stdout line is not JSON: %q (%v)", line, err)
+			t.Fatalf("stdout line is not JSON: %q (%v)", line, err)
 		}
 		out = append(out, e)
 	}

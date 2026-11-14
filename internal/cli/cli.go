@@ -100,6 +100,9 @@ type options struct {
 // depths are the colour depths of the two output streams, each decided once.
 type depths struct{ out, err palette.Depth }
 
+// configFlagUsage is the help of --config, for a run and for export.
+const configFlagUsage = "config file (default $XDG_CONFIG_HOME/recon/config.yaml, else ~/.config/recon/config.yaml)"
+
 const ackPrompt = "Confirm you are authorised to test this engagement's scope [y/N] "
 
 // Execute runs recon with args and returns the process exit code.
@@ -130,10 +133,12 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 		d.Stdin = strings.NewReader("")
 	}
 	var o options
+	var ex exportOptions
 	code := run.ExitOK
 	cmd := newCommand(&o, d, func(c *cobra.Command, positional []string) {
 		code = runCommand(ctx, c, positional, &o, d, dp)
 	})
+	cmd.AddCommand(newExportCommand(&ex, func(c *cobra.Command) { code = runExport(c, &ex, d, dp) }))
 	cmd.SetArgs(args)
 	cmd.SetOut(d.Stdout)
 	cmd.SetErr(d.Stderr)
@@ -196,6 +201,8 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 		Version:       d.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// A subcommand would otherwise bring cobra's completion command with it.
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 		RunE: func(c *cobra.Command, args []string) error {
 			runFn(c, args)
 			return nil
@@ -219,7 +226,7 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 	f.BoolVar(&o.debug, "debug", false, "also write each failed check to stderr")
 	f.BoolVar(&o.palette, "palette", false, "print the colour palette sheet and exit")
 	_ = f.MarkHidden("palette") // only fails for an unknown flag
-	f.StringVar(&o.configPath, "config", "", "config file (default $XDG_CONFIG_HOME/recon/config.yaml, else ~/.config/recon/config.yaml)")
+	f.StringVar(&o.configPath, "config", "", configFlagUsage)
 	f.Bool("version", false, "print the version and exit") // long-only: -v is usually read as verbose
 	config.RegisterFlags(f)
 	f.SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
