@@ -171,3 +171,33 @@ func TestTotals(t *testing.T) {
 		}
 	}
 }
+
+// An asn is a candidate until it is an input; an organisation is counted only
+// while three of its netblocks are known and no --org input names it.
+func TestVisibility_ASNAndOrganisation(t *testing.T) {
+	regs := []inventory.Registration{}
+	for i, n := range []string{"203.0.113.0", "203.0.114.0", "203.0.115.0"} {
+		regs = append(regs, inventory.Registration{Key: string(rune('a' + i)), Start: netip.MustParseAddr(n), End: netip.MustParseAddr(n).Next(), Registrant: "Globex Holdings Ltd", Registry: "arin"})
+	}
+	inv := inventory.New(inventory.Data{Registrations: regs}, provider.Default())
+	vis := func(c scope.Config) *kinds.Visibility { return kinds.NewVisibility(scope.New(c), inv) }
+	asn, org := store.Record{Key: "AS64501"}, store.Record{Key: "Globex Holdings Ltd"}
+
+	v := vis(scope.Config{})
+	if got := v.Category(kinds.ASN, asn); got != kinds.Candidates {
+		t.Errorf("asn category = %q", got)
+	}
+	if got := v.Category(kinds.Organisation, org); got != kinds.Candidates {
+		t.Errorf("organisation category = %q", got)
+	}
+	if got := v.Category(kinds.Organisation, store.Record{Key: "Other Co"}); got != "" {
+		t.Errorf("an organisation on no netblock is counted as %q", got)
+	}
+	v = vis(scope.Config{ASNs: []string{"AS64501"}, Orgs: []string{"Globex"}})
+	if got := v.Category(kinds.ASN, asn); got != "" {
+		t.Errorf("an asn input is counted as %q", got)
+	}
+	if got := v.Category(kinds.Organisation, org); got != "" {
+		t.Errorf("an organisation named by an --org input is counted as %q", got)
+	}
+}

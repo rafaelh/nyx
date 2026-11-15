@@ -7,8 +7,8 @@ package kinds
 // changes no total; candidates.csv and the summary read it.
 var CandidateRank = define[CandidateRankAttrs](Kind{Name: "candidate_rank"})
 
-// CandidateRankAttrs: the candidate (its kind, "root", "hostname" or "netblock",
-// and its value), the distinct sources that support it (";"-joined), the number
+// CandidateRankAttrs: the candidate (its kind, "root", "hostname", "netblock",
+// "asn" or "organisation", and its value), the distinct sources that support it (";"-joined), the number
 // of distinct (source, item) pairs, the confidence ("low", "medium" or "high")
 // and whether the candidate was current when it was ranked. A candidate that
 // stops being current keeps its last rank, with Current false.
@@ -22,7 +22,7 @@ type CandidateRankAttrs struct {
 }
 
 // CandidateKinds are the kinds whose records can be candidates, and so are ranked.
-var CandidateKinds = []Named{Root, Hostname, Netblock}
+var CandidateKinds = []Named{Root, Hostname, Netblock, ASN, Organisation}
 
 // CandidateRankKey is the key of the rank record of a candidate.
 func CandidateRankKey(typ, value string) string { return typ + "|" + value }

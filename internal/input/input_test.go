@@ -208,3 +208,29 @@ func TestParseRejects(t *testing.T) {
 		}
 	}
 }
+
+// A registry's range is split into the fewest CIDRs that cover it exactly.
+func TestRangeCIDRs(t *testing.T) {
+	for _, c := range []struct {
+		start, end string
+		want       []string
+	}{
+		{"203.0.113.0", "203.0.113.255", []string{"203.0.113.0/24"}},
+		{"198.51.100.0", "198.51.100.191", []string{"198.51.100.0/25", "198.51.100.128/26"}},
+		{"198.51.100.5", "198.51.100.5", []string{"198.51.100.5/32"}},
+		{"198.51.100.5", "198.51.100.20", []string{"198.51.100.5/32", "198.51.100.6/31", "198.51.100.8/29", "198.51.100.16/30", "198.51.100.20/32"}},
+		{"0.0.0.0", "255.255.255.255", []string{"0.0.0.0/0"}},
+		{"255.255.255.254", "255.255.255.255", []string{"255.255.255.254/31"}},
+		{"2001:db8::", "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", []string{"2001:db8::/32"}},
+		{"203.0.113.9", "203.0.113.8", nil},
+		{"203.0.113.9", "2001:db8::1", nil},
+	} {
+		var got []string
+		for _, p := range input.RangeCIDRs(netip.MustParseAddr(c.start), netip.MustParseAddr(c.end)) {
+			got = append(got, p.String())
+		}
+		if strings.Join(got, " ") != strings.Join(c.want, " ") {
+			t.Errorf("RangeCIDRs(%s, %s) = %v, want %v", c.start, c.end, got, c.want)
+		}
+	}
+}

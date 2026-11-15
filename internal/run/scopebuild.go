@@ -13,9 +13,10 @@ import (
 
 // scopeKinds are the kinds BuildScope reads. The candidate-rank deriver reads the
 // same list, so a kind added to the build is also added here, once, and the
-// candidates are ranked again when it changes.
+// candidates are ranked again when it changes. It also reads the candidate kinds
+// it ranks (see newDerivers).
 var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
-	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck}
+	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration}
 
 // ScopeSource is what BuildScope reads: the engagement's records. A run reads
 // them from its store as it works, and an export from one snapshot of it, so
@@ -81,7 +82,8 @@ func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
 		return nil, err
 	}
 	inv := inventory.New(data, provider.Default())
-	sc := scope.New(scope.Config{Roots: in.Roots, Netblocks: blocks, Exclusions: excl, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly()})
+	sc := scope.New(scope.Config{Roots: in.Roots, Netblocks: blocks, Exclusions: excl, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
+		ASNs: in.ASNs, Orgs: in.Orgs})
 
 	roots, err := src.CurrentRecords(kinds.Root)
 	if err != nil {
@@ -192,6 +194,18 @@ func inventoryData(src ScopeSource) (inventory.Data, error) {
 		a := kinds.IPHostname.Attrs(rec)
 		if addr, err := netip.ParseAddr(a.IP); err == nil {
 			d.IPHostnames = append(d.IPHostnames, inventory.IPHostname{IP: addr.Unmap(), Hostname: input.NormaliseHost(a.Hostname), Source: a.Source})
+		}
+	}
+	if recs, err = src.CurrentRecords(kinds.Registration); err != nil {
+		return d, err
+	}
+	for _, rec := range recs {
+		a := kinds.Registration.Attrs(rec)
+		start, e1 := netip.ParseAddr(a.Start)
+		end, e2 := netip.ParseAddr(a.End)
+		if e1 == nil && e2 == nil {
+			d.Registrations = append(d.Registrations, inventory.Registration{Key: rec.Key, Start: start.Unmap(), End: end.Unmap(),
+				Registrant: a.Registrant, Registry: a.Registry})
 		}
 	}
 	return d, nil

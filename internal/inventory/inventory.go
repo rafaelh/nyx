@@ -43,6 +43,20 @@ type IPHostname struct {
 	Hostname, Source string
 }
 
+// Registration is a netblock a registry registered to a registrant, found by
+// looking up one of the addresses inside it. Key is the record's key: the
+// registry and the registry's handle for the range.
+type Registration struct {
+	Key                  string
+	Start, End           netip.Addr
+	Registrant, Registry string
+}
+
+// Contains reports whether the address is inside the registered range.
+func (r Registration) Contains(a netip.Addr) bool {
+	return a.Compare(r.Start) >= 0 && a.Compare(r.End) <= 0
+}
+
 // Data is everything the Inventory is computed from.
 type Data struct {
 	Hosts       []Host
@@ -53,7 +67,8 @@ type Data struct {
 	Ranges      *provider.Ranges
 	IPHostnames []IPHostname
 	// ClosedPorts are the ports nyx's own handshake found closed (rejected).
-	ClosedPorts []netip.AddrPort
+	ClosedPorts   []netip.AddrPort
+	Registrations []Registration
 }
 
 // ProviderHost is a hostname that is on shared provider infrastructure.
@@ -75,6 +90,9 @@ type IPRow struct {
 	Owner, Provider, Service string
 	InScope, PortEligible    bool
 	Hostnames                []string
+	// The registered netblock the address is inside, the registrant it is
+	// registered to and the registry that says so, when a lookup found them.
+	Registrant, RegistrantNetblock, Registry string
 }
 
 // Inventory is an immutable derived view of Data.
@@ -92,6 +110,16 @@ type Inventory struct {
 	class map[netip.Addr]provider.Result
 
 	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
+
+	regs       []Registration // narrowest first: by start address, highest first
+	registrant sync.Once
+	byName     map[string]registrantInfo
+}
+
+// registrantInfo is what the candidate rule asks of a registrant name.
+type registrantInfo struct {
+	ranges int  // distinct registered netblocks
+	shared bool // a recorded address inside one of them is shared provider infrastructure
 }
 
 // New computes the inventory.
@@ -112,6 +140,10 @@ func New(d Data, db *provider.DB) *Inventory {
 	for _, ap := range d.ClosedPorts {
 		i.closed[netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())] = true
 	}
+	i.regs = slices.Clone(d.Registrations)
+	slices.SortFunc(i.regs, func(a, b Registration) int {
+		return cmp.Or(b.Start.Compare(a.Start), a.End.Compare(b.End), strings.Compare(a.Key, b.Key))
+	})
 	wild := map[string]Wildcard{}
 	for _, w := range d.Wildcards {
 		wild[w.Zone] = w
@@ -251,6 +283,69 @@ func (i *Inventory) result(a netip.Addr) provider.Result {
 	}
 	i.class[a] = r
 	return r
+}
+
+// RegistrationOf returns the narrowest registered netblock that holds the address.
+func (i *Inventory) RegistrationOf(a netip.Addr) (Registration, bool) {
+	a = a.Unmap()
+	for _, r := range i.regs {
+		if r.Contains(a) {
+			return r, true
+		}
+	}
+	return Registration{}, false
+}
+
+// RegistrantCandidate reports whether a registrant name is a candidate
+// organisation: three or more distinct registered netblocks name it, no
+// recorded address inside any of them is shared provider infrastructure, and no
+// --org input of the scope matches the name by the word rule.
+func (i *Inventory) RegistrantCandidate(sc *scope.Scope, name string) bool {
+	i.registrant.Do(i.indexRegistrants)
+	info := i.byName[name]
+	return info.ranges >= 3 && !info.shared && !sc.MatchesOrg(name)
+}
+
+// indexRegistrants counts each registrant's netblocks and finds the ones with a
+// shared address inside.
+func (i *Inventory) indexRegistrants() {
+	i.byName = map[string]registrantInfo{}
+	seen := map[string]bool{}
+	for _, r := range i.regs {
+		if r.Registrant != "" && !seen[r.Key] {
+			seen[r.Key] = true
+			info := i.byName[r.Registrant]
+			info.ranges++
+			i.byName[r.Registrant] = info
+		}
+	}
+	if len(i.byName) == 0 {
+		return
+	}
+	known := map[netip.Addr]bool{}
+	for _, a := range i.d.IPs {
+		known[a.Unmap()] = true
+	}
+	for _, as := range i.addr {
+		for _, a := range as {
+			known[a] = true
+		}
+	}
+	for _, h := range i.d.IPHostnames {
+		known[h.IP.Unmap()] = true
+	}
+	for a := range known {
+		if !i.Shared(a) {
+			continue
+		}
+		for _, r := range i.regs {
+			if r.Registrant != "" && r.Contains(a) {
+				info := i.byName[r.Registrant]
+				info.shared = true
+				i.byName[r.Registrant] = info
+			}
+		}
+	}
 }
 
 // Shared reports whether the address is shared provider infrastructure.
@@ -448,8 +543,20 @@ func (i *Inventory) IPRows(sc *scope.Scope) []IPRow {
 		if row.Owner == "" {
 			row.Owner = "unknown"
 		}
+		if reg, ok := i.RegistrationOf(a); ok {
+			row.Registrant, row.Registry, row.RegistrantNetblock = reg.Registrant, reg.Registry, rangeText(reg.Start, reg.End)
+		}
 		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(x, y int) bool { return rows[x].IP.Less(rows[y].IP) })
 	return rows
+}
+
+// rangeText is a registered range as one CIDR when it is one, and otherwise as
+// its two ends.
+func rangeText(start, end netip.Addr) string {
+	if ps := input.RangeCIDRs(start, end); len(ps) == 1 {
+		return ps[0].String()
+	}
+	return start.Unmap().String() + "-" + end.Unmap().String()
 }

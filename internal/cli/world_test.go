@@ -26,6 +26,8 @@ var sourcePatterns = []string{
 	"api.shodan.io", "reverse-whois.whoisxmlapi.com", "stat.ripe.net", "ip-ranges.amazonaws.com", "www.gstatic.com",
 	"api.hackertarget.com", "urlscan.io", "api.certspotter.com",
 	"api.platform.censys.io", "dns.projectdiscovery.io",
+	// The rdap stage's: IANA's bootstrap file and the five registries.
+	"data.iana.org", "rdap.arin.net", "rdap.db.ripe.net", "rdap.apnic.net", "rdap.lacnic.net", "rdap.afrinic.net",
 	// The range publishers after AWS and GCP.
 	"www.cloudflare.com", "api.fastly.com", "www.digitalocean.com", "docs.oracle.com", "geoip.linode.com",
 	// The storage stage's; their default answer is "no such bucket".
@@ -130,6 +132,10 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 			h(rw, r)
 		}))
 		t.Cleanup(srv.Close)
+		if p == "data.iana.org" {
+			// No registry is listed, so an address has nowhere to be looked up.
+			s.h = jsonBody(`{"version":"1.0","services":[]}`)
+		}
 		w.src[p] = s
 		w.h.eopts.SourceBaseURLs[p] = srv.URL
 	}

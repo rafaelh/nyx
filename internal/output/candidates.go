@@ -19,7 +19,7 @@ var (
 	candidateLevel = slices.Index(candidateColumns, "confidence")
 )
 
-// candidateRows lists the roots, hostnames and netblocks the summary counts as
+// candidateRows lists the records of kinds.CandidateKinds the summary counts as
 // candidates: both ask the snapshot's Visibility. Each row carries the rank the
 // runner derived for it, and the currency and dates of the candidate itself. A
 // candidate with no rank yet (a Snapshot built without the derivation) is listed

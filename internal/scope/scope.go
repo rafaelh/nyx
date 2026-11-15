@@ -11,6 +11,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/orgname"
 )
 
 // Class is the scope classification of a hostname.
@@ -39,6 +40,10 @@ type Config struct {
 	// WildcardOnly names resolve only because of a wildcard record; they do not
 	// make an address port-check eligible.
 	WildcardOnly map[string]bool
+	// ASNs ("AS123") and Orgs are the --asn and --org inputs. They bring nothing
+	// into scope by themselves; they say which autonomous systems and
+	// organisations are already inputs, and so no longer candidates.
+	ASNs, Orgs []string
 }
 
 // Scope classifies names and addresses.
@@ -51,12 +56,18 @@ type Scope struct {
 	resolved  map[string][]netip.Addr
 	exclAddrs map[netip.Addr]string // addresses of hosts excluded by name
 	hostAddrs map[netip.Addr]bool   // addresses of in-scope, non-wildcard-only hostnames
+	asns      map[string]bool
+	orgs      []string
 }
 
 // New builds a Scope.
 func New(c Config) *Scope {
 	s := &Scope{roots: normaliseAll(c.Roots), netblocks: c.Netblocks, blockSet: map[netip.Prefix]bool{},
-		resolved: map[string][]netip.Addr{}, exclAddrs: map[netip.Addr]string{}, hostAddrs: map[netip.Addr]bool{}}
+		resolved: map[string][]netip.Addr{}, exclAddrs: map[netip.Addr]string{}, hostAddrs: map[netip.Addr]bool{},
+		asns: map[string]bool{}, orgs: slices.Clone(c.Orgs)}
+	for _, a := range c.ASNs {
+		s.asns[a] = true
+	}
 	for _, p := range c.Netblocks {
 		s.blockSet[p] = true
 	}
@@ -215,6 +226,16 @@ func (s *Scope) PortEligible(a netip.Addr, owner Owner) (ok bool, why string, ex
 
 // Netblocks returns the in-scope netblocks.
 func (s *Scope) Netblocks() []netip.Prefix { return slices.Clone(s.netblocks) }
+
+// HasASN reports whether the autonomous system, in input.ParseASN's canonical
+// form ("AS123"), is an --asn input.
+func (s *Scope) HasASN(key string) bool { return s.asns[key] }
+
+// MatchesOrg reports whether the name belongs to an --org input, by the word
+// rule of package orgname.
+func (s *Scope) MatchesOrg(name string) bool {
+	return slices.ContainsFunc(s.orgs, func(org string) bool { return orgname.Matches(org, name) })
+}
 
 // HasNetblock reports whether key, a CIDR, is one of the in-scope netblocks.
 func (s *Scope) HasNetblock(key string) bool {

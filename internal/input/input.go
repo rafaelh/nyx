@@ -110,6 +110,45 @@ func ParseASN(s string) (string, error) {
 	return "AS" + strconv.FormatUint(n, 10), nil
 }
 
+// RangeCIDRs splits the inclusive range of addresses into the fewest CIDR
+// prefixes that cover it exactly, in address order. It returns nil if the
+// ends are not both valid, of one family, and in order.
+func RangeCIDRs(start, end netip.Addr) []netip.Prefix {
+	start, end = start.Unmap(), end.Unmap()
+	if !start.IsValid() || !end.IsValid() || start.Is4() != end.Is4() || start.Compare(end) > 0 {
+		return nil
+	}
+	var out []netip.Prefix
+	for {
+		// The largest block that starts at start, is aligned and ends by end.
+		bits := start.BitLen()
+		for bits > 0 {
+			p := netip.PrefixFrom(start, bits-1)
+			if p.Masked().Addr() != start || last(p).Compare(end) > 0 {
+				break
+			}
+			bits--
+		}
+		p := netip.PrefixFrom(start, bits)
+		out = append(out, p)
+		l := last(p)
+		if l == end || !l.Next().IsValid() {
+			return out
+		}
+		start = l.Next()
+	}
+}
+
+// last is the highest address of the prefix.
+func last(p netip.Prefix) netip.Addr {
+	b := p.Masked().Addr().AsSlice()
+	for i := p.Bits(); i < len(b)*8; i++ {
+		b[i/8] |= 0x80 >> (i % 8)
+	}
+	a, _ := netip.AddrFromSlice(b)
+	return a
+}
+
 // ParseCIDR parses a prefix and masks host bits.
 func ParseCIDR(s string) (netip.Prefix, error) {
 	p, err := netip.ParsePrefix(strings.TrimSpace(s))

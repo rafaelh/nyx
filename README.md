@@ -138,6 +138,9 @@ run. The `otx` and `anubis` stages no longer exist, because neither service answ
 client any more. An engagement that already holds their results keeps them, and a `skip` setting
 that names either is rejected as an unknown stage.
 
+The `rdap` stage contacts only IANA (`data.iana.org`, for the bootstrap file) and the five regional
+registries' RDAP servers; see [RDAP](#rdap-netblocks-and-registrants).
+
 The `providerranges` stage fetches the address ranges that seven providers publish: AWS, GCP,
 Cloudflare (IPv4 and IPv6), Fastly, DigitalOcean, Oracle Cloud and Linode. Each list is its own
 check, fetched once per engagement and refreshed only by `--redo providerranges`. A list that fails
@@ -371,6 +374,39 @@ comes before the `summary` event. It has `kind` (`root`, `hostname` or `netblock
 `sources`, `evidence_count`, `confidence` and `promote`. The `summary` event's `candidates` field
 lists the same candidates.
 
+## RDAP netblocks and registrants
+
+The `rdap` stage runs under `--passive`. It contacts only `data.iana.org` and the RDAP servers of
+the five regional registries: `rdap.arin.net`, `rdap.db.ripe.net`, `rdap.apnic.net`,
+`rdap.lacnic.net` and `rdap.afrinic.net`. Nothing it finds enters scope on its own.
+
+- **Netblocks and ASNs of an organisation.** For each `--org` input it searches every registry that
+  returns an organisation's networks and autonomous systems: ARIN and APNIC. RIPE, LACNIC and
+  AFRINIC's RDAP servers return the organisation but not its networks, so those checks complete
+  with no results and a WARN line saying so (`org-asn` covers RIPE through RIPEstat). A registry's
+  organisations are kept only when the name contains every word of the `--org` input, ignoring
+  legal suffixes (the rule `org-asn` applies), and at most 50 netblocks and autonomous systems per
+  registry are kept, with a WARN line when more were returned. Each netblock is a `netblock`
+  candidate in `candidates.csv` (a range that is not one CIDR is split into CIDRs), and each
+  autonomous system is an `asn` candidate. Pass one as `--cidr` or `--asn` to bring it into scope.
+- **Registrants of addresses.** Each address in `ips.csv` that is port-eligible, is not shared
+  provider infrastructure and is not inside an input or ASN-expanded netblock is looked up once, at
+  the registry the IANA bootstrap file names. The registered netblock, its registrant and the
+  registry fill the `registrant`, `registrant_netblock` and `registry` columns of `ips.csv`;
+  `owner` still says who announces the address. Another address inside a registered netblock reuses
+  the answer. A referral to another of the five registries is followed, up to three times; a
+  referral to any other server completes the lookup with no data and a WARN line naming the address.
+- **Organisation candidates.** A registrant that holds three or more registered netblocks among the
+  addresses, none of whose recorded addresses is shared provider infrastructure, and whose name does
+  not match an `--org` input, is an `organisation` candidate in `candidates.csv`. Its
+  `evidence_count` is the number of netblocks. Pass it as `--org` to search the registries for its
+  own netblocks.
+- **Quota and refresh.** A 429 from any server stops the stage for the run, with one WARN line; the
+  checks that remain are retried on the next run. Each lookup is made once per engagement and
+  refreshed only by `--redo rdap`. The bootstrap file is fetched once per run. The checks are keyed
+  by address and organisation, not by the scope, so an address that becomes eligible later is looked
+  up then.
+
 ## Shodan per address
 
 With `keys.shodan`, the `shodan-host` stage (it runs under `--passive`, and is `not-configured (no
@@ -409,12 +445,12 @@ after `--redo shodan`, and the summary says when a netblock search was truncated
 
 ## Ranked candidates
 
-`candidates.csv` lists the roots, hostnames and netblocks that were found but are not in scope.
+`candidates.csv` lists the roots, hostnames, netblocks, autonomous systems and organisations that were found but are not in scope.
 Each row says how well supported it is, so you can tell which are worth promoting to scope:
 
 | Column | Meaning |
 |---|---|
-| `type` | `root`, `hostname` or `netblock` |
+| `type` | `root`, `hostname`, `netblock`, `asn` or `organisation` |
 | `value` | The candidate |
 | `sources` | The distinct stages or mechanisms that found it, joined with `;` (listed below) |
 | `evidence_count` | The number of distinct pairs of a source and the item that linked the candidate: the address, root, name server, netblock, service or organisation the source was asked about |
@@ -424,10 +460,9 @@ The `sources` values are the stages and mechanisms that can find a candidate. Ea
 family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), web archive
 (`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`, `shodan-host`,
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
-results still count) and registrant (`whoisxml`, `org-asn`). `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other
-source. The names `rdap` (registrant), `reverseip` (reverse IP), `nsreverse` (shared
-infrastructure) and `identifier-pivot` (web identifier) are reserved for stages that are not built
-yet.
+results still count) and registrant (`whoisxml`, `org-asn`, `rdap`). `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other
+source. The names `reverseip` (reverse IP), `nsreverse` (shared infrastructure) and
+`identifier-pivot` (web identifier) are reserved for stages that are not built yet.
 
 The confidence follows from the families that agree:
 
@@ -451,7 +486,8 @@ confidence (high first), then by evidence count (most first), then by value. A r
 current sorts last and shows the confidence it last had.
 
 The summary lists up to 20 `high` candidates with the input that promotes each (a root or hostname
-as a positional domain, a netblock as `--cidr`), then `and N more in candidates.csv`, which counts
+as a positional domain, a netblock as `--cidr`, an autonomous system as `--asn`, an organisation as
+`--org`), then `and N more in candidates.csv`, which counts
 the high candidates beyond the 20 listed. The medium and low ones are in `candidates.csv` only.
 
 ## Output files
@@ -461,13 +497,13 @@ Everything is in `<output-dir>/<engagement>/`:
 | File | Contents |
 |---|---|
 | `scope.csv` | Inputs and the netblocks and roots in scope, and where each came from |
-| `candidates.csv` | Related domains, hostnames and netblocks found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](#ranked-candidates)); pass one as an input to promote it |
+| `candidates.csv` | Related domains, hostnames, netblocks, autonomous systems and organisations found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](#ranked-candidates)); pass one as an input to promote it |
 | `excluded.csv` | Excluded items and the reason |
 | `subdomains.txt` | In-scope hostnames |
 | `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, and the NS, SOA, TXT and CAA records of each root, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. |
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
-| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
+| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)) and web posture evidence (see Web posture above) |
 | `urls.csv` | URLs from crawling and web archives, with status and source |

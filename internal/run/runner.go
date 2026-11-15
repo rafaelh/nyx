@@ -193,6 +193,7 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 }
 
 func (r *Runner) passes(ctx context.Context) (int, error) {
+	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {
 		if err := r.buildScope(); err != nil {
 			return exitFor(err), err

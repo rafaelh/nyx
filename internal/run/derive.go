@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/candidates"
@@ -47,7 +48,7 @@ type deriver struct {
 // attribution the render needs; see deriveFindings).
 func (r *Runner) newDerivers() []*deriver {
 	return []*deriver{
-		{name: "candidate-rank", reads: scopeKinds, writes: kinds.CandidateRank, derive: r.rankCandidates},
+		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: r.rankCandidates},
 	}
 }
 

@@ -369,3 +369,67 @@ func TestPortEligibleMatchesIPRows(t *testing.T) {
 		t.Error("an address inside an in-scope netblock is eligible")
 	}
 }
+
+func reg(key, start, end, registrant string) inventory.Registration {
+	return inventory.Registration{Key: key, Start: ip(start), End: ip(end), Registrant: registrant, Registry: "arin"}
+}
+
+// The narrowest registered netblock that holds an address fills its row.
+func TestIPRows_RegistrationIsTheNarrowestRange(t *testing.T) {
+	d := inventory.Data{
+		IPs: ips("203.0.113.7", "203.0.113.200", "192.0.2.1"),
+		Registrations: []inventory.Registration{
+			reg("arin|wide", "203.0.113.0", "203.0.113.255", "Wide Holdings"),
+			reg("arin|narrow", "203.0.113.0", "203.0.113.63", "Narrow Co"),
+			reg("arin|odd", "198.51.100.5", "198.51.100.20", "Odd Co"),
+		},
+	}
+	sc := scope.New(scope.Config{})
+	got := map[string][3]string{}
+	for _, r := range inventory.New(d, provider.Default()).IPRows(sc) {
+		got[r.IP.String()] = [3]string{r.Registrant, r.RegistrantNetblock, r.Registry}
+	}
+	want := map[string][3]string{
+		"203.0.113.7":   {"Narrow Co", "203.0.113.0/26", "arin"},
+		"203.0.113.200": {"Wide Holdings", "203.0.113.0/24", "arin"},
+		"192.0.2.1":     {},
+	}
+	for a, w := range want {
+		if got[a] != w {
+			t.Errorf("%s: registration = %v, want %v", a, got[a], w)
+		}
+	}
+}
+
+// A registrant is a candidate organisation on three distinct netblocks, unless
+// a shared address is inside one of them or an --org input matches its name.
+func TestRegistrantCandidate(t *testing.T) {
+	ranges := []inventory.Registration{
+		reg("arin|1", "203.0.113.0", "203.0.113.255", "Globex Holdings Ltd"),
+		reg("arin|2", "203.0.114.0", "203.0.114.255", "Globex Holdings Ltd"),
+		reg("arin|3", "203.0.115.0", "203.0.115.255", "Globex Holdings Ltd"),
+		reg("arin|4", "198.51.100.0", "198.51.100.255", "Two Ranges Inc"),
+		reg("arin|5", "198.51.101.0", "198.51.101.255", "Two Ranges Inc"),
+		reg("arin|1", "203.0.113.0", "203.0.113.255", "Globex Holdings Ltd"), // the same netblock again
+	}
+	inv := func(d inventory.Data) *inventory.Inventory {
+		d.Registrations = ranges
+		return inventory.New(d, provider.Default())
+	}
+	none := scope.New(scope.Config{})
+	i := inv(inventory.Data{IPs: ips("203.0.113.5")})
+	if !i.RegistrantCandidate(none, "Globex Holdings Ltd") {
+		t.Error("three netblocks make a candidate")
+	}
+	if i.RegistrantCandidate(none, "Two Ranges Inc") || i.RegistrantCandidate(none, "Nobody") || i.RegistrantCandidate(none, "") {
+		t.Error("fewer than three netblocks, or no registrant, is not a candidate")
+	}
+	if i.RegistrantCandidate(scope.New(scope.Config{Orgs: []string{"Globex"}}), "Globex Holdings Ltd") {
+		t.Error("a name matching an --org input is not a candidate")
+	}
+	shared := inv(inventory.Data{IPs: ips("203.0.114.9"),
+		Owners: map[netip.Addr]provider.Owner{ip("203.0.114.9"): {ASN: 13335, Holder: "CLOUDFLARENET", Known: true}}})
+	if shared.RegistrantCandidate(none, "Globex Holdings Ltd") {
+		t.Error("a shared address inside one of its netblocks makes it not a candidate")
+	}
+}

@@ -22,7 +22,9 @@ import (
 //   - a record with an OutsideAttr is shown only while the domain it names is
 //     not in scope, on top of any other rule;
 //   - an entity record is never hidden: it is classified as in scope, a
-//     candidate or excluded, which decides its summary category;
+//     candidate or excluded, which decides its summary category. An asn is a
+//     candidate unless it is an input, and an organisation is counted as one
+//     only while Inventory.RegistrantCandidate holds;
 //   - a record of any other kind is always shown.
 //
 // The summary counts, the found lines, the files and the findings all ask the
@@ -156,6 +158,16 @@ func (v *Visibility) category(k Kind, r store.Record) string {
 			return Netblocks
 		}
 		return Candidates
+	case "asn":
+		if v.sc.HasASN(r.Key) {
+			return ""
+		}
+		return Candidates
+	case "organisation":
+		if v.inv.RegistrantCandidate(v.sc, r.Key) {
+			return Candidates
+		}
+		return ""
 	}
 	return k.Category
 }
@@ -173,6 +185,16 @@ func (v *Visibility) placement(k Kind, r store.Record) scope.Class {
 		return v.sc.ClassifyHost(r.Key).Class
 	case "netblock":
 		if v.sc.HasNetblock(r.Key) {
+			return scope.InScope
+		}
+		return scope.Candidate
+	case "asn":
+		if v.sc.HasASN(r.Key) {
+			return scope.InScope
+		}
+		return scope.Candidate
+	case "organisation":
+		if v.sc.MatchesOrg(r.Key) {
 			return scope.InScope
 		}
 		return scope.Candidate

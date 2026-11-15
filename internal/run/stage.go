@@ -59,6 +59,40 @@ var ErrAbortStage = errors.New("abort stage")
 // fail and are retried on the next run.
 var ErrQuota = fmt.Errorf("quota spent: %w", ErrAbortStage)
 
+type runStateKey struct{}
+
+// runState is what PerRun keeps for one run.
+type runState struct {
+	mu sync.Mutex
+	m  map[any]any
+}
+
+// withRunState returns a context that PerRun keeps its values in.
+func withRunState(ctx context.Context) context.Context {
+	return context.WithValue(ctx, runStateKey{}, &runState{m: map[any]any{}})
+}
+
+// PerRun returns what init made the first time any check of this run asked for
+// key, and the same value to every later ask until the run ends, so a stage
+// fetches a file shared by all its checks once per run and not once per process.
+// init runs under the lock every PerRun of the run shares, so it must be quick
+// and must not call PerRun itself. A context that did not come from the runner
+// keeps nothing: init is called every time.
+func PerRun[T any](ctx context.Context, key any, init func() T) T {
+	st, ok := ctx.Value(runStateKey{}).(*runState)
+	if !ok {
+		return init()
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if v, ok := st.m[key]; ok {
+		return v.(T)
+	}
+	v := init()
+	st.m[key] = v
+	return v
+}
+
 type warnerKey struct{}
 
 // withWarner returns a context whose Warnf calls go to warn.
@@ -320,6 +354,12 @@ func (v View) OpenPorts() []OpenPort {
 // PortEligible reports whether the address may be port-checked: the decision
 // egress enforces and ips.csv reports.
 func (v View) PortEligible(a netip.Addr) bool { return v.inv.PortEligible(a, v.sc) }
+
+// Registered reports whether a current registration record's range holds the address.
+func (v View) Registered(a netip.Addr) bool {
+	_, ok := v.inv.RegistrationOf(a)
+	return ok
+}
 
 // OwnerKnown reports whether anything is known about who owns the address.
 func (v View) OwnerKnown(a netip.Addr) bool { return v.inv.OwnerKnown(a, v.sc) }
