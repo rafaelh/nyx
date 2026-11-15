@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -22,16 +21,9 @@ import (
 // expects is an error, never an empty result: an error object sent with status
 // 200 must be retried, not recorded as "no names".
 
-// fetchNames GETs u and turns the body into names with parse; a 404 is no names.
+// fetchNames GETs u and turns the body into names with parse (httpsrc.GetNames).
 func fetchNames(ctx context.Context, c egress.Clients, u string, parse func([]byte) ([]string, error)) (result, error) {
-	body, err := httpsrc.GetQuota(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: u})
-	if errors.Is(err, httpsrc.ErrNotFound) {
-		return result{}, nil
-	}
-	if err != nil {
-		return result{}, err
-	}
-	names, err := parse(body)
+	names, err := httpsrc.GetNames(ctx, c, u, parse)
 	return result{names: names}, err
 }
 
@@ -41,22 +33,15 @@ func hackertarget(ctx context.Context, in rootInput, c egress.Clients) (result, 
 	return fetchNames(ctx, c, "https://api.hackertarget.com/hostsearch/?"+url.Values{"q": {in.root}}.Encode(), hackertargetNames)
 }
 
-// hackertargetNames reads "host,address" lines. An empty body (no lines) and its
-// two "nothing found" replies are empty; its spent quota is a 200 reply with a
-// text body.
+// hackertargetNames reads "host,address" lines, by the reply rules HackerTarget's
+// stages share (httpsrc.HackerTargetLines).
 func hackertargetNames(body []byte) ([]string, error) {
-	text := strings.TrimSpace(string(body))
-	switch lower := strings.ToLower(text); {
-	case lower == "", lower == "no records found", lower == "error check your search parameter":
-		return nil, nil
-	case strings.HasPrefix(lower, "api count exceeded"):
-		return nil, fmt.Errorf("HackerTarget API count exceeded: %w", run.ErrQuota)
+	lines, err := httpsrc.HackerTargetLines(body)
+	if err != nil {
+		return nil, err
 	}
 	var names []string
-	for line := range strings.SplitSeq(text, "\n") {
-		if line = strings.TrimSpace(line); line == "" {
-			continue
-		}
+	for _, line := range lines {
 		host, _, ok := strings.Cut(line, ",")
 		if !ok {
 			return nil, errors.New("unreadable HackerTarget response")

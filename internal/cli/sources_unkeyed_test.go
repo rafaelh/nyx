@@ -239,7 +239,8 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				v.serve(w, s)
 				w.crtsh(map[string][]string{"example.com": {"c.example.com"}}, nil)
 				w.dns.A("c.example.com", "203.0.113.5")
-				if code := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); code != 0 {
+				// reverseip also asks HackerTarget, and has its own quota test.
+				if code := w.run("--passive", "--concurrency", "1", "--skip", "reverseip", "example.com", "example.org"); code != 0 {
 					t.Fatalf("exit %d", code)
 				}
 				if st, _ := stateOf(w, s.stage); st != "failed" {
@@ -424,6 +425,9 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	w.dns.A("old.example.com", "203.0.113.5")
 	w.dns.A("new.example.com", "203.0.113.6")
 	w.handle("api.hackertarget.com", jsonBody("new.example.com,203.0.113.6\nold.example.com,203.0.113.5\n"))
+	// hostsearch counts the requests of the hackertarget stage alone: the
+	// reverseip stage asks the same host for reverse lookups.
+	hostsearch := func() int { return w.src["api.hackertarget.com"].count("GET", "/hostsearch/") }
 	var skipNew []string
 	for _, s := range unkeyedSources {
 		skipNew = append(skipNew, "--skip", s.stage)
@@ -436,7 +440,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	if crtBefore == 0 || oldBefore == 0 {
 		t.Fatalf("first run did nothing: %d crt.sh requests, %d lookups", crtBefore, oldBefore)
 	}
-	if n := len(w.requests("api.hackertarget.com")); n != 0 {
+	if n := hostsearch(); n != 0 {
 		t.Fatalf("skipped stage made %d requests", n)
 	}
 
@@ -446,7 +450,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	if n := len(w.requests("crt.sh")); n != crtBefore {
 		t.Errorf("crtsh repeated its check: %d requests, then %d", crtBefore, n)
 	}
-	if n := len(w.requests("api.hackertarget.com")); n != 1 {
+	if n := hostsearch(); n != 1 {
 		t.Errorf("hackertarget should run once: %d requests", n)
 	}
 	if w.dns.Count("new.example.com", "A") == 0 {

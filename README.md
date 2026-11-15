@@ -94,6 +94,11 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   whole list in one page, so its cap is not reached. `certspotter` takes an
   optional key: it runs without one, and sends `keys.certspotter` when it is set. The other sources
   need no key.
+- **Reverse IP.** `keys.securitytrails` also adds SecurityTrails to the `reverseip` stage (see
+  [Reverse IP](#reverse-ip)). A rejected key (401 or 403) stops the whole stage, its HackerTarget
+  lookups included, until the key is fixed or removed; a 429 stops it for the run. `reverseip.max_domains`
+  (`--reverseip-max-domains`, default 100, at least 1) is how many registrable domains one address may
+  return before it is treated as shared hosting.
 - **Shodan per address.** `keys.shodan` also turns on `shodan-host` (see
   [Shodan per address](#shodan-per-address)). `shodan.max_hosts` (`--shodan-max-hosts`, default 500,
   at least 1) caps the addresses it looks up in one run.
@@ -134,8 +139,10 @@ scope) and excluded hosts are never contacted. Everything else comes from third 
 public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage provider endpoints. Only
 hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
 reports that its free quota is spent, its stage alone stops, and its checks are retried on the next
-run. The `otx` and `anubis` stages no longer exist, because neither service answers an unkeyed
-client any more. An engagement that already holds their results keeps them, and a `skip` setting
+run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
+addresses, for its reverse IP lookup (see [Reverse IP](#reverse-ip)); the target never does. The
+`otx` and `anubis` stages no longer exist, because neither service answers an unkeyed client any
+more. An engagement that already holds their results keeps them, and a `skip` setting
 that names either is rejected as an unknown stage.
 
 The `rdap` stage contacts only IANA (`data.iana.org`, for the bootstrap file) and the five regional
@@ -482,6 +489,38 @@ after `--redo shodan`, and the summary says when a netblock search was truncated
   line `N risky ports reported by Shodan, unconfirmed` when N is above zero, and the `--json`
   `summary` event carries it as `unconfirmed_risky_ports`, with the stages' lines as `notes`.
 
+## Reverse IP
+
+The `reverseip` stage runs under `--passive` and needs no key. For each recorded address that may be
+port-checked, so one that is in an in-scope netblock, or is dedicated to the organisation (its owner
+is known and it is not shared provider infrastructure) and is not excluded, it asks HackerTarget's
+reverse IP lookup (IPv4 only) which hostnames point at it, and, with `keys.securitytrails`,
+SecurityTrails for the domains whose current A or AAAA record is the address. It never walks a
+netblock: only an address another stage recorded is asked. Nothing it finds enters scope on its own.
+
+- **Names.** A name under an in-scope root is a hostname, and an excluded name is recorded as
+  excluded. Any other name gives its registrable domain as a candidate root in `candidates.csv`, and
+  the hostname itself is not kept. Having no names, or HackerTarget's "no records" reply, completes
+  the check with nothing. No candidate root is resolved or contacted.
+- **Shared hosting.** An address that returns more than `reverseip.max_domains` distinct
+  registrable domains (default 100) is treated as unrecognised shared hosting: nothing is recorded
+  for it, and a WARN line names the address. The cap is part of the check, so changing it asks
+  every address again.
+- **Quota.** HackerTarget's spent quota (a 429, or its text reply with a 200) stops the stage for
+  the run with one WARN line, and the checks that remain are retried on the next run. A rejected
+  SecurityTrails key also stops the stage, HackerTarget lookups included.
+- **IPv6.** HackerTarget cannot answer an IPv6 address, so one is asked only with
+  `keys.securitytrails`, and gets its check when the key is added.
+- **Refresh.** Each address is asked once per engagement, and new results arrive only with
+  `--redo reverseip`. The check is keyed by the address and the cap, not by the scope, so a hostname
+  under a root you promote later was recorded only as a candidate root, and becomes a hostname after
+  `--redo reverseip`. A SecurityTrails key added later is used only for the addresses not yet
+  asked, so an IPv4 address HackerTarget already answered reaches SecurityTrails only after
+  `--redo reverseip`.
+- **Candidates.** A candidate root found on two or more addresses is `medium` in `candidates.csv`,
+  with `reverseip` in `sources`. It never calls Shodan: Shodan's hostnames for an address come from
+  `shodan-host`.
+
 ## Ranked candidates
 
 `candidates.csv` lists the roots, hostnames, netblocks, autonomous systems and organisations that were found but are not in scope.
@@ -499,9 +538,10 @@ The `sources` values are the stages and mechanisms that can find a candidate. Ea
 family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), web archive
 (`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`, `shodan-host`,
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
-results still count) and registrant (`whoisxml`, `org-asn`, `rdap`). `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other
-source. The names `reverseip` (reverse IP), `nsreverse` (shared infrastructure) and
-`identifier-pivot` (web identifier) are reserved for stages that are not built yet.
+results still count), registrant (`whoisxml`, `org-asn`, `rdap`) and reverse IP (`reverseip`).
+`httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other source.
+The names `nsreverse` (shared infrastructure) and `identifier-pivot` (web identifier)
+are reserved for stages that are not built yet.
 
 The confidence follows from the families that agree:
 

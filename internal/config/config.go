@@ -56,6 +56,14 @@ type Shodan struct {
 	MaxHosts int
 }
 
+// ReverseIP holds the settings of the reverseip stage.
+type ReverseIP struct {
+	// MaxDomains is the number of distinct registrable domains one address may
+	// return before it is treated as shared hosting and nothing is recorded. It is
+	// part of the check, so changing it asks every address again.
+	MaxDomains int
+}
+
 // PagedSource holds the settings of a source that follows result pages.
 type PagedSource struct {
 	// MaxPages caps the result pages followed per root. It is part of the check,
@@ -101,6 +109,7 @@ type Settings struct {
 	// SensitivePathMaxRequests caps the sensitive-path requests sent in one run.
 	SensitivePathMaxRequests int
 	Shodan                   Shodan
+	ReverseIP                ReverseIP
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable
@@ -124,6 +133,7 @@ func Defaults() Settings {
 		Certspotter:     PagedSource{MaxPages: 10},
 		ShodanDNS:       PagedSource{MaxPages: 10},
 		Shodan:          Shodan{MaxHosts: 500},
+		ReverseIP:       ReverseIP{MaxDomains: 100},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -207,7 +217,7 @@ var settingTable = []setting{
 	{"skip", "skip"}, {"certspotter-max-pages", "certspotter.max_pages"},
 	{"shodan-dns-max-pages", "shodan_dns.max_pages"}, {"censys-max-pages", "censys.max_pages"}, {"chaos-max-pages", "chaos.max_pages"},
 	{"permutations-max-names", "permutations.max_names"}, {"sensitive-path-max-requests", "sensitive_path_max_requests"},
-	{"shodan-max-hosts", "shodan.max_hosts"},
+	{"shodan-max-hosts", "shodan.max_hosts"}, {"reverseip-max-domains", "reverseip.max_domains"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -241,6 +251,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("permutations-max-names", d.Permutations.MaxNames, "maximum permutation names generated per run; the rest are deferred to later runs")
 	fs.Int("sensitive-path-max-requests", d.SensitivePathMaxRequests, "maximum sensitive-path requests sent per run; the rest are deferred to later runs")
 	fs.Int("shodan-max-hosts", d.Shodan.MaxHosts, "maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
+	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -289,6 +300,9 @@ type rawSettings struct {
 	Shodan                   struct {
 		MaxHosts string `mapstructure:"max_hosts"`
 	} `mapstructure:"shodan"`
+	ReverseIP struct {
+		MaxDomains string `mapstructure:"max_domains"`
+	} `mapstructure:"reverseip"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the
@@ -312,6 +326,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"certspotter.max_pages": d.Certspotter.MaxPages, "skip": []string{},
 		"shodan_dns.max_pages": d.ShodanDNS.MaxPages, "censys.max_pages": d.Censys.MaxPages, "chaos.max_pages": d.Chaos.MaxPages,
 		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
+		"reverseip.max_domains": d.ReverseIP.MaxDomains,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -408,6 +423,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("censys.max_pages", raw.Censys.MaxPages, 1, &s.Censys.MaxPages)
 	posInt("chaos.max_pages", raw.Chaos.MaxPages, 1, &s.Chaos.MaxPages)
 	posInt("shodan.max_hosts", raw.Shodan.MaxHosts, 1, &s.Shodan.MaxHosts)
+	posInt("reverseip.max_domains", raw.ReverseIP.MaxDomains, 1, &s.ReverseIP.MaxDomains)
 	if skip, err := parseSkip(raw.Skip); err != nil {
 		bad("skip", strings.Join(raw.Skip, ","), err.Error())
 	} else {

@@ -96,3 +96,41 @@ func JoinLabels(root string, labels []string) []string {
 	}
 	return names
 }
+
+// GetNames GETs u from a source with a free quota (GetQuota) and turns the body
+// into names with parse; a 404 is no names.
+func GetNames(ctx context.Context, c egress.Clients, u string, parse func([]byte) ([]string, error)) ([]string, error) {
+	body, err := GetQuota(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: u})
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parse(body)
+}
+
+// HackerTargetLines returns the lines of a HackerTarget reply, trimmed and
+// without the empty ones. An empty body and its "nothing found" replies give no
+// lines. Its spent quota is a 200 reply with a text body, which is run.ErrQuota,
+// the same as its 429 (GetQuota). The reply rules are written once, for every
+// stage that asks HackerTarget.
+func HackerTargetLines(body []byte) ([]string, error) {
+	text := strings.TrimSpace(string(body))
+	// Only the start is lowered: every reply compared here is shorter than 40
+	// bytes, and a lookup can be thousands of lines.
+	switch lower := strings.ToLower(text[:min(len(text), 40)]); {
+	case lower == "", lower == "no records found", lower == "error check your search parameter",
+		strings.HasPrefix(lower, "no dns a records found"):
+		return nil, nil
+	case strings.HasPrefix(lower, "api count exceeded"):
+		return nil, fmt.Errorf("HackerTarget API count exceeded: %w", run.ErrQuota)
+	}
+	var lines []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, nil
+}

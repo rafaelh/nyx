@@ -262,6 +262,9 @@ func TestPerRunCapSettings(t *testing.T) {
 		{"shodan.max_hosts", "--shodan-max-hosts", "NYX_SHODAN_MAX_HOSTS", "shodan.max_hosts",
 			func(n int) string { return fmt.Sprintf("shodan:\n  max_hosts: %d\n", n) }, 500,
 			func(s config.Settings) int { return s.Shodan.MaxHosts }},
+		{"reverseip.max_domains", "--reverseip-max-domains", "NYX_REVERSEIP_MAX_DOMAINS", "reverseip.max_domains",
+			func(n int) string { return fmt.Sprintf("reverseip:\n  max_domains: %d\n", n) }, 100,
+			func(s config.Settings) int { return s.ReverseIP.MaxDomains }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			clearEnv(t)

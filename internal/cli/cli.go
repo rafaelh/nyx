@@ -36,6 +36,7 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/ports"
 	"github.com/rafaelh/nyx/internal/stages/providerranges"
 	"github.com/rafaelh/nyx/internal/stages/rdap"
+	"github.com/rafaelh/nyx/internal/stages/reverseip"
 	"github.com/rafaelh/nyx/internal/stages/risk"
 	"github.com/rafaelh/nyx/internal/stages/shodan"
 	"github.com/rafaelh/nyx/internal/stages/subdomains"
@@ -87,7 +88,7 @@ func defaultStages() []run.Stage {
 	stages = append(stages, sub...)
 	return append(stages,
 		shodan.New(), shodan.NewDNS(), providerranges.New(),
-		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(),
+		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
 		risk.NewEmail(), web.NewProbe(), web.NewCrawl(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), ports.New())
 }
