@@ -10,8 +10,10 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/store"
+	"github.com/rafaelh/nyx/internal/thirdparty"
 )
 
 // DeriveInput is what a deriver reads: the current Scope and Inventory, the
@@ -49,7 +51,15 @@ type deriver struct {
 func (r *Runner) newDerivers() []*deriver {
 	return []*deriver{
 		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: r.rankCandidates},
+		{name: "thirdparty-cname", reads: []kinds.Named{kinds.Hostname, kinds.Resolution, kinds.Wildcard}, writes: kinds.ThirdParty, derive: thirdPartyCNAME},
 	}
+}
+
+// thirdPartyCNAME derives the SaaS platforms in-scope names are served by. Its
+// deriver reads the kinds the inventory's provider hosts come from, and not
+// third_party, which it and the stages write.
+func thirdPartyCNAME(in DeriveInput) []store.Obs {
+	return thirdparty.CNAME(in.Scope, in.Inv, provider.Default())
 }
 
 // derive derives the findings and then the other derived records. Every place

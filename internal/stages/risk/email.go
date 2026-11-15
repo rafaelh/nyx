@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,12 +15,16 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Email reads MX, SPF, DMARC and common DKIM selectors for each in-scope input
-// root. It only asks public DNS, so it runs under --passive.
+// Email reads MX, SPF, DMARC, MTA-STS and common DKIM selectors for each
+// in-scope input root, and from them the third parties the root authorises to
+// send its mail (SPF), receive its mail reports (DMARC) and host its mailboxes
+// (MX). It only asks public DNS, so it runs under --passive. It never fetches
+// an MTA-STS policy file.
 type Email struct{}
 
 // NewEmail returns the email stage.
@@ -32,6 +38,10 @@ func (*Email) Configured(run.Env) (bool, string) { return true, "" }
 // RetiresUnlistedChecks: a check for a changed selector list supersedes the old one's evidence.
 func (*Email) RetiresUnlistedChecks() {}
 
+// mtaSTSToken ends every check key: a check made before MTA-STS was read does
+// not have it, so an engagement from before runs its email checks again once.
+const mtaSTSToken = "|mta-sts"
+
 // Checks yields one check per in-scope input root; a changed selector list creates new checks.
 func (*Email) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
@@ -39,7 +49,7 @@ func (*Email) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 			if v.Scope().ClassifyHost(root).Class != scope.InScope {
 				continue
 			}
-			if !yield(run.Check{Key: root + "|dkim=" + config.DKIMSelectorHash(), Input: root}, nil) {
+			if !yield(run.Check{Key: root + "|dkim=" + config.DKIMSelectorHash() + mtaSTSToken, Input: root}, nil) {
 				return
 			}
 		}
@@ -78,12 +88,14 @@ func withPrefix(records []string, prefix string) []string {
 }
 
 // Run reads the posture. A timeout or SERVFAIL on MX, the root's TXT, an SPF
-// include or redirect, or the DMARC names fails the check (it is retried next
-// run); one on a DKIM selector is recorded in dkim_errors. An include that does
-// not exist or has no single SPF record makes the SPF invalid.
+// include or redirect, the DMARC names or _mta-sts fails the check (it is
+// retried next run, and records no third parties); one on a DKIM selector is
+// recorded in dkim_errors. An include that does not exist or has no single SPF
+// record makes the SPF invalid.
 func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	root := c.Input.(string)
 	var attrs kinds.EmailPostureAttrs
+	tp := &thirdParties{root: root, found: map[string]int{}}
 
 	mx, err := e.DNS.Query(ctx, root, egress.TypeMX)
 	if err != nil {
@@ -103,6 +115,9 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	}
 	slices.Sort(hosts)
 	attrs.MX = strings.Join(hosts, ";")
+	for _, h := range hosts {
+		tp.add(kinds.MechanismMX, dnsname.Registrable(h), 0)
+	}
 
 	rootTXT, err := txt(ctx, e, root)
 	if err != nil {
@@ -117,8 +132,8 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	case len(spfs) > 1:
 		attrs.SPFError = fmt.Sprintf("%d v=spf1 records", len(spfs))
 	case len(spfs) == 1:
-		ev := &spfEval{ctx: ctx, e: e}
-		all := ev.walk(spfs[0], map[string]bool{root: true})
+		ev := &spfEval{ctx: ctx, e: e, tp: tp}
+		all := ev.walk(spfs[0], map[string]bool{root: true}, 0)
 		if ev.tempErr != nil {
 			return nil, ev.tempErr
 		}
@@ -147,25 +162,48 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			policy = tags["sp"]
 		}
 		attrs.DMARC, attrs.DMARCPolicy, attrs.DMARCSource = rec, strings.ToLower(policy), source
+		for _, tag := range []string{"rua", "ruf"} {
+			for _, domain := range reportDomains(tags[tag]) {
+				tp.add(kinds.MechanismDMARC, domain, 0)
+			}
+		}
 	}
 
-	// The selectors are independent lookups, so they are asked at once (egress
-	// still rate-limits them); the results keep the selectors' order.
+	// The selectors and _mta-sts are independent lookups, so they are asked at
+	// once (egress still rate-limits them); the results keep the selectors' order.
 	sels := config.DKIMSelectors()
-	type dkim struct {
+	type lookup struct {
 		recs []string
 		err  error
 	}
-	res := make([]dkim, len(sels))
+	res := make([]lookup, len(sels))
+	var mtaSTS lookup
 	var wg sync.WaitGroup
 	for i, sel := range sels {
 		wg.Go(func() {
 			res[i].recs, res[i].err = txt(ctx, e, sel+"._domainkey."+root)
 		})
 	}
+	// MTA-STS: only a root that receives mail has a policy to publish. Its own
+	// name is asked, never the organisational domain's, and the policy file over
+	// HTTPS is never fetched.
+	if len(hosts) > 0 {
+		wg.Go(func() {
+			mtaSTS.recs, mtaSTS.err = txt(ctx, e, "_mta-sts."+root)
+		})
+	}
 	wg.Wait()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	if mtaSTS.err != nil {
+		return nil, mtaSTS.err
+	}
+	if len(hosts) > 0 {
+		attrs.MTASTS = "absent"
+		if len(withPrefix(mtaSTS.recs, "v=STSv1")) == 1 {
+			attrs.MTASTS = "present"
+		}
 	}
 	var found, failed []string
 	for i, sel := range sels {
@@ -178,7 +216,70 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 	}
 	attrs.DKIMSelectors, attrs.DKIMErrors = strings.Join(found, ";"), strings.Join(failed, ";")
-	return []run.Observation{kinds.EmailPosture.Obs(root, attrs)}, nil
+	return append([]run.Observation{kinds.EmailPosture.Obs(root, attrs)}, tp.observations()...), nil
+}
+
+// thirdParties collects the third parties one check found, one per mechanism and
+// domain, with the nearest depth a domain was named at. Whether a domain is a
+// third party at all is decided on read (one in scope is not); the stage drops
+// only a domain in the root's own registrable domain.
+type thirdParties struct {
+	root  string
+	found map[string]int // "<mechanism>|<domain>" -> depth
+}
+
+// add records a domain named at depth. A name that cannot be looked up (a
+// macro, a malformed name, an address an MX record wrongly names) is not a
+// third party, so it is not recorded.
+func (t *thirdParties) add(mechanism, domain string, depth int) {
+	domain = dnsname.Normalise(domain)
+	if !lookupable(domain) || sameRegistrable(domain, t.root) {
+		return
+	}
+	k := mechanism + "|" + domain
+	if d, ok := t.found[k]; !ok || depth < d {
+		t.found[k] = depth
+	}
+}
+
+func (t *thirdParties) observations() []run.Observation {
+	var obs []run.Observation
+	for _, k := range slices.Sorted(maps.Keys(t.found)) {
+		mechanism, domain, _ := strings.Cut(k, "|")
+		owner, _ := provider.Default().DomainOwner(domain)
+		obs = append(obs, kinds.ThirdParty.Obs(kinds.ThirdPartyKey(t.root, mechanism, domain),
+			kinds.ThirdPartyAttrs{Root: t.root, Mechanism: mechanism, Domain: domain, Provider: owner, Depth: t.found[k]}))
+	}
+	return obs
+}
+
+// sameRegistrable reports whether two names share a registrable domain (or,
+// for a name that has none, are the same name or one is under the other).
+func sameRegistrable(a, b string) bool {
+	ra, oka := dnsname.ETLDPlusOne(a)
+	rb, okb := dnsname.ETLDPlusOne(b)
+	if oka && okb {
+		return ra == rb
+	}
+	return dnsname.Under(a, b) || dnsname.Under(b, a)
+}
+
+// reportDomains are the mailbox domains of a DMARC rua or ruf value: a
+// comma-separated list of URIs, each with an optional "!size" suffix. Only
+// mailto: URIs name a mailbox; any other scheme is ignored.
+func reportDomains(value string) []string {
+	var out []string
+	for _, uri := range strings.Split(value, ",") {
+		rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(uri)), "mailto:")
+		if !ok {
+			continue
+		}
+		addr, _, _ := strings.Cut(rest, "!")
+		if _, domain, ok := strings.Cut(addr, "@"); ok {
+			out = append(out, domain)
+		}
+	}
+	return out
 }
 
 func dmarc(ctx context.Context, e egress.Clients, name string) (string, error) {
@@ -226,6 +327,10 @@ type spfEval struct {
 	queries int
 	err     string
 	tempErr error
+	// tp collects each domain a record names (an include, a followed redirect, or
+	// an a:, mx: or exists: argument) at the depth it was named at: 0 in the
+	// root's own record, one more in each record followed.
+	tp *thirdParties
 }
 
 const spfMaxQueries = 30 // a hard stop on what one record may make us ask
@@ -236,8 +341,12 @@ func (s *spfEval) fail(msg string) {
 	}
 }
 
-// walk evaluates one record and returns its "all" mechanism with qualifier ("" if none).
-func (s *spfEval) walk(record string, path map[string]bool) string {
+// name records a domain a record at depth names.
+func (s *spfEval) name(domain string, depth int) { s.tp.add(kinds.MechanismSPF, domain, depth) }
+
+// walk evaluates one record, found at depth, and returns its "all" mechanism
+// with qualifier ("" if none).
+func (s *spfEval) walk(record string, path map[string]bool, depth int) string {
 	all, redirect := "", ""
 	for _, term := range strings.Fields(record)[1:] {
 		q := byte('+')
@@ -254,17 +363,24 @@ func (s *spfEval) walk(record string, path map[string]bool) string {
 			all = string(q) + "all"
 		case "include":
 			s.lookups++
-			s.follow(arg, path)
+			s.name(arg, depth)
+			s.follow(arg, path, depth+1)
 		case "redirect":
 			redirect = arg
-		case "a", "mx", "ptr", "exists":
+		case "a", "mx", "exists":
+			s.lookups++
+			// An argument may carry a CIDR length ("a:host/24"); a bare a or mx names the root itself.
+			host, _, _ := strings.Cut(arg, "/")
+			s.name(host, depth)
+		case "ptr":
 			s.lookups++
 		}
 	}
 	// A redirect is ignored, and never queried, when the record has an "all" (RFC 7208 6.1).
 	if redirect != "" && all == "" {
 		s.lookups++
-		return s.follow(redirect, path)
+		s.name(redirect, depth)
+		return s.follow(redirect, path, depth+1)
 	}
 	return all
 }
@@ -273,8 +389,18 @@ func (s *spfEval) walk(record string, path map[string]bool) string {
 // letters, digits, "-" and "_".
 var spfDomain = regexp.MustCompile(`^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)+$`)
 
+// lookupable reports whether a normalised name is a domain that can be looked
+// up: a name spfDomain matches (so never a macro, whose "%" it rejects) of at
+// most 253 characters, and not an address.
+func lookupable(domain string) bool {
+	if _, err := netip.ParseAddr(domain); err == nil {
+		return false
+	}
+	return len(domain) <= 253 && spfDomain.MatchString(domain)
+}
+
 // follow fetches and evaluates the SPF record of an included or redirected domain.
-func (s *spfEval) follow(domain string, path map[string]bool) string {
+func (s *spfEval) follow(domain string, path map[string]bool, depth int) string {
 	domain = dnsname.Normalise(domain)
 	switch {
 	case s.tempErr != nil:
@@ -307,5 +433,5 @@ func (s *spfEval) follow(domain string, path map[string]bool) string {
 	}
 	path[domain] = true
 	defer delete(path, domain)
-	return s.walk(spfs[0], path)
+	return s.walk(spfs[0], path, depth)
 }

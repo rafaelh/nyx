@@ -16,11 +16,14 @@ type mail struct {
 	mx    []string // "10 mail.example.com", "0 ." for a null MX
 	spf   []string
 	dmarc []string
-	extra func(d *egresstest.DNS)
+	// mtasts are the TXT records at _mta-sts.<root>.
+	mtasts []string
+	extra  func(d *egresstest.DNS)
 }
 
 func healthy() mail {
-	return mail{mx: []string{"10 mail.example.com"}, spf: []string{"v=spf1 ip4:203.0.113.0/24 -all"}, dmarc: []string{"v=DMARC1; p=reject"}}
+	return mail{mx: []string{"10 mail.example.com"}, spf: []string{"v=spf1 ip4:203.0.113.0/24 -all"}, dmarc: []string{"v=DMARC1; p=reject"},
+		mtasts: []string{"v=STSv1; id=20260101T000000"}}
 }
 
 func (m mail) apply(d *egresstest.DNS, root string) {
@@ -35,6 +38,9 @@ func (m mail) apply(d *egresstest.DNS, root string) {
 	}
 	for _, s := range m.dmarc {
 		d.TXT("_dmarc."+root, s)
+	}
+	for _, s := range m.mtasts {
+		d.TXT("_mta-sts."+root, s)
 	}
 	if m.extra != nil {
 		m.extra(d)
@@ -271,6 +277,7 @@ func TestEmail_SubdomainRootUsesOrgPolicy(t *testing.T) {
 			x.dns.MX("sub.example.com", 10, "mail.example.com")
 			x.dns.TXT("sub.example.com", "v=spf1 -all")
 			x.dns.TXT("_dmarc.example.com", tc.dmarc)
+			x.dns.TXT("_mta-sts.sub.example.com", "v=STSv1; id=1")
 			x.fill()
 			if code := x.world.run("--authorised", "--no-permutations", "-e", "subtest", "sub.example.com"); code != 0 {
 				t.Fatalf("exit %d", code)

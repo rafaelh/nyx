@@ -51,6 +51,7 @@ var table = []Row{
 	{Email, "dmarc-missing", Medium, "no DMARC record"},
 	{Email, "dmarc-none", Low, "DMARC policy is none"},
 	{Email, "no-mx-spf", Low, "no MX (or a null MX) and no v=spf1 -all record"},
+	{Email, "mta-sts-missing", Low, "a root with a mail host does not publish exactly one MTA-STS policy record (_mta-sts)"},
 	{Ports, "risky-port", Medium, "a port on the risky list (RDP, SMB, Telnet, databases, ...) is open; low while only Shodan reports it"},
 	{Certificates, "expired", Medium, "the certificate has expired"},
 	{Certificates, "expiring", Low, "the certificate expires within --cert-expiry-days"},

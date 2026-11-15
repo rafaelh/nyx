@@ -19,7 +19,9 @@
 # txt:     a root TXT record that starts with `prefix` (case-insensitive) is a domain-ownership
 #          verification for `platform`. Only the platform is reported; the token is not.
 # domains: a domain that ends with `suffix` (on a label boundary) is operated by `provider`, such
-#          as the managed DNS service behind a name server.
+#          as the managed DNS service behind a name server, a mail service named by an SPF include,
+#          a DMARC report address or an MX host, or the SaaS platform behind a CNAME. A name server
+#          or MX host is looked up by its registrable domain, so an entry deeper than that never matches it.
 # The Salesforce prefix has not been re-confirmed against a live record. Amazon Route 53 name servers
 # (awsdns-NN.com, .net, .org and .co.uk) are not listed: their number is in the label, so a suffix cannot match them.
 # The fingerprints, ASNs and ranges below are a hand-curated starter set; they change only with the binary.
@@ -136,3 +138,45 @@ domains:
   - {suffix: gandi.net, provider: Gandi}
   - {suffix: he.net, provider: Hurricane Electric}
   - {suffix: ovh.net, provider: OVHcloud}
+  # Mail and SaaS providers, written at the registrable domain so that an MX or NS row (which holds one)
+  # can match as well as an SPF include or a CNAME suffix of any depth.
+  - {suffix: google.com, provider: Google}
+  - {suffix: googlemail.com, provider: Google}
+  - {suffix: outlook.com, provider: Microsoft 365}
+  - {suffix: office365.com, provider: Microsoft 365}
+  - {suffix: microsoft.com, provider: Microsoft}
+  - {suffix: amazonses.com, provider: Amazon SES}
+  - {suffix: mailgun.org, provider: Mailgun}
+  - {suffix: mailgun.com, provider: Mailgun}
+  - {suffix: sendgrid.net, provider: SendGrid}
+  - {suffix: sendgrid.com, provider: SendGrid}
+  - {suffix: mailchimp.com, provider: Mailchimp}
+  - {suffix: mcsv.net, provider: Mailchimp}
+  - {suffix: mandrillapp.com, provider: Mailchimp}
+  - {suffix: sparkpostmail.com, provider: SparkPost}
+  - {suffix: postmarkapp.com, provider: Postmark}
+  - {suffix: pphosted.com, provider: Proofpoint}
+  - {suffix: ppe-hosted.com, provider: Proofpoint}
+  - {suffix: mimecast.com, provider: Mimecast}
+  - {suffix: mimecast-offshore.com, provider: Mimecast}
+  - {suffix: barracudanetworks.com, provider: Barracuda}
+  - {suffix: zoho.com, provider: Zoho}
+  - {suffix: zoho.eu, provider: Zoho}
+  - {suffix: protonmail.ch, provider: Proton}
+  - {suffix: messagingengine.com, provider: Fastmail}
+  - {suffix: secureserver.net, provider: GoDaddy}
+  - {suffix: icloud.com, provider: Apple}
+  - {suffix: salesforce.com, provider: Salesforce}
+  - {suffix: exacttarget.com, provider: Salesforce}
+  - {suffix: hubspot.com, provider: HubSpot}
+  - {suffix: hubspotemail.net, provider: HubSpot}
+  - {suffix: mktomail.com, provider: Marketo}
+  - {suffix: github.io, provider: GitHub}
+  - {suffix: myshopify.com, provider: Shopify}
+  - {suffix: zendesk.com, provider: Zendesk}
+  - {suffix: readme.io, provider: ReadMe}
+  - {suffix: squarespace.com, provider: Squarespace}
+  - {suffix: wixdns.net, provider: Wix}
+  - {suffix: statuspage.io, provider: Atlassian}
+  - {suffix: unbouncepages.com, provider: Unbounce}
+  - {suffix: ghost.io, provider: Ghost}

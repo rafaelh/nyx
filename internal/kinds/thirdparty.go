@@ -21,13 +21,19 @@ var ThirdParty = define[ThirdPartyAttrs](Kind{
 const (
 	MechanismNS              = "ns"
 	MechanismTXTVerification = "txt-verification"
+	MechanismSPF             = "spf"
+	MechanismDMARC           = "dmarc"
+	MechanismMX              = "mx"
+	MechanismCNAME           = "cname"
 )
 
 // ThirdPartyAttrs: the root that depends on it, how it was seen, the domain
 // (for a name server, its registrable domain; empty for a TXT verification,
 // whose token never leaves resolutions.csv), the provider when it is known and
 // how many hops from the root it was found at (0 for the root's own records).
-// A record's key is "<root>|<mechanism>|<name>".
+// A record's key is "<root>|<mechanism>|<name>". For spf and dmarc the domain is
+// kept as written (_spf.google.com); for mx it is the host's registrable domain,
+// and for cname the suffix of the SaaS platform's names.
 type ThirdPartyAttrs struct {
 	Root      string `json:"root"`
 	Mechanism string `json:"mechanism"`
@@ -45,10 +51,17 @@ func (a ThirdPartyAttrs) Platform() string {
 	return a.Domain
 }
 
+// ThirdPartyKey is the key of a third-party record: "<root>|<mechanism>|<name>",
+// where the name is the domain, or the platform of a TXT verification.
+func ThirdPartyKey(root, mechanism, name string) string {
+	return root + "|" + mechanism + "|" + name
+}
+
 // ThirdPartyOf decodes a third party's attributes, filling in from its key what
 // a record that is no longer current has lost: the store keeps attributes only
 // from current observations, but the key says the root, the mechanism and the
-// name (the domain of a name server, the platform of a verification).
+// name (the domain of a name server, mail or SaaS dependency, the platform of a
+// verification). The depth is not in the key, so it shows 0.
 func ThirdPartyOf(r store.Record) ThirdPartyAttrs {
 	a := ThirdParty.Attrs(r)
 	parts := strings.SplitN(r.Key, "|", 3)
@@ -62,16 +75,16 @@ func ThirdPartyOf(r store.Record) ThirdPartyAttrs {
 		a.Mechanism = parts[1]
 	}
 	switch a.Mechanism {
-	case MechanismNS:
+	case MechanismTXTVerification:
+		if a.Provider == "" {
+			a.Provider = parts[2]
+		}
+	default:
 		if a.Domain == "" {
 			a.Domain = parts[2]
 		}
 		if a.Provider == "" {
 			a.Provider, _ = provider.Default().DomainOwner(a.Domain)
-		}
-	case MechanismTXTVerification:
-		if a.Provider == "" {
-			a.Provider = parts[2]
 		}
 	}
 	return a

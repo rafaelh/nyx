@@ -176,6 +176,10 @@ func (d *deriver) email() []Finding {
 		if a.MX == "" && !strings.EqualFold(strings.Join(strings.Fields(spf), " "), "v=spf1 -all") {
 			add("no-mx-spf", "no MX record, and the domain does not say it sends no mail (v=spf1 -all)")
 		}
+		// mta_sts is empty for a root with no mail host, which has no policy to publish.
+		if a.MTASTS == "absent" {
+			add("mta-sts-missing", "the domain receives mail but publishes no single MTA-STS policy record (v=STSv1) at _mta-sts."+root)
+		}
 	}
 	return out
 }

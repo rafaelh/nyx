@@ -211,9 +211,48 @@ the administrative mailbox as an email address (`john\.doe.example.com` is `john
   `resolutions.csv`, but not in `third-parties.csv`. A TXT record that matches nothing is only a row
   in `resolutions.csv`.
 
-The `+` line for a new third party reads `third-party <platform> via txt-verification on <root>`,
+The `+` line for a new third party reads `third-party <platform> via <mechanism> on <root>` (the
+platform is the provider, else the domain),
 and its `--json` `found` event carries `platform`, `mechanism` and `root`. The prefix list and the
 name-server provider names are in the embedded `providers.yaml`.
+
+### Mail and SaaS dependencies
+
+The `email` stage (it runs under `--passive`, and only asks DNS) adds third parties to the same file
+from the records it already reads for each in-scope root:
+
+- `spf`: every domain the SPF walk follows (`include:` and a `redirect=` that the record's own `all`
+  does not make unreachable) and every domain named by `a:`, `mx:` or `exists:` at any level, with the
+  `depth` it was named at. Arguments with macros are skipped, and an include that has no SPF record is
+  still listed. A SERVFAIL on any include fails the root's email check, which is retried on the next
+  run, so that run records no third parties for the root.
+- `dmarc`: the mailbox domain of each `rua=` and `ruf=` address (the `!10m` size suffix is removed,
+  and anything but a `mailto:` address is ignored). It belongs to the root whose policy it is, also
+  when the policy came from the organisational domain.
+- `mx`: the registrable domain of each MX host.
+- `cname`: the name suffix (`github.io`, `myshopify.com`) of each SaaS platform that appears at any
+  hop of an in-scope name's CNAME chain, listed for the most specific in-scope root above the name.
+  Names that only a wildcard answers, and excluded names, are not listed. `provider-hosts.csv` is
+  unchanged. These rows are derived from the resolutions, so
+  `--redo resolve` is what retires one.
+
+A domain that is, or is under, an in-scope root is not a third party, and neither is one sharing the
+registrable domain of the root it was found on. That is decided when the file is written, so a root
+added later hides the row. A root has one row per mechanism and domain, and third-party domains are
+never candidates. `--redo email` retires a row the root no longer references.
+
+The `provider` column is filled when the domain is on the built-in list of mail and SaaS providers
+(and name-server operators) in `providers.yaml`; the domain itself is never replaced. The mail and
+SaaS providers are Google, Microsoft 365, Microsoft, Amazon SES, Mailgun, SendGrid, Mailchimp,
+SparkPost, Postmark, Proofpoint, Mimecast, Barracuda, Zoho, Proton, Fastmail, GoDaddy, Apple,
+Salesforce, HubSpot, Marketo, GitHub, Shopify, Zendesk, ReadMe, Squarespace, Wix, Atlassian, Unbounce
+and Ghost.
+
+For a root with at least one MX host that is not a null MX, the `email` stage also asks for the TXT
+records at `_mta-sts.<root>` (the root's own name, with no fallback to the organisational domain).
+A timeout or SERVFAIL fails the check, as for SPF and DMARC. The policy file over HTTPS is never
+fetched. A missing record (or more than one) is the low finding `mta-sts-missing` in `risk-email.csv`. The lookup is part
+of the email check, so an engagement from an earlier version runs its email checks once more.
 
 ## Web posture
 
@@ -508,13 +547,13 @@ Everything is in `<output-dir>/<engagement>/`:
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)) and web posture evidence (see Web posture above) |
 | `urls.csv` | URLs from crawling and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake) and `shodan_last_seen` (empty on a row only nyx saw) |
-| `email-posture.csv` | SPF, DMARC and MX results per root domain |
-| `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns` or `txt-verification`), the `domain` (a name server's registrable domain), the `provider` (when known) and the `depth` (0 for the root's own records) |
+| `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host |
+| `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx` or `cname`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns` and `mx`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |
 | `risk-takeover.csv` | Subdomain takeover findings |
 | `risk-storage.csv` | Cloud-storage findings: buckets that exist, are public or are listable |
 | `risk-sensitive-paths.csv` | Sensitive paths that answered with their expected signature |
-| `risk-email.csv` | SPF and DMARC weaknesses |
+| `risk-email.csv` | SPF, DMARC and MTA-STS weaknesses (`mta-sts-missing`, low: a root with a mail host that does not publish exactly one MTA-STS policy record) |
 | `risk-ports.csv` | Open ports on the risky-port list, with `confirmed` (`no` for a port only Shodan reports, which is one severity step lower) |
 | `risk-certificates.csv` | Expired, soon-to-expire and self-signed certificates, certificates that do not name the host, and services that negotiate only TLS 1.0 or 1.1 (see [TLS detail](#tls-detail)) |
 | `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |

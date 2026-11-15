@@ -19,7 +19,7 @@ func findingsFile(f findings.File) File {
 	}}
 }
 
-var emailPostureColumns = []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors"}
+var emailPostureColumns = []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors", "mta_sts"}
 
 // emailPostureRows lists the email posture evidence of each in-scope root.
 func emailPostureRows(s Snapshot) []Row {
@@ -30,7 +30,7 @@ func emailPostureRows(s Snapshot) []Row {
 			continue
 		}
 		a := kinds.EmailPosture.Attrs(r)
-		rows = append(rows, recordRow(r, r.Key, a.MX, a.SPF, strconv.Itoa(a.SPFLookups), a.DMARC, a.DMARCPolicy, a.DKIMSelectors))
+		rows = append(rows, recordRow(r, r.Key, a.MX, a.SPF, strconv.Itoa(a.SPFLookups), a.DMARC, a.DMARCPolicy, a.DKIMSelectors, a.MTASTS))
 	}
 	return rows
 }

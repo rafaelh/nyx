@@ -279,4 +279,5 @@ type EmailPostureAttrs struct {
 	DMARCSource   string `json:"dmarc_source"`
 	DKIMSelectors string `json:"dkim_selectors"` // ";"-joined
 	DKIMErrors    string `json:"dkim_errors"`    // ";"-joined
+	MTASTS        string `json:"mta_sts"`        // "present", "absent", or "" for a root with no mail host
 }

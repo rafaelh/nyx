@@ -88,7 +88,7 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 			obs = append(obs, nameServer(in, target)...)
 		case "TXT":
 			if platform, ok := provider.Default().Verification(a.Value); ok {
-				obs = append(obs, kinds.ThirdParty.Obs(in.root+"|"+kinds.MechanismTXTVerification+"|"+platform,
+				obs = append(obs, kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, kinds.MechanismTXTVerification, platform),
 					kinds.ThirdPartyAttrs{Root: in.root, Mechanism: kinds.MechanismTXTVerification, Provider: platform}))
 			}
 		}
@@ -110,11 +110,8 @@ func nameServer(in rootInput, host string) []run.Observation {
 	if in.t.name != "NS" {
 		return nil
 	}
-	domain, ok := dnsname.ETLDPlusOne(host)
-	if !ok {
-		domain = host
-	}
+	domain := dnsname.Registrable(host)
 	owner, _ := provider.Default().DomainOwner(domain)
-	return []run.Observation{kinds.ThirdParty.Obs(in.root+"|"+kinds.MechanismNS+"|"+domain,
+	return []run.Observation{kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, kinds.MechanismNS, domain),
 		kinds.ThirdPartyAttrs{Root: in.root, Mechanism: kinds.MechanismNS, Domain: domain, Provider: owner})}
 }

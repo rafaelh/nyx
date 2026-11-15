@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // A third party is shown while its root is in scope and, when it names a
@@ -73,6 +74,27 @@ func TestThirdPartyFound(t *testing.T) {
 		fields := k.Found(r)
 		if fields["text"] != c.text || fields["platform"] != c.plat || fields["mechanism"] != r.Str("mechanism") || fields["root"] != "example.com" {
 			t.Errorf("Found = %v, want text %q", fields, c.text)
+		}
+	}
+}
+
+// A record that is no longer current keeps no attributes, so its root,
+// mechanism and domain (and the provider that domain belongs to) come from its key.
+func TestThirdPartyOfKeyFallback(t *testing.T) {
+	for _, c := range []struct {
+		key            string
+		mechanism, dom string
+		provider       string
+	}{
+		{"example.com|spf|_spf.google.com", "spf", "_spf.google.com", "Google"},
+		{"example.com|dmarc|rep.vendor.test", "dmarc", "rep.vendor.test", ""},
+		{"example.com|mx|outlook.com", "mx", "outlook.com", "Microsoft 365"},
+		{"example.com|cname|github.io", "cname", "github.io", "GitHub"},
+		{"example.com|ns|cloudflare.com", "ns", "cloudflare.com", "Cloudflare"},
+	} {
+		a := kinds.ThirdPartyOf(store.Record{Kind: "third_party", Key: c.key})
+		if a.Root != "example.com" || a.Mechanism != c.mechanism || a.Domain != c.dom || a.Provider != c.provider || a.Depth != 0 {
+			t.Errorf("ThirdPartyOf(%q) = %+v", c.key, a)
 		}
 	}
 }

@@ -114,6 +114,7 @@ func TestSeverityTable(t *testing.T) {
 		"email/dmarc-missing":            "medium",
 		"email/dmarc-none":               "low",
 		"email/no-mx-spf":                "low",
+		"email/mta-sts-missing":          "low",
 		"ports/risky-port":               "medium",
 		"certificates/expired":           "medium",
 		"certificates/expiring":          "low",
@@ -203,6 +204,9 @@ func TestEmailFindings(t *testing.T) {
 		{"null MX with -all", with("mx", "", "spf", "v=spf1 -all"), nil},
 		{"no MX lacking -all", with("mx", "", "spf", "v=spf1 include:x.example.net ~all", "spf_all", "~all"), []string{"email/no-mx-spf=low"}},
 		{"no MX, no spf", with("mx", "", "spf", "", "spf_records", 0.0, "spf_all", "", "spf_lookups", 0.0), []string{"email/spf-missing=medium", "email/no-mx-spf=low"}},
+		{"mta-sts absent", with("mta_sts", "absent"), []string{"email/mta-sts-missing=low"}},
+		{"mta-sts present", with("mta_sts", "present"), nil},
+		{"mta-sts empty (no MX) is not a finding", with("mta_sts", ""), nil},
 		{"selectors found are not findings", with("dkim_selectors", "google;selector1"), nil},
 		{"no selector found is informational", with("dkim_selectors", ""), nil},
 	}
@@ -583,5 +587,25 @@ func TestDeriveDeterministic(t *testing.T) {
 		if a[i-1].Key() > a[i].Key() {
 			t.Errorf("not sorted by key: %s before %s", a[i-1].Key(), a[i].Key())
 		}
+	}
+}
+
+// The findings never read the third parties: the runner leaves that kind, which
+// a deriver writes, out of what makes the findings derive again, so a finding
+// that read it could go stale.
+func TestDerivationNeverReadsThirdParties(t *testing.T) {
+	f := newFixture()
+	f.add(rec("email_posture", "example.com", "mx", "m", "spf", "", "dmarc", "", "spf_records", 0.0, "mta_sts", "absent"))
+	f.add(rec("third_party", "example.com|mx|vendor.test", "root", "example.com", "mechanism", "mx", "domain", "vendor.test"))
+	in := f.input(t)
+	records := in.Records
+	in.Records = func(k kinds.Named) []store.Record {
+		if k.Name() == kinds.ThirdParty.Name() {
+			t.Errorf("derivation read %s", k.Name())
+		}
+		return records(k)
+	}
+	if fs, _ := findings.DeriveAll(in); len(fs) == 0 {
+		t.Error("no findings derived")
 	}
 }

@@ -73,3 +73,37 @@ func TestParseTXTAndDomains(t *testing.T) {
 		t.Errorf("DomainOwner = %q, %v", p, ok)
 	}
 }
+
+// The mail and SaaS providers are listed at their registrable domain, so a
+// record of any depth (an SPF include, an MX host, a CNAME target's suffix)
+// names its provider, and every SaaS CNAME entry's suffix has an owner.
+func TestDomainOwnerMailAndSaaS(t *testing.T) {
+	db := provider.Default()
+	for name, want := range map[string]string{
+		"_spf.google.com":                         "Google",
+		"aspmx.l.google.com":                      "Google",
+		"example-com.mail.protection.outlook.com": "Microsoft 365",
+		"spf.protection.outlook.com":              "Microsoft 365",
+		"mailgun.org":                             "Mailgun",
+		"sendgrid.net":                            "SendGrid",
+		"amazonses.com":                           "Amazon SES",
+		"github.io":                               "GitHub",
+		"myshopify.com":                           "Shopify",
+		"zendesk.com":                             "Zendesk",
+		"readme.io":                               "ReadMe",
+		"squarespace.com":                         "Squarespace",
+		"wixdns.net":                              "Wix",
+		"statuspage.io":                           "Atlassian",
+		"unbouncepages.com":                       "Unbounce",
+		"ghost.io":                                "Ghost",
+	} {
+		if got, ok := db.DomainOwner(name); !ok || got != want {
+			t.Errorf("DomainOwner(%q) = %q, %v, want %q", name, got, ok, want)
+		}
+	}
+	for _, name := range []string{"notgoogle.com", "google.com.evil.test"} {
+		if got, ok := db.DomainOwner(name); ok {
+			t.Errorf("DomainOwner(%q) = %q", name, got)
+		}
+	}
+}

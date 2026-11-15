@@ -54,6 +54,15 @@ func ETLDPlusOne(name string) (string, bool) {
 	return d, err == nil
 }
 
+// Registrable is the registrable domain of name, or the normalised name itself
+// when it has none (a public suffix, a single label).
+func Registrable(name string) string {
+	if d, ok := ETLDPlusOne(name); ok {
+		return d
+	}
+	return Normalise(name)
+}
+
 // Parents returns the ancestors of name, nearest first, down to and including
 // its registrable domain. A registrable domain (or a public suffix) has none.
 func Parents(name string) []string {

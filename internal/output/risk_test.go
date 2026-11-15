@@ -54,11 +54,11 @@ func cellMap(f output.File, r output.Row) map[string]string {
 func TestEmailPostureFile(t *testing.T) {
 	snap := snapshot(map[string][]store.Record{"email_posture": {
 		srec("email_posture", "example.com", true, "mx", "mail.example.com", "spf", "v=spf1 -all", "spf_lookups", 3.0,
-			"dmarc", "v=DMARC1; p=none", "dmarc_policy", "none", "dkim_selectors", "google;k1"),
+			"dmarc", "v=DMARC1; p=none", "dmarc_policy", "none", "dkim_selectors", "google;k1", "mta_sts", "absent"),
 		srec("email_posture", "other.org", true, "spf", "v=spf1 -all"),
 	}})
 	f := file(t, "email-posture.csv")
-	if !slices.Equal(f.Columns, []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors"}) {
+	if !slices.Equal(f.Columns, []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors", "mta_sts"}) {
 		t.Errorf("columns = %v", f.Columns)
 	}
 	rows := f.Rows(snap)
@@ -66,7 +66,7 @@ func TestEmailPostureFile(t *testing.T) {
 		t.Fatalf("rows = %v", rows)
 	}
 	got := cellMap(f, rows[0])
-	if got["root"] != "example.com" || got["spf_lookups"] != "3" || got["dkim_selectors"] != "google;k1" || got["dmarc_policy"] != "none" {
+	if got["root"] != "example.com" || got["spf_lookups"] != "3" || got["dkim_selectors"] != "google;k1" || got["dmarc_policy"] != "none" || got["mta_sts"] != "absent" {
 		t.Errorf("row = %v", got)
 	}
 }

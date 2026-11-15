@@ -144,6 +144,18 @@ func (s *Scope) ClassifyHost(host string) Classification {
 	return Classification{Candidate, ""}
 }
 
+// RootOf is the most specific in-scope root that host is equal to or under, or
+// "" when none covers it. It ignores exclusions: ClassifyHost decides those.
+func (s *Scope) RootOf(host string) string {
+	h, best := input.NormaliseHost(host), ""
+	for _, r := range s.roots {
+		if dnsname.Under(h, r) && len(r) > len(best) {
+			best = r
+		}
+	}
+	return best
+}
+
 // InScopeIP reports whether the address is inside an in-scope netblock.
 func (s *Scope) InScopeIP(a netip.Addr) bool {
 	for _, p := range s.netblocks {
