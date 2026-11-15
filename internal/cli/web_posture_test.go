@@ -92,10 +92,10 @@ func TestWebPosture_ColumnsAndFindingsFromLoopbackServices(t *testing.T) {
 		t.Errorf("a low finding reached the summary: %v", got)
 	}
 
-	// Nothing beyond the probe's own GET of /.
+	// Nothing beyond the probe's own GET of / and of the favicon.
 	for name, s := range map[string]*site{"bad": bad, "plain": plain, "good": good} {
-		if !s.onlyGET() || !slices.Equal(s.uris(), []string{"/"}) {
-			t.Errorf("%s was sent %v, want only GET /", name, s.requests())
+		if !s.onlyGET() || !slices.Equal(s.uris(), []string{"/", "/favicon.ico"}) {
+			t.Errorf("%s was sent %v, want only GET / and GET /favicon.ico", name, s.requests())
 		}
 	}
 }

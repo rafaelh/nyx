@@ -268,6 +268,9 @@ func TestPerRunCapSettings(t *testing.T) {
 		{"jsparse.max_scripts", "--jsparse-max-scripts", "NYX_JSPARSE_MAX_SCRIPTS", "jsparse.max_scripts",
 			func(n int) string { return fmt.Sprintf("jsparse:\n  max_scripts: %d\n", n) }, 50,
 			func(s config.Settings) int { return s.JSParse.MaxScripts }},
+		{"identifier_pivot.max_queries", "--identifier-pivot-max-queries", "NYX_IDENTIFIER_PIVOT_MAX_QUERIES", "identifier_pivot.max_queries",
+			func(n int) string { return fmt.Sprintf("identifier_pivot:\n  max_queries: %d\n", n) }, 50,
+			func(s config.Settings) int { return s.IdentifierPivot.MaxQueries }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			clearEnv(t)

@@ -65,6 +65,12 @@ type Shodan struct {
 	MaxHosts int
 }
 
+// IdentifierPivot holds the settings of the identifier-pivot stage.
+type IdentifierPivot struct {
+	// MaxQueries caps the Shodan searches sent per run; the rest are deferred.
+	MaxQueries int
+}
+
 // ReverseIP holds the settings of the reverseip stage.
 type ReverseIP struct {
 	// MaxDomains is the number of distinct registrable domains one address may
@@ -120,6 +126,7 @@ type Settings struct {
 	Shodan                   Shodan
 	ReverseIP                ReverseIP
 	JSParse                  JSParse
+	IdentifierPivot          IdentifierPivot
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable
@@ -145,6 +152,7 @@ func Defaults() Settings {
 		Shodan:          Shodan{MaxHosts: 500},
 		ReverseIP:       ReverseIP{MaxDomains: 100},
 		JSParse:         JSParse{MaxScripts: 50},
+		IdentifierPivot: IdentifierPivot{MaxQueries: 50},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -229,7 +237,7 @@ var settingTable = []setting{
 	{"shodan-dns-max-pages", "shodan_dns.max_pages"}, {"censys-max-pages", "censys.max_pages"}, {"chaos-max-pages", "chaos.max_pages"},
 	{"permutations-max-names", "permutations.max_names"}, {"sensitive-path-max-requests", "sensitive_path_max_requests"},
 	{"shodan-max-hosts", "shodan.max_hosts"}, {"reverseip-max-domains", "reverseip.max_domains"},
-	{"jsparse-max-scripts", "jsparse.max_scripts"},
+	{"jsparse-max-scripts", "jsparse.max_scripts"}, {"identifier-pivot-max-queries", "identifier_pivot.max_queries"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -265,6 +273,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("shodan-max-hosts", d.Shodan.MaxHosts, "maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
 	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
 	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "maximum script files read per origin for the URLs and hostnames they name")
+	fs.Int("identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -319,6 +328,9 @@ type rawSettings struct {
 	JSParse struct {
 		MaxScripts string `mapstructure:"max_scripts"`
 	} `mapstructure:"jsparse"`
+	IdentifierPivot struct {
+		MaxQueries string `mapstructure:"max_queries"`
+	} `mapstructure:"identifier_pivot"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the
@@ -343,6 +355,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"shodan_dns.max_pages": d.ShodanDNS.MaxPages, "censys.max_pages": d.Censys.MaxPages, "chaos.max_pages": d.Chaos.MaxPages,
 		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
 		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
+		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -441,6 +454,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("shodan.max_hosts", raw.Shodan.MaxHosts, 1, &s.Shodan.MaxHosts)
 	posInt("reverseip.max_domains", raw.ReverseIP.MaxDomains, 1, &s.ReverseIP.MaxDomains)
 	posInt("jsparse.max_scripts", raw.JSParse.MaxScripts, 1, &s.JSParse.MaxScripts)
+	posInt("identifier_pivot.max_queries", raw.IdentifierPivot.MaxQueries, 1, &s.IdentifierPivot.MaxQueries)
 	if skip, err := parseSkip(raw.Skip); err != nil {
 		bad("skip", strings.Join(raw.Skip, ","), err.Error())
 	} else {

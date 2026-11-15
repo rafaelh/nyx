@@ -22,13 +22,17 @@ type hop struct {
 	body   []byte
 	isHTML bool
 
+	resp egress.Response // the response the hop was built from, for egress.Link; zero for hopAt
+
 	pg     page
 	pgOK   bool
 	parsed bool
 }
 
 func newHop(r egress.Response) *hop {
-	return hopAt(r.URL(), r.ContentType(), r.Header, r.Body)
+	h := hopAt(r.URL(), r.ContentType(), r.Header, r.Body)
+	h.resp = r
+	return h
 }
 
 // hopAt is a hop for a response to the request for url, with the given media type.
@@ -113,8 +117,14 @@ func parseSetCookie(line string) (name string, secure, httpOnly, ok bool) {
 // lastSameOrigin is the last response of the chain served by the origin the
 // chain began at.
 func lastSameOrigin(chain []*hop) *hop {
+	return lastWhere(chain, func(h *hop) bool { return h.origin == chain[0].origin })
+}
+
+// lastWhere is the last response of the chain after the first that same accepts,
+// or the first.
+func lastWhere(chain []*hop, same func(*hop) bool) *hop {
 	for i := len(chain) - 1; i > 0; i-- {
-		if chain[i].origin == chain[0].origin {
+		if same(chain[i]) {
 			return chain[i]
 		}
 	}

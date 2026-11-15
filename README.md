@@ -104,6 +104,9 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   at least 1) caps the addresses it looks up in one run.
 - **JavaScript endpoints.** `jsparse.max_scripts` (`--jsparse-max-scripts`, default 50, at least 1)
   caps the script files `jsparse` reads per origin (see [JavaScript endpoints](#javascript-endpoints)).
+- **Web identifiers.** `keys.shodan` also turns on `identifier-pivot` (see
+  [Web identifiers](#web-identifiers)). `identifier_pivot.max_queries` (`--identifier-pivot-max-queries`,
+  default 50, at least 1) caps the Shodan searches it sends in one run.
 - **Settings:** all settings and their defaults are listed by `nyx --help`.
 
 Example `config.yaml` (a leading `~/` in `output_dir`, `wordlist` or `sensitive_paths` is your home
@@ -132,9 +135,11 @@ nyx limits what target-owned systems can receive. It sends only:
   unprompted and sends nothing.
 - **HTTP(S) GET and HEAD requests** to in-scope, non-excluded hosts, to same-host links found
   while crawling, to each service's `/robots.txt` and `/sitemap.xml` and the same-host URLs they
-  list (robots.txt is read, not obeyed), to the paths on the sensitive-path list, and to same-site
+  list (robots.txt is read, not obeyed), to the paths on the sensitive-path list, to same-site
   script files referenced by crawled pages (the URLs found inside a script are recorded, never
-  requested; see [JavaScript endpoints](#javascript-endpoints)).
+  requested; see [JavaScript endpoints](#javascript-endpoints)), and to one favicon per web
+  service: the same-host `<link rel="icon">` URL of its page, or `/favicon.ico` (see
+  [Web identifiers](#web-identifiers)).
 
 It never sends credentials, submits forms, uses other HTTP methods, puts payloads in parameters or
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
@@ -328,6 +333,58 @@ An engagement crawled by an earlier version has no script records until you run 
 The check for a script is keyed by its URL and the parser, not by the scope, so a root you add later
 is applied to the scripts already read only after `--redo jsparse`.
 
+## Web identifiers
+
+Some things on a page are shared by the sites of one organisation: a tracking ID, the favicon, the
+copyright line. `httpprobe` and `crawl` record them for each web service, as the union over the
+pages they fetched, and `web-services.csv` has them in four columns after the posture ones:
+
+| Column | Contents |
+|---|---|
+| `analytics_ids` | Google Analytics and Tag Manager IDs (`UA-…`, `G-…`, `GTM-…`), `;`-joined. Each is read from `gtag/js?id=`, `gtag('config', …)`, or the Tag Manager loader, snippet or noscript frame; an ID that is only mentioned in the text of a page is not recorded. |
+| `pixel_ids` | Facebook pixel IDs, from `fbq('init', '<digits>')` or `facebook.com/tr?id=`, `;`-joined |
+| `favicon_hash` | The hash Shodan's `http.favicon.hash` filter uses (a signed 32-bit MurmurHash3 of the base64 of the icon file). |
+| `copyright` | The first line of the root page's visible text with `©` or `(c)` followed, anywhere later on that line, by a year (`© 2026 Acme`, `© Acme Pty Ltd 2026`), cut to 120 characters |
+
+The probe makes one extra GET for each service's icon: the same-host `<link rel="icon">` URL of the
+last page on the service's host, or `/favicon.ico` when the page has none, or its link is on
+another host. A redirect is followed once, and only to the same host. A 404, a web page, or
+anything that is not an image gives no hash; so does an icon that is an SVG or other text. An
+empty file has the hash `0`. The CSV writer puts a `'` in front of any cell that starts with `-`,
+so a negative hash is written `'-1165240594`: the quote is not part of the hash.
+
+An engagement probed by an earlier version has none of these until you run `--redo httpprobe` and
+`--redo crawl` (the probe reads the root page and the icon, the crawl the other pages). A plain
+re-run sends nothing. Under `--passive` no identifier is collected, as the probe and the crawl do
+not run.
+
+### Pivoting on them
+
+With `keys.shodan`, the `identifier-pivot` stage (it runs under `--passive`, over the identifiers
+earlier runs recorded, and is `not-configured (no key)` without the key) searches Shodan once for
+each distinct analytics ID, pixel ID or favicon hash on an in-scope web service: `http.html:"<id>"`
+or `http.favicon.hash:<hash>`. It reads the first page of results only.
+
+- **What it records.** A hostname on a returned host is a hostname if it is under an in-scope root.
+  Otherwise its registrable domain is a candidate root, with `identifier-pivot:<id>` in `sources`
+  (every `identifier-pivot:<id>` source is in the web identifier family, so any number of identifiers is one family, and a candidate
+  that only identifiers found is `low`). A returned address is recorded in `ips.csv`, classified by
+  the usual scope rules, and never contacted unless it is in scope.
+- **What it skips.** A service that a SaaS platform serves (its tracker is the platform's), a copyright
+  line (never searched), and the favicon hashes of defaults that every installation shares: the
+  empty file (`0`), Spring Boot (`116323821`), Jenkins (`81586312`) and Apache Tomcat
+  (`-297069493`). A search that returns more than 200 hosts records nothing and prints a warning.
+- **Cap.** At most `identifier_pivot.max_queries` searches (default 50) are sent per run, in the
+  order of their check keys (`favicon|…`, then `html|…`). The rest wait for later runs, which is not a
+  failure; the number deferred is under `Deferred to the next run` (the unit of that number is
+  searches). A search that fails still counts.
+- **Keys and credits.** A key without search access (a 401 or 403) fails the stage with one
+  warning, and so does a 429. No query credits (a 402) stop the stage for the run; the search that
+  was refused and the ones not yet sent run next time.
+- **Refresh.** A search is made once per identifier; `--redo identifier-pivot` repeats it. The check is
+  keyed by the identifier and not by the scope, so a hostname under a root you promote later was
+  recorded only as a candidate root, and becomes a hostname after `--redo identifier-pivot`.
+
 ## TLS detail
 
 `httpprobe` records the TLS version, cipher and trust of each HTTPS service from the one handshake
@@ -408,7 +465,7 @@ new entries are requested on the first run after an upgrade.
   current while its neighbours wait.
 
 A cap that defers work is not a failure: the stage shows `done`, and the summary gives the amount
-deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`) under `Deferred to
+deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`, searches for `identifier-pivot`) under `Deferred to
 the next run`, and as `deferred` in the `--json` `summary` event. Run the same command again to do
 the rest.
 
@@ -581,8 +638,10 @@ family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), w
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
 results still count), registrant (`whoisxml`, `org-asn`, `rdap`) and reverse IP (`reverseip`).
 `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other source.
-The names `nsreverse` (shared infrastructure) and `identifier-pivot` (web identifier)
-are reserved for stages that are not built yet.
+The web identifier family is `identifier-pivot`; the `sources` value is `identifier-pivot:<id>`, with
+the identifier that found the candidate, so each is a source of its own but they are one family
+(see [Web identifiers](#pivoting-on-them)). The name `nsreverse` (shared infrastructure) is reserved
+for a stage that is not built yet.
 
 The confidence follows from the families that agree:
 
@@ -625,7 +684,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
 | `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
-| `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)) and web posture evidence (see Web posture above) |
+| `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)), web posture evidence (see Web posture above) and web identifiers (see [Web identifiers](#web-identifiers)) |
 | `urls.csv` | URLs from crawling, the scripts of crawled pages (see [JavaScript endpoints](#javascript-endpoints)) and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake) and `shodan_last_seen` (empty on a row only nyx saw) |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host |

@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -54,17 +55,38 @@ func (p page) firstText(match func(*html.Node) bool) string {
 		return "", false
 	}
 	raw, _ := find(p.doc)
-	return strings.Join(strings.Fields(strings.ToValidUTF8(raw, "�")), " ")
+	return collapse(raw)
+}
+
+// collapse collapses the whitespace of text and replaces invalid UTF-8.
+func collapse(s string) string {
+	return strings.Join(strings.Fields(strings.ToValidUTF8(s, "�")), " ")
+}
+
+// cutRunes is s cut to at most n runes.
+func cutRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) > n {
+		return string([]rune(s)[:n])
+	}
+	return s
+}
+
+// withBase is what relative references in a page at u resolve against, as a
+// browser does: the page's first <base href> (baseHref) resolved against u, if
+// that is an http or https URL, else u.
+func withBase(u *url.URL, baseHref string) *url.URL {
+	if baseHref != "" {
+		if b, err := u.Parse(baseHref); err == nil && (b.Scheme == "http" || b.Scheme == "https") {
+			return b
+		}
+	}
+	return u
 }
 
 // title is the first <title>, with whitespace collapsed, invalid UTF-8
 // replaced and at most 200 runes.
 func (p page) title() string {
-	t := p.firstText(func(n *html.Node) bool { return n.Data == "title" })
-	if utf8.RuneCountInString(t) > maxTitleRunes {
-		t = string([]rune(t)[:maxTitleRunes])
-	}
-	return t
+	return cutRunes(p.firstText(func(n *html.Node) bool { return n.Data == "title" }), maxTitleRunes)
 }
 
 // links are the references in a page, in document order. follow holds the ones

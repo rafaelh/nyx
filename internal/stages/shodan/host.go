@@ -129,18 +129,33 @@ func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 			names = append(names, d.Hostnames...)
 		}
 	}
+	obs = append(obs, nameObs(in.sc, seen, names, func(n string) []run.Observation {
+		return []run.Observation{kinds.IPHostname.Obs(in.addr.String()+"|"+n, kinds.IPHostnameAttrs{IP: in.addr.String(), Hostname: n, Source: "shodan"})}
+	})...)
+	return obs, nil
+}
+
+// nameObs are the observations of hostnames Shodan reported, each cleaned and
+// taken once (seen holds them as "name|<name>", and their roots as
+// "root|<root>"): a name under an in-scope root is a hostname, followed by
+// whatever inScope, if not nil, adds for it, and any other name gives its
+// registrable domain as a candidate root.
+func nameObs(sc *scope.Scope, seen map[string]bool, names []string, inScope func(n string) []run.Observation) []run.Observation {
+	var obs []run.Observation
 	for _, n := range names {
 		if n = httpsrc.CleanName(n); n == "" || seen["name|"+n] {
 			continue
 		}
 		seen["name|"+n] = true
-		if in.sc.ClassifyHost(n).Class == scope.InScope {
-			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}),
-				kinds.IPHostname.Obs(in.addr.String()+"|"+n, kinds.IPHostnameAttrs{IP: in.addr.String(), Hostname: n, Source: "shodan"}))
+		if sc.ClassifyHost(n).Class == scope.InScope {
+			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
+			if inScope != nil {
+				obs = append(obs, inScope(n)...)
+			}
 		} else if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] {
 			seen["root|"+root] = true
 			obs = append(obs, kinds.Root.Obs(root))
 		}
 	}
-	return obs, nil
+	return obs
 }

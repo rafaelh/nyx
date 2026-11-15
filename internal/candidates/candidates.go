@@ -80,16 +80,25 @@ var families = map[string]string{
 	"httpprobe": "httpprobe", "rdns": "rdns", "crawl": "crawl",
 }
 
-// Family is the family a source belongs to.
+// Family is the family a source belongs to. A source may carry what it found
+// after a colon ("identifier-pivot:G-ABC123"): it belongs to the family of the
+// part before the colon, so that each such value is not a family of its own.
 func Family(source string) string {
 	if f, ok := families[source]; ok {
 		return f
+	}
+	if name, _, ok := strings.Cut(source, ":"); ok {
+		if f, ok := families[name]; ok {
+			return f
+		}
 	}
 	return source
 }
 
 // Sources lists every source the family table names, sorted: the values the
-// sources column can hold for a stage this package knows.
+// sources column can hold for a stage this package knows, apart from a source
+// that carries what it found after a colon (see Family), which is listed by the
+// name before the colon.
 func Sources() []string {
 	out := make([]string, 0, len(families))
 	for s := range families {

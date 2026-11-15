@@ -40,7 +40,7 @@ func TestRedirect_InScopeRedirectChain(t *testing.T) {
 	if https := x.service("https://a.example.com"); https["title"] != "Home" || https["tls_subject"] == "" {
 		t.Errorf("https service: %v", https)
 	}
-	if s80.hits() != 1 || s443.count("/login") < 1 {
+	if s80.pageHits() != 1 || s443.count("/login") < 1 {
 		t.Errorf("hits: :80=%d /login=%d", s80.hits(), s443.count("/login"))
 	}
 	if u := find(x.urls(), "url", "https://a.example.com/login"); u == nil || !strings.Contains(u["found_by"], "httpprobe") || u["status"] != "200" {
@@ -121,11 +121,12 @@ func TestRedirect_LoopAndHopCapTerminate(t *testing.T) {
 	})
 	x.mustRun("--crawl-pages", "0")
 
-	if loop.hits() != 3 || loop.count("/a") != 1 || loop.count("/b") != 1 {
+	if loop.pageHits() != 3 || loop.count("/a") != 1 || loop.count("/b") != 1 {
 		t.Errorf("a loop must stop at the first revisit: %+v", loop.requests())
 	}
-	if deep.hits() != 11 {
-		t.Errorf("the hop cap is 10: the first request plus 10 hops = 11 requests, got %d", deep.hits())
+	// The server redirects every path, /favicon.ico too, so the icon costs a request and one followed redirect.
+	if deep.hits() != 13 {
+		t.Errorf("the hop cap is 10: the first request plus 10 hops = 11 requests, and 2 for the icon, got %d", deep.hits())
 	}
 	if r := x.service("http://deep.example.com"); r["final_url"] != "http://deep.example.com/n/10" || r["status"] != "302" {
 		t.Errorf("deep: %v", r)

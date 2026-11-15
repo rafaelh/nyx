@@ -74,11 +74,32 @@ func TestFamily(t *testing.T) {
 		"rdap":      "registrant", "whoisxml": "registrant", "org-asn": "registrant",
 		"nsreverse":        "shared infrastructure",
 		"identifier-pivot": "web identifier",
-		"httpprobe":        "httpprobe", "rdns": "rdns", "something-new": "something-new",
+		// A source with a colon has the family of the part before it, when the
+		// table has that part.
+		"identifier-pivot:G-AAAAAA1": "web identifier", "identifier-pivot:-1165240594": "web identifier",
+		"crtsh:x": "certificate transparency", "something-new:x": "something-new:x",
+		"httpprobe": "httpprobe", "rdns": "rdns", "something-new": "something-new",
 	} {
 		if got := candidates.Family(source); got != want {
 			t.Errorf("Family(%q) = %q, want %q", source, got, want)
 		}
+	}
+}
+
+// Two identifiers that found a candidate, and nothing else, are one family: the
+// candidate stays low, with both values in the sources and two pieces of evidence.
+func TestScore_TwoIdentifiersAreOneFamily(t *testing.T) {
+	got := candidates.Score(ev("identifier-pivot:G-AAAAAA1", "G-AAAAAA1", "identifier-pivot:111111111", "111111111"), nil)
+	if got.Confidence != candidates.Low || got.Count != 2 ||
+		!slices.Equal(got.Sources, []string{"identifier-pivot:111111111", "identifier-pivot:G-AAAAAA1"}) {
+		t.Errorf("rank = %+v, want low, two sources and a count of 2", got)
+	}
+	// Joined by one more family it is medium, and by two more it is high.
+	if got := candidates.Score(ev("identifier-pivot:a", "a", "identifier-pivot:b", "b", "crtsh", "k"), nil); got.Confidence != candidates.Medium {
+		t.Errorf("two identifiers and one other family = %s, want medium", got.Confidence)
+	}
+	if got := candidates.Score(ev("identifier-pivot:a", "a", "identifier-pivot:b", "b", "crtsh", "k", "wayback", "w"), nil); got.Confidence != candidates.High {
+		t.Errorf("two identifiers and two other families = %s, want high", got.Confidence)
 	}
 }
 

@@ -219,22 +219,59 @@ func Default() []File {
 
 var webServiceColumns = []string{"url", "host", "port", "scheme", "status", "title", "server", "technologies", "redirect",
 	"final_url", "tls_subject", "tls_sans", "tls_issuer", "tls_expiry", "tls_version", "tls_cipher", "tls_trust",
-	"hsts", "insecure_cookies", "directory_listing", "version_disclosure"}
+	"hsts", "insecure_cookies", "directory_listing", "version_disclosure", "analytics_ids", "pixel_ids", "favicon_hash", "copyright"}
 
 // webServiceCells are a web service's cells, in webServiceColumns order. p is
 // the service's posture evidence, or nil for a service probed before posture
-// was recorded (its posture cells are blank until httpprobe is redone).
-func webServiceCells(key string, a kinds.WebServiceAttrs, p *kinds.WebPostureAttrs) []string {
+// was recorded (its posture cells are blank until httpprobe is redone). ids are
+// the service's identifier cells (see identifierCells).
+func webServiceCells(key string, a kinds.WebServiceAttrs, p *kinds.WebPostureAttrs, ids [4]string) []string {
 	cells := []string{key, a.Host, strconv.Itoa(a.Port), a.Scheme, strconv.Itoa(a.Status), a.Title, a.Server, a.Technologies,
 		a.Redirect, a.FinalURL, a.TLSSubject, a.TLSSANs, a.TLSIssuer, a.TLSExpiry, a.TLSVersion, a.TLSCipher, kinds.TLSTrust(a)}
 	if p == nil {
-		return append(cells, "", "", "", "")
+		cells = append(cells, "", "", "", "")
+	} else {
+		hsts := ""
+		if p.HSTS != nil {
+			hsts = yesNo(*p.HSTS)
+		}
+		cells = append(cells, hsts, insecureCookies(*p), yesNo(p.DirectoryListing), p.VersionDisclosure)
 	}
-	hsts := ""
-	if p.HSTS != nil {
-		hsts = yesNo(*p.HSTS)
+	return append(cells, ids[:]...)
+}
+
+// identifierCells are, for each web service, the analytics_ids, pixel_ids,
+// favicon_hash and copyright cells: the values of its current web_identifier
+// records of that type, sorted and joined with ";". A record that is not current
+// has no attributes, so a service whose identifiers are all gone has blank cells.
+func identifierCells(s Snapshot) map[string][4]string {
+	cols := map[string]int{kinds.IdentifierAnalytics: 0, kinds.IdentifierPixel: 1, kinds.IdentifierFavicon: 2, kinds.IdentifierCopyright: 3}
+	values := map[string]*[4][]string{}
+	vis := s.vis()
+	for _, r := range s.of(kinds.WebIdentifier) {
+		if !r.Current || !vis.Shown(kinds.WebIdentifier, r) {
+			continue
+		}
+		a := kinds.WebIdentifier.Attrs(r)
+		col, ok := cols[a.Type]
+		if !ok {
+			continue
+		}
+		if values[a.Service] == nil {
+			values[a.Service] = &[4][]string{}
+		}
+		values[a.Service][col] = append(values[a.Service][col], a.Value)
 	}
-	return append(cells, hsts, insecureCookies(*p), yesNo(p.DirectoryListing), p.VersionDisclosure)
+	out := make(map[string][4]string, len(values))
+	for service, v := range values {
+		var cells [4]string
+		for i := range cells {
+			slices.Sort(v[i])
+			cells[i] = strings.Join(slices.Compact(v[i]), ";")
+		}
+		out[service] = cells
+	}
+	return out
 }
 
 func yesNo(b bool) string {
@@ -282,9 +319,10 @@ func webServiceRows(s Snapshot) []Row {
 			posture[r.Key] = &a
 		}
 	}
+	ids := identifierCells(s)
 	for _, r := range s.of(kinds.WebService) {
 		if vis.Shown(kinds.WebService, r) {
-			rows = append(rows, recordRow(r, webServiceCells(r.Key, kinds.WebService.Attrs(r), posture[r.Key])...))
+			rows = append(rows, recordRow(r, webServiceCells(r.Key, kinds.WebService.Attrs(r), posture[r.Key], ids[r.Key])...))
 		}
 	}
 	return rows

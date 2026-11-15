@@ -289,6 +289,13 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 			}
 		}
 	}
+	ids := newIdentifierSet(attrs.URL, in.host, obs)
+	ids.chain(chain)
+	hash, err := fetchFavicon(ctx, chain, e)
+	if err != nil {
+		return nil, err
+	}
+	ids.add(kinds.IdentifierFavicon, hash)
 	return append([]run.Observation{kinds.WebService.Obs(attrs.URL, attrs), kinds.WebPosture.Obs(attrs.URL, posture(in.host, chain))}, obs.list...), nil
 }
 

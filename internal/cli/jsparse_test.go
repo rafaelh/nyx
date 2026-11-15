@@ -436,7 +436,7 @@ x("https://api.example.com/v1/items");x("http://evil.example.net/off");x("/stati
 	x.mustRun("--redo", "crawl")
 
 	for _, u := range a.uris() {
-		if u != "/" && u != "/app.js" && u != "/robots.txt" && u != "/sitemap.xml" {
+		if u != "/" && u != "/app.js" && u != "/robots.txt" && u != "/sitemap.xml" && u != "/favicon.ico" {
 			t.Errorf("a.example.com received a request for %s", u)
 		}
 	}
@@ -444,7 +444,7 @@ x("https://api.example.com/v1/items");x("http://evil.example.net/off");x("/stati
 		t.Error("a URL on another in-scope host, found in a script, was requested")
 	}
 	for _, u := range api.uris() {
-		if u != "/" && u != "/robots.txt" && u != "/sitemap.xml" {
+		if u != "/" && u != "/robots.txt" && u != "/sitemap.xml" && u != "/favicon.ico" {
 			t.Errorf("api.example.com received a request for %s", u)
 		}
 	}

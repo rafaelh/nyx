@@ -62,7 +62,7 @@ func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
 		t.Errorf("httpprobe = %s, want done (closed ports are not failures)", st)
 	}
 	// Only the conventional scheme per standard port.
-	if a80.hits() != 1 {
+	if a80.pageHits() != 1 {
 		t.Errorf("a:80 saw %d requests, want 1 (http only on port 80)", a80.hits())
 	}
 }
@@ -110,7 +110,7 @@ func TestProbe_NonStandardPortDetectedOnce(t *testing.T) {
 	if got := s.hostHeaders(); !slices.Equal(got, []string{"a.example.com:8080", "b.example.com:8080", "c.example.com:8080"}) {
 		t.Errorf("Host headers = %v", got)
 	}
-	if s.hits() != 3 {
+	if s.pageHits() != 3 {
 		t.Errorf("port 8080 saw %d requests, want 3: detection once via a, then b and c (no duplicates)", s.hits())
 	}
 	keys := x.completedKeys("httpprobe")
@@ -166,7 +166,7 @@ func TestProbe_NameOnTwoAddressesIsDetectedOnce(t *testing.T) {
 	if !contains(keys, "port|203.0.113.5:8080") || contains(keys, "port|203.0.113.6:8080") {
 		t.Errorf("detection checks = %v, want one, on the first address", keys)
 	}
-	if n := s5.hits() + s6.hits(); n != 1 {
+	if n := s5.pageHits() + s6.pageHits(); n != 1 {
 		t.Errorf("a.example.com:8080 was requested %d times, want 1", n)
 	}
 	x.wantServices("http://a.example.com:8080")
@@ -205,7 +205,7 @@ func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
 		x.open("203.0.113.5:8443", "")
 		x.mustRun("--crawl-pages", "0")
 		x.wantServices("https://a.example.com:8443")
-		if s.hits() != 1 || !s.requests()[0].TLS {
+		if s.pageHits() != 1 || !s.requests()[0].TLS {
 			t.Errorf("requests = %+v", s.requests())
 		}
 	})
@@ -271,7 +271,7 @@ func TestProbeIP_IPLiteralService(t *testing.T) {
 	if got := v6.hostHeaders(); !slices.Equal(got, []string{"[2001:db8:1::5]"}) {
 		t.Errorf("v6 Host header = %v, want the bracketed literal without a port", got)
 	}
-	if got := tlsIP.sniSeen(); !slices.Equal(got, []string{""}) {
+	if got := slices.Compact(tlsIP.sniSeen()); !slices.Equal(got, []string{""}) { // the probe's request and its icon request
 		t.Errorf("SNI sent to an IP literal: %q, want none", got)
 	}
 	if r := x.service("http://[2001:db8:1::5]"); r["host"] != "2001:db8:1::5" || r["port"] != "80" || r["scheme"] != "http" || r["title"] != "v6" {

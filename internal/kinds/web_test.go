@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // web_service and url name the attribute holding their host so
@@ -30,5 +31,23 @@ func TestWebKinds(t *testing.T) {
 	}
 	if k, _ := kinds.Get("open_port"); k.HostAttr != "" {
 		t.Error("open_port has no host attribute")
+	}
+}
+
+// web_identifier is shown while its service's host is in scope, and is internal:
+// never counted or printed.
+func TestWebIdentifierKind(t *testing.T) {
+	k, ok := kinds.Get("web_identifier")
+	if !ok {
+		t.Fatal("web_identifier is not registered")
+	}
+	if k.HostAttr != "host" || k.Printed || k.Counted || k.Entity {
+		t.Errorf("web_identifier = %+v, want an internal kind shown by its host", k)
+	}
+	o := kinds.WebIdentifier.Obs("http://a.example.com|favicon|1", kinds.WebIdentifierAttrs{
+		Service: "http://a.example.com", Host: "a.example.com", Type: kinds.IdentifierFavicon, Value: "1"})
+	a := kinds.WebIdentifier.Attrs(store.Record{Kind: o.Kind, Key: o.Key, Attrs: o.Attrs})
+	if a.Type != "favicon" || a.Value != "1" || a.Host != "a.example.com" {
+		t.Errorf("attrs = %+v", a)
 	}
 }

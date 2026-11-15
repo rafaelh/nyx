@@ -101,6 +101,8 @@ type crawler struct {
 	storageKeys []string               // in first-seen order
 
 	scripts map[string]bool // normalised URLs of the <script src> elements seen, on any host
+
+	ids *identifierSet // the identifiers the scanned pages name
 }
 
 // storageRef is a storage URL a page links to or loads.
@@ -114,7 +116,7 @@ type storageRef struct {
 // other page that cannot be fetched is skipped.
 func (*Crawl) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := chk.Input.(crawlInput)
-	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, hosts: map[string]bool{}, storage: map[string]*storageRef{}, scripts: map[string]bool{}}
+	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, hosts: map[string]bool{}, storage: map[string]*storageRef{}, scripts: map[string]bool{}, ids: newIdentifierSet(in.origin, in.host, newObsSet())}
 	c.record(in.start)
 	root, scan, err := c.fetchPage(egress.Root(in.host, in.scheme, in.port), in.start)
 	if err != nil {
@@ -203,16 +205,16 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 	if !ok {
 		return
 	}
+	c.ids.source(resp.Body)
+	if depth == 0 { // the root page
+		c.ids.add(kinds.IdentifierCopyright, pg.copyright())
+	}
 	base, err := url.Parse(resp.URL())
 	if err != nil {
 		return
 	}
 	l := pg.links()
-	if l.base != "" { // as a browser does: <base href> resolves against the page's URL
-		if b, err := base.Parse(l.base); err == nil && (b.Scheme == "http" || b.Scheme == "https") {
-			base = b
-		}
-	}
+	base = withBase(base, l.base)
 	absolute := func(href string) (string, bool) {
 		t, err := base.Parse(href)
 		if err != nil {
@@ -335,7 +337,7 @@ func (c *crawler) observations() []run.Observation {
 	for _, u := range slices.Sorted(maps.Keys(c.scripts)) {
 		out = append(out, kinds.Script.Obs(u, kinds.ScriptAttrs{URL: u, Host: HostOfURL(u), Service: c.in.origin}))
 	}
-	return out
+	return append(out, c.ids.obs.list...)
 }
 
 // originOf is the origin of a normalised absolute URL, in Origin's form.

@@ -81,7 +81,8 @@ func DefaultDeps() Deps {
 // stages (dnsroot, which records a root's own NS, SOA, TXT and CAA, among
 // them); rdap and shodan-host follow ipowner, whose owners decide which addresses
 // may be asked about; storage follows the crawl so references found in the same pass are
-// checked, and the Target stages run before the port sweep.
+// checked, identifier-pivot follows the web stages whose identifiers it searches,
+// and the Target stages run before the port sweep.
 func defaultStages() []run.Stage {
 	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, hackertarget, urlscan, certspotter, censys, chaos
 	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
@@ -89,7 +90,7 @@ func defaultStages() []run.Stage {
 	return append(stages,
 		shodan.New(), shodan.NewDNS(), providerranges.New(),
 		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
-		risk.NewEmail(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(),
+		risk.NewEmail(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), ports.New())
 }
 

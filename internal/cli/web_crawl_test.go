@@ -127,14 +127,14 @@ func TestCrawl_PageAndDepthCaps(t *testing.T) {
 	t.Run("pages count the root", func(t *testing.T) {
 		x, s := crawlFixture(t)
 		x.mustRun("--crawl-pages", "3", "--skip", "jsparse") // the page limit is the crawl's; jsparse would add the script
-		if got := s.uris(); !slices.Equal(got, []string{"/", "/p1", "/p2"}) {
+		if got := s.pageURIs(); !slices.Equal(got, []string{"/", "/p1", "/p2"}) {
 			t.Errorf("fetched %v, want the root and the first two links in document order", got)
 		}
 	})
 	t.Run("depth 0 is the root only", func(t *testing.T) {
 		x, s := crawlFixture(t)
 		x.mustRun("--crawl-depth", "0", "--skip", "jsparse")
-		if got := s.uris(); !slices.Equal(got, []string{"/"}) {
+		if got := s.pageURIs(); !slices.Equal(got, []string{"/"}) {
 			t.Errorf("fetched %v", got)
 		}
 		if u := find(x.urls(), "url", "http://a.example.com/p1"); u == nil || u["status"] != "" {
@@ -193,8 +193,8 @@ func TestCrawl_Errors(t *testing.T) {
 		var fail atomic.Bool
 		fail.Store(true)
 		x.plain("203.0.113.5", 80, func(w http.ResponseWriter, r *http.Request) {
-			// Request 1 is the probe; request 2 is the crawl's root, which dies mid-body.
-			if n.Add(1) >= 2 && fail.Load() {
+			// Request 1 for / is the probe's; request 2 is the crawl's root, which dies mid-body.
+			if r.URL.Path == "/" && n.Add(1) >= 2 && fail.Load() {
 				w.Header().Set("Content-Length", "1000")
 				_, _ = w.Write([]byte("short"))
 				w.(http.Flusher).Flush()
@@ -230,9 +230,10 @@ func TestCrawl_RootRedirectToAnotherOriginEndsTheCrawl(t *testing.T) {
 		}))
 	x.mustRun()
 
-	// The probe follows the redirect once; the http service's crawl must not.
-	if s443.count("/landing") != 1 {
-		t.Errorf("/landing requested %d times, want 1 (the probe only)", s443.count("/landing"))
+	// The probe follows the redirect once, and so does its request for the icon,
+	// which the http service redirects the same way; the http service's crawl must not.
+	if s443.count("/landing") != 2 {
+		t.Errorf("/landing requested %d times, want 2 (the probe and its icon request only)", s443.count("/landing"))
 	}
 	if s443.count("/inner") != 0 {
 		t.Error("the http service's crawl continued on another origin")
@@ -340,7 +341,7 @@ func TestCrawl_DisabledAndSettingsAreInTheCheckKey(t *testing.T) {
 	if st, reason := stateOf(x.world, "crawl"); st != "not-configured" || reason != "disabled" {
 		t.Errorf("crawl = %s (%s), want not-configured (disabled)", st, reason)
 	}
-	if s.hits() != 1 || len(x.completedKeys("crawl")) != 0 {
+	if s.hits() != 2 || len(x.completedKeys("crawl")) != 0 { // the probe's GET / and its favicon
 		t.Errorf("a disabled crawl sent requests or completed checks: hits=%d keys=%v", s.hits(), x.completedKeys("crawl"))
 	}
 	x.mustRun()

@@ -42,7 +42,7 @@ var ErrNotFound = errors.New("HTTP 404")
 // quota is spent, so nothing may be recorded as done. A 404 is ErrNotFound.
 // A truncated body or any other non-200 status is a transient error.
 func Get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
-	return get(ctx, c, req, false)
+	return get(ctx, c, req, 0)
 }
 
 // GetQuota is Get for a source that answers 429 when its free quota is spent:
@@ -51,10 +51,20 @@ func Get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([
 // Get is left alone because most sources' 429 is no reason to stop the stage
 // (one range publisher refusing must not stop the others).
 func GetQuota(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
-	return get(ctx, c, req, true)
+	return get(ctx, c, req, 429)
 }
 
-func get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest, quota bool) ([]byte, error) {
+// GetCredits is Get for a keyed source that answers 402 when the key has no query
+// credits left (Shodan's search): the 402 returns run.ErrQuota, so the stage stops
+// and the checks that remain are retried on a later run. Get treats a 402 as a
+// failed check, which the stages that spend one credit per page accept.
+func GetCredits(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
+	return get(ctx, c, req, 402)
+}
+
+// get is Get, with spent (if not 0) the status that means the source's allowance
+// is spent: it returns run.ErrQuota.
+func get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest, spent int) ([]byte, error) {
 	resp, err := c.ThirdParty.Do(ctx, req)
 	if err != nil {
 		return nil, err
@@ -62,8 +72,8 @@ func get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest, qu
 	switch {
 	case req.KeySource != "" && (resp.Status == 401 || resp.Status == 403 || resp.Status == 429):
 		return nil, fmt.Errorf("HTTP %d (key rejected or quota exhausted): %w", resp.Status, run.ErrAbortStage)
-	case quota && resp.Status == 429:
-		return nil, fmt.Errorf("HTTP 429: %w", run.ErrQuota)
+	case spent != 0 && resp.Status == spent:
+		return nil, fmt.Errorf("HTTP %d: %w", resp.Status, run.ErrQuota)
 	case resp.Status == 404:
 		return nil, ErrNotFound
 	case resp.Status != 200:

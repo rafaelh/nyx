@@ -162,6 +162,14 @@ func (s *site) requests() []webReq {
 
 func (s *site) hits() int { return len(s.requests()) }
 
+// pageHits is hits without the probe's favicon request, for a test about the pages themselves.
+func (s *site) pageHits() int { return s.hits() - s.count("/favicon.ico") }
+
+// pageURIs is uris without /favicon.ico.
+func (s *site) pageURIs() []string {
+	return slices.DeleteFunc(s.uris(), func(u string) bool { return u == "/favicon.ico" })
+}
+
 // count is the number of requests for exactly this request URI.
 func (s *site) count(uri string) int {
 	n := 0

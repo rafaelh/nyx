@@ -62,7 +62,7 @@ func TestTakeover_HTTPTakeover(t *testing.T) {
 	if unclaimed.count("/") != 2 || claimed.count("/") != 2 { // the probe's request and the takeover check's
 		t.Errorf("GET / counts: %d %d, want 2 and 2", unclaimed.count("/"), claimed.count("/"))
 	}
-	if !unclaimed.onlyGET() || len(unclaimed.uris()) != 1 {
+	if !unclaimed.onlyGET() || len(unclaimed.pageURIs()) != 1 {
 		t.Errorf("takeover requested %v", unclaimed.uris())
 	}
 	// Each check is keyed by service and the matched entry's fingerprint.
