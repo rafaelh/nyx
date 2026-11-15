@@ -87,7 +87,7 @@ func TestExtractEndpoints_SpecificationExamples(t *testing.T) {
 // A large body is read in one pass.
 func TestExtractEndpoints_ManyURLs(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		fmt.Fprintf(&b, "x(\"/api/%d\");", i)
 	}
 	got := ExtractEndpoints([]byte(b.String()), scriptOrigin)

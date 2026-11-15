@@ -87,8 +87,8 @@ func quotedURL(lit, origin string) (string, bool) {
 	if len(lit) < 2 {
 		return "", false
 	}
-	if strings.HasPrefix(lit, "//") { // protocol-relative: the host follows
-		if host, _, _ := strings.Cut(strings.TrimPrefix(lit, "//"), "/"); host == "" || strings.ContainsAny(host, "?#") {
+	if rest, ok := strings.CutPrefix(lit, "//"); ok { // protocol-relative: the host follows
+		if host, _, _ := strings.Cut(rest, "/"); host == "" || strings.ContainsAny(host, "?#") {
 			return "", false
 		}
 	} else if first, _, _ := strings.Cut(strings.TrimPrefix(lit, "/"), "/"); first == "" || strings.HasPrefix(first, "?") || strings.HasPrefix(first, "#") || isExtension(first) {
