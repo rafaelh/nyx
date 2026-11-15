@@ -651,8 +651,8 @@ func TestPorts_ExclusionHidesAnOpenPortButNotTheView(t *testing.T) {
 		}})
 
 	p.sweep([]int{7001})
-	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001", "203.0.113.7:7001"}) || p.summaryTotal("open ports") != 2 {
-		t.Fatalf("before the exclusion: rows=%v summary=%d", got, p.summaryTotal("open ports"))
+	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001", "203.0.113.7:7001"}) || p.summaryTotal("open ports (confirmed)") != 2 {
+		t.Fatalf("before the exclusion: rows=%v summary=%d", got, p.summaryTotal("open ports (confirmed)"))
 	}
 	p.sweep([]int{7001}, "-x", "203.0.113.7/32")
 	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001"}) {
@@ -661,7 +661,7 @@ func TestPorts_ExclusionHidesAnOpenPortButNotTheView(t *testing.T) {
 	if len(p.openPortRows()) != 1 {
 		t.Errorf("an excluded address's port must be gone from the file, not just not current: %v", p.openPortRows())
 	}
-	if n := p.summaryTotal("open ports"); n != 1 {
+	if n := p.summaryTotal("open ports (confirmed)"); n != 1 {
 		t.Errorf("summary open ports = %d, want 1", n)
 	}
 	if got, _ := seen.Load().([]string); !slices.Equal(got, []string{"203.0.113.250:7001", "203.0.113.7:7001"}) {
@@ -680,7 +680,7 @@ func TestPortsPlumbing_OpenPortsCSV(t *testing.T) {
 	p.sweep([]int{7001, 10001})
 
 	raw := p.file(eng, "open-ports.csv")
-	if hdr := strings.SplitN(raw, "\n", 2)[0]; hdr != "ip,port,banner,hostnames,current,first_seen,last_seen" {
+	if hdr := strings.SplitN(raw, "\n", 2)[0]; hdr != "ip,port,banner,hostnames,source,confirmed,shodan_last_seen,current,first_seen,last_seen" {
 		t.Errorf("header = %q", hdr)
 	}
 	// Sorted as strings, like every other CSV: "10001" sorts before "7001".
@@ -703,7 +703,7 @@ func TestPortsPlumbing_OpenPortsCSV(t *testing.T) {
 			t.Errorf("hostnames of %s = %q, ips.csv has %v", r["ip"], r["hostnames"], want)
 		}
 	}
-	if n, rows := p.summaryTotal("open ports"), len(p.openPortKeys()); n != rows || n != 3 {
+	if n, rows := p.summaryTotal("open ports (confirmed)"), len(p.openPortKeys()); n != rows || n != 3 {
 		t.Errorf("summary open ports = %d, rows = %d, want 3 and 3", n, rows)
 	}
 	p.sweep([]int{7001, 10001}, "--redo", "ports") // nothing new: no found lines

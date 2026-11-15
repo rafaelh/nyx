@@ -8,7 +8,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"maps"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -208,7 +207,7 @@ func Default() []File {
 		{Name: "provider-hosts.csv", Format: CSV, Columns: []string{"hostname", "provider", "service", "evidence", "cname", "resolves"}, Rows: providerHostRows},
 		{Name: "web-services.csv", Format: CSV, Columns: webServiceColumns, Rows: webServiceRows},
 		{Name: "urls.csv", Format: CSV, Columns: []string{"url", "host", "status", "found_by"}, Rows: urlRows},
-		{Name: "open-ports.csv", Format: CSV, Columns: []string{"ip", "port", "banner", "hostnames"}, Rows: openPortRows},
+		{Name: "open-ports.csv", Format: CSV, Columns: openPortColumns, Rows: openPortRows},
 		{Name: "email-posture.csv", Format: CSV, Columns: emailPostureColumns, Rows: emailPostureRows},
 		{Name: "third-parties.csv", Format: CSV, Columns: thirdPartyColumns, Rows: thirdPartyRows},
 	}
@@ -302,27 +301,6 @@ func urlRows(s Snapshot) []Row {
 			}
 			rows = append(rows, recordRow(r, r.Key, a.Host, status, strings.Join(r.Stages, ",")))
 		}
-	}
-	return rows
-}
-
-// openPortRows lists the shown open ports. The record's key is authoritative
-// for the address and port.
-func openPortRows(s Snapshot) []Row {
-	recs := s.of(kinds.OpenPort)
-	if len(recs) == 0 {
-		return nil
-	}
-	hostnames := s.Inv.HostnamesByIP(s.Scope)
-	vis := s.vis()
-	var rows []Row
-	for _, r := range recs {
-		if !vis.Shown(kinds.OpenPort, r) {
-			continue
-		}
-		ap := netip.MustParseAddrPort(r.Key) // shown, so it parsed
-		addr := ap.Addr().Unmap()
-		rows = append(rows, recordRow(r, addr.String(), strconv.Itoa(int(ap.Port())), kinds.OpenPort.Attrs(r).Banner, strings.Join(hostnames[addr], ";")))
 	}
 	return rows
 }

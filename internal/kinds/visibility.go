@@ -16,7 +16,8 @@ import (
 //
 //   - a web record (a kind with HostAttr) is shown while its host is in scope;
 //   - a port record (PortKey) is shown while its address is port-eligible, so a
-//     reassigned cloud address is not reported as the target's;
+//     reassigned cloud address is not reported as the target's, and a port a
+//     third party reported (ClosedHides) is not shown once nyx found it closed;
 //   - a record keyed by a hostname (HostKey) is shown while that name is in scope;
 //   - a record with an OutsideAttr is shown only while the domain it names is
 //     not in scope, on top of any other rule;
@@ -58,8 +59,8 @@ func (v *Visibility) shown(k Kind, r store.Record) bool {
 func (v *Visibility) hostShown(k Kind, r store.Record) bool {
 	switch {
 	case k.PortKey:
-		ap, err := netip.ParseAddrPort(r.Key)
-		return err == nil && v.inv.PortEligible(ap.Addr(), v.sc)
+		ap, ok := ParsePortKey(r.Key)
+		return ok && v.inv.PortEligible(ap.Addr(), v.sc) && (!k.ClosedHides || !v.inv.PortClosed(ap))
 	case k.HostAttr != "":
 		return v.webHostInScope(webHost(k.HostAttr, r))
 	case k.HostKey:
@@ -186,6 +187,17 @@ func (v *Visibility) placement(k Kind, r store.Record) scope.Class {
 func (v *Visibility) Totals(recs map[string][]store.Record) map[string]int {
 	totals := map[string]int{Hosts: 0}
 	excluded := map[string]bool{}
+	// A port nyx confirmed is counted as confirmed only, whoever reported it.
+	confirmed := map[netip.AddrPort]bool{}
+	for _, r := range recs[OpenPort.Name()] {
+		if ap, ok := ParsePortKey(r.Key); ok && r.Current {
+			confirmed[ap] = true
+		}
+	}
+	isConfirmed := func(key string) bool {
+		ap, ok := ParsePortKey(key)
+		return ok && confirmed[ap]
+	}
 	for _, k := range table {
 		if k.Category == "" {
 			continue
@@ -197,7 +209,7 @@ func (v *Visibility) Totals(recs map[string][]store.Record) map[string]int {
 			continue
 		}
 		for _, r := range recs[k.Name] {
-			if !r.Current {
+			if !r.Current || k.ClosedHides && isConfirmed(r.Key) {
 				continue
 			}
 			cat := v.category(k, r)

@@ -173,7 +173,7 @@ type URLAttrs struct {
 }
 
 // Ports.
-var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports", Printed: true, PortKey: true})
+var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true})
 
 // OpenPortAttrs: an open TCP port and the banner it sent unprompted, escaped
 // with strconv.Quote's rules and without the quotes.

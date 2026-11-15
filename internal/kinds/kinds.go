@@ -38,6 +38,10 @@ type Kind struct {
 	// PortKey kinds are keyed by a target address and port. Such a record is
 	// shown only while that address is port-eligible, decided when it is read.
 	PortKey bool
+	// ClosedHides marks a PortKey kind as a third party's report of a port that
+	// nyx's own handshake settles: a record is hidden once nyx found the port
+	// closed, and not counted on its own once nyx found it open (open_port counts it).
+	ClosedHides bool
 	// HostKey kinds are keyed by a hostname. Such a record is shown only while
 	// that name is in scope, decided when it is read.
 	HostKey bool

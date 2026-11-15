@@ -68,6 +68,7 @@ func TestFamily(t *testing.T) {
 		"crtsh": "certificate transparency", "certspotter": "certificate transparency", "censys": "certificate transparency",
 		"wayback": "web archive", "commoncrawl": "web archive",
 		"otx": "passive dns", "virustotal": "passive dns", "securitytrails": "passive dns", "shodan": "passive dns",
+		"shodan-dns": "passive dns", "shodan-host": "passive dns",
 		"chaos": "passive dns", "urlscan": "passive dns", "anubis": "passive dns", "hackertarget": "passive dns",
 		"reverseip": "reverse ip",
 		"rdap":      "registrant", "whoisxml": "registrant", "org-asn": "registrant",

@@ -208,7 +208,14 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 				if st, _ := stateOf(w, s.stage); st != "failed" {
 					t.Errorf("%s state = %s, want failed", s.stage, st)
 				}
-				if n := len(w.requests(s.host)); n != 1 {
+				// shodan-host asks api.shodan.io too, about addresses, with the same key.
+				n := 0
+				for _, r := range w.requests(s.host) {
+					if !strings.HasPrefix(r.URI, "/shodan/host/") {
+						n++
+					}
+				}
+				if n != 1 {
 					t.Errorf("the stage should stop after the rejection, saw %d requests", n)
 				}
 				for _, o := range keyedSources {

@@ -259,6 +259,9 @@ func TestPerRunCapSettings(t *testing.T) {
 		{"sensitive_path_max_requests", "--sensitive-path-max-requests", "NYX_SENSITIVE_PATH_MAX_REQUESTS", "sensitive_path_max_requests",
 			func(n int) string { return fmt.Sprintf("sensitive_path_max_requests: %d\n", n) }, 50000,
 			func(s config.Settings) int { return s.SensitivePathMaxRequests }},
+		{"shodan.max_hosts", "--shodan-max-hosts", "NYX_SHODAN_MAX_HOSTS", "shodan.max_hosts",
+			func(n int) string { return fmt.Sprintf("shodan:\n  max_hosts: %d\n", n) }, 500,
+			func(s config.Settings) int { return s.Shodan.MaxHosts }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			clearEnv(t)

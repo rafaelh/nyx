@@ -1,4 +1,11 @@
-// Package shodan finds hostnames for the in-scope netblocks with Shodan's net: search (keyed).
+// Package shodan is what Shodan (keyed) knows about the in-scope addresses: the
+// net: search of each netblock (the shodan stage), the lookup of single
+// addresses outside what the search covered (shodan-host), and the DNS records
+// of the roots (shodan-dns).
+//
+// Whatever Shodan reports is recorded as a claim. The ports it names become
+// reported_port records, which are shown but which nothing that decides contact
+// reads, so a Shodan port never widens what nyx connects to.
 package shodan
 
 import (
@@ -6,8 +13,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
@@ -18,6 +29,26 @@ import (
 
 // maxPages caps the result pages read per netblock (each page past the first costs a credit).
 const maxPages = 10
+
+// reportedPort is the reported_port observation for one service Shodan lists:
+// nothing for a UDP service, whose ports nyx never checks, or an address that is
+// not one. A service with no transport is TCP. The timestamp is Shodan's
+// ("2026-10-30T01:02:03.456789"); the record keeps its date.
+func reportedPort(ip string, port int, transport, banner, timestamp string) (run.Observation, bool) {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || port < 1 || port > 65535 || !isTCP(transport) {
+		return run.Observation{}, false
+	}
+	addr = addr.Unmap()
+	seen := ""
+	if len(timestamp) >= len(time.DateOnly) {
+		if _, err := time.Parse(time.DateOnly, timestamp[:len(time.DateOnly)]); err == nil {
+			seen = timestamp[:len(time.DateOnly)]
+		}
+	}
+	return kinds.ReportedPort.Obs(netip.AddrPortFrom(addr, uint16(port)).String(), kinds.ReportedPortAttrs{
+		IP: addr.String(), Port: port, Banner: kinds.ShodanBanner(banner), LastSeen: seen}), true
+}
 
 // Stage is the shodan stage.
 type Stage struct{}
@@ -30,6 +61,39 @@ func (*Stage) Contact() run.Contact { return run.ThirdParty }
 func (*Stage) Sources() []string    { return []string{"api.shodan.io"} }
 
 func (*Stage) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, "shodan", true) }
+
+// Notes says which netblock searches stopped at the page cap with matches
+// unread, so that the addresses they missed are not mistaken for ones Shodan
+// knows nothing about.
+func (*Stage) Notes(v run.View) []string {
+	// shodan-host shares this stage's key, so only --skip can leave it out.
+	then := "shodan-host looks up the addresses in it that the search missed"
+	if slices.Contains(v.Settings().Skip, (&Host{}).Name()) {
+		then = "shodan-host is skipped, so addresses in it may be missing"
+	}
+	var notes []string
+	for _, p := range truncated(v) {
+		notes = append(notes, fmt.Sprintf("shodan: the search of %s was truncated at %d pages; %s", p, maxPages, then))
+	}
+	return notes
+}
+
+// truncated are the in-scope netblocks whose search stopped at the page cap with
+// matches unread, in the order of their CIDRs as text.
+func truncated(v run.View) []netip.Prefix {
+	sc := v.Scope()
+	var out []netip.Prefix
+	for _, rec := range v.Records(kinds.ShodanNetblock) {
+		if p, err := netip.ParsePrefix(rec.Key); err == nil && kinds.ShodanNetblock.Attrs(rec).Truncated && sc.HasNetblock(rec.Key) {
+			out = append(out, p)
+		}
+	}
+	slices.SortFunc(out, func(a, b netip.Prefix) int { return strings.Compare(a.String(), b.String()) })
+	return out
+}
+
+// isTCP reports whether a Shodan transport is TCP; a service with none is.
+func isTCP(transport string) bool { return transport == "" || strings.EqualFold(transport, "tcp") }
 
 // Checks yields one check per in-scope netblock, keyed by its CIDR.
 func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
@@ -45,16 +109,23 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 type search struct {
 	Matches []struct {
 		IPStr     string   `json:"ip_str"`
+		Port      int      `json:"port"`
+		Transport string   `json:"transport"`
+		Data      string   `json:"data"`
+		Timestamp string   `json:"timestamp"`
 		Hostnames []string `json:"hostnames"`
 	} `json:"matches"`
 	Total int `json:"total"`
 }
 
-// Run searches net:<cidr> and records each address and the hostnames Shodan has for it.
+// Run searches net:<cidr> and records each address, the hostnames and the TCP
+// ports Shodan has for it, and whether the search stopped at the page cap with
+// matches unread.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	var obs []run.Observation
 	seen := map[string]bool{}
 	got := 0
+	complete := false
 	for page := 1; page <= maxPages; page++ {
 		q := url.Values{"query": {"net:" + c.Key}, "page": {strconv.Itoa(page)}}
 		body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
@@ -72,6 +143,10 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 				seen["ip|"+m.IPStr] = true
 				obs = append(obs, kinds.IP.Obs(m.IPStr))
 			}
+			if o, ok := reportedPort(m.IPStr, m.Port, m.Transport, m.Data, m.Timestamp); ok && !seen["port|"+o.Key] {
+				seen["port|"+o.Key] = true
+				obs = append(obs, o)
+			}
 			for _, h := range m.Hostnames {
 				h = input.NormaliseHost(h)
 				if h == "" || seen[m.IPStr+"|"+h] {
@@ -85,8 +160,11 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 		got += len(r.Matches)
 		if len(r.Matches) == 0 || got >= r.Total {
+			complete = true
 			break
 		}
 	}
-	return obs, nil
+	// Truncated by the rule the other paged sources use: the page cap was reached
+	// with fewer matches read than the search holds.
+	return append(obs, kinds.ShodanNetblock.Obs(c.Key, kinds.ShodanNetblockAttrs{Truncated: !complete})), nil
 }

@@ -15,7 +15,7 @@ import (
 // same list, so a kind added to the build is also added here, once, and the
 // candidates are ranked again when it changes.
 var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
-	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange}
+	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck}
 
 // ScopeSource is what BuildScope reads: the engagement's records. A run reads
 // them from its store as it works, and an export from one snapshot of it, so
@@ -176,6 +176,14 @@ func inventoryData(src ScopeSource) (inventory.Data, error) {
 	}
 	if d.Ranges, err = providerRanges(src); err != nil {
 		return d, err
+	}
+	if recs, err = src.CurrentRecords(kinds.PortCheck); err != nil {
+		return d, err
+	}
+	for _, rec := range recs {
+		if ap, ok := kinds.ParsePortKey(rec.Key); ok && kinds.PortCheck.Attrs(rec).Result == kinds.PortClosed {
+			d.ClosedPorts = append(d.ClosedPorts, ap)
+		}
 	}
 	if recs, err = src.CurrentRecords(kinds.IPHostname); err != nil {
 		return d, err

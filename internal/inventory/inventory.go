@@ -52,6 +52,8 @@ type Data struct {
 	Owners      map[netip.Addr]provider.Owner
 	Ranges      *provider.Ranges
 	IPHostnames []IPHostname
+	// ClosedPorts are the ports nyx's own handshake found closed (rejected).
+	ClosedPorts []netip.AddrPort
 }
 
 // ProviderHost is a hostname that is on shared provider infrastructure.
@@ -88,12 +90,14 @@ type Inventory struct {
 
 	mu    sync.Mutex
 	class map[netip.Addr]provider.Result
+
+	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
 }
 
 // New computes the inventory.
 func New(d Data, db *provider.DB) *Inventory {
 	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{},
-		wo: map[string]bool{}, zone: map[string]bool{},
+		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
 		class: map[netip.Addr]provider.Result{}, cnameShared: map[netip.Addr]provider.Match{}}
 	for _, r := range d.Resolutions {
 		switch r.Type {
@@ -104,6 +108,9 @@ func New(d Data, db *provider.DB) *Inventory {
 		case "CNAME":
 			i.cn[r.Name] = append(i.cn[r.Name], r.Value)
 		}
+	}
+	for _, ap := range d.ClosedPorts {
+		i.closed[netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())] = true
 	}
 	wild := map[string]Wildcard{}
 	for _, w := range d.Wildcards {
@@ -271,6 +278,11 @@ func (i *Inventory) owner(a netip.Addr) (shared, known bool) {
 	return r.Shared, r.Known
 }
 
+// PortClosed reports whether nyx found the port closed.
+func (i *Inventory) PortClosed(ap netip.AddrPort) bool {
+	return i.closed[netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())]
+}
+
 // ProbeHostnames are the resolved in-scope, non-excluded names that are not
 // wildcard-only, plus one representative for each wildcard zone.
 func (i *Inventory) ProbeHostnames(sc *scope.Scope) []string {
@@ -375,6 +387,11 @@ func (i *Inventory) HostnamesByIP(sc *scope.Scope) map[netip.Addr][]string {
 		out[a] = slices.Sorted(maps.Keys(names))
 	}
 	return out
+}
+
+// KnownAddrs are the addresses of HostnamesByIP, in address order.
+func (i *Inventory) KnownAddrs(sc *scope.Scope) []netip.Addr {
+	return slices.SortedFunc(maps.Keys(i.namesByIP(sc)), netip.Addr.Compare)
 }
 
 func (i *Inventory) namesByIP(sc *scope.Scope) map[netip.Addr]map[string]bool {

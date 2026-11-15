@@ -180,6 +180,10 @@ func (d *deriver) email() []Finding {
 	return out
 }
 
+// ports derives the risky-port findings. A port nyx opened is at the full
+// severity and confirmed. A port only a third party reports (and nyx has not
+// found closed, which the showing rule decides) is the same finding one step
+// lower and unconfirmed, and becomes the full one when nyx opens it.
 func (d *deriver) ports() []Finding {
 	risky := map[int]bool{}
 	for _, p := range d.in.Settings.RiskyPorts {
@@ -187,19 +191,33 @@ func (d *deriver) ports() []Finding {
 	}
 	var hostnames map[netip.Addr][]string
 	var out []Finding
-	for _, r := range d.current(kinds.OpenPort) {
-		ap, err := netip.ParseAddrPort(r.Key)
-		if err != nil || !risky[int(ap.Port())] || !d.vis.Shown(kinds.OpenPort, r) {
-			continue
-		}
+	add := func(addr netip.AddrPort, severity, banner, detail, confirmed string) {
 		if hostnames == nil {
 			hostnames = d.in.Inv.HostnamesByIP(d.in.Scope)
 		}
-		addr := netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
-		out = append(out, newFinding(Ports, "risky-port", Severity(Ports, "risky-port"), addr.String(),
-			fmt.Sprintf("port %d is open on %s", ap.Port(), addr.Addr()),
-			map[string]any{"ip": addr.Addr().String(), "port": int(ap.Port()), "banner": kinds.OpenPort.Attrs(r).Banner,
-				"hostnames": strings.Join(hostnames[addr.Addr()], ";")}))
+		out = append(out, newFinding(Ports, "risky-port", severity, addr.String(), detail,
+			map[string]any{"ip": addr.Addr().String(), "port": int(addr.Port()), "banner": banner,
+				"hostnames": strings.Join(hostnames[addr.Addr()], ";"), "confirmed": confirmed}))
+	}
+	opened := map[netip.AddrPort]bool{}
+	for _, r := range d.current(kinds.OpenPort) {
+		addr, ok := kinds.ParsePortKey(r.Key)
+		if !ok {
+			continue
+		}
+		opened[addr] = true
+		if risky[int(addr.Port())] && d.vis.Shown(kinds.OpenPort, r) {
+			add(addr, Severity(Ports, "risky-port"), kinds.OpenPort.Attrs(r).Banner,
+				fmt.Sprintf("port %d is open on %s", addr.Port(), addr.Addr()), "yes")
+		}
+	}
+	for _, r := range d.current(kinds.ReportedPort) {
+		addr, ok := kinds.ParsePortKey(r.Key)
+		if !ok || !risky[int(addr.Port())] || opened[addr] || !d.vis.Shown(kinds.ReportedPort, r) {
+			continue
+		}
+		add(addr, StepDown(Severity(Ports, "risky-port")), kinds.ReportedPort.Attrs(r).Banner,
+			fmt.Sprintf("port %d is reported open on %s by Shodan; nyx has not confirmed it", addr.Port(), addr.Addr()), "no")
 	}
 	return out
 }

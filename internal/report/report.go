@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/palette"
@@ -261,12 +262,25 @@ func (c *Console) summary(b *strings.Builder, f map[string]any) {
 	d := c.o.SummaryDepth
 	b.WriteString(d.Bold("Summary"))
 	counts := func(m map[string]int) {
+		// At least 16 wide, and wide enough for the longest category, so the
+		// counts stay in one column.
+		width := 16
+		for k := range m {
+			width = max(width, utf8.RuneCountInString(sanitize.Text(k)))
+		}
 		for _, k := range sortedKeys(m) {
-			fmt.Fprintf(b, "\n  %-16s %d", sanitize.Text(k), m[k])
+			fmt.Fprintf(b, "\n  %-*s %d", width, sanitize.Text(k), m[k])
 		}
 	}
 	if totals, ok := f["totals"].(map[string]int); ok {
 		counts(totals)
+	}
+	if n, _ := f["unconfirmed_risky_ports"].(int); n > 0 {
+		fmt.Fprintf(b, "\n  %d risky ports reported by Shodan, unconfirmed", n)
+	}
+	notes, _ := f["notes"].([]string)
+	for _, n := range notes {
+		b.WriteString("\n  " + sanitize.Text(n))
 	}
 	for _, blk := range []struct{ key, heading string }{
 		{"failed", "Failed checks (retried on the next run; --debug shows each failure)"},

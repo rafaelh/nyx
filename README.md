@@ -88,12 +88,15 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
   one Shodan query credit per result page, for each root. `keys.censys` is a Censys personal access
   token and searches certificates for names under each root. `keys.chaos` is a ProjectDiscovery
-  Chaos key. A 401, 403 or 429 stops that stage for the run. Each of these three follows result pages
+  Chaos key. A 401, 403 or 429 stops that stage for the run (`shodan-host` too). Each of these three follows result pages
   up to `shodan_dns.max_pages`, `censys.max_pages` or `chaos.max_pages` (default 10; raising one
   repeats the stage's checks, and reaching one is a warning). Chaos answers with the
   whole list in one page, so its cap is not reached. `certspotter` takes an
   optional key: it runs without one, and sends `keys.certspotter` when it is set. The other sources
   need no key.
+- **Shodan per address.** `keys.shodan` also turns on `shodan-host` (see
+  [Shodan per address](#shodan-per-address)). `shodan.max_hosts` (`--shodan-max-hosts`, default 500,
+  at least 1) caps the addresses it looks up in one run.
 - **Settings:** all settings and their defaults are listed by `nyx --help`.
 
 Example `config.yaml` (a leading `~/` in `output_dir`, `wordlist` or `sensitive_paths` is your home
@@ -141,6 +144,14 @@ check, fetched once per engagement and refreshed only by `--redo providerranges`
 to download, or has no ranges in it, is a failed check (named by `--debug`): the ranges fetched
 before keep applying. Azure is classified by ASN only, because Microsoft publishes its ranges at a
 changing URL.
+
+Shodan is queried per dedicated in-scope address, up to `shodan.max_hosts` a run, and each lookup
+is a request to Shodan, never to the address. Shodan's host lookup is rate-limited rather than
+credited, as far as its documentation says: it lists query credits only for filtered searches and for
+result pages after the first, and does not list the host lookup among them. That was not confirmed
+against Shodan's current terms when this was written, so check your plan before a large run. The
+netblock search pages past the first still cost query credits as before. What Shodan reports is
+shown, never acted on: a port only Shodan names is never connected to, and widens nothing.
 
 All network access goes through one package. On every supported platform, a test fails if any other
 package imports a network package or `syscall`, or uses `golang.org/x/sys/unix` for anything other
@@ -307,7 +318,7 @@ new entries are requested on the first run after an upgrade.
   current while its neighbours wait.
 
 A cap that defers work is not a failure: the stage shows `done`, and the summary gives the amount
-deferred for each stage (names for permutations, requests for sensitive paths) under `Deferred to
+deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`) under `Deferred to
 the next run`, and as `deferred` in the `--json` `summary` event. Run the same command again to do
 the rest.
 
@@ -360,6 +371,42 @@ comes before the `summary` event. It has `kind` (`root`, `hostname` or `netblock
 `sources`, `evidence_count`, `confidence` and `promote`. The `summary` event's `candidates` field
 lists the same candidates.
 
+## Shodan per address
+
+With `keys.shodan`, the `shodan-host` stage (it runs under `--passive`, and is `not-configured (no
+key)` without the key) looks up each address that `ips.csv` marks port-eligible and that is either
+outside every in-scope netblock, or inside one whose `shodan` search stopped at its page cap
+without returning it. It records Shodan's TCP ports and banners, and its hostnames: one under an
+in-scope root becomes a hostname, and any other becomes a candidate root in `candidates.csv`. UDP
+services are not recorded. A 404 is an address Shodan does not know: the check completes with
+nothing. The `shodan` netblock search also records the ports it returns, so the addresses it
+returned need no lookup. An engagement that ran `shodan` before it recorded ports gets them only
+after `--redo shodan`, and the summary says when a netblock search was truncated.
+
+- **Cap.** At most `shodan.max_hosts` addresses (default 500) are looked up per run, in address
+  order. The rest are deferred, which is not a failure: the stage shows `done`, and the number of
+  addresses deferred is under `Deferred to the next run` (the unit of that number is addresses).
+- **Refresh.** Shodan's data for an address is refreshed only by `--redo shodan-host`. The check is
+  keyed by the address and not by the scope, so a hostname under a root you promote later was
+  recorded only as a candidate root, and becomes a hostname after `--redo shodan-host`.
+- **Banners.** Shodan's banner is cut to its first line or 256 characters, whichever is shorter,
+  and escaped like nyx's own. When both have a banner, nyx's is shown.
+- **Never connected to.** A TCP port Shodan reports outside the configured `--ports` list is shown
+  as unconfirmed and nyx never connects to it. Nothing Shodan says makes nyx probe or connect
+  anywhere.
+- **nyx decides.** Its own handshake takes precedence, whichever came first. A port nyx finds
+  closed (the connection is rejected) is no longer current in `open-ports.csv` and drops out of the
+  counts and findings; a port that does not answer within the connect timeout stays unconfirmed. A
+  port that was checked before Shodan reported it, and that nyx did not find open, is checked once
+  more; later runs do not.
+- **Findings.** A risky port only Shodan reports is the same finding in `risk-ports.csv` one severity
+  step lower (low, not medium) with `confirmed` `no`. When the `ports` stage opens it, the row becomes
+  the full severity with `confirmed` `yes`, and a new `+` line is printed at the raised severity.
+- **Counts.** The open-port count is split into `open ports (confirmed)` (nyx completed a
+  handshake) and `open ports (third-party reported)` (all others that are shown). The summary has a
+  line `N risky ports reported by Shodan, unconfirmed` when N is above zero, and the `--json`
+  `summary` event carries it as `unconfirmed_risky_ports`, with the stages' lines as `notes`.
+
 ## Ranked candidates
 
 `candidates.csv` lists the roots, hostnames and netblocks that were found but are not in scope.
@@ -375,7 +422,7 @@ Each row says how well supported it is, so you can tell which are worth promotin
 
 The `sources` values are the stages and mechanisms that can find a candidate. Each belongs to one
 family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), web archive
-(`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`,
+(`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`, `shodan-host`,
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
 results still count) and registrant (`whoisxml`, `org-asn`). `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other
 source. The names `rdap` (registrant), `reverseip` (reverse IP), `nsreverse` (shared
@@ -424,7 +471,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)) and web posture evidence (see Web posture above) |
 | `urls.csv` | URLs from crawling and web archives, with status and source |
-| `open-ports.csv` | Open TCP ports with the banner the service sent, if any |
+| `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake) and `shodan_last_seen` (empty on a row only nyx saw) |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain |
 | `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns` or `txt-verification`), the `domain` (a name server's registrable domain), the `provider` (when known) and the `depth` (0 for the root's own records) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |
@@ -432,7 +479,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `risk-storage.csv` | Cloud-storage findings: buckets that exist, are public or are listable |
 | `risk-sensitive-paths.csv` | Sensitive paths that answered with their expected signature |
 | `risk-email.csv` | SPF and DMARC weaknesses |
-| `risk-ports.csv` | Open ports on the risky-port list |
+| `risk-ports.csv` | Open ports on the risky-port list, with `confirmed` (`no` for a port only Shodan reports, which is one severity step lower) |
 | `risk-certificates.csv` | Expired, soon-to-expire and self-signed certificates, certificates that do not name the host, and services that negotiate only TLS 1.0 or 1.1 (see [TLS detail](#tls-detail)) |
 | `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |
 

@@ -116,6 +116,13 @@ type Budgeted interface {
 	Budget(config.Settings) int
 }
 
+// Noter is implemented by a stage that has something to say in the run summary
+// beyond the counts: a search that was cut short, say. Each note is one line,
+// asked for once at the end of the run, from the records as they then stand.
+type Noter interface {
+	Notes(v View) []string
+}
+
 // CandidateExempt is implemented by a stage whose third-party sources include
 // provider endpoints that a redirect may have recorded as candidate hostnames
 // (Azure storage accounts). Hosts matching these source patterns skip only the
@@ -154,6 +161,15 @@ type View struct {
 	sc    *scope.Scope
 	inv   *inventory.Inventory
 	cache *recordCache
+	done  map[string]struct{} // the stage's completed check keys, as the store keeps them
+}
+
+// Done reports whether the stage has completed the check with this key, as of
+// the start of this pass. A key the stage carries a secret in is looked up in
+// its stored (redacted) form.
+func (v View) Done(key string) bool {
+	_, ok := v.done[v.r.st.CheckKey(key)]
+	return ok
 }
 
 // Scope is the Scope built at the start of the current pass.
@@ -200,6 +216,10 @@ func (v View) IPs(keep func(netip.Addr) bool) []netip.Addr {
 	slices.SortFunc(out, netip.Addr.Compare)
 	return slices.Compact(out)
 }
+
+// KnownAddrs returns every address the engagement knows, whether or not it may
+// be contacted: the addresses of ips.csv, in address order.
+func (v View) KnownAddrs() []netip.Addr { return v.inv.KnownAddrs(v.sc) }
 
 // WebService is a current web_service record whose host is in scope.
 type WebService struct {
@@ -289,8 +309,8 @@ type OpenPort struct {
 func (v View) OpenPorts() []OpenPort {
 	var out []OpenPort
 	for _, rec := range v.Records(kinds.OpenPort) {
-		if ap, err := netip.ParseAddrPort(rec.Key); err == nil {
-			out = append(out, OpenPort{Addr: netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), Banner: kinds.OpenPort.Attrs(rec).Banner})
+		if ap, ok := kinds.ParsePortKey(rec.Key); ok {
+			out = append(out, OpenPort{Addr: ap, Banner: kinds.OpenPort.Attrs(rec).Banner})
 		}
 	}
 	slices.SortFunc(out, func(a, b OpenPort) int { return strings.Compare(a.Addr.String(), b.Addr.String()) })

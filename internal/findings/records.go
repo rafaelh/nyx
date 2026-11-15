@@ -72,6 +72,18 @@ func Headline(recs []store.Record) []Finding {
 	return out
 }
 
+// UnconfirmedRisky counts the current risky-port findings among recs that only a
+// third party reports.
+func UnconfirmedRisky(recs []store.Record) int {
+	n := 0
+	for _, r := range recs {
+		if cat, _, _ := ParseKey(r.Key); r.Current && cat == Ports && r.Str("confirmed") == "no" {
+			n++
+		}
+	}
+	return n
+}
+
 // Listing is what the findings files are written from: the records of every
 // kind, current or not, and the storage Attribution derived with the findings.
 type Listing struct {
@@ -108,7 +120,7 @@ var riskFiles = []struct {
 		func(typ, target string) map[string]string { return map[string]string{"path": typ, "url": target} }},
 	{Email, []string{"severity", "root", "type", "detail"},
 		func(_, target string) map[string]string { return map[string]string{"root": target} }},
-	{Ports, []string{"severity", "ip", "port", "banner", "hostnames"},
+	{Ports, []string{"severity", "ip", "port", "banner", "hostnames", "confirmed"},
 		func(_, target string) map[string]string {
 			ap, err := netip.ParseAddrPort(target)
 			if err != nil {

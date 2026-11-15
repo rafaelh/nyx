@@ -421,7 +421,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 		exempt = ce.CandidateExemptSources()
 	}
 	clients := r.cfg.Egress.ClientsWith(name, s.Contact() == Target, s.Sources(), exempt)
-	view := View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), cache: &recordCache{m: map[string][]store.Record{}}}
+	view := View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
 
 	workers := r.cfg.Settings.Concurrency
 	if wc, ok := s.(WorkerCounter); ok {
@@ -670,7 +670,27 @@ func (r *Runner) emitSummary() {
 	for _, c := range high {
 		r.emit("candidate", c)
 	}
-	r.emit("summary", map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": listed, "candidates": high})
+	r.emit("summary", map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": listed, "candidates": high,
+		"unconfirmed_risky_ports": findings.UnconfirmedRisky(recs), "notes": r.notes()})
+}
+
+// notes are the lines the stages that run (see Noter) add to the summary, in
+// registry order. A stage that is skipped or not configured says nothing.
+func (r *Runner) notes() []string {
+	notes := []string{}
+	sc, inv := r.sc.Load(), r.inv.Load()
+	if sc == nil || inv == nil {
+		return notes
+	}
+	view := View{r: r, sc: sc, inv: inv, cache: &recordCache{m: map[string][]store.Record{}}}
+	for _, s := range r.cfg.Stages {
+		if n, ok := s.(Noter); ok {
+			if ok, _ := r.gate(s); ok {
+				notes = append(notes, n.Notes(view)...)
+			}
+		}
+	}
+	return notes
 }
 
 // rankedCandidates are the current candidates of high confidence, best first,
@@ -704,6 +724,11 @@ func (r *Runner) onNewRecord(kind, key string, attrs map[string]any) {
 	if !r.vis.Load().Printed(kind, store.Record{Key: key, Attrs: attrs}) {
 		return
 	}
+	r.emit("found", foundFields(kind, key, attrs))
+}
+
+// foundFields are the fields of the found event for a record of the kind.
+func foundFields(kind, key string, attrs map[string]any) map[string]any {
 	k, _ := kinds.Get(kind)
 	f := map[string]any{"category": k.Singular, "value": key}
 	if k.Found != nil {
@@ -716,7 +741,7 @@ func (r *Runner) onNewRecord(kind, key string, attrs map[string]any) {
 			f["severity"] = fd.Severity
 		}
 	}
-	r.emit("found", f)
+	return f
 }
 
 // render writes the output files from the store and returns the snapshot it
@@ -792,11 +817,29 @@ func (r *Runner) deriveFindings() error {
 	// Storing the same findings again on the same day changes nothing.
 	stored := fmt.Sprint(r.today(), obs)
 	if stored != r.storedFindings {
+		// A finding whose severity has risen (an unconfirmed port a handshake then
+		// confirmed) is printed again at the new severity; a new one is printed by
+		// the store's callback, and a finding that has fallen is not.
+		prev, err := r.records(kinds.Finding.Name())
+		if err != nil {
+			return err
+		}
+		was := map[string]string{}
+		for _, rec := range prev {
+			if rec.Current {
+				was[rec.Key] = rec.Str("severity")
+			}
+		}
 		r.st.Complete("findings", "derived", obs)
 		if err := r.st.Flush(); err != nil {
 			return err
 		}
 		r.storedFindings = stored
+		for _, f := range fs {
+			if old, ok := was[f.Key()]; ok && findings.Higher(f.Severity, old) {
+				r.emit("found", foundFields(kinds.Finding.Name(), f.Key(), f.Attrs))
+			}
+		}
 	}
 	r.derivedSig, r.attribution = sig, attribution
 	return nil

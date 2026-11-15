@@ -865,7 +865,7 @@ func TestStageStatesAndFound(t *testing.T) {
 	totals := sum[0]["totals"].(map[string]any)
 	// 1.2.3.4 is neither in a netblock nor the address of an in-scope name, so
 	// its open port is not the target's and is not counted.
-	if totals["urls"] != float64(2) || totals["hosts"] != float64(1) || totals["open ports"] != float64(0) {
+	if totals["urls"] != float64(2) || totals["hosts"] != float64(1) || totals["open ports (confirmed)"] != float64(0) {
 		t.Errorf("totals = %v", totals)
 	}
 	failed := sum[0]["failed"].(map[string]any)

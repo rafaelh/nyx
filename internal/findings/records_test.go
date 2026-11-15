@@ -114,7 +114,7 @@ func TestRiskFiles(t *testing.T) {
 		fnd("sensitive-paths", "/.env", "https://www.example.com/.env", true, "url", "https://www.example.com/.env", "path", "/.env",
 			"status", 200.0, "size", 42.0, "signature", "X"),
 		fnd("email", "spf-missing", "example.com", true, "root", "example.com"),
-		fnd("ports", "risky-port", "198.51.100.5:3389", true, "ip", "198.51.100.5", "port", 3389.0, "banner", "", "hostnames", "a.example.com"),
+		fnd("ports", "risky-port", "198.51.100.5:3389", true, "ip", "198.51.100.5", "port", 3389.0, "banner", "", "hostnames", "a.example.com", "confirmed", "yes"),
 		fnd("certificates", "expired", "https://www.example.com", true, "url", "https://www.example.com", "tls_subject", "CN=www", "tls_issuer", "CN=CA", "tls_expiry", "2026-10-01"),
 		fnd("storage-unattributed", "listable", "s3|guess", true, "provider", "s3"),
 	}}}
@@ -131,8 +131,8 @@ func TestRiskFiles(t *testing.T) {
 		{"risk-sensitive-paths.csv", []string{"severity", "url", "path", "status", "size", "signature"}, 1,
 			map[string]string{"url": "https://www.example.com/.env", "path": "/.env", "status": "200", "size": "42", "signature": "X"}},
 		{"risk-email.csv", []string{"severity", "root", "type", "detail"}, 1, map[string]string{"root": "example.com", "type": "spf-missing"}},
-		{"risk-ports.csv", []string{"severity", "ip", "port", "banner", "hostnames"}, 1,
-			map[string]string{"ip": "198.51.100.5", "port": "3389", "hostnames": "a.example.com"}},
+		{"risk-ports.csv", []string{"severity", "ip", "port", "banner", "hostnames", "confirmed"}, 1,
+			map[string]string{"ip": "198.51.100.5", "port": "3389", "hostnames": "a.example.com", "confirmed": "yes"}},
 		{"risk-certificates.csv", []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"}, 1,
 			map[string]string{"url": "https://www.example.com", "type": "expired", "tls_expiry": "2026-10-01"}},
 	}

@@ -117,7 +117,7 @@ func TestCategory(t *testing.T) {
 		{kinds.Netblock, "198.51.100.0/24", kinds.Netblocks},
 		{kinds.Netblock, "192.0.2.0/24", kinds.Candidates},
 		{kinds.ExcludedKind, "192.0.2.9", kinds.Excluded},
-		{kinds.OpenPort, "203.0.113.5:80", "open ports"},
+		{kinds.OpenPort, "203.0.113.5:80", "open ports (confirmed)"},
 		{kinds.OpenPort, "104.16.0.1:80", ""},
 		{kinds.WebService, "https://www.other.org", ""},
 		{kinds.Resolution, "www.example.com|A|203.0.113.5", ""},
@@ -161,7 +161,7 @@ func TestTotals(t *testing.T) {
 		"hostname": {rec("www.example.com"), rec("www.other.org")},
 		"url":      {rec("https://www.example.com/a"), rec("https://www.other.org/a"), gone},
 	})
-	want := map[string]int{kinds.Hosts: 1, kinds.Candidates: 1, "urls": 1, "ips": 0, "unresolved names": 0, "web services": 0, "open ports": 0, "findings": 0, "third parties": 0}
+	want := map[string]int{kinds.Hosts: 1, kinds.Candidates: 1, "urls": 1, "ips": 0, "unresolved names": 0, "web services": 0, "open ports (confirmed)": 0, "open ports (third-party reported)": 0, "findings": 0, "third parties": 0}
 	if len(got) != len(want) {
 		t.Errorf("totals = %v, want %v", got, want)
 	}

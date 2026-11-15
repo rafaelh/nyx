@@ -69,7 +69,7 @@ var families = map[string]string{
 	// otx and anubis are no longer run; they stay so that what an engagement
 	// stored from them still counts as passive DNS, not as a family of its own.
 	"otx": passiveDNS, "virustotal": passiveDNS, "securitytrails": passiveDNS, "shodan": passiveDNS,
-	"shodan-dns": passiveDNS, "chaos": passiveDNS, "urlscan": passiveDNS, "anubis": passiveDNS, "hackertarget": passiveDNS,
+	"shodan-dns": passiveDNS, "shodan-host": passiveDNS, "chaos": passiveDNS, "urlscan": passiveDNS, "anubis": passiveDNS, "hackertarget": passiveDNS,
 	"reverseip":        reverseIP,
 	"rdap":             registrant,
 	"whoisxml":         registrant,

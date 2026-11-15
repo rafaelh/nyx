@@ -51,7 +51,7 @@ var table = []Row{
 	{Email, "dmarc-missing", Medium, "no DMARC record"},
 	{Email, "dmarc-none", Low, "DMARC policy is none"},
 	{Email, "no-mx-spf", Low, "no MX (or a null MX) and no v=spf1 -all record"},
-	{Ports, "risky-port", Medium, "a port on the risky list (RDP, SMB, Telnet, databases, ...) is open"},
+	{Ports, "risky-port", Medium, "a port on the risky list (RDP, SMB, Telnet, databases, ...) is open; low while only Shodan reports it"},
 	{Certificates, "expired", Medium, "the certificate has expired"},
 	{Certificates, "expiring", Low, "the certificate expires within --cert-expiry-days"},
 	{Certificates, "hostname-mismatch", Low, "the certificate does not name the probed host (not for an IP literal or a host on shared provider infrastructure)"},
@@ -106,3 +106,18 @@ func HelpTable() string {
 	}
 	return b.String()
 }
+
+// StepDown is the severity one step below sev: what a finding known only from a
+// third party's report is given. Low stays low.
+func StepDown(sev string) string {
+	switch sev {
+	case High:
+		return Medium
+	case Medium:
+		return Low
+	}
+	return sev
+}
+
+// Higher reports whether severity a is above b.
+func Higher(a, b string) bool { return rank[a] > rank[b] }

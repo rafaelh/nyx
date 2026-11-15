@@ -495,3 +495,25 @@ func TestSheet(t *testing.T) {
 		}
 	}
 }
+
+// A stage's notes are listed under the totals, and the unconfirmed risky ports
+// have a line of their own only when there are some.
+func TestConsoleSummaryNotesAndUnconfirmedRiskyPorts(t *testing.T) {
+	p := plain(report.Warn)
+	p.Emit(ev("summary", map[string]any{
+		"totals":                  map[string]int{"hosts": 1},
+		"notes":                   []string{"shodan: the search of 198.51.100.0/24 was truncated at 10 pages"},
+		"unconfirmed_risky_ports": 3,
+	}))
+	out := p.sum.String()
+	for _, w := range []string{"  shodan: the search of 198.51.100.0/24 was truncated at 10 pages", "  3 risky ports reported by Shodan, unconfirmed"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
+	}
+	q := plain(report.Warn)
+	q.Emit(ev("summary", map[string]any{"totals": map[string]int{"hosts": 1}, "unconfirmed_risky_ports": 0}))
+	if strings.Contains(q.sum.String(), "risky ports reported") {
+		t.Errorf("a zero count must print no line:\n%s", q.sum.String())
+	}
+}
