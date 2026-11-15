@@ -265,10 +265,10 @@ func TestRiskStageRegistry(t *testing.T) {
 		contact[s.Name()] = s.Contact()
 	}
 	tail := names[slices.Index(names, "ipowner"):]
-	if want := []string{"ipowner", "dnsroot", "rdap", "shodan-host", "reverseip", "email", "httpprobe", "crawl", "storage", "takeover", "sensitive-paths", "ports"}; !slices.Equal(tail, want) {
+	if want := []string{"ipowner", "dnsroot", "rdap", "shodan-host", "reverseip", "email", "httpprobe", "crawl", "jsparse", "storage", "takeover", "sensitive-paths", "ports"}; !slices.Equal(tail, want) {
 		t.Errorf("stage order tail = %v, want %v", tail, want)
 	}
-	for name, want := range map[string]run.Contact{"email": run.ThirdParty, "storage": run.ThirdParty, "takeover": run.Target, "sensitive-paths": run.Target} {
+	for name, want := range map[string]run.Contact{"jsparse": run.Target, "email": run.ThirdParty, "storage": run.ThirdParty, "takeover": run.Target, "sensitive-paths": run.Target} {
 		if contact[name] != want {
 			t.Errorf("%s contact = %v", name, contact[name])
 		}

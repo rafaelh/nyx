@@ -79,6 +79,10 @@ type Runner struct {
 	ranges    *provider.Ranges
 	rangesVer uint64
 	scopeSig  string // what the Scope was last built from (see buildScope)
+	// policy is the egress Policy last set, and scriptsVer the script KindVersion
+	// its Scripts were read at: new scripts only replace Policy.Scripts.
+	policy     *egress.Policy
+	scriptsVer uint64
 
 	recMu sync.Mutex
 	recs  map[string]recordsCache // the records of each kind read so far (see records)
@@ -249,7 +253,8 @@ func exitFor(err error) int {
 
 // buildScope builds the Scope and the egress Policy from stored inputs and
 // observations (see BuildScope), then applies the netblock guard. It does
-// nothing when none of them has changed since the last build.
+// nothing when none of them has changed since the last build, and only renews
+// Policy.Scripts when just the script records have.
 func (r *Runner) buildScope() error {
 	eng := r.cfg.Engagement
 	in, err := eng.Inputs()
@@ -264,6 +269,15 @@ func (r *Runner) buildScope() error {
 	fmt.Fprintf(&b, "%v;%v", eng.Acked(), in)
 	sig := b.String()
 	if sig == r.scopeSig {
+		if r.st.KindVersion(kinds.Script.Name()) == r.scriptsVer {
+			return nil
+		}
+		p := *r.policy
+		if err := r.setScripts(&p); err != nil {
+			return err
+		}
+		r.cfg.Egress.SetPolicy(&p)
+		r.policy = &p
 		return nil
 	}
 	built, err := BuildScope(in, runnerSource{r})
@@ -279,14 +293,19 @@ func (r *Runner) buildScope() error {
 	for _, e := range r.cfg.Settings.SensitivePathEntries {
 		sensitivePaths = append(sensitivePaths, e.Path)
 	}
-	r.cfg.Egress.SetPolicy(&egress.Policy{
+	p := &egress.Policy{
 		Scope: sc, Ack: eng.Acked(), Passive: r.cfg.Passive,
 		Ports: r.cfg.Settings.Ports, SensitivePaths: sensitivePaths,
 		Resolutions: inv.Addrs(), Candidates: built.Candidates,
 		Shared:       inv.Shared,
 		OwnerUnknown: func(a netip.Addr) bool { return !inv.OwnerKnown(a, sc) },
 		Excluded:     r.guard,
-	})
+	}
+	if err := r.setScripts(p); err != nil {
+		return err
+	}
+	r.cfg.Egress.SetPolicy(p)
+	r.policy = p
 
 	count := sc.IPv4AddressCount()
 	limit := uint64(r.cfg.Settings.NetblockLimit)
@@ -302,6 +321,22 @@ func (r *Runner) buildScope() error {
 		}
 	}
 	r.scopeSig = sig
+	return nil
+}
+
+// setScripts sets p.Scripts to the URLs of the current script records: the only
+// ones egress lets the jsparse stage request.
+func (r *Runner) setScripts(p *egress.Policy) error {
+	ver := r.st.KindVersion(kinds.Script.Name())
+	recs, err := r.currentRecords(kinds.Script)
+	if err != nil {
+		return err
+	}
+	p.Scripts = make(map[string]bool, len(recs))
+	for _, rec := range recs {
+		p.Scripts[rec.Key] = true
+	}
+	r.scriptsVer = ver
 	return nil
 }
 

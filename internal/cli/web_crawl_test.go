@@ -60,10 +60,14 @@ func TestCrawl_FetchesAndRecords(t *testing.T) {
 			t.Errorf("%s fetched %d times, want once (read as a list, not crawled as a page)", u, s.count(u))
 		}
 	}
-	for _, u := range []string{"/submit", "/app.js", "/s.css", "/img/logo.png", "/other-scheme", "/x", "/y"} {
+	for _, u := range []string{"/submit", "/s.css", "/img/logo.png", "/other-scheme", "/x", "/y"} {
 		if s.count(u) != 0 {
 			t.Errorf("%s must be recorded or ignored, never fetched", u)
 		}
+	}
+	// A script is not crawled as a page; the jsparse stage reads it once.
+	if s.count("/app.js") != 1 {
+		t.Errorf("/app.js fetched %d times, want once (by jsparse, not the crawl)", s.count("/app.js"))
 	}
 	if !s.onlyGET() {
 		t.Errorf("non-GET request: %+v", s.requests())
@@ -122,14 +126,14 @@ func TestCrawl_RelativeLinksResolveAgainstBaseHref(t *testing.T) {
 func TestCrawl_PageAndDepthCaps(t *testing.T) {
 	t.Run("pages count the root", func(t *testing.T) {
 		x, s := crawlFixture(t)
-		x.mustRun("--crawl-pages", "3")
+		x.mustRun("--crawl-pages", "3", "--skip", "jsparse") // the page limit is the crawl's; jsparse would add the script
 		if got := s.uris(); !slices.Equal(got, []string{"/", "/p1", "/p2"}) {
 			t.Errorf("fetched %v, want the root and the first two links in document order", got)
 		}
 	})
 	t.Run("depth 0 is the root only", func(t *testing.T) {
 		x, s := crawlFixture(t)
-		x.mustRun("--crawl-depth", "0")
+		x.mustRun("--crawl-depth", "0", "--skip", "jsparse")
 		if got := s.uris(); !slices.Equal(got, []string{"/"}) {
 			t.Errorf("fetched %v", got)
 		}

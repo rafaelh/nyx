@@ -265,6 +265,9 @@ func TestPerRunCapSettings(t *testing.T) {
 		{"reverseip.max_domains", "--reverseip-max-domains", "NYX_REVERSEIP_MAX_DOMAINS", "reverseip.max_domains",
 			func(n int) string { return fmt.Sprintf("reverseip:\n  max_domains: %d\n", n) }, 100,
 			func(s config.Settings) int { return s.ReverseIP.MaxDomains }},
+		{"jsparse.max_scripts", "--jsparse-max-scripts", "NYX_JSPARSE_MAX_SCRIPTS", "jsparse.max_scripts",
+			func(n int) string { return fmt.Sprintf("jsparse:\n  max_scripts: %d\n", n) }, 50,
+			func(s config.Settings) int { return s.JSParse.MaxScripts }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			clearEnv(t)

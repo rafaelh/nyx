@@ -102,6 +102,8 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
 - **Shodan per address.** `keys.shodan` also turns on `shodan-host` (see
   [Shodan per address](#shodan-per-address)). `shodan.max_hosts` (`--shodan-max-hosts`, default 500,
   at least 1) caps the addresses it looks up in one run.
+- **JavaScript endpoints.** `jsparse.max_scripts` (`--jsparse-max-scripts`, default 50, at least 1)
+  caps the script files `jsparse` reads per origin (see [JavaScript endpoints](#javascript-endpoints)).
 - **Settings:** all settings and their defaults are listed by `nyx --help`.
 
 Example `config.yaml` (a leading `~/` in `output_dir`, `wordlist` or `sensitive_paths` is your home
@@ -130,7 +132,9 @@ nyx limits what target-owned systems can receive. It sends only:
   unprompted and sends nothing.
 - **HTTP(S) GET and HEAD requests** to in-scope, non-excluded hosts, to same-host links found
   while crawling, to each service's `/robots.txt` and `/sitemap.xml` and the same-host URLs they
-  list (robots.txt is read, not obeyed), and to the paths on the sensitive-path list.
+  list (robots.txt is read, not obeyed), to the paths on the sensitive-path list, and to same-site
+  script files referenced by crawled pages (the URLs found inside a script are recorded, never
+  requested; see [JavaScript endpoints](#javascript-endpoints)).
 
 It never sends credentials, submits forms, uses other HTTP methods, puts payloads in parameters or
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
@@ -170,7 +174,7 @@ than signals and file locking, and if any package imports `os/exec`.
 ## Passive-only mode
 
 `--passive` restricts a run to third-party sources. The stages that contact target-owned systems
-(`httpprobe`, `crawl`, `sensitive-paths`, `ports` and `takeover`'s HTTP fingerprinting) are
+(`httpprobe`, `crawl`, `jsparse`, `sensitive-paths`, `ports` and `takeover`'s HTTP fingerprinting) are
 shown as `not-configured (passive-only)`. Takeover findings that DNS evidence alone supports are
 still reported. The restriction applies to that run only; a later run without `--passive` performs
 the skipped checks.
@@ -286,6 +290,43 @@ SaaS platform has the columns but no finding. Other headers, such as `Content-Se
 An engagement probed by an earlier version has these columns blank, and none of these findings,
 until you run `--redo httpprobe`. A condition that is gone after a redo marks its finding not
 current.
+
+## JavaScript endpoints
+
+The `crawl` stage notes every `<script src>` on the pages it fetches, whatever host the script is
+on. The `jsparse` stage (it contacts the target, so it is skipped under `--passive` and until you
+confirm authorisation) then reads each of those scripts that is on an in-scope host, with one GET
+each, and records what the script names:
+
+- **URLs.** Absolute `http(s)` URLs and `//host/path` references whose host is under an in-scope
+  root, and quoted paths that start with `/` (at least two characters, with no whitespace, backslash
+  or template placeholder such as `${` or `{{`, and a first segment that is not just an extension),
+  joined to the script's origin. An absolute URL written with escaped slashes (`https:\/\/…`, as
+  JSON has it) is found too, and one with a template placeholder after its host is cut at the
+  placeholder, as `"https://api.example.com/v1/" + id` would be. They go in `urls.csv` with
+  `jsparse` in `found_by` and no status.
+  A script names at most 500; the rest are dropped with a warning.
+- **Hostnames.** Hostnames under an in-scope root are recorded as hostnames. Hosts outside scope are
+  ignored, as the crawl does.
+
+Nothing found in a script is ever requested: the crawl follows only links from pages it fetched, and
+the only script URLs the stage can request are those the crawl recorded. A script on a CDN or any
+other host that is not in scope, on an excluded host, on a wildcard-only name or served by a SaaS
+platform is not fetched. A redirect is followed only to the same host, and any answer other than
+2xx, or one that is HTML (a `text/html` type, or a body that starts with `<`), records nothing. A
+timeout is a failed check, retried on the next run.
+
+`jsparse.max_scripts` caps the scripts fetched per origin, in URL order, with a warning that says how
+many were left. A script already read keeps its place when new ones appear, so a re-crawl does not
+read the same bundles again. Scripts are read up to 4 MiB (the usual limit on a response is 1 MiB,
+but bundles are large); a longer script is read as far as 4 MiB, what is in that part is recorded
+and a warning says it was cut. Only the script text is read: source maps and inline scripts are not,
+and nothing is executed or searched for secrets.
+
+When a re-crawl no longer references a script, the URLs found only in it are marked not current.
+An engagement crawled by an earlier version has no script records until you run `--redo crawl`.
+The check for a script is keyed by its URL and the parser, not by the scope, so a root you add later
+is applied to the scripts already read only after `--redo jsparse`.
 
 ## TLS detail
 
@@ -585,7 +626,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)) and web posture evidence (see Web posture above) |
-| `urls.csv` | URLs from crawling and web archives, with status and source |
+| `urls.csv` | URLs from crawling, the scripts of crawled pages (see [JavaScript endpoints](#javascript-endpoints)) and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake) and `shodan_last_seen` (empty on a row only nyx saw) |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host |
 | `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx` or `cname`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns` and `mx`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |

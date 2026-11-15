@@ -16,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// maxHops is how many redirects a probe follows.
+// maxHops is how many redirects a probe, the crawl or jsparse follows.
 const maxHops = 10
 
 // Probe is the httpprobe stage: it finds the HTTP and HTTPS services of every

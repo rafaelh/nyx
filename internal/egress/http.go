@@ -25,11 +25,16 @@ import (
 
 const (
 	maxTargetBody = 1 << 20
+	maxScriptBody = 4 << 20
 	userAgent     = "nyx/1"
 )
 
-// MaxTargetBody is the cap on Response.Body: a body of exactly this length may have been cut.
+// MaxTargetBody is the cap on Response.Body; Response.Truncated says whether it cut the body.
 const MaxTargetBody = maxTargetBody
+
+// MaxScriptBody is the cap on the body of a Script request (and of a redirect
+// from one). It is larger than MaxTargetBody because bundles are large.
+const MaxScriptBody = maxScriptBody
 
 // Reasons carried by NoService.
 const (
@@ -46,10 +51,12 @@ type HTTPResult interface{ httpResult() }
 
 // Response is an HTTP response. Redirects are never followed automatically.
 type Response struct {
-	Status    int
-	Header    map[string][]string
-	Body      []byte // capped at 1 MiB; empty for HEAD
-	Location  string
+	Status   int
+	Header   map[string][]string
+	Body     []byte // capped at MaxTargetBody (MaxScriptBody for a Script request); empty for HEAD
+	Location string
+	// Truncated is set when the body cap cut the body.
+	Truncated bool
 	PeerCerts []*x509.Certificate
 	// TLSVersion ("TLS 1.2") and TLSCipher (the IANA suite name) are what the
 	// handshake negotiated; both are empty for plain HTTP.
@@ -72,6 +79,7 @@ type origin struct {
 	scheme, host string
 	port         int
 	uri          string
+	maxBody      int // the body cap the request was made with; a redirect keeps it
 }
 
 func (o *origin) base() *url.URL {
@@ -146,7 +154,8 @@ func ParseService(origin string) (Service, bool) {
 }
 
 // Request is a typed target request. It can only be built with Root, RootAt,
-// SensitivePath, Link or Redirect; there is no way to name an arbitrary URL.
+// SensitivePath, Script, Link or Redirect; there is no way to name an arbitrary
+// URL: Script names one only if the policy lists it.
 type Request interface{ target() target }
 
 type target struct {
@@ -155,6 +164,16 @@ type target struct {
 	sensitiveIdx int // >=0: index into the sensitive-path list
 	requestURI   string
 	pin          netip.Addr // if valid, the only address dialled
+	script       string     // set by Script: the URL, which Policy.Scripts must list
+	maxBody      int        // 0 means maxTargetBody
+}
+
+// bodyCap is how much of the response body is read.
+func (t target) bodyCap() int {
+	if t.maxBody == 0 {
+		return maxTargetBody
+	}
+	return t.maxBody
 }
 
 type req struct{ t target }
@@ -178,14 +197,22 @@ func SensitivePath(svc Service, index int) Request {
 	return req{target{scheme: svc.Scheme, host: svc.Host, port: svc.Port, sensitiveIdx: index}}
 }
 
-func resolveFrom(resp Response, ref string) (target, error) {
-	if resp.origin == nil {
-		return target{}, errors.New("response was not produced by egress")
-	}
-	u, err := resp.origin.base().Parse(ref)
-	if err != nil {
-		return target{}, err
-	}
+// Script requests a script file by its URL, which must be one of Policy.Scripts
+// (the URLs the crawl recorded from <script src> elements). Any other URL is
+// refused, as is one the host policy refuses. The body is read up to MaxScriptBody.
+func Script(rawURL string) Request {
+	t := target{sensitiveIdx: -1}
+	if u, err := url.Parse(rawURL); err == nil {
+		if ut, err := targetOf(u); err == nil {
+			t = ut
+		}
+	} // otherwise the empty scheme is refused
+	t.script, t.maxBody = rawURL, maxScriptBody
+	return req{t}
+}
+
+// targetOf is the target a parsed URL names. A URL with userinfo is refused.
+func targetOf(u *url.URL) (target, error) {
 	if u.User != nil {
 		return target{}, errors.New("userinfo is not permitted")
 	}
@@ -198,6 +225,19 @@ func resolveFrom(resp Response, ref string) (target, error) {
 		port = 80
 	}
 	return target{scheme: u.Scheme, host: u.Hostname(), port: port, sensitiveIdx: -1, requestURI: u.RequestURI()}, nil
+}
+
+func resolveFrom(resp Response, ref string) (target, error) {
+	if resp.origin == nil {
+		return target{}, errors.New("response was not produced by egress")
+	}
+	u, err := resp.origin.base().Parse(ref)
+	if err != nil {
+		return target{}, err
+	}
+	t, err := targetOf(u)
+	t.maxBody = resp.origin.maxBody
+	return t, err
 }
 
 // Link requests a link found in a fetched response; it must be on the same host.
@@ -248,6 +288,9 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 	tg := r.target()
 	if r, ok := p.targetRefusal(); ok {
 		return r, nil
+	}
+	if tg.script != "" && !p.Scripts[tg.script] {
+		return Refused{"script URL is not one the crawl recorded"}, nil
 	}
 	host := input.NormaliseHost(tg.host)
 	lit, isIP := input.IPLiteral(host)
@@ -356,8 +399,10 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		return NoService{classify(err)}, nil
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTargetBody))
-	if err != nil { // a truncated body is not a result; retry it next run
+	bodyCap := tg.bodyCap()
+	// Read one byte past the cap, to tell a cut body from one that fits.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(bodyCap)+1))
+	if err != nil { // a body that fails mid-read is not a result; retry it next run
 		if perr := parent.Err(); perr != nil {
 			return nil, perr
 		}
@@ -366,13 +411,17 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		}
 		return nil, fmt.Errorf("reading response body from %s: %w", host, err)
 	}
+	truncated := len(body) > bodyCap
+	if truncated {
+		body = body[:bodyCap]
+	}
 	if method == http.MethodHead {
-		body = nil
+		body, truncated = nil, false
 	}
 	out := Response{
-		Status: resp.StatusCode, Header: map[string][]string(resp.Header.Clone()), Body: body,
+		Status: resp.StatusCode, Header: map[string][]string(resp.Header.Clone()), Body: body, Truncated: truncated,
 		Location: resp.Header.Get("Location"),
-		origin:   &origin{scheme: tg.scheme, host: host, port: tg.port, uri: uri},
+		origin:   &origin{scheme: tg.scheme, host: host, port: tg.port, uri: uri, maxBody: tg.maxBody},
 	}
 	if resp.TLS != nil {
 		out.PeerCerts, out.tlsAt = resp.TLS.PeerCertificates, e.opts.Now()

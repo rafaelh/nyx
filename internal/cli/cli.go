@@ -89,7 +89,7 @@ func defaultStages() []run.Stage {
 	return append(stages,
 		shodan.New(), shodan.NewDNS(), providerranges.New(),
 		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
-		risk.NewEmail(), web.NewProbe(), web.NewCrawl(),
+		risk.NewEmail(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), ports.New())
 }
 

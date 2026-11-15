@@ -34,6 +34,15 @@ type Rate struct {
 // Crawl holds the crawl limits.
 type Crawl struct{ MaxDepth, MaxPages int }
 
+// JSParse holds the settings of the jsparse stage.
+type JSParse struct {
+	// MaxScripts caps the scripts fetched per script origin. It is not part of a
+	// check's key: a script already read keeps its place when new scripts appear,
+	// raising the cap fetches the scripts left over, and lowering it below the
+	// number already read retires those past the cap, in URL order.
+	MaxScripts int
+}
+
 // Archive holds the limits on URLs taken from public archives.
 type Archive struct{ MaxURLs int }
 
@@ -110,6 +119,7 @@ type Settings struct {
 	SensitivePathMaxRequests int
 	Shodan                   Shodan
 	ReverseIP                ReverseIP
+	JSParse                  JSParse
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable
@@ -134,6 +144,7 @@ func Defaults() Settings {
 		ShodanDNS:       PagedSource{MaxPages: 10},
 		Shodan:          Shodan{MaxHosts: 500},
 		ReverseIP:       ReverseIP{MaxDomains: 100},
+		JSParse:         JSParse{MaxScripts: 50},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -218,6 +229,7 @@ var settingTable = []setting{
 	{"shodan-dns-max-pages", "shodan_dns.max_pages"}, {"censys-max-pages", "censys.max_pages"}, {"chaos-max-pages", "chaos.max_pages"},
 	{"permutations-max-names", "permutations.max_names"}, {"sensitive-path-max-requests", "sensitive_path_max_requests"},
 	{"shodan-max-hosts", "shodan.max_hosts"}, {"reverseip-max-domains", "reverseip.max_domains"},
+	{"jsparse-max-scripts", "jsparse.max_scripts"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -252,6 +264,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("sensitive-path-max-requests", d.SensitivePathMaxRequests, "maximum sensitive-path requests sent per run; the rest are deferred to later runs")
 	fs.Int("shodan-max-hosts", d.Shodan.MaxHosts, "maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
 	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
+	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "maximum script files read per origin for the URLs and hostnames they name")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -303,6 +316,9 @@ type rawSettings struct {
 	ReverseIP struct {
 		MaxDomains string `mapstructure:"max_domains"`
 	} `mapstructure:"reverseip"`
+	JSParse struct {
+		MaxScripts string `mapstructure:"max_scripts"`
+	} `mapstructure:"jsparse"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the
@@ -326,7 +342,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"certspotter.max_pages": d.Certspotter.MaxPages, "skip": []string{},
 		"shodan_dns.max_pages": d.ShodanDNS.MaxPages, "censys.max_pages": d.Censys.MaxPages, "chaos.max_pages": d.Chaos.MaxPages,
 		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
-		"reverseip.max_domains": d.ReverseIP.MaxDomains,
+		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -424,6 +440,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("chaos.max_pages", raw.Chaos.MaxPages, 1, &s.Chaos.MaxPages)
 	posInt("shodan.max_hosts", raw.Shodan.MaxHosts, 1, &s.Shodan.MaxHosts)
 	posInt("reverseip.max_domains", raw.ReverseIP.MaxDomains, 1, &s.ReverseIP.MaxDomains)
+	posInt("jsparse.max_scripts", raw.JSParse.MaxScripts, 1, &s.JSParse.MaxScripts)
 	if skip, err := parseSkip(raw.Skip); err != nil {
 		bad("skip", strings.Join(raw.Skip, ","), err.Error())
 	} else {

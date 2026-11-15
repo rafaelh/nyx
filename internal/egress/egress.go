@@ -25,6 +25,10 @@ type Policy struct {
 	Ack, Passive   bool
 	Ports          []int
 	SensitivePaths []string
+	// Scripts are the script URLs egress.Script may request: the normalised URLs
+	// of the script records the crawl made. Host scope, exclusion and port rules
+	// apply to each as to any target request.
+	Scripts map[string]bool
 	// Resolutions maps in-scope and excluded hostnames to their addresses.
 	Resolutions map[string][]netip.Addr
 	// Candidates are discovered out-of-scope hostnames; ThirdPartyHTTP never contacts them.

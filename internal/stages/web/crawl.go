@@ -99,6 +99,8 @@ type crawler struct {
 
 	storage     map[string]*storageRef // "page|url" -> reference, for the cloud-storage checks
 	storageKeys []string               // in first-seen order
+
+	scripts map[string]bool // normalised URLs of the <script src> elements seen, on any host
 }
 
 // storageRef is a storage URL a page links to or loads.
@@ -112,7 +114,7 @@ type storageRef struct {
 // other page that cannot be fetched is skipped.
 func (*Crawl) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := chk.Input.(crawlInput)
-	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, hosts: map[string]bool{}, storage: map[string]*storageRef{}}
+	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, hosts: map[string]bool{}, storage: map[string]*storageRef{}, scripts: map[string]bool{}}
 	c.record(in.start)
 	root, scan, err := c.fetchPage(egress.Root(in.host, in.scheme, in.port), in.start)
 	if err != nil {
@@ -211,12 +213,15 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 			base = b
 		}
 	}
-	handle := func(href string, follow bool) {
+	absolute := func(href string) (string, bool) {
 		t, err := base.Parse(href)
 		if err != nil {
-			return
+			return "", false
 		}
-		abs, ok := NormaliseURL(t.String())
+		return NormaliseURL(t.String())
+	}
+	handle := func(href string, follow bool) {
+		abs, ok := absolute(href)
 		if !ok {
 			return
 		}
@@ -233,7 +238,23 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 	}
 	pageURL, _ := NormaliseURL(resp.URL())
 	for _, r := range l.refs {
-		c.storageRef(base, r, pageURL)
+		abs, ok := absolute(r.url)
+		if !ok {
+			continue
+		}
+		c.storageRef(abs, r.tag, pageURL)
+		if r.tag == "script" {
+			c.scriptRef(abs)
+		}
+	}
+}
+
+// scriptRef notes a script a page loads, whatever host it is on. It is recorded
+// so that the jsparse stage can read the ones on in-scope hosts; nothing is
+// requested here.
+func (c *crawler) scriptRef(abs string) {
+	if len(c.scripts) < urlsPerPage*c.in.pages {
+		c.scripts[abs] = true
 	}
 }
 
@@ -252,13 +273,8 @@ func (c *crawler) enqueue(abs string, depth int) {
 
 // storageRef records a link or asset that names a cloud-storage bucket, wherever
 // it points: the host being off-scope does not make it uninteresting. No request is made.
-func (c *crawler) storageRef(base *url.URL, r linkRef, page string) {
-	t, err := base.Parse(r.url)
-	if err != nil || page == "" {
-		return
-	}
-	abs, ok := NormaliseURL(t.String())
-	if !ok {
+func (c *crawler) storageRef(abs, tag, page string) {
+	if page == "" {
 		return
 	}
 	ref, ok := cloudstorage.ParseRef(abs)
@@ -266,7 +282,7 @@ func (c *crawler) storageRef(base *url.URL, r linkRef, page string) {
 		return
 	}
 	via := "asset"
-	if r.tag == "a" || r.tag == "area" {
+	if tag == "a" || tag == "area" {
 		via = "link"
 	}
 	key := page + "|" + abs
@@ -315,6 +331,9 @@ func (c *crawler) observations() []run.Observation {
 	}
 	for _, k := range c.storageKeys {
 		out = append(out, storageObservation(*c.storage[k]))
+	}
+	for _, u := range slices.Sorted(maps.Keys(c.scripts)) {
+		out = append(out, kinds.Script.Obs(u, kinds.ScriptAttrs{URL: u, Host: HostOfURL(u), Service: c.in.origin}))
 	}
 	return out
 }

@@ -192,7 +192,7 @@ func TestSkip_NoPromptWhenEveryTargetStageIsSkipped(t *testing.T) {
 	}
 
 	w = newWorld(t)
-	runConsole(w, "--skip", "httpprobe", "--skip", "crawl")
+	runConsole(w, "--skip", "httpprobe", "--skip", "crawl", "--skip", "jsparse")
 	if strings.Contains(w.h.stderr.String(), prompt) {
 		t.Errorf("prompted although every target stage is skipped: %q", w.h.stderr.String())
 	}
