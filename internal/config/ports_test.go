@@ -66,7 +66,7 @@ func TestPortConcurrencyHelp(t *testing.T) {
 	if pc == nil || pc.DefValue != "100" {
 		t.Fatalf("--port-concurrency = %+v", pc)
 	}
-	if c := fs.Lookup("concurrency"); c == nil || c.Usage != "workers per stage (ports: --port-concurrency)" {
+	if c := fs.Lookup("concurrency"); c == nil || c.Usage != "Workers per stage (ports: --port-concurrency)" {
 		t.Errorf("--concurrency usage = %+v", c)
 	}
 }

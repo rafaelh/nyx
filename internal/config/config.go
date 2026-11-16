@@ -36,10 +36,10 @@ type Crawl struct{ MaxDepth, MaxPages int }
 
 // JSParse holds the settings of the jsparse stage.
 type JSParse struct {
-	// MaxScripts caps the scripts fetched per script origin. It is not part of a
-	// check's key: a script already read keeps its place when new scripts appear,
-	// raising the cap fetches the scripts left over, and lowering it below the
-	// number already read retires those past the cap, in URL order.
+	// MaxScripts caps the scripts fetched per script origin. It is not part of a check's key: a
+	// script already read keeps its place when new scripts appear, raising the cap fetches the
+	// scripts left over, and lowering it below the number already read retires those past the cap,
+	// in URL order.
 	MaxScripts int
 }
 
@@ -73,16 +73,16 @@ type IdentifierPivot struct {
 
 // ReverseIP holds the settings of the reverseip stage.
 type ReverseIP struct {
-	// MaxDomains is the number of distinct registrable domains one address may
-	// return before it is treated as shared hosting and nothing is recorded. It is
-	// part of the check, so changing it asks every address again.
+	// MaxDomains is the number of distinct registrable domains one address may return before it is
+	// treated as shared hosting and nothing is recorded. It is part of the check, so changing it
+	// asks every address again.
 	MaxDomains int
 }
 
 // GitHub holds the settings of the github stage.
 type GitHub struct {
-	// MaxResults caps the code search results read per root (GitHub serves at most
-	// 1,000). It is part of the check, so changing it searches again.
+	// MaxResults caps the code search results read per root (GitHub serves at most 1,000). It is
+	// part of the check, so changing it searches again.
 	MaxResults int
 }
 
@@ -91,8 +91,8 @@ const maxGitHubResults = 1000
 
 // PagedSource holds the settings of a source that follows result pages.
 type PagedSource struct {
-	// MaxPages caps the result pages followed per root. It is part of the check,
-	// so raising it repeats the checks.
+	// MaxPages caps the result pages followed per root. It is part of the check, so raising it
+	// repeats the checks.
 	MaxPages int
 }
 
@@ -140,9 +140,9 @@ type Settings struct {
 	GitHub                   GitHub
 }
 
-// Defaults returns the default settings. The limits and rates are reasonable
-// starting points, not taken from any source's fair-use terms or from
-// engagement norms: tune them when there is evidence for a better value.
+// Defaults returns the default settings. The limits and rates are reasonable starting points, not
+// taken from any source's fair-use terms or from engagement norms: tune them when there is evidence
+// for a better value.
 func Defaults() Settings {
 	return Settings{
 		Keys:            map[string]Secret{},
@@ -218,11 +218,10 @@ func builtinSensitivePaths() []SensitivePath {
 	return list
 }
 
-// DefaultConfigPath is $XDG_CONFIG_HOME/nyx/config.yaml, or ~/.config/nyx/config.yaml.
-// It is "" when neither XDG_CONFIG_HOME nor the home directory is known, so a
-// missing $HOME never resolves to a config file relative to the working directory.
-// os.UserConfigDir is deliberately not used: on macOS it would move the file to
-// ~/Library/Application Support.
+// DefaultConfigPath is $XDG_CONFIG_HOME/nyx/config.yaml, or ~/.config/nyx/config.yaml. It is ""
+// when neither XDG_CONFIG_HOME nor the home directory is known, so a missing $HOME never resolves
+// to a config file relative to the working directory. os.UserConfigDir is deliberately not used: on
+// macOS it would move the file to ~/Library/Application Support.
 func DefaultConfigPath() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
@@ -258,36 +257,38 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	d := Defaults()
 	portsRaw, riskyRaw := FormatPorts(d.Ports), FormatPorts(d.RiskyPorts)
 	var pt, rt bool
-	fs.Var(portsFlag{&portsRaw, &pt}, "ports", "TCP ports to check (comma-separated ports and ranges)")
-	fs.Var(portsFlag{&riskyRaw, &rt}, "risky-ports", "ports whose being open is reported as a risk")
+	fs.Var(portsFlag{&portsRaw, &pt}, "ports", "TCP ports to check, separated by commas (e.g.: 37,53,79-81,443)")
+	// The default list is about 100 ports long; leave it out of --help.
+	fs.Lookup("ports").DefValue = ""
+	fs.Var(portsFlag{&riskyRaw, &rt}, "risky-ports", "Ports whose being open is reported as a risk")
 	fs.String("sensitive-paths", "", "YAML file of sensitive paths to request (default: "+BuiltinSensitivePathsLabel()+")")
-	fs.String("wordlist", "", "subdomain wordlist file (default: "+BuiltinWordlistLabel()+")")
-	fs.Int("concurrency", d.Concurrency, "workers per stage (ports: --port-concurrency)")
-	fs.Int("port-concurrency", d.PortConcurrency, "workers for the port sweep, whose silent ports each wait out the connect timeout")
-	fs.Float64("rate-per-host", d.Rate.PerHost, "requests per second per dialled target IP (HTTP requests and TCP connects)")
-	fs.Float64("rate-per-source", d.Rate.PerSource, "requests per second per third-party source")
+	fs.String("wordlist", "", "Subdomain wordlist file (default: "+BuiltinWordlistLabel()+")")
+	fs.Int("concurrency", d.Concurrency, "Workers per stage (ports: --port-concurrency)")
+	fs.Int("port-concurrency", d.PortConcurrency, "Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout")
+	fs.Float64("rate-per-host", d.Rate.PerHost, "Requests per second per dialled target IP (HTTP requests and TCP connects)")
+	fs.Float64("rate-per-source", d.Rate.PerSource, "Requests per second per third-party source")
 	fs.Float64("rate-dns", d.Rate.DNS, "DNS queries per second in total across public resolvers")
-	fs.Int("crawl-depth", d.Crawl.MaxDepth, "maximum crawl depth")
-	fs.Int("crawl-pages", d.Crawl.MaxPages, "maximum pages crawled per web service (0 disables the crawl)")
-	fs.Int("archive-max-urls", d.Archive.MaxURLs, "maximum archived URLs recorded per root from Wayback and Common Crawl")
-	fs.Int("storage-max-names", d.Storage.MaxNames, "cloud-storage bucket names guessed per root and per organisation (checked on AWS, Azure and GCP)")
-	fs.Int("cert-expiry-days", d.CertExpiryDays, "report certificates that expire within this many days")
-	fs.String("output-dir", d.OutputDir, "directory in which engagement directories are created")
-	fs.Bool("no-permutations", false, "do not resolve permutations of discovered subdomain labels (default: on, including with --passive)")
-	fs.Int("permutations-max", d.Permutations.MaxPerSeed, "maximum permutations generated per discovered subdomain label")
+	fs.Int("crawl-depth", d.Crawl.MaxDepth, "Maximum crawl depth")
+	fs.Int("crawl-pages", d.Crawl.MaxPages, "Maximum pages crawled per web service (0 disables the crawl)")
+	fs.Int("archive-max-urls", d.Archive.MaxURLs, "Maximum archived URLs recorded per root from Wayback and Common Crawl")
+	fs.Int("storage-max-names", d.Storage.MaxNames, "Cloud-storage bucket names guessed per root and per organisation (checked on AWS, Azure and GCP)")
+	fs.Int("cert-expiry-days", d.CertExpiryDays, "Report certificates that expire within this many days")
+	fs.String("output-dir", d.OutputDir, "Directory in which engagement directories are created")
+	fs.Bool("no-permutations", false, "Do not resolve permutations of discovered subdomain labels (default: on, including with --passive)")
+	fs.Int("permutations-max", d.Permutations.MaxPerSeed, "Maximum permutations generated per discovered subdomain label")
 	fs.Int("netblock-limit", d.NetblockLimit, "IPv4 address count above which the run stops unless --allow-large-netblocks is given")
-	fs.StringArray("skip", nil, "stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see the stage list below)")
-	fs.Int("certspotter-max-pages", d.Certspotter.MaxPages, "result pages followed per root from Cert Spotter")
-	fs.Int("shodan-dns-max-pages", d.ShodanDNS.MaxPages, "result pages followed per root from Shodan's DNS data (one query credit each)")
-	fs.Int("censys-max-pages", d.Censys.MaxPages, "result pages followed per root from Censys")
-	fs.Int("chaos-max-pages", d.Chaos.MaxPages, "result pages followed per root from Chaos (it answers in one page, so this is not reached)")
-	fs.Int("permutations-max-names", d.Permutations.MaxNames, "maximum permutation names generated per run; the rest are deferred to later runs")
-	fs.Int("sensitive-path-max-requests", d.SensitivePathMaxRequests, "maximum sensitive-path requests sent per run; the rest are deferred to later runs")
-	fs.Int("shodan-max-hosts", d.Shodan.MaxHosts, "maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
-	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
-	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "maximum script files read per origin for the URLs and hostnames they name")
-	fs.Int("identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
-	fs.Int("github-max-results", d.GitHub.MaxResults, "maximum GitHub code search results read per root (at most 1000); changing it searches again")
+	fs.StringArray("skip", nil, "Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)")
+	fs.Int("certspotter-max-pages", d.Certspotter.MaxPages, "Result pages followed per root from Cert Spotter")
+	fs.Int("shodan-dns-max-pages", d.ShodanDNS.MaxPages, "Result pages followed per root from Shodan's DNS data (one query credit each)")
+	fs.Int("censys-max-pages", d.Censys.MaxPages, "Result pages followed per root from Censys")
+	fs.Int("chaos-max-pages", d.Chaos.MaxPages, "Result pages followed per root from Chaos (it answers in one page, so this is not reached)")
+	fs.Int("permutations-max-names", d.Permutations.MaxNames, "Maximum permutation names generated per run; the rest are deferred to later runs")
+	fs.Int("sensitive-path-max-requests", d.SensitivePathMaxRequests, "Maximum sensitive-path requests sent per run; the rest are deferred to later runs")
+	fs.Int("shodan-max-hosts", d.Shodan.MaxHosts, "Maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
+	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "Registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
+	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "Maximum script files read per origin for the URLs and hostnames they name")
+	fs.Int("identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "Maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
+	fs.Int("github-max-results", d.GitHub.MaxResults, "Maximum GitHub code search results read per root (at most 1000); changing it searches again")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -350,9 +351,9 @@ type rawSettings struct {
 	} `mapstructure:"github"`
 }
 
-// Load merges defaults, the config file, NYX_* environment variables and the
-// flags in fs that were set (flags win over env, env over file). configPath
-// "" means the default location, which is optional; an explicit path must exist.
+// Load merges defaults, the config file, NYX_* environment variables and the flags in fs that were
+// set (flags win over env, env over file). configPath "" means the default location, which is
+// optional; an explicit path must exist.
 func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	d := Defaults()
 	v := viper.New()
@@ -526,9 +527,8 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	return s, nil
 }
 
-// parseSkip normalises the skip list: names are trimmed, lower-cased and
-// de-duplicated, and "none" alone gives an empty list. "none" beside a stage name
-// is a contradiction, not something to guess at.
+// parseSkip normalises the skip list: names are trimmed, lower-cased and de-duplicated, and "none"
+// alone gives an empty list. "none" beside a stage name is a contradiction, not something to guess.
 func parseSkip(items []string) ([]string, error) {
 	var out []string
 	none := false
@@ -548,10 +548,9 @@ func parseSkip(items []string) ([]string, error) {
 	return out, nil
 }
 
-// expandHome replaces a leading "~" or "~/" with the user's home directory.
-// Paths from the config file or environment are not shell-expanded, so
-// without this "output_dir: ~/engagements" would create a directory named "~".
-// "~user" forms are left as is.
+// expandHome replaces a leading "~" or "~/" with the user's home directory. Paths from the config
+// file or environment are not shell-expanded, so without this "output_dir: ~/engagements" would
+// create a directory named "~". "~user" forms are left as is.
 func expandHome(p string) string {
 	if p != "~" && !strings.HasPrefix(p, "~/") {
 		return p

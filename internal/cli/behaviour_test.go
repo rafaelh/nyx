@@ -130,16 +130,25 @@ func TestHelp(t *testing.T) {
 	}
 	help := h.stdout.String()
 	for _, w := range []string{
-		"--ports", "21-23", "--risky-ports", "21,23,445,1433", "--concurrency", "10", "--rate-per-host", "--rate-per-source", "--rate-dns", "50",
+		"--ports", "37,53,79-81,443", "--risky-ports", "21,23,445,1433", "--concurrency", "10", "--rate-per-host", "--rate-per-source", "--rate-dns", "50",
 		"--crawl-depth", "--crawl-pages", "100", "--output-dir", "--netblock-limit", "4096", "--wordlist", "--sensitive-paths", config.BuiltinSensitivePathsLabel(), "--storage-max-names", "--cert-expiry-days",
-		"config.yaml", ".config/nyx", "NYX_", "NYX_KEYS_", "alpha", "beta", "--redo", "order", "--passive", "--authorised", "--json",
+		"config.yaml", ".config/nyx", "NYX_", "NYX_KEYS_", "--redo", "--passive", "--authorised", "--json",
 	} {
 		if !strings.Contains(help, w) {
 			t.Errorf("help missing %q", w)
 		}
 	}
+	if strings.Contains(help, "49152-49157") {
+		t.Error("help must not list the default ports")
+	}
 	if strings.Contains(help, "--key") || strings.Contains(help, "--api-key") {
 		t.Error("help must not offer key flags")
+	}
+	topic := h.stagesHelp()
+	for _, s := range []string{"alpha", "beta"} {
+		if stageRow(topic, s) == "" {
+			t.Errorf("help stages does not list %s:\n%s", s, topic)
+		}
 	}
 }
 

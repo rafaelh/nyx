@@ -236,13 +236,13 @@ func TestPorts_Help(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	out := h.stdout.String()
-	for _, want := range []string{"--port-concurrency", "workers per stage (ports: --port-concurrency)", "--ports", "ports"} {
+	for _, want := range []string{"--port-concurrency", "Workers per stage (ports: --port-concurrency)", "--ports", "ports"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q", want)
 		}
 	}
-	if !strings.Contains(out, "Stages accepted by --redo:") || !strings.Contains(out, ", ports") {
-		t.Errorf("help does not list ports as a --redo stage:\n%s", out)
+	if row := stageRow(h.stagesHelp(), "ports"); !strings.Contains(row, "target") {
+		t.Errorf("help stages does not list ports as a target stage: %q", row)
 	}
 }
 

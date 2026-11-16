@@ -24,7 +24,6 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/engagement"
-	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/palette"
@@ -74,16 +73,14 @@ func DefaultDeps() Deps {
 	}
 }
 
-// defaultStages is the registry order: sources first, then DNS,
-// then the stages derived from what the sources found. Passes repeat, so
-// late discoveries are picked up. The port sweep is last so that probing
-// hostnames on 80 and 443 does not wait for a sweep that can take hours; the
-// pass after it probes the ports it found. The email stage follows the DNS
-// stages (dnsroot, which records a root's own NS, SOA, TXT and CAA, among
-// them); rdap and shodan-host follow ipowner, whose owners decide which addresses
-// may be asked about; storage follows the crawl so references found in the same pass are
-// checked, identifier-pivot follows the web stages whose identifiers it searches,
-// and the Target stages run before the port sweep.
+// defaultStages is the registry order: sources first, then DNS, then the stages derived from what
+// the sources found. Passes repeat, so late discoveries are picked up. The port sweep is last so
+// that probing hostnames on 80 and 443 does not wait for a sweep that can take hours; the pass
+// after it probes the ports it found. The email stage follows the DNS stages (dnsroot, which
+// records a root's own NS, SOA, TXT and CAA, among them); rdap and shodan-host follow ipowner,
+// whose owners decide which addresses may be asked about; storage follows the crawl so references
+// found in the same pass are checked, identifier-pivot follows the web stages whose identifiers it
+// searches, and the Target stages run before the port sweep.
 func defaultStages() []run.Stage {
 	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, hackertarget, urlscan, certspotter, censys, chaos
 	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
@@ -106,7 +103,7 @@ type options struct {
 type depths struct{ out, err palette.Depth }
 
 // configFlagUsage is the help of --config, for a run and for export.
-const configFlagUsage = "config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)"
+const configFlagUsage = "Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)"
 
 const ackPrompt = "Confirm you are authorised to test this engagement's scope [y/N] "
 
@@ -140,10 +137,13 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	var o options
 	var ex exportOptions
 	code := run.ExitOK
-	cmd := newCommand(&o, d, func(c *cobra.Command, positional []string) {
+	cmd := newCommand(&o, d, dp.out, func(c *cobra.Command, positional []string) {
 		code = runCommand(ctx, c, positional, &o, d, dp)
 	})
-	cmd.AddCommand(newExportCommand(&ex, func(c *cobra.Command) { code = runExport(c, &ex, d, dp) }))
+	cmd.AddCommand(newExportCommand(&ex, dp.out, func(c *cobra.Command) { code = runExport(c, &ex, d, dp) }),
+		newTopic("findings", "Finding types and their default severities", findingsHelp, dp.out),
+		newTopic("stages", "The stages, in run order, and what each one contacts and does",
+			func(dep palette.Depth) string { return stagesHelp(dep, d.Stages) }, dp.out))
 	cmd.SetArgs(args)
 	cmd.SetOut(d.Stdout)
 	cmd.SetErr(d.Stderr)
@@ -168,11 +168,10 @@ func stageNames(stages []run.Stage) []string {
 	return names
 }
 
-// newEmitter builds the run's event sink. The console writes the log to stderr
-// and the summary to stdout. Under --json stdout is the JSON event stream, which
-// never carries a debug event so that stdout is the same with or without
-// --debug, and there is no console, except that --debug adds one on stderr which
-// passes only the debug events: a level threshold there would also write the
+// newEmitter builds the run's event sink. The console writes the log to stderr and the summary to
+// stdout. Under --json stdout is the JSON event stream, which never carries a debug event so that
+// stdout is the same with or without --debug, and there is no console, except that --debug adds one
+// on stderr which passes only the debug events: a level threshold there would also write the
 // summary and a second copy of the error.
 func newEmitter(d Deps, o *options, dp depths) report.Emitter {
 	minLevel := report.Info
@@ -194,7 +193,9 @@ func newEmitter(d Deps, o *options, dp depths) report.Emitter {
 	return report.Tee(js, report.Only("debug", report.NewConsole(console)))
 }
 
-func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra.Command {
+// newCommand builds the root command. Its help is coloured at depth, the colour depth of stdout,
+// except under --json.
+func newCommand(o *options, d Deps, depth palette.Depth, runFn func(*cobra.Command, []string)) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "nyx [domain...] [flags]",
 		Short: "Passive-first reconnaissance of a target's domains, organisations and netblocks",
@@ -215,25 +216,26 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 	}
 	f := cmd.Flags()
 	f.SortFlags = false
-	f.StringVarP(&o.domainsFile, "domains-file", "d", "", "file of root domains, one per line (# comments allowed)")
-	f.StringArrayVar(&o.orgs, "org", nil, "organisation name (repeatable)")
+	f.StringVarP(&o.domainsFile, "domains-file", "d", "", "File of root domains, one per line (# comments allowed)")
+	f.StringArrayVar(&o.orgs, "org", nil, "Organisation name (repeatable)")
 	f.StringArrayVar(&o.asns, "asn", nil, "ASN, AS123 or 123; its announced netblocks become in scope (repeatable)")
-	f.StringArrayVar(&o.cidrs, "cidr", nil, "netblock in CIDR notation (repeatable)")
-	f.StringArrayVarP(&o.exclude, "exclude", "x", nil, "excluded hostname, *.wildcard or CIDR (repeatable)")
-	f.StringVar(&o.excludeFile, "exclude-file", "", "file of exclusions, one per line (# comments allowed)")
-	f.StringVarP(&o.engagement, "engagement", "e", "", "engagement name (default: derived from the first input)")
-	f.BoolVar(&o.passive, "passive", false, "use third-party sources only; never contact target-owned systems")
-	f.BoolVar(&o.authorised, "authorised", false, "confirm you are authorised to test this scope (alias --authorized)")
-	f.BoolVar(&o.allowLarge, "allow-large-netblocks", false, "proceed even if in-scope IPv4 netblocks exceed --netblock-limit")
-	f.StringVar(&o.redo, "redo", "", "re-perform every check of one stage (see the stage list below)")
-	f.BoolVar(&o.json, "json", false, "emit one JSON event per line on stdout, with no styling or prompts")
-	f.BoolVarP(&o.quiet, "quiet", "q", false, "write only warnings and errors to stderr; the summary is still printed")
-	f.BoolVar(&o.debug, "debug", false, "also write each failed check to stderr")
-	f.BoolVar(&o.palette, "palette", false, "print the colour palette sheet and exit")
+	f.StringArrayVar(&o.cidrs, "cidr", nil, "Netblock in CIDR notation (repeatable)")
+	f.StringArrayVarP(&o.exclude, "exclude", "x", nil, "Excluded hostname, *.wildcard or CIDR (repeatable)")
+	f.StringVar(&o.excludeFile, "exclude-file", "", "File of exclusions, one per line (# comments allowed)")
+	f.StringVarP(&o.engagement, "engagement", "e", "", "Engagement name (default: derived from the first input)")
+	f.BoolVar(&o.passive, "passive", false, "Use third-party sources only; never contact target-owned systems")
+	f.BoolVar(&o.authorised, "authorised", false, "Confirm you are authorised to test this scope (alias --authorized)")
+	f.BoolVar(&o.allowLarge, "allow-large-netblocks", false, "Proceed even if in-scope IPv4 netblocks exceed --netblock-limit")
+	f.StringVar(&o.redo, "redo", "", "Re-perform every check of one stage (see nyx help stages)")
+	f.BoolVar(&o.json, "json", false, "Emit one JSON event per line on stdout, with no styling or prompts")
+	f.BoolVarP(&o.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; the summary is still printed")
+	f.BoolVar(&o.debug, "debug", false, "Also write each failed check to stderr")
+	f.BoolVar(&o.palette, "palette", false, "Print the colour palette sheet and exit")
 	_ = f.MarkHidden("palette") // only fails for an unknown flag
 	f.StringVar(&o.configPath, "config", "", configFlagUsage)
-	f.Bool("version", false, "print the version and exit") // long-only: -v is usually read as verbose
+	f.Bool("version", false, "Print the version and exit") // long-only: -v is usually read as verbose
 	config.RegisterFlags(f)
+	f.BoolP("help", "h", false, "Help for nyx") // replaces cobra's, to capitalise it
 	f.SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
 		if name == "authorized" {
 			name = "authorised"
@@ -244,20 +246,18 @@ func newCommand(o *options, d Deps, runFn func(*cobra.Command, []string)) *cobra
 	cmd.MarkFlagsMutuallyExclusive("quiet", "debug")
 
 	cmd.SetVersionTemplate("nyx {{.Version}}\n")
+	cmd.SetUsageTemplate(topicsByName(cmd.UsageTemplate()))
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
-		fmt.Fprintf(c.OutOrStdout(), "%s\n\n%s\n%s", c.Long, c.UsageString(), helpFooter(d.Stages))
+		if o.json {
+			depth = palette.None
+		}
+		fmt.Fprint(c.OutOrStdout(), colourHelp(depth, c.Long+"\n\n"+c.UsageString()+"\n"+helpFooter()))
 	})
 	return cmd
 }
 
-func helpFooter(stages []run.Stage) string {
+func helpFooter() string {
 	return `
-Engagement name (a directory under --output-dir):
-  Taken from -e if given, else from the first input, in this order of precedence: the first positional
-  domain, else the first line of the domains file, else the first --org, else the first --asn, else the
-  first --cidr. So naming depends on the order of your inputs. Either way the name is lowercased and
-  sanitised.
-
 Configuration:
   Settings come from a YAML config file, NYX_* environment variables or flags; flags override
   environment variables, which override the file. The default config file is
@@ -266,25 +266,13 @@ Configuration:
   NYX_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
   NYX_KEYS_<SOURCE> in the environment.
 
-Console:
-  The log (the run header, stage lines, + lines for what was found, counts and warnings) is written to
-  stderr, one line each with a time, a level and a message. The summary is the only thing written to
-  stdout, and only when the run completes. --quiet keeps warnings and errors; --debug adds one line
-  for each failed check. With --json, stdout is one JSON event per line and stderr is empty, except
-  that --debug writes the debug lines there. Each stream is coloured only when it is a terminal,
-  NO_COLOR is unset or empty and TERM is not dumb; FORCE_COLOR and CLICOLOR_FORCE do nothing.
-
-Findings and their default severities (fixed in code, not configurable; the summary lists high and medium):
-` + findings.HelpTable() + `
-Stages accepted by --redo: ` + strings.Join(stageNames(stages), ", ") + `
---skip takes the same names, except ` + strings.Join(unskippable, ", ") + `, which other stages' safety depends on.
 `
 }
 
 func runCommand(ctx context.Context, cmd *cobra.Command, positional []string, o *options, d Deps, dp depths) (code int) {
 	if o.palette {
-		// First, so that a broken config, a missing scope or stray inputs do not
-		// matter, and nothing is created or contacted.
+		// First, so that a broken config, a missing scope or stray inputs do not matter, and
+		// nothing is created or contacted.
 		sheetDepth := dp.out
 		if o.json {
 			sheetDepth = palette.None
@@ -388,13 +376,13 @@ func runCommand(ctx context.Context, cmd *cobra.Command, positional []string, o 
 	return code
 }
 
-// unskippable are the stages other stages' safety depends on: resolve and
-// wildcard decide which names are real, ipowner and providerranges decide which
-// addresses are shared infrastructure that must not be port-checked.
+// unskippable are the stages other stages' safety depends on: resolve and wildcard decide which
+// names are real, ipowner and providerranges decide which addresses are shared infrastructure that
+// must not be port-checked.
 var unskippable = []string{"resolve", "wildcard", "ipowner", "providerranges"}
 
-// validateSkip rejects a --skip (or skip setting) that names an unknown stage,
-// a stage that is also being redone, or a stage that cannot be skipped.
+// validateSkip rejects a --skip (or skip setting) that names an unknown stage, a stage that is also
+// being redone, or a stage that cannot be skipped.
 func validateSkip(skip []string, redo string, names []string) error {
 	skippable := func() string {
 		return strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool { return slices.Contains(unskippable, s) }), ", ")
@@ -412,9 +400,9 @@ func validateSkip(skip []string, redo string, names []string) error {
 	return nil
 }
 
-// acknowledge records the operator's authorisation: by flag, or once per
-// engagement by prompt when there is a terminal. A skipped stage does not need
-// it, so the prompt is shown only when a stage that contacts the target will run.
+// acknowledge records the operator's authorisation: by flag, or once per engagement by prompt when
+// there is a terminal. A skipped stage does not need it, so the prompt is shown only when a stage
+// that contacts the target will run.
 func acknowledge(eng *engagement.Engagement, o *options, d Deps, skip []string) error {
 	if o.authorised {
 		return eng.SetAck()

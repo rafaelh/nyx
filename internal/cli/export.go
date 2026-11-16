@@ -21,6 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/engagement"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/sanitize"
@@ -39,7 +40,9 @@ type exportOptions struct {
 	kinds                          []string
 }
 
-func newExportCommand(o *exportOptions, runFn func(*cobra.Command)) *cobra.Command {
+// newExportCommand builds the export command. Its help is coloured at depth,
+// the colour depth of stdout.
+func newExportCommand(o *exportOptions, depth palette.Depth, runFn func(*cobra.Command)) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export -e <engagement> [flags]",
 		Short: "Write everything recorded about an engagement as JSON lines",
@@ -57,17 +60,18 @@ func newExportCommand(o *exportOptions, runFn func(*cobra.Command)) *cobra.Comma
 	}
 	f := cmd.Flags()
 	f.SortFlags = false
-	f.StringVarP(&o.engagement, "engagement", "e", "", "engagement name (required)")
-	f.StringVar(&o.output, "output", "", "write to this file, replacing it atomically, instead of stdout")
-	f.BoolVar(&o.current, "current", false, "export only records that are current")
-	f.StringArrayVar(&o.kinds, "kind", nil, "export only this kind (repeatable); the kinds are listed below")
+	f.StringVarP(&o.engagement, "engagement", "e", "", "Engagement name (required)")
+	f.StringVar(&o.output, "output", "", "Write to this file, replacing it atomically, instead of stdout")
+	f.BoolVar(&o.current, "current", false, "Export only records that are current")
+	f.StringArrayVar(&o.kinds, "kind", nil, "Export only this kind (repeatable); the kinds are listed below")
 	settings := pflag.NewFlagSet("settings", pflag.ContinueOnError)
 	config.RegisterFlags(settings)
 	f.AddFlag(settings.Lookup("output-dir")) // read by config.Load, as for a run
 	f.StringVar(&o.configPath, "config", "", configFlagUsage)
-	_ = cmd.MarkFlagRequired("engagement") // only fails for an unknown flag
+	f.BoolP("help", "h", false, "Help for export") // replaces cobra's, to capitalise it
+	_ = cmd.MarkFlagRequired("engagement")         // only fails for an unknown flag
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
-		fmt.Fprintf(c.OutOrStdout(), "%s\n\n%s\nKinds accepted by --kind: %s\n", c.Long, c.UsageString(), strings.Join(exportKinds(), ", "))
+		fmt.Fprint(c.OutOrStdout(), colourHelp(depth, c.Long+"\n\n"+c.UsageString()+"\nKinds accepted by --kind: "+strings.Join(exportKinds(), ", ")+"\n"))
 	})
 	return cmd
 }

@@ -871,19 +871,20 @@ func TestLog_Palette(t *testing.T) {
 	}
 }
 
-// --help describes the new flags and the streams, and not the removed one.
+// --help describes the new flags and the streams they write to, and not the
+// removed one; the README, not --help, describes the console in full.
 func TestLog_Help(t *testing.T) {
 	h := newHarness(t, noop())
 	if code := h.exec("--help"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
 	help := h.stdout.String()
-	for _, want := range []string{"--quiet", "-q", "--debug", "stderr", "stdout", "NO_COLOR", "dumb"} {
+	for _, want := range []string{"--quiet", "-q", "--debug", "stderr", "stdout"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("--help lacks %q", want)
 		}
 	}
-	for _, bad := range []string{"--verbose", "--palette"} {
+	for _, bad := range []string{"--verbose", "--palette", "Console:"} {
 		if strings.Contains(help, bad) {
 			t.Errorf("--help names %q", bad)
 		}
@@ -901,9 +902,8 @@ func TestLog_OTXAndAnubisAreRemoved(t *testing.T) {
 		}
 	}
 	h := newHarness(t, cli.DefaultDeps().Stages...)
-	h.exec("--help")
-	if i := strings.Index(h.stdout.String(), "Stages accepted by --redo:"); i < 0 || regexp.MustCompile(`\b(otx|anubis)\b`).MatchString(h.stdout.String()[i:]) {
-		t.Errorf("--help lists them:\n%s", h.stdout.String()[i:])
+	if topic := h.stagesHelp(); stageRow(topic, "otx") != "" || stageRow(topic, "anubis") != "" {
+		t.Errorf("help stages lists them:\n%s", topic)
 	}
 
 	w := newWorld(t)

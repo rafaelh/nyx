@@ -161,9 +161,15 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"--archive-max-urls", "20000", "httpprobe", "crawl"} {
+	for _, want := range []string{"--archive-max-urls", "20000"} {
 		if !strings.Contains(h.stdout.String(), want) {
 			t.Errorf("help missing %q", want)
+		}
+	}
+	topic := h.stagesHelp()
+	for _, s := range []string{"httpprobe", "crawl"} {
+		if stageRow(topic, s) == "" {
+			t.Errorf("help stages does not list %s", s)
 		}
 	}
 }

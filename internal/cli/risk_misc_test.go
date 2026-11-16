@@ -279,21 +279,32 @@ func TestRiskStageRegistry(t *testing.T) {
 	}
 }
 
-// Plumbing: help shows the new settings and the severity table.
+// Plumbing: help shows the new settings and lists the findings topic, which
+// holds the severity table.
 func TestRiskPlumbing_Help(t *testing.T) {
 	h := newHarness(t, noop())
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	help := h.stdout.String()
-	for _, w := range []string{"--storage-max-names", "50", "--cert-expiry-days", "30"} {
+	for _, w := range []string{"--storage-max-names", "50", "--cert-expiry-days", "30", "Help topics:", "findings"} {
 		if !strings.Contains(help, w) {
 			t.Errorf("help lacks %q", w)
 		}
 	}
-	for _, line := range strings.Split(strings.TrimSpace(findings.HelpTable()), "\n") {
-		if !strings.Contains(help, strings.TrimSpace(line)) {
-			t.Errorf("help lacks the severity table line %q", line)
+	if strings.Contains(help, "dns-nxdomain") {
+		t.Error("the severity table is in --help; it belongs to nyx help findings")
+	}
+	// The table is the findings help topic, however it is asked for.
+	for _, args := range [][]string{{"help", "findings"}, {"findings"}, {"findings", "--help"}} {
+		h := newHarness(t, noop())
+		if code := h.execArgs(args...); code != 0 {
+			t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
+		}
+		for _, line := range strings.Split(strings.TrimSpace(findings.HelpTable()), "\n") {
+			if !strings.Contains(h.stdout.String(), strings.TrimSpace(line)) {
+				t.Errorf("%v lacks the severity table line %q", args, line)
+			}
 		}
 	}
 }

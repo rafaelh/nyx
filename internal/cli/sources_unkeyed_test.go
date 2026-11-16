@@ -471,9 +471,10 @@ func TestUnkeyed_HelpAndRedo(t *testing.T) {
 	w := newWorld(t)
 	w.h.exec("--help")
 	help := w.h.stdout.String()
+	topic := w.h.stagesHelp()
 	for _, s := range unkeyedSources {
-		if !strings.Contains(help, s.stage) {
-			t.Errorf("--help does not list %s", s.stage)
+		if stageRow(topic, s.stage) == "" {
+			t.Errorf("help stages does not list %s", s.stage)
 		}
 	}
 	if !strings.Contains(help, "--skip") {

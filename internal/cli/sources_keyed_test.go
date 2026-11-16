@@ -619,9 +619,15 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	out := h.stdout.String()
-	for _, want := range []string{"shodan-dns", "censys", "chaos", "--shodan-dns-max-pages", "--censys-max-pages", "--chaos-max-pages"} {
+	for _, want := range []string{"--shodan-dns-max-pages", "--censys-max-pages", "--chaos-max-pages"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q", want)
+		}
+	}
+	topic := h.stagesHelp()
+	for _, s := range []string{"shodan-dns", "censys", "chaos"} {
+		if stageRow(topic, s) == "" {
+			t.Errorf("help stages does not list %s", s)
 		}
 	}
 }

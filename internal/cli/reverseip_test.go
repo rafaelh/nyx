@@ -569,10 +569,11 @@ func TestReverseIP_HelpAndSetting(t *testing.T) {
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"reverseip", "--reverseip-max-domains"} {
-		if !strings.Contains(h.stdout.String(), want) {
-			t.Errorf("help missing %q", want)
-		}
+	if !strings.Contains(h.stdout.String(), "--reverseip-max-domains") {
+		t.Error("help missing --reverseip-max-domains")
+	}
+	if stageRow(h.stagesHelp(), "reverseip") == "" {
+		t.Error("help stages does not list reverseip")
 	}
 }
 

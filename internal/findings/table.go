@@ -30,7 +30,7 @@ type Row struct {
 }
 
 // table is the one severity table. Severities are fixed in code, documented in
-// --help and the README, and not configurable. Unattributed storage is low by
+// nyx help findings and the README, and not configurable. Unattributed storage is low by
 // construction, so it never reaches the summary's high and medium list.
 var table = []Row{
 	{Takeover, "dns-nxdomain", High, "a CNAME dangles (NXDOMAIN) into a provider whose names anyone can claim"},
@@ -99,7 +99,7 @@ func Severity(category, typ string) string {
 	return sev
 }
 
-// HelpTable is the severity table as it appears in --help.
+// HelpTable is the severity table as it appears in nyx help findings.
 func HelpTable() string {
 	var b strings.Builder
 	for _, r := range table {

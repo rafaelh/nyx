@@ -708,10 +708,11 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"github", "--github-max-results"} {
-		if !strings.Contains(h.stdout.String(), want) {
-			t.Errorf("help missing %q", want)
-		}
+	if !strings.Contains(h.stdout.String(), "--github-max-results") {
+		t.Error("help missing --github-max-results")
+	}
+	if row := stageRow(h.stagesHelp(), "github"); !strings.Contains(row, " github ") {
+		t.Errorf("help stages does not list github with its key: %q", row)
 	}
 
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1)})

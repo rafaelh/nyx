@@ -62,8 +62,8 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   is removed because you left it out of a later run.
 - **Resume:** a re-run performs only the checks not yet done. Checks that failed (a transient
   error, not a negative result) are retried on later runs. An interrupted run resumes the same way.
-- **`--redo <stage>`:** performs every check of one stage again. The stage names are listed in
-  `nyx --help`.
+- **`--redo <stage>`:** performs every check of one stage again. `nyx help stages` lists the stages
+  in run order, with whom each contacts, the key it needs and what it does.
 - **`--skip <stage>`:** turns a stage off (repeatable; the `skip` setting, or `NYX_SKIP` as a
   comma-separated list, does the same). A skipped stage is shown as `not-configured (skipped)`,
   whatever else would stop it, and does nothing: results it found earlier stay in the files. The flag
@@ -505,13 +505,6 @@ A run writes two things, to two streams.
 A finding's `+` line and the summary show its severity as a badge: the severity as recorded (`high`,
 `medium`, `low`) in a fixed-width column.
 
-**Colour.** A stream is coloured only when it is a terminal, `NO_COLOR` is unset or empty and `TERM`
-is not `dumb`. `FORCE_COLOR` and `CLICOLOR_FORCE` do nothing. stdout and stderr are decided
-separately. When coloured, the timestamp and separators are grey, the level is a badge, the severity
-is a badge, the summary's headings are bold and the `error:` prefix is red. Nothing else is
-coloured. Colours are 24-bit when `COLORTERM` is `truecolor` or `24bit`, 256-colour when `TERM`
-contains `256color`, and 16-colour otherwise; those variables choose the depth and never turn colour
-on. The palette is in `docs/log-colors.md`.
 
 `--json` prints one JSON event per line on stdout, with no styling or prompts. Warnings are events
 of type `warning` with no flag, and `--quiet` changes nothing. A failed check is not an event.
@@ -739,7 +732,7 @@ A file is only written when it has rows, so a missing `risk-*.csv` means no find
 sorted by confidence. Every CSV ends with `current`, `first_seen` and `last_seen` columns, and records
 that were not found by a later run are kept and marked not current. The `.nyx/` directory holds
 the state database and the run lock. Don't edit it. Finding severities are listed by
-`nyx --help`.
+`nyx help findings`.
 
 ## Exporting an engagement
 
