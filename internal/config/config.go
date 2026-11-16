@@ -79,6 +79,16 @@ type ReverseIP struct {
 	MaxDomains int
 }
 
+// GitHub holds the settings of the github stage.
+type GitHub struct {
+	// MaxResults caps the code search results read per root (GitHub serves at most
+	// 1,000). It is part of the check, so changing it searches again.
+	MaxResults int
+}
+
+// maxGitHubResults is the most results GitHub's code search serves for a query.
+const maxGitHubResults = 1000
+
 // PagedSource holds the settings of a source that follows result pages.
 type PagedSource struct {
 	// MaxPages caps the result pages followed per root. It is part of the check,
@@ -127,6 +137,7 @@ type Settings struct {
 	ReverseIP                ReverseIP
 	JSParse                  JSParse
 	IdentifierPivot          IdentifierPivot
+	GitHub                   GitHub
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable
@@ -153,6 +164,7 @@ func Defaults() Settings {
 		ReverseIP:       ReverseIP{MaxDomains: 100},
 		JSParse:         JSParse{MaxScripts: 50},
 		IdentifierPivot: IdentifierPivot{MaxQueries: 50},
+		GitHub:          GitHub{MaxResults: 500},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -238,6 +250,7 @@ var settingTable = []setting{
 	{"permutations-max-names", "permutations.max_names"}, {"sensitive-path-max-requests", "sensitive_path_max_requests"},
 	{"shodan-max-hosts", "shodan.max_hosts"}, {"reverseip-max-domains", "reverseip.max_domains"},
 	{"jsparse-max-scripts", "jsparse.max_scripts"}, {"identifier-pivot-max-queries", "identifier_pivot.max_queries"},
+	{"github-max-results", "github.max_results"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -274,6 +287,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
 	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "maximum script files read per origin for the URLs and hostnames they name")
 	fs.Int("identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
+	fs.Int("github-max-results", d.GitHub.MaxResults, "maximum GitHub code search results read per root (at most 1000); changing it searches again")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -331,6 +345,9 @@ type rawSettings struct {
 	IdentifierPivot struct {
 		MaxQueries string `mapstructure:"max_queries"`
 	} `mapstructure:"identifier_pivot"`
+	GitHub struct {
+		MaxResults string `mapstructure:"max_results"`
+	} `mapstructure:"github"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the
@@ -356,6 +373,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
 		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
 		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
+		"github.max_results":           d.GitHub.MaxResults,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -455,6 +473,10 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("reverseip.max_domains", raw.ReverseIP.MaxDomains, 1, &s.ReverseIP.MaxDomains)
 	posInt("jsparse.max_scripts", raw.JSParse.MaxScripts, 1, &s.JSParse.MaxScripts)
 	posInt("identifier_pivot.max_queries", raw.IdentifierPivot.MaxQueries, 1, &s.IdentifierPivot.MaxQueries)
+	posInt("github.max_results", raw.GitHub.MaxResults, 1, &s.GitHub.MaxResults)
+	if s.GitHub.MaxResults > maxGitHubResults {
+		bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
+	}
 	if skip, err := parseSkip(raw.Skip); err != nil {
 		bad("skip", strings.Join(raw.Skip, ","), err.Error())
 	} else {

@@ -285,6 +285,19 @@ func (v View) InScopeHostnames() []string {
 	return out
 }
 
+// InScopeRoots returns the in-scope input roots, sorted: the roots the user gave
+// that the scope has not excluded.
+func (v View) InScopeRoots() []string {
+	var out []string
+	for _, r := range v.Inputs().Roots {
+		if v.sc.ClassifyHost(r).Class == scope.InScope {
+			out = append(out, r)
+		}
+	}
+	slices.Sort(out) // input roots are canonical and unique, but not sorted
+	return out
+}
+
 // ResolvableHostnames are the names the resolve stage looks up: in-scope and
 // excluded hostnames (exclusion by resolved address needs their addresses) and
 // the input roots, never candidates. Sorted.

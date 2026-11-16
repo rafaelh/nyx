@@ -86,7 +86,7 @@ func forEachKeyed(t *testing.T, fn func(t *testing.T, w *world, s keyedSource)) 
 // leaks reports every place any of the keys (or an encoding of one) appears.
 func leaks(w *world) []string {
 	var hits []string
-	for _, k := range []string{shodanKey, censysKey, chaosKey} {
+	for _, k := range []string{shodanKey, censysKey, chaosKey, githubKey} {
 		for _, form := range []string{k, url.QueryEscape(k), base64.StdEncoding.EncodeToString([]byte(k)), "Bearer " + k} {
 			hits = append(hits, w.anywhere(eng, form)...)
 		}

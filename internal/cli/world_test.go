@@ -25,7 +25,7 @@ var sourcePatterns = []string{
 	"crt.sh", "web.archive.org", "index.commoncrawl.org", "www.virustotal.com", "api.securitytrails.com",
 	"api.shodan.io", "reverse-whois.whoisxmlapi.com", "stat.ripe.net", "ip-ranges.amazonaws.com", "www.gstatic.com",
 	"api.hackertarget.com", "urlscan.io", "api.certspotter.com",
-	"api.platform.censys.io", "dns.projectdiscovery.io",
+	"api.platform.censys.io", "dns.projectdiscovery.io", "api.github.com",
 	// The rdap stage's: IANA's bootstrap file and the five registries.
 	"data.iana.org", "rdap.arin.net", "rdap.db.ripe.net", "rdap.apnic.net", "rdap.lacnic.net", "rdap.afrinic.net",
 	// The range publishers after AWS and GCP.

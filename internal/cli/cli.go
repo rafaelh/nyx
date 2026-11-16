@@ -32,6 +32,7 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/stages/asn"
 	"github.com/rafaelh/nyx/internal/stages/dns"
+	"github.com/rafaelh/nyx/internal/stages/github"
 	"github.com/rafaelh/nyx/internal/stages/orgpivot"
 	"github.com/rafaelh/nyx/internal/stages/ports"
 	"github.com/rafaelh/nyx/internal/stages/providerranges"
@@ -88,7 +89,7 @@ func defaultStages() []run.Stage {
 	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
 	stages = append(stages, sub...)
 	return append(stages,
-		shodan.New(), shodan.NewDNS(), providerranges.New(),
+		github.New(), shodan.New(), shodan.NewDNS(), providerranges.New(),
 		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
 		risk.NewEmail(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), ports.New())

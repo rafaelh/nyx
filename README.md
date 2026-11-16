@@ -83,17 +83,20 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
 - **API keys:** set only as `keys.<source>` in the file or `NYX_KEYS_<SOURCE>` in the
   environment. There are no key flags, so keys never appear in shell history or process lists.
   Keys are redacted from all output and files.
-- **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys` and `chaos`. A
-  stage whose key is missing is shown as `not-configured`. `keys.shodan` also turns on `shodan-dns`,
-  which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
+- **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos` and
+  `github`. A stage whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
+  `shodan-dns`, which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
   one Shodan query credit per result page, for each root. `keys.censys` is a Censys personal access
   token and searches certificates for names under each root. `keys.chaos` is a ProjectDiscovery
   Chaos key. A 401, 403 or 429 stops that stage for the run (`shodan-host` too). Each of these three follows result pages
   up to `shodan_dns.max_pages`, `censys.max_pages` or `chaos.max_pages` (default 10; raising one
   repeats the stage's checks, and reaching one is a warning). Chaos answers with the
   whole list in one page, so its cap is not reached. `certspotter` takes an
-  optional key: it runs without one, and sends `keys.certspotter` when it is set. The other sources
-  need no key.
+  optional key: it runs without one, and sends `keys.certspotter` when it is set. `keys.github` is a
+  GitHub personal access token for the `github` stage (see [GitHub code search](#github-code-search)),
+  which reads up to `github.max_results` results per root (`--github-max-results`, default 500, from
+  1 to 1000; changing it repeats the stage's checks). A 401, or a 403 or 429 whose rate limit does not
+  lift within 60 seconds, stops that stage for the run. The other sources need no key.
 - **Reverse IP.** `keys.securitytrails` also adds SecurityTrails to the `reverseip` stage (see
   [Reverse IP](#reverse-ip)). A rejected key (401 or 403) stops the whole stage, its HackerTarget
   lookups included, until the key is fixed or removed; a 429 stops it for the run. `reverseip.max_domains`
@@ -145,8 +148,8 @@ It never sends credentials, submits forms, uses other HTTP methods, puts payload
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
 scope) and excluded hosts are never contacted. Everything else comes from third parties: CT logs
 (crt.sh and Cert Spotter), web archives, passive DNS and search (HackerTarget and urlscan.io),
-public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage provider endpoints. Only
-hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
+GitHub's code search, public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage
+provider endpoints. Only hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
 reports that its free quota is spent, its stage alone stops, and its checks are retried on the next
 run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
 addresses, for its reverse IP lookup (see [Reverse IP](#reverse-ip)); the target never does. The
@@ -619,6 +622,38 @@ netblock: only an address another stage recorded is asked. Nothing it finds ente
   with `reverseip` in `sources`. It never calls Shodan: Shodan's hostnames for an address come from
   `shodan-host`.
 
+## GitHub code search
+
+The `github` stage runs under `--passive` and needs `keys.github`, a GitHub personal access token
+(it needs no scopes: GitHub's code search refuses requests that carry no token). For each in-scope
+input root it searches GitHub's public code for the quoted root domain, reading results up to
+`github.max_results` (default 500; GitHub serves at most 1,000 for a search). The stage queries
+GitHub about the domain, not the target: the target is never contacted, and GitHub receives only the
+root's name.
+
+- **What is recorded.** Each match is a row in `code-mentions.csv` with its `repository`, file `path`
+  and `url` on GitHub, and the `hostnames` that the returned fragment names under an in-scope root.
+  Those hostnames are also recorded as hostnames, so a forgotten internal name can be resolved like
+  any other. The root itself is not listed, since every match mentions it. The stage records only
+  locations: no fragment text is written to a file or the engagement database, and repository, path
+  and URL are sanitised like any text from outside. Personal-account repositories are recorded like
+  any other. A name found in a fragment that is under no in-scope root is ignored.
+- **What is not.** Nothing is inferred about secrets, credentials or tokens, the files are never
+  cloned or read, and no finding is produced. Whether a match is worth opening is for you to judge.
+- **Limits.** GitHub's code search allows few requests a minute. When it answers that the limit is
+  reached and lifts it within 60 seconds (`Retry-After`, or `X-RateLimit-Reset` with none left), the
+  stage waits and asks the same page again, up to five times in a row for one page; an interrupt
+  during the wait exits 130 promptly, with the roots already searched kept. A reset further away, a
+  sixth refusal of the same page, a 401, and any other 403 or 429 stop the stage for the run, with
+  the roots not yet searched retried on the next. Reading stops after GitHub's tenth page of 100
+  results, the last it serves.
+- **Refresh.** A root's search completes once. New mentions appear only after `--redo github`, or when
+  `github.max_results` changes, which searches again. A root added to scope later is searched in the
+  next run. The check is keyed by the root and the cap, not by the scope, so a hostname under a root
+  you add later was ignored and is recorded only after `--redo github`. After a redo, a match that is
+  gone is marked not current, and its row keeps only its URL (which names the repository and the path).
+  A file that mentions two roots is one row, from the root searched last.
+
 ## Ranked candidates
 
 `candidates.csv` lists the roots, hostnames, netblocks, autonomous systems and organisations that were found but are not in scope.
@@ -689,6 +724,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake) and `shodan_last_seen` (empty on a row only nyx saw) |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host |
 | `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx` or `cname`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns` and `mx`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |
+| `code-mentions.csv` | Files in public GitHub repositories that mention an in-scope root, from the `github` stage: `repository`, `path`, `url`, the in-scope `hostnames` the match names (`;`-joined) and the `root` searched for. A match that is no longer current keeps only its `url` (see [GitHub code search](#github-code-search)) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |
 | `risk-takeover.csv` | Subdomain takeover findings |
 | `risk-storage.csv` | Cloud-storage findings: buckets that exist, are public or are listable |

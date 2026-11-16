@@ -27,12 +27,12 @@ on each other.
 | Wave | Specs | Why they wait |
 |---|---|---|
 | 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, ~~18~~, ~~21~~, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
-| 2 | ~~2~~, ~~4~~, ~~8~~, ~~9~~, ~~10~~, ~~11~~, 13, 17, 19 | Use seams from wave 1 (see the table below). |
+| 2 | ~~2~~, ~~4~~, ~~8~~, ~~9~~, ~~10~~, ~~11~~, ~~13~~, ~~17~~, 19 | Use seams from wave 1 (see the table below). |
 | 3 | 7, 14, 16, 20 | Use kinds, files or stages from wave 2, or (Spec 20) the final set of kinds. |
 
 Struck-through specs are built. What can be built now:
 
-- **Ready now:** 13, 17 and 19 (the rest of wave 2), and 14, whose one dependency (4) has merged.
+- **Ready now:** 19 (the rest of wave 2), and 14, whose one dependency (4) has merged.
 - **Ready once the user decides:** 7 (how Akamai addresses in Linode's list classify; its
   dependencies, 2, 5, 6 and 18, are all built) and 16 (its open point; 9 has merged).
 - **Last:** 20 waits on all the others.
@@ -53,11 +53,11 @@ Per-spec dependencies. "Still waits on" leaves out the specs already built:
 | 10 reverse IP | 1, 15 | | **built** |
 | 11 JavaScript endpoints | 1 | | **built** |
 | 12 web posture | none | | **built** |
-| 13 web identifiers | 1, 6, 12, 15 | none | ready; corrected: the family lookup, the probe seam as 12 built it, a 402 stops the stage |
+| 13 web identifiers | 1, 6, 12, 15 | | **built** |
 | 14 end-of-life software | 4 | none | **review before building**; reads the `reported_port` and `port_check` kinds and the `open-ports.csv` columns as 4 built them |
 | 15 ranked candidates | none | | **built**; 4, 13 and 16 each change its family table |
 | 16 shared name servers | 3, 9, 15 | none | **review before building**; corrected: `shared-ns` and `shared-mx` in the family table; open point; it edits the `email` stage as 9 built it (see the notes) |
-| 17 GitHub search | 1 | none | ready; no correction |
+| 17 GitHub search | 1 | | **built** |
 | 18 TLS detail | none | | **built** |
 | 19 SRV records | 3, 6 | none | ready; `dnsroot` and the permutations keys written as built |
 | 20 changes report | all others | all unbuilt | **review before building**; corrected: the baseline keeps scope and severity |
@@ -227,11 +227,11 @@ These rules make almost every conflict a keep-both conflict.
 ### Final stage registry order
 
 Built so far, in this order (it matches `defaultStages()`): every stage up to `chaos` (without
-`otx` and `anubis`, which Spec 22 removed), then `shodan`, `shodan-dns`, `providerranges`,
+`otx` and `anubis`, which Spec 22 removed), then `github`, `shodan`, `shodan-dns`, `providerranges`,
 `resolve`, `wildcard`, `permutations`, `rdns`, `ipowner`, `dnsroot`, `rdap`, `shodan-host`,
-`reverseip`, `email`, `httpprobe`, `crawl`, `jsparse`, `storage`, `takeover`, `sensitive-paths`,
-`ports`. (Specs 5, 6, 9, 12 and 15 added no stages.) Still to place: `github`, `dnshistory`,
-`nsreverse`, `identifier-pivot`, `origincheck`; the full list below shows where.
+`reverseip`, `email`, `httpprobe`, `crawl`, `jsparse`, `identifier-pivot`, `storage`, `takeover`,
+`sensitive-paths`, `ports`. (Specs 5, 6, 9, 12 and 15 added no stages.) Still to place:
+`dnshistory`, `nsreverse`, `origincheck`; the full list below shows where.
 
 `asn`, `org-asn`, `ct-org`, `whoisxml`, `crtsh`, `wayback`, `commoncrawl`, `virustotal`,
 `securitytrails`, `hackertarget`, `urlscan`, `certspotter`, `censys`, `chaos`,

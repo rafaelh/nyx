@@ -52,6 +52,10 @@ type ThirdPartyResponse struct {
 	Truncated bool
 }
 
+// HeaderValue is the first value of the named header, matched case-insensitively,
+// or "" if there is none.
+func (r ThirdPartyResponse) HeaderValue(name string) string { return http.Header(r.Header).Get(name) }
+
 // ThirdPartyHTTP talks to the hosts a stage declared in Sources().
 type ThirdPartyHTTP interface {
 	Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyResponse, error)

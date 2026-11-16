@@ -210,6 +210,7 @@ func Default() []File {
 		{Name: "open-ports.csv", Format: CSV, Columns: openPortColumns, Rows: openPortRows},
 		{Name: "email-posture.csv", Format: CSV, Columns: emailPostureColumns, Rows: emailPostureRows},
 		{Name: "third-parties.csv", Format: CSV, Columns: thirdPartyColumns, Rows: thirdPartyRows},
+		{Name: "code-mentions.csv", Format: CSV, Columns: codeMentionColumns, Rows: codeMentionRows},
 	}
 	for _, f := range findings.Files() {
 		files = append(files, findingsFile(f))
