@@ -4,7 +4,6 @@ description: >
   Writes a specification for a code change which clarifies the goal and desired behaviours. Use
   before making a significant change.
 argument-hint: What are you trying to achieve? Write your goal and any desired behaviours.
-model: opus
 metadata:
   version: "1.3"
 ---

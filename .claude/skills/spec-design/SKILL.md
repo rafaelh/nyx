@@ -5,7 +5,6 @@ description: >
   creating a technical plan or design to implement the behaviours and goal described in a
   specification file.
 argument-hint: Which spec.md are we making a plan for?
-model: opus
 metadata:
   version: "1.3"
 ---
