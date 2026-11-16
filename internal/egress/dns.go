@@ -22,6 +22,7 @@ const (
 	TypeNS    = dns.TypeNS
 	TypeSOA   = dns.TypeSOA
 	TypeCAA   = dns.TypeCAA
+	TypeSRV   = dns.TypeSRV
 )
 
 // DNS response codes returned in DNSResult.RCode.
@@ -140,6 +141,12 @@ func rdata(rr dns.RR) string {
 			host = input.NormaliseHost(v.Mx)
 		}
 		return fmt.Sprintf("%d %s", v.Preference, host)
+	case *dns.SRV:
+		host := "."
+		if v.Target != "." {
+			host = input.NormaliseHost(v.Target)
+		}
+		return fmt.Sprintf("%d %d %d %s", v.Priority, v.Weight, v.Port, host)
 	}
 	parts := strings.SplitN(rr.String(), "\t", 5)
 	if len(parts) == 5 {

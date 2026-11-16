@@ -30,6 +30,7 @@ type DNS struct {
 	ns       map[string][]string
 	soa      map[string]soaRecord
 	caa      map[string][]caaRecord
+	srv      map[string][]srvRecord
 	typeRC   map[string]int // "name|TYPE" -> rcode
 	queries  map[string]int
 }
@@ -39,6 +40,11 @@ type soaRecord struct{ mname, rname string }
 type caaRecord struct {
 	flags      uint8
 	tag, value string
+}
+
+type srvRecord struct {
+	priority, weight, port uint16
+	target                 string
 }
 
 type mxRecord struct {
@@ -58,7 +64,7 @@ func NewDNS(t testing.TB) *DNS {
 		addrs: map[string][]netip.Addr{}, cnames: map[string]string{}, rcodes: map[string]int{},
 		sufRcode: map[string]int{}, drop: map[string]bool{}, wild: map[string]wildcard{},
 		ptr: map[string][]string{}, txt: map[string][]string{}, mx: map[string][]mxRecord{}, queries: map[string]int{},
-		ns: map[string][]string{}, soa: map[string]soaRecord{}, caa: map[string][]caaRecord{}, typeRC: map[string]int{},
+		ns: map[string][]string{}, soa: map[string]soaRecord{}, caa: map[string][]caaRecord{}, srv: map[string][]srvRecord{}, typeRC: map[string]int{},
 	}
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -189,6 +195,14 @@ func (d *DNS) CAA(name string, flags int, tag, value string) {
 	d.caa[norm(name)] = append(d.caa[norm(name)], caaRecord{uint8(flags), tag, value})
 }
 
+// SRV makes name answer SRV queries with a service record. target "." is the
+// null target, meaning the service is not offered.
+func (d *DNS) SRV(name string, priority, weight, port int, target string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.srv[norm(name)] = append(d.srv[norm(name)], srvRecord{uint16(priority), uint16(weight), uint16(port), target})
+}
+
 // RcodeType forces a response code for queries of one type ("TXT", "NS", ...)
 // for name, leaving its other types alone.
 func (d *DNS) RcodeType(name, qtype string, rcode int) {
@@ -215,7 +229,7 @@ func (d *DNS) ClearRoot(name string) {
 	delete(d.caa, n)
 }
 
-// Count is how many queries of the type ("A", "AAAA", "PTR", "TXT", "MX", "NS", "SOA", "CAA") were made for name.
+// Count is how many queries of the type ("A", "AAAA", "PTR", "TXT", "MX", "NS", "SOA", "CAA", "SRV") were made for name.
 func (d *DNS) Count(name, qtype string) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -256,7 +270,8 @@ func (d *DNS) known(name string) bool {
 	_, n := d.ns[name]
 	_, s := d.soa[name]
 	_, k := d.caa[name]
-	return a || c || p || x || m || n || s || k
+	_, v := d.srv[name]
+	return a || c || p || x || m || n || s || k || v
 }
 
 func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
@@ -368,6 +383,14 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16, hdr func(uint16) md
 	case mdns.TypeCAA:
 		for _, c := range d.caa[cur] {
 			m.Answer = append(m.Answer, &mdns.CAA{Hdr: h, Flag: c.flags, Tag: c.tag, Value: c.value})
+		}
+	case mdns.TypeSRV:
+		for _, v := range d.srv[cur] {
+			target := v.target
+			if target != "." {
+				target = mdns.Fqdn(target)
+			}
+			m.Answer = append(m.Answer, &mdns.SRV{Hdr: h, Priority: v.priority, Weight: v.weight, Port: v.port, Target: target})
 		}
 	}
 }

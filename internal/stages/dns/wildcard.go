@@ -53,7 +53,7 @@ func (*Wildcard) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 		for _, rec := range v.Records(kinds.Resolution) {
 			a := kinds.Resolution.Attrs(rec)
 			// Only the types that say a name exists as a host name a zone; the
-			// root records (NS, SOA, TXT, CAA) belong to a zone already known.
+			// root records (NS, SOA, TXT, CAA) and service names (SRV) belong to a zone already known.
 			if a.Type != "A" && a.Type != "AAAA" && a.Type != "CNAME" {
 				continue
 			}

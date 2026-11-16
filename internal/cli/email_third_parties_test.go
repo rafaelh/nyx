@@ -477,12 +477,12 @@ func TestEmailMTASTS_ServfailFailsTheCheck(t *testing.T) {
 func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	w := emailWorld(t)
 	healthy().apply(w.dns, "example.com")
-	runRoot(t, w)
+	runRoot(t, w, "--no-permutations") // permutations legitimately try mta-sts.<root>
 	keys := w.h.completed(eng, "email")
 	if len(keys) != 1 || !strings.HasSuffix(keys[0], "|mta-sts") || !strings.HasPrefix(keys[0], "example.com|dkim=") {
 		t.Fatalf("check keys = %v", keys)
 	}
-	runRoot(t, w, "-e", eng)
+	runRoot(t, w, "-e", eng, "--no-permutations")
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 1 {
 		t.Fatalf("an unchanged engagement asked again: %d", n)
 	}
@@ -492,14 +492,14 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	if _, err := db.Exec("UPDATE checks SET key = replace(key, '|mta-sts', '') WHERE stage = 'email'"); err != nil {
 		t.Fatal(err)
 	}
-	runRoot(t, w, "-e", eng)
+	runRoot(t, w, "-e", eng, "--no-permutations")
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 2 {
 		t.Errorf("the old check was not run again: %d lookups", n)
 	}
 	if got := w.h.completed(eng, "email"); len(got) < 1 || !strings.HasSuffix(got[len(got)-1], "|mta-sts") {
 		t.Errorf("check keys = %v", got)
 	}
-	runRoot(t, w, "-e", eng)
+	runRoot(t, w, "-e", eng, "--no-permutations")
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 2 {
 		t.Errorf("the checks ran a third time: %d lookups", n)
 	}

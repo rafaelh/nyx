@@ -14,6 +14,15 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
+// wellKnownLabels are tried directly under every root even when the wordlist
+// lacks them: the names mail, voice and device-management clients look up. They
+// belong to the root checks only, never to a seed's permutations.
+var wellKnownLabels = []string{"autodiscover", "lyncdiscover", "enterpriseenrollment", "enterpriseregistration", "mta-sts"}
+
+// wellKnownToken identifies wellKnownLabels in the root key, so a changed list
+// repeats the root checks.
+var wellKnownToken = listToken(wellKnownLabels)
+
 // Permutations resolves permutations of the labels found by other stages plus a
 // wordlist. Only names that exist are emitted; resolve then does A/AAAA.
 // It never generates from its own output: see inventory.Seeds.
@@ -36,7 +45,9 @@ func (*Permutations) Budget(s config.Settings) int { return s.Permutations.MaxNa
 // Checks yields a root check per input root and then a seed check per seed, each
 // in name order, so the budget reaches every root before any seed. A check costs
 // the names it will query. Both keys include the wordlist hash, and seed keys the
-// cap, so changing either redoes the work. A root, or a seed whose parent, is a
+// cap, so changing either redoes the work. The root key also carries a token of
+// the well-known labels, which only root checks query, so a change to them
+// repeats the root checks and no seed check. A root, or a seed whose parent, is a
 // zone already known to be a wildcard is not yielded: every name under it exists.
 // For the same reason a seed check leaves out each generated name directly under
 // a wildcard zone (the seed may be one itself, or a join may land under one).
@@ -50,12 +61,17 @@ func (p *Permutations) Checks(ctx context.Context, v run.View) iter.Seq2[run.Che
 		}
 		// A word that is not a valid label gives no name under any root.
 		valid := slices.DeleteFunc(slices.Clone(words), func(w string) bool { return !dnsname.ValidLabel(w) })
+		for _, l := range wellKnownLabels {
+			if !slices.Contains(valid, l) {
+				valid = append(valid, l)
+			}
+		}
 		for _, root := range slices.Sorted(slices.Values(v.Inputs().Roots)) {
 			if v.WildcardZone(dnsname.Normalise(root)) {
 				continue
 			}
 			names := rootNames(root, valid)
-			if !yield(run.Check{Key: fmt.Sprintf("root|%s|wl=%s", root, hash), Input: names, Cost: len(names)}, nil) {
+			if !yield(run.Check{Key: fmt.Sprintf("root|%s|wl=%s|wk=%s", root, hash, wellKnownToken), Input: names, Cost: len(names)}, nil) {
 				return
 			}
 		}

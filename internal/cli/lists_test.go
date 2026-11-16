@@ -9,10 +9,11 @@ import (
 
 // The permutation tests use few words so the arithmetic is easy to follow. With
 // W words a root check queries W names, and a seed check queries 2 + 6W (two
-// digit variants, then six joins per word): 26 names for 4 words.
+// digit variants, then six joins per word): 26 names for 4 words. A root check
+// also queries the five well-known labels, so it queries W + 5: 9 for 4 words.
 const (
 	fourWords = "dev\ntest\nbeta\nold\n"
-	rootNames = 4
+	rootNames = 4 + 5
 	seedNames = 26
 )
 
@@ -41,7 +42,7 @@ func permRun(w *world, wl string, args ...string) int {
 // them. A seed that exactly fills the cap is taken.
 func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 	w, wl := worldWithSeeds(t, fourWords)
-	if code := permRun(w, wl, "--permutations-max-names", "30"); code != 0 {
+	if code := permRun(w, wl, "--permutations-max-names", "35"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if st, _ := stateOf(w, "permutations"); st != "done" {
@@ -64,7 +65,7 @@ func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 
 	// The next run does what was deferred, and nothing again.
 	before := w.dns.Count("dev.example.com", "A")
-	if code := permRun(w, wl, "--permutations-max-names", "30"); code != 0 {
+	if code := permRun(w, wl, "--permutations-max-names", "35"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if got := derived(w, "ftp"); len(got) != seedNames {
@@ -81,7 +82,7 @@ func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 // The cap falls part-way through a seed's names: none of them are queried.
 func TestListsPermutations_SeedIsNeverSplit(t *testing.T) {
 	w, wl := worldWithSeeds(t, fourWords)
-	permRun(w, wl, "--permutations-max-names", "20") // the root's 4 names, then 26 would reach 30
+	permRun(w, wl, "--permutations-max-names", "20") // the root's 9 names, then 26 would reach 35
 	if got := derived(w, "api"); len(got) != 0 {
 		t.Errorf("api would pass the cap, yet %d of its names were queried: %v", len(got), got)
 	}
@@ -178,7 +179,7 @@ func derivedUnder(w *world, label, zone string) []string {
 func TestListsPermutations_ConsoleAndJSONCounts(t *testing.T) {
 	w, wl := worldWithSeeds(t, fourWords)
 	args := []string{"--rate-per-source", "1000", "--rate-dns", "100000", "--passive", "--concurrency", "1",
-		"--wordlist", wl, "--permutations-max-names", "30", "example.com"}
+		"--wordlist", wl, "--permutations-max-names", "35", "example.com"}
 	if code := w.h.exec(args...); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -186,7 +187,7 @@ func TestListsPermutations_ConsoleAndJSONCounts(t *testing.T) {
 		t.Errorf("block does not give the stage and the count of 26:\n%s", block)
 	}
 	// The second run does the rest, so nothing is deferred and the field says so.
-	permRun(w, wl, "--permutations-max-names", "30")
+	permRun(w, wl, "--permutations-max-names", "35")
 	if n := deferredOf(t, w.h, "permutations"); n != 0 {
 		t.Errorf("deferred after the last run = %d", n)
 	}

@@ -867,7 +867,7 @@ func TestPlumbing_FilesAndCounts(t *testing.T) {
 		t.Errorf("subdomains.txt must be sorted: %q", snapshot["subdomains.txt"])
 	}
 	hdr := strings.SplitN(snapshot["ips.csv"], "\n", 2)[0]
-	if hdr != "ip,asn,owner,provider,service,in_scope,port_eligible,hostnames,registrant,registrant_netblock,registry,current,first_seen,last_seen" {
+	if hdr != "ip,asn,owner,provider,service,in_scope,port_eligible,hostnames,registrant,registrant_netblock,registry,srv_ports,current,first_seen,last_seen" {
 		t.Errorf("ips.csv header = %q", hdr)
 	}
 	if snapshot["provider-hosts.csv"] != "" || snapshot["wildcard-excluded.txt"] != "" {

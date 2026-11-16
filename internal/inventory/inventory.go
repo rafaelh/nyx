@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/scope"
@@ -28,6 +29,8 @@ type Host struct {
 
 // Resolution is one resolved row: Type is A, AAAA or CNAME. A and AAAA rows are
 // keyed to the queried name; a CNAME row's Name is the alias and Value its target.
+// An SRV row's Name is a service name, not a host, and its Value is "priority
+// weight port target"; it only says which ports an in-scope target advertises.
 type Resolution struct{ Name, Type, Value string }
 
 // Wildcard is a zone that answers for names that do not exist.
@@ -93,6 +96,9 @@ type IPRow struct {
 	// The registered netblock the address is inside, the registrant it is
 	// registered to and the registry that says so, when a lookup found them.
 	Registrant, RegistrantNetblock, Registry string
+	// SRVPorts are the ports SRV records advertise for the address's in-scope
+	// hostnames, in order. They are reported only: nothing connects to them.
+	SRVPorts []uint16
 }
 
 // Inventory is an immutable derived view of Data.
@@ -101,6 +107,7 @@ type Inventory struct {
 	db   *provider.DB
 	addr map[string][]netip.Addr // queried name -> addresses
 	cn   map[string][]string     // alias -> targets
+	srv  map[string][]uint16     // SRV target -> advertised ports
 	wo   map[string]bool
 	zone map[string]bool // zones with a current wildcard record
 	// cnameShared holds the addresses of names whose CNAME chain ends on a known provider.
@@ -124,7 +131,7 @@ type registrantInfo struct {
 
 // New computes the inventory.
 func New(d Data, db *provider.DB) *Inventory {
-	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{},
+	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{}, srv: map[string][]uint16{},
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
 		class: map[netip.Addr]provider.Result{}, cnameShared: map[netip.Addr]provider.Match{}}
 	for _, r := range d.Resolutions {
@@ -135,6 +142,11 @@ func New(d Data, db *provider.DB) *Inventory {
 			}
 		case "CNAME":
 			i.cn[r.Name] = append(i.cn[r.Name], r.Value)
+		case "SRV":
+			// Port 0, like a null target, is a service that is not offered.
+			if port, target, ok := dnsname.SRV(r.Value); ok && port != 0 {
+				i.srv[target] = append(i.srv[target], port)
+			}
 		}
 	}
 	for _, ap := range d.ClosedPorts {
@@ -546,10 +558,24 @@ func (i *Inventory) IPRows(sc *scope.Scope) []IPRow {
 		if reg, ok := i.RegistrationOf(a); ok {
 			row.Registrant, row.Registry, row.RegistrantNetblock = reg.Registrant, reg.Registry, rangeText(reg.Start, reg.End)
 		}
+		row.SRVPorts = i.srvPorts(names, sc)
 		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(x, y int) bool { return rows[x].IP.Less(rows[y].IP) })
 	return rows
+}
+
+// srvPorts are the sorted, distinct ports that SRV records advertise for the
+// in-scope names. A target outside the scope says nothing about the address.
+func (i *Inventory) srvPorts(names []string, sc *scope.Scope) []uint16 {
+	var ports []uint16
+	for _, n := range names {
+		if p := i.srv[n]; len(p) > 0 && sc.ClassifyHost(n).Class == scope.InScope {
+			ports = append(ports, p...)
+		}
+	}
+	slices.Sort(ports)
+	return slices.Compact(ports)
 }
 
 // rangeText is a registered range as one CIDR when it is one, and otherwise as

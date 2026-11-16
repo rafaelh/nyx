@@ -1,5 +1,5 @@
 // Package dnsname has the pure name manipulation DNS stages need: reverse
-// names, parent zones, registrable domains and permutation generation.
+// names, parent zones, registrable domains, SRV values and permutation generation.
 package dnsname
 
 import (
@@ -43,6 +43,21 @@ func reverse(a netip.Addr) string {
 // Normalise trims, lowercases and drops the trailing dot of a hostname.
 func Normalise(h string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), ".")
+}
+
+// SRV reads an SRV value as egress writes it, "priority weight port target".
+// ok is false for the null target "." (a service that is not offered) and for a
+// value that is not well formed.
+func SRV(value string) (port uint16, target string, ok bool) {
+	f := strings.Fields(value)
+	if len(f) != 4 || f[3] == "." {
+		return 0, "", false
+	}
+	p, err := strconv.ParseUint(f[2], 10, 16)
+	if err != nil {
+		return 0, "", false
+	}
+	return uint16(p), f[3], true
 }
 
 // Under reports whether name is zone or a name below it. Both must be normalised.

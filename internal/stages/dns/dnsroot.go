@@ -17,7 +17,9 @@ import (
 // DNSRoot records the NS, SOA, TXT and CAA records of each in-scope input
 // root, so later pivots can use them, and from them the third parties the root
 // depends on: its name servers' operators, and the SaaS platforms its TXT
-// records show domain ownership was verified with. It asks the same public
+// records show domain ownership was verified with. It also asks for a fixed
+// list of SRV names under the root (mail, identity, voice, collaboration and
+// game services), as one more check per root. It asks the same public
 // resolvers as resolve and never attempts a zone transfer.
 type DNSRoot struct{ base }
 
@@ -41,8 +43,25 @@ type rootInput struct {
 	sc   *scope.Scope
 }
 
+// srvServices are the SRV names asked under each root. Editing the list changes
+// srvKeyToken, so the SRV check is repeated and no other.
+var srvServices = []string{
+	"_sip._tls", "_sip._tcp", "_sipfederationtls._tcp", "_autodiscover._tcp", "_ldap._tcp",
+	"_kerberos._tcp", "_xmpp-server._tcp", "_xmpp-client._tcp", "_caldav._tcp", "_carddav._tcp",
+	"_imaps._tcp", "_submission._tcp", "_matrix._tcp", "_minecraft._tcp",
+}
+
+// srvKeyToken identifies the service list, so a changed list creates a new check.
+var srvKeyToken = listToken(srvServices)
+
+// srvType is the type of a root's SRV check, which asks every name of
+// srvServices rather than the root itself.
+var srvType = rootType{"SRV", egress.TypeSRV}
+
 // Checks yields one check per input root that is in scope and per record type,
-// keyed "<root>|<TYPE>".
+// keyed "<root>|<TYPE>", and the root's SRV check, keyed "<root>|SRV|<hash of
+// the service list>". SRV is not a row of rootTypes: its check makes one query
+// per service name.
 func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, root := range v.Inputs().Roots { // canonical and unique
@@ -55,6 +74,9 @@ func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 					return
 				}
 			}
+			if !yield(run.Check{Key: root + "|SRV|" + srvKeyToken, Input: rootInput{root, srvType, v.Scope()}}, nil) {
+				return
+			}
 		}
 	}
 }
@@ -63,6 +85,9 @@ func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 // no observations; SERVFAIL is a transient failure of this type only.
 func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(rootInput)
+	if in.t == srvType {
+		return runSRV(ctx, in, e)
+	}
 	res, err := lookup(ctx, e, in.root, in.t.code)
 	if err != nil {
 		return nil, err
@@ -85,7 +110,11 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		switch in.t.name {
 		case "NS", "SOA":
 			target, _, _ := strings.Cut(a.Value, " ") // an SOA value starts with its primary
-			obs = append(obs, nameServer(in, target)...)
+			mechanism := kinds.MechanismNS
+			if in.t.name == "SOA" {
+				mechanism = "" // an SOA primary outside the scope adds nothing
+			}
+			obs = append(obs, dependency(in, mechanism, target)...)
 		case "TXT":
 			if platform, ok := provider.Default().Verification(a.Value); ok {
 				obs = append(obs, kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, kinds.MechanismTXTVerification, platform),
@@ -96,22 +125,54 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	return obs, nil
 }
 
-// nameServer is what a name server (an NS target, or an SOA primary) adds: an
-// in-scope name is a hostname, resolved and probed like any other. Any other NS
-// target is a third party, recorded by its registrable domain and never as a
-// candidate; an SOA primary outside the scope adds nothing.
-func nameServer(in rootInput, host string) []run.Observation {
+// dependency is what a host a root's records name (an NS or SRV target, or an
+// SOA primary) adds: an in-scope name is a hostname, resolved and probed like
+// any other. Any other is a third party seen through mechanism, recorded by its
+// registrable domain and never as a candidate; with no mechanism it adds nothing.
+func dependency(in rootInput, mechanism, host string) []run.Observation {
 	if host == "" {
 		return nil
 	}
 	if in.sc.ClassifyHost(host).Class == scope.InScope {
 		return []run.Observation{kinds.Hostname.Obs(host, kinds.HostnameAttrs{})}
 	}
-	if in.t.name != "NS" {
+	if mechanism == "" {
 		return nil
 	}
 	domain := dnsname.Registrable(host)
 	owner, _ := provider.Default().DomainOwner(domain)
-	return []run.Observation{kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, kinds.MechanismNS, domain),
-		kinds.ThirdPartyAttrs{Root: in.root, Mechanism: kinds.MechanismNS, Domain: domain, Provider: owner})}
+	return []run.Observation{kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, mechanism, domain),
+		kinds.ThirdPartyAttrs{Root: in.root, Mechanism: mechanism, Domain: domain, Provider: owner})}
+}
+
+// runSRV asks each listed service name under the root. NXDOMAIN and NODATA are
+// results; a SERVFAIL or a timeout on any name fails the whole check, so the
+// next run asks them all again.
+func runSRV(ctx context.Context, in rootInput, e egress.Clients) ([]run.Observation, error) {
+	var obs []run.Observation
+	for _, service := range srvServices {
+		name := service + "." + in.root
+		res, err := lookup(ctx, e, name, egress.TypeSRV)
+		if err != nil {
+			return nil, err
+		}
+		if res.RCode == egress.RCodeServFail {
+			return nil, fmt.Errorf("%s SRV: resolver answered SERVFAIL", name)
+		}
+		for _, a := range res.Answers {
+			if a.Type != "SRV" {
+				continue
+			}
+			_, target, ok := dnsname.SRV(a.Value)
+			if !ok { // "." is a service that is not offered
+				continue
+			}
+			// The name is a service name, not a hostname: only A, AAAA and CNAME
+			// rows reach the inventory, so it is never resolved or tested as a wildcard zone.
+			obs = append(obs, kinds.Resolution.Obs(name+"|SRV|"+a.Value,
+				kinds.ResolutionAttrs{Name: name, Type: "SRV", Value: a.Value}))
+			obs = append(obs, dependency(in, kinds.MechanismSRV, target)...)
+		}
+	}
+	return obs, nil
 }

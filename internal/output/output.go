@@ -203,7 +203,7 @@ func Default() []File {
 		{Name: "resolutions.csv", Format: CSV, Columns: []string{"name", "type", "value", "source"}, Rows: resolutionRows},
 		{Name: "unresolved.txt", Format: TXT, Rows: unresolvedRows},
 		{Name: "wildcard-excluded.txt", Format: TXT, Rows: inScopeHostRows(true)},
-		{Name: "ips.csv", Format: CSV, Columns: []string{"ip", "asn", "owner", "provider", "service", "in_scope", "port_eligible", "hostnames", "registrant", "registrant_netblock", "registry"}, Rows: ipRows},
+		{Name: "ips.csv", Format: CSV, Columns: []string{"ip", "asn", "owner", "provider", "service", "in_scope", "port_eligible", "hostnames", "registrant", "registrant_netblock", "registry", "srv_ports"}, Rows: ipRows},
 		{Name: "provider-hosts.csv", Format: CSV, Columns: []string{"hostname", "provider", "service", "evidence", "cname", "resolves"}, Rows: providerHostRows},
 		{Name: "web-services.csv", Format: CSV, Columns: webServiceColumns, Rows: webServiceRows},
 		{Name: "urls.csv", Format: CSV, Columns: []string{"url", "host", "status", "found_by"}, Rows: urlRows},
@@ -485,9 +485,18 @@ func ipRows(s Snapshot) []Row {
 		}
 		cells = append(cells, []string{ir.IP.String(), asn, ir.Owner, ir.Provider, ir.Service,
 			fmt.Sprint(ir.InScope), fmt.Sprint(ir.PortEligible), strings.Join(ir.Hostnames, ";"),
-			ir.Registrant, ir.RegistrantNetblock, ir.Registry})
+			ir.Registrant, ir.RegistrantNetblock, ir.Registry, joinPorts(ir.SRVPorts)})
 	}
 	return derivedRows(s, kinds.IP, cells)
+}
+
+// joinPorts writes ports as one `;`-joined cell.
+func joinPorts(ports []uint16) string {
+	parts := make([]string, len(ports))
+	for i, p := range ports {
+		parts[i] = strconv.Itoa(int(p))
+	}
+	return strings.Join(parts, ";")
 }
 
 func providerHostRows(s Snapshot) []Row {

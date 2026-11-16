@@ -25,6 +25,7 @@ const (
 	MechanismDMARC           = "dmarc"
 	MechanismMX              = "mx"
 	MechanismCNAME           = "cname"
+	MechanismSRV             = "srv"
 )
 
 // ThirdPartyAttrs: the root that depends on it, how it was seen, the domain
@@ -32,8 +33,8 @@ const (
 // whose token never leaves resolutions.csv), the provider when it is known and
 // how many hops from the root it was found at (0 for the root's own records).
 // A record's key is "<root>|<mechanism>|<name>". For spf and dmarc the domain is
-// kept as written (_spf.google.com); for mx it is the host's registrable domain,
-// and for cname the suffix of the SaaS platform's names.
+// kept as written (_spf.google.com); for mx and srv it is the host's registrable
+// domain, and for cname the suffix of the SaaS platform's names.
 type ThirdPartyAttrs struct {
 	Root      string `json:"root"`
 	Mechanism string `json:"mechanism"`
@@ -60,8 +61,8 @@ func ThirdPartyKey(root, mechanism, name string) string {
 // ThirdPartyOf decodes a third party's attributes, filling in from its key what
 // a record that is no longer current has lost: the store keeps attributes only
 // from current observations, but the key says the root, the mechanism and the
-// name (the domain of a name server, mail or SaaS dependency, the platform of a
-// verification). The depth is not in the key, so it shows 0.
+// name (the domain of a name server, service target, mail or SaaS dependency, the
+// platform of a verification). The depth is not in the key, so it shows 0.
 func ThirdPartyOf(r store.Record) ThirdPartyAttrs {
 	a := ThirdParty.Attrs(r)
 	parts := strings.SplitN(r.Key, "|", 3)

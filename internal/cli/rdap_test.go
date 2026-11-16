@@ -323,7 +323,7 @@ func TestRDAP_AddressLookupAtBootstrapRegistry(t *testing.T) {
 		}
 	}
 	if hdr := strings.SplitN(x.file(eng, "ips.csv"), "\n", 2)[0]; hdr !=
-		"ip,asn,owner,provider,service,in_scope,port_eligible,hostnames,registrant,registrant_netblock,registry,current,first_seen,last_seen" {
+		"ip,asn,owner,provider,service,in_scope,port_eligible,hostnames,registrant,registrant_netblock,registry,srv_ports,current,first_seen,last_seen" {
 		t.Errorf("ips.csv header = %q", hdr)
 	}
 	for _, a := range []string{"203.0.113.7", "203.0.113.8", "203.0.113.250"} {

@@ -230,6 +230,32 @@ the administrative mailbox as an email address (`john\.doe.example.com` is `john
   `resolutions.csv`, but not in `third-parties.csv`. A TXT record that matches nothing is only a row
   in `resolutions.csv`.
 
+### Service records and well-known hostnames
+
+The `dnsroot` stage also asks each in-scope root for these SRV names, as one more check per root
+(a SERVFAIL or timeout on any of them fails that check, which is retried on the next run):
+`_sip._tls`, `_sip._tcp`, `_sipfederationtls._tcp`, `_autodiscover._tcp`, `_ldap._tcp`,
+`_kerberos._tcp`, `_xmpp-server._tcp`, `_xmpp-client._tcp`, `_caldav._tcp`, `_carddav._tcp`,
+`_imaps._tcp`, `_submission._tcp`, `_matrix._tcp` and `_minecraft._tcp`. An engagement that already
+holds the four record types runs only this check.
+
+- Each answer is a row in `resolutions.csv` with type `SRV`, the service name (such as
+  `_sip._tls.example.com`) as the name and `priority weight port target` as the value. A service name is
+  not a hostname: it is never resolved or tested for wildcard DNS. A target of `.` (a service that is
+  not offered) records nothing.
+- A target inside the scope is a hostname, resolved, probed and port-checked like any other. Any
+  other target is a `third-parties.csv` row with mechanism `srv` and the target's registrable
+  domain, and is never a candidate or contacted.
+- The ports the answers advertise are reported, not connected to: the `srv_ports` column of
+  `ips.csv` lists, `;`-joined, the ports SRV records give for the address's in-scope hostnames. The
+  `ports` stage still checks only the configured port list.
+- An SRV target that a root added later brings into scope becomes a hostname only after
+  `--redo dnsroot` (its third-party row hides itself at once).
+
+The permutations stage also always tries a few well-known labels, such as `autodiscover`, directly
+under each root, even when the wordlist lacks them (see the well-known labels in
+[Built-in lists and per-run limits](#built-in-lists-and-per-run-limits)).
+
 The `+` line for a new third party reads `third-party <platform> via <mechanism> on <root>` (the
 platform is the provider, else the domain),
 and its `--json` `found` event carries `platform`, `mechanism` and `root`. The prefix list and the
@@ -448,8 +474,15 @@ stay on under `--passive`, because they send only DNS lookups to public resolver
   seed's names are never split across runs: the first one that would pass the cap, and every one
   after it, waits for the next run, though the first of a run is always taken even if it alone is
   over the cap. A zone already known to be a wildcard is not permuted.
+- **Well-known labels.** Each root also tries `autodiscover`, `lyncdiscover`,
+  `enterpriseenrollment`, `enterpriseregistration` and `mta-sts`, even when the wordlist lacks them
+  and only when permutations are on, so a root check is the list plus up to five names (the built-in
+  list already holds all five, so it stays at 4860). Seeds do not use them, and neither does a root
+  already known to be a wildcard zone.
 - **After an upgrade.** A changed list repeats every permutation check once, on the first run
-  that uses it.
+  that uses it. Adding the well-known labels repeats each root's check once and no seed check, and
+  that repeat spends the per-run cap: at the default cap about 40 roots' repeats fit in one run, and
+  the rest are deferred to the next.
 
 **Sensitive paths.** The built-in list has 268 entries. Each one has a body signature or byte prefix
 and a severity (`high`, `medium` or `low`), so a site that answers 200 to everything is not flagged.
@@ -707,16 +740,16 @@ Everything is in `<output-dir>/<engagement>/`:
 | `candidates.csv` | Related domains, hostnames, netblocks, autonomous systems and organisations found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](#ranked-candidates)); pass one as an input to promote it |
 | `excluded.csv` | Excluded items and the reason |
 | `subdomains.txt` | In-scope hostnames |
-| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, and the NS, SOA, TXT and CAA records of each root, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. |
+| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, the NS, SOA, TXT and CAA records of each root, and the SRV records of the listed service names, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. |
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
-| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found. A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
+| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)), web posture evidence (see Web posture above) and web identifiers (see [Web identifiers](#web-identifiers)) |
 | `urls.csv` | URLs from crawling, the scripts of crawled pages (see [JavaScript endpoints](#javascript-endpoints)) and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake) and `shodan_last_seen` (empty on a row only nyx saw) |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host |
-| `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx` or `cname`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns` and `mx`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |
+| `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx`, `cname` or `srv`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns`, `mx` and `srv`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |
 | `code-mentions.csv` | Files in public GitHub repositories that mention an in-scope root, from the `github` stage: `repository`, `path`, `url`, the in-scope `hostnames` the match names (`;`-joined) and the `root` searched for. A match that is no longer current keeps only its `url` (see [GitHub code search](#github-code-search)) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |
 | `risk-takeover.csv` | Subdomain takeover findings |

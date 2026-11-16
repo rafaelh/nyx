@@ -275,8 +275,15 @@ func TestDNSRoot_ChecksAndPassive(t *testing.T) {
 	if st, reason := stateOf(w, "dnsroot"); st != "done" {
 		t.Errorf("dnsroot under --passive = %s (%s)", st, reason)
 	}
-	want := []string{"example.com|CAA", "example.com|NS", "example.com|SOA", "example.com|TXT"}
-	if got := w.h.completed(eng, "dnsroot"); !slices.Equal(got, want) {
+	var got []string
+	for _, k := range w.h.completed(eng, "dnsroot") {
+		if root, _, ok := strings.Cut(k, "|SRV|"); ok { // the SRV key ends in a hash of the service list
+			k = root + "|SRV"
+		}
+		got = append(got, k)
+	}
+	want := []string{"example.com|CAA", "example.com|NS", "example.com|SOA", "example.com|SRV", "example.com|TXT"}
+	if !slices.Equal(got, want) {
 		t.Errorf("checks = %v, want %v", got, want)
 	}
 	for _, ty := range []string{"NS", "SOA", "TXT", "CAA"} {
