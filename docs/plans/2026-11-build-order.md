@@ -27,8 +27,8 @@ on each other.
 | Wave | Specs | Why they wait |
 |---|---|---|
 | 1 | ~~1~~, ~~3~~, ~~5~~, ~~6~~, ~~12~~, ~~15~~, ~~18~~, ~~21~~, ~~22~~ | Nothing. Each owns a shared seam or is self-contained. |
-| 2 | ~~2~~, ~~4~~, ~~8~~, ~~9~~, ~~10~~, ~~11~~, ~~13~~, ~~17~~, 19 | Use seams from wave 1 (see the table below). |
-| 3 | 7, 14, 16, 20 | Use kinds, files or stages from wave 2, or (Spec 20) the final set of kinds. |
+| 2 | ~~2~~, ~~4~~, ~~8~~, ~~9~~, ~~10~~, ~~11~~, ~~13~~, ~~17~~, ~~19~~ | Use seams from wave 1 (see the table below). |
+| 3 | ~~7~~, 14, 16, 20 | Use kinds, files or stages from wave 2, or (Spec 20) the final set of kinds. |
 
 Struck-through specs are built. What can be built now:
 
