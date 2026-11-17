@@ -16,6 +16,7 @@ const (
 	Certificates        = "certificates"
 	WebPosture          = "web-posture"
 	OriginExposure      = "origin-exposure"
+	EOLSoftware         = "eol-software"
 )
 
 // Severities.
@@ -65,6 +66,8 @@ var table = []Row{
 	{WebPosture, "version-disclosure", Low, "a Server or X-Powered-By header carries a version (Apache/2.4.41)"},
 	{OriginExposure, "confirmed", Medium, "a hostname behind a CDN or WAF is also served directly by an address nyx may contact, which answers for it"},
 	{OriginExposure, "possible", Low, "an address that may be the origin of a hostname behind a CDN or WAF, found from its history or a sibling and not confirmed"},
+	{EOLSoftware, "eol", Medium, "a web technology or banner version is past the end of security support of its release cycle; low for a distribution build or a version only Shodan reports"},
+	{EOLSoftware, "eol-approaching", Low, "the end of security support of the release cycle is within --eol-warn-days"},
 }
 
 // SeverityTable is the documented default severity of every finding type.

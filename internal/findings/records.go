@@ -1,6 +1,7 @@
 package findings
 
 import (
+	"maps"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -19,8 +20,9 @@ import (
 const originArrow = " -> "
 
 // Key is the finding's record key: one per hostname for takeovers, one per hostname and address for
-// origin exposures (so the row is the same while it moves between possible and confirmed), otherwise
-// category, type and target. ParseKey reverses it.
+// origin exposures (so the row is the same while it moves between possible and confirmed), one per
+// type, target and product for end-of-life software (each product on a service is its own finding),
+// otherwise category, type and target. ParseKey reverses it, apart from the product.
 func (f Finding) Key() string {
 	if f.Category == Takeover {
 		return f.Category + "|" + f.Target
@@ -29,11 +31,16 @@ func (f Finding) Key() string {
 		host, addr := splitOriginTarget(f.Target)
 		return f.Category + "|" + host + "|" + addr
 	}
+	if f.Category == EOLSoftware {
+		product, _ := f.Attrs["product"].(string)
+		return f.Category + "|" + f.Type + "|" + f.Target + "|" + product
+	}
 	return f.Category + "|" + f.Type + "|" + f.Target
 }
 
 // ParseKey reads the category, type and target from a finding's record key. A
-// takeover or origin-exposure key carries no type.
+// takeover or origin-exposure key carries no type, and an end-of-life key's product is not part of
+// its target (its file's fromKey reads it).
 func ParseKey(key string) (category, typ, target string) {
 	category, rest, _ := strings.Cut(key, "|")
 	if category == Takeover {
@@ -44,6 +51,9 @@ func ParseKey(key string) (category, typ, target string) {
 		return category, "", originTarget(host, addr)
 	}
 	typ, target, _ = strings.Cut(rest, "|")
+	if category == EOLSoftware {
+		target, _, _ = strings.CutLast(target, "|")
+	}
 	return category, typ, target
 }
 
@@ -68,8 +78,18 @@ func FromRecord(r store.Record) Finding {
 
 // FoundText is the text the console prints for a newly found finding in place of its category and
 // target, or "" when the category has none. An origin exposure reads "[possible ]origin exposure
-// <host> -> <address> (behind <provider>)".
+// <host> -> <address> (behind <provider>)", and an end-of-life finding "end-of-life <product>
+// <version> on <target>" (or "end of support approaching for ...").
 func (f Finding) FoundText() string {
+	if f.Category == EOLSoftware {
+		product, _ := f.Attrs["product"].(string)
+		version, _ := f.Attrs["version"].(string)
+		what := product + " " + version + " on " + f.Target
+		if f.Type == "eol-approaching" {
+			return "end of support approaching for " + what
+		}
+		return "end-of-life " + what
+	}
 	if f.Category != OriginExposure {
 		return ""
 	}
@@ -134,21 +154,22 @@ type FileRow struct {
 }
 
 // riskFiles are the categories with a risk-<category>.csv file, its columns, and
-// for a finding no longer derived, the columns its key identifies.
+// for a finding no longer derived, the columns its key (with its type and target already parsed
+// from it) identifies.
 var riskFiles = []struct {
 	category string
 	columns  []string
-	fromKey  func(typ, target string) map[string]string
+	fromKey  func(key, typ, target string) map[string]string
 }{
 	{Takeover, []string{"severity", "target", "type", "service", "cname", "detail"}, nil},
 	{Storage, []string{"severity", "provider", "name", "url", "exists", "public", "listable", "object_count", "first_keys", "referenced_by"},
-		func(_, target string) map[string]string { return map[string]string{"url": target} }},
+		func(_, _, target string) map[string]string { return map[string]string{"url": target} }},
 	{SensitivePaths, []string{"severity", "url", "path", "status", "size", "signature"},
-		func(typ, target string) map[string]string { return map[string]string{"path": typ, "url": target} }},
+		func(_, typ, target string) map[string]string { return map[string]string{"path": typ, "url": target} }},
 	{Email, []string{"severity", "root", "type", "detail"},
-		func(_, target string) map[string]string { return map[string]string{"root": target} }},
+		func(_, _, target string) map[string]string { return map[string]string{"root": target} }},
 	{Ports, []string{"severity", "ip", "port", "banner", "hostnames", "confirmed"},
-		func(_, target string) map[string]string {
+		func(_, _, target string) map[string]string {
 			ap, err := netip.ParseAddrPort(target)
 			if err != nil {
 				return nil
@@ -156,13 +177,18 @@ var riskFiles = []struct {
 			return map[string]string{"ip": ap.Addr().String(), "port": strconv.Itoa(int(ap.Port()))}
 		}},
 	{Certificates, []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"},
-		func(_, target string) map[string]string { return map[string]string{"url": target} }},
+		func(_, _, target string) map[string]string { return map[string]string{"url": target} }},
 	{WebPosture, []string{"severity", "url", "type", "detail"},
-		func(_, target string) map[string]string { return map[string]string{"url": target} }},
+		func(_, _, target string) map[string]string { return map[string]string{"url": target} }},
 	{OriginExposure, []string{"severity", "hostname", "provider", "address", "found_by", "confirmed_by", "confirmed"},
-		func(_, target string) map[string]string {
+		func(_, _, target string) map[string]string {
 			host, addr := splitOriginTarget(target)
 			return map[string]string{"hostname": host, "address": addr}
+		}},
+	{EOLSoftware, []string{"severity", "target", "hostnames", "type", "product", "version", "end_date", "seen", "confirmed"},
+		func(key, _, _ string) map[string]string {
+			_, product, _ := strings.CutLast(key, "|")
+			return map[string]string{"product": product}
 		}},
 }
 
@@ -179,7 +205,7 @@ func Files() []File {
 // riskFile lists every finding record of a category: current ones and those no
 // longer derived, which stay on record. The findings are derived
 // with scope and visibility already applied, so the file does not filter again.
-func riskFile(category string, columns []string, fromKey func(typ, target string) map[string]string) File {
+func riskFile(category string, columns []string, fromKey func(key, typ, target string) map[string]string) File {
 	return File{Name: "risk-" + category + ".csv", Columns: columns, Rows: func(l Listing) []FileRow {
 		var rows []FileRow
 		for _, r := range l.Records[kinds.Finding.Name()] {
@@ -189,9 +215,7 @@ func riskFile(category string, columns []string, fromKey func(typ, target string
 			}
 			fallback := map[string]string{"type": typ, "target": target}
 			if !r.Current && fromKey != nil {
-				for k, v := range fromKey(typ, target) {
-					fallback[k] = v
-				}
+				maps.Copy(fallback, fromKey(r.Key, typ, target))
 			}
 			cells := make([]string, len(columns))
 			for i, c := range columns {

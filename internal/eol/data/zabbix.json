@@ -1,0 +1,92 @@
+[
+  {
+    "cycle": "8.0",
+    "eol": "2031-11-30",
+    "latest": "8.0.0",
+    "latestReleaseDate": "2026-11-05",
+    "lts": true,
+    "releaseDate": "2026-11-05",
+    "support": "2029-11-30"
+  },
+  {
+    "cycle": "7.4",
+    "eol": "2027-05-31",
+    "latest": "7.4.16",
+    "latestReleaseDate": "2026-10-20",
+    "lts": false,
+    "releaseDate": "2025-06-30",
+    "support": "2026-11-12"
+  },
+  {
+    "cycle": "7.2",
+    "eol": "2025-12-31",
+    "latest": "7.2.15",
+    "latestReleaseDate": "2025-12-17",
+    "lts": false,
+    "releaseDate": "2024-12-10",
+    "support": "2025-06-30"
+  },
+  {
+    "cycle": "7.0",
+    "eol": "2029-06-30",
+    "latest": "7.0.32",
+    "latestReleaseDate": "2026-10-20",
+    "lts": true,
+    "releaseDate": "2024-06-04",
+    "support": "2027-06-30"
+  },
+  {
+    "cycle": "6.4",
+    "eol": "2024-12-31",
+    "latest": "6.4.21",
+    "latestReleaseDate": "2025-01-27",
+    "lts": false,
+    "releaseDate": "2023-03-06",
+    "support": "2024-06-30"
+  },
+  {
+    "cycle": "6.2",
+    "eol": "2023-02-28",
+    "latest": "6.2.9",
+    "latestReleaseDate": "2023-03-27",
+    "lts": false,
+    "releaseDate": "2022-07-04",
+    "support": "2023-01-31"
+  },
+  {
+    "cycle": "6.0",
+    "eol": "2027-02-28",
+    "latest": "6.0.49",
+    "latestReleaseDate": "2026-10-20",
+    "lts": true,
+    "releaseDate": "2022-02-08",
+    "support": "2025-02-28"
+  },
+  {
+    "cycle": "5.4",
+    "eol": "2022-03-31",
+    "latest": "5.4.12",
+    "latestReleaseDate": "2022-04-04",
+    "lts": false,
+    "releaseDate": "2021-05-17",
+    "support": "2022-02-28"
+  },
+  {
+    "cycle": "5.0",
+    "eol": "2025-05-31",
+    "latest": "5.0.47",
+    "latestReleaseDate": "2025-05-20",
+    "lts": true,
+    "releaseDate": "2020-05-11",
+    "support": "2023-05-31"
+  },
+  {
+    "cycle": "4.0",
+    "eol": "2023-10-31",
+    "latest": "4.0.50",
+    "latestReleaseDate": "2023-10-30",
+    "lts": true,
+    "releaseDate": "2018-10-01",
+    "support": "2021-10-31"
+  }
+]

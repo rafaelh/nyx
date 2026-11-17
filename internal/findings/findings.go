@@ -71,6 +71,7 @@ func (d *deriver) findings() []Finding {
 	out = append(out, d.certificates()...)
 	out = append(out, d.webPosture()...)
 	out = append(out, d.originExposure()...)
+	out = append(out, d.eolSoftware()...)
 	slices.SortStableFunc(out, func(a, b Finding) int { return strings.Compare(a.Key(), b.Key()) })
 	return slices.CompactFunc(out, func(a, b Finding) bool { return a.Key() == b.Key() })
 }
@@ -82,6 +83,8 @@ type deriver struct {
 	svcs map[string]store.Record  // see services
 
 	public map[string][]bool // see publicStates
+
+	hosts map[netip.Addr][]string // see hostnamesByIP
 }
 
 func newDeriver(in Input) *deriver {
@@ -111,6 +114,14 @@ func (d *deriver) services() map[string]store.Record {
 		}
 	}
 	return d.svcs
+}
+
+// hostnamesByIP is the in-scope hostnames behind each address, computed once.
+func (d *deriver) hostnamesByIP() map[netip.Addr][]string {
+	if d.hosts == nil {
+		d.hosts = d.in.Inv.HostnamesByIP(d.in.Scope)
+	}
+	return d.hosts
 }
 
 // isTrue reads an attribute that may be unknown: only a known true is true.
@@ -194,12 +205,9 @@ func (d *deriver) ports() []Finding {
 	for _, p := range d.in.Settings.RiskyPorts {
 		risky[p] = true
 	}
-	var hostnames map[netip.Addr][]string
 	var out []Finding
 	add := func(addr netip.AddrPort, severity, banner, detail, confirmed string) {
-		if hostnames == nil {
-			hostnames = d.in.Inv.HostnamesByIP(d.in.Scope)
-		}
+		hostnames := d.hostnamesByIP()
 		out = append(out, newFinding(Ports, "risky-port", severity, addr.String(), detail,
 			map[string]any{"ip": addr.Addr().String(), "port": int(addr.Port()), "banner": banner,
 				"hostnames": strings.Join(hostnames[addr.Addr()], ";"), "confirmed": confirmed}))

@@ -1,0 +1,128 @@
+[
+  {
+    "cycle": "18",
+    "eol": "2027-06-25",
+    "latest": "18.3.1",
+    "latestReleaseDate": "2026-11-04",
+    "lts": false,
+    "releaseDate": "2026-06-25",
+    "support": "2027-03-25"
+  },
+  {
+    "cycle": "17",
+    "eol": "2028-11-27",
+    "latest": "17.8.1",
+    "latestReleaseDate": "2026-11-04",
+    "lts": true,
+    "releaseDate": "2025-11-27",
+    "support": "2027-11-27"
+  },
+  {
+    "cycle": "16",
+    "eol": "2026-06-12",
+    "latest": "16.5.1",
+    "latestReleaseDate": "2026-03-10",
+    "lts": false,
+    "releaseDate": "2025-06-12",
+    "support": "2026-03-12"
+  },
+  {
+    "cycle": "15",
+    "eol": "2025-11-14",
+    "latest": "15.4.4",
+    "latestReleaseDate": "2025-07-29",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/15.4.4",
+    "lts": false,
+    "releaseDate": "2024-11-14",
+    "support": "2025-08-14"
+  },
+  {
+    "cycle": "14",
+    "eol": "2025-05-30",
+    "latest": "14.3.4",
+    "latestReleaseDate": "2025-04-08",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/14.3.4",
+    "lts": false,
+    "releaseDate": "2024-05-30",
+    "support": "2025-03-02"
+  },
+  {
+    "cycle": "13",
+    "eol": "2026-12-14",
+    "latest": "13.16.4",
+    "latestReleaseDate": "2026-10-27",
+    "lts": true,
+    "releaseDate": "2023-12-14",
+    "support": "2025-12-14"
+  },
+  {
+    "cycle": "12",
+    "eol": "2024-06-29",
+    "latest": "12.3.10",
+    "latestReleaseDate": "2024-05-17",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/12.3.10",
+    "lts": false,
+    "releaseDate": "2023-06-29",
+    "support": "2024-03-29"
+  },
+  {
+    "cycle": "11",
+    "eol": "2023-12-01",
+    "latest": "11.5.0",
+    "latestReleaseDate": "2023-09-05",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/11.5.0",
+    "lts": false,
+    "releaseDate": "2022-12-01",
+    "support": "2023-09-01"
+  },
+  {
+    "cycle": "10",
+    "eol": "2025-06-16",
+    "latest": "10.8.11",
+    "latestReleaseDate": "2025-06-24",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/10.8.11",
+    "lts": true,
+    "releaseDate": "2022-06-16",
+    "support": "2024-06-16"
+  },
+  {
+    "cycle": "9",
+    "eol": "2022-12-16",
+    "latest": "9.5.4",
+    "latestReleaseDate": "2022-09-05",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/9.5.4",
+    "lts": false,
+    "releaseDate": "2021-09-29",
+    "support": "2022-09-16"
+  },
+  {
+    "cycle": "8",
+    "eol": "2025-02-24",
+    "latest": "8.18.15",
+    "latestReleaseDate": "2024-10-21",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/8.18.15",
+    "lts": true,
+    "releaseDate": "2019-02-26",
+    "support": "2024-02-24"
+  },
+  {
+    "cycle": "7",
+    "eol": "2023-09-30",
+    "latest": "7.15.11",
+    "latestReleaseDate": "2023-09-05",
+    "link": "https://releases.umbraco.com/release/umbraco/Umbraco-CMS/7.15.11",
+    "lts": true,
+    "releaseDate": "2013-11-21",
+    "support": "2021-07-31"
+  },
+  {
+    "cycle": "6",
+    "eol": "2018-05-01",
+    "latest": "6.2.6",
+    "latestReleaseDate": "2016-03-03",
+    "link": "https://umbraco.com/products/knowledge-center/long-term-support-and-end-of-life/umbraco-6-end-of-life-eol/",
+    "lts": false,
+    "releaseDate": "2013-03-27",
+    "support": "2018-05-01"
+  }
+]

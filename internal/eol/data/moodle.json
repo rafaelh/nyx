@@ -1,0 +1,142 @@
+[
+  {
+    "cycle": "5.3",
+    "eol": "2029-10-01",
+    "latest": "5.3.1",
+    "latestReleaseDate": "2026-11-12",
+    "lts": true,
+    "releaseDate": "2026-10-05",
+    "support": "2027-10-04",
+    "supportedPhpVersions": "8.3 - 8.4"
+  },
+  {
+    "cycle": "5.2",
+    "eol": "2027-10-04",
+    "latest": "5.2.5",
+    "latestReleaseDate": "2026-11-12",
+    "lts": false,
+    "releaseDate": "2026-04-20",
+    "support": "2027-04-19",
+    "supportedPhpVersions": "8.2 - 8.4"
+  },
+  {
+    "cycle": "5.1",
+    "eol": "2027-04-19",
+    "latest": "5.1.9",
+    "latestReleaseDate": "2026-11-12",
+    "lts": false,
+    "releaseDate": "2025-10-06",
+    "support": "2026-10-05",
+    "supportedPhpVersions": "8.2 - 8.4"
+  },
+  {
+    "cycle": "5.0",
+    "eol": "2026-10-05",
+    "latest": "5.0.12",
+    "latestReleaseDate": "2026-11-12",
+    "lts": false,
+    "releaseDate": "2025-04-14",
+    "support": "2026-04-20",
+    "supportedPhpVersions": "8.1 - 8.4"
+  },
+  {
+    "cycle": "4.5",
+    "eol": "2027-10-04",
+    "latest": "4.5.16",
+    "latestReleaseDate": "2026-11-12",
+    "lts": true,
+    "releaseDate": "2024-10-07",
+    "support": "2025-10-06",
+    "supportedPhpVersions": "8.1 - 8.3"
+  },
+  {
+    "cycle": "4.4",
+    "eol": "2025-12-08",
+    "latest": "4.4.12",
+    "latestReleaseDate": "2025-12-07",
+    "lts": false,
+    "releaseDate": "2024-04-22",
+    "support": "2025-04-21",
+    "supportedPhpVersions": "8.1 - 8.3"
+  },
+  {
+    "cycle": "4.3",
+    "eol": "2025-04-21",
+    "latest": "4.3.12",
+    "latestReleaseDate": "2025-04-13",
+    "lts": false,
+    "releaseDate": "2023-10-07",
+    "support": "2024-10-07",
+    "supportedPhpVersions": "8.0 - 8.2"
+  },
+  {
+    "cycle": "4.2",
+    "eol": "2024-10-07",
+    "latest": "4.2.11",
+    "latestReleaseDate": "2024-10-05",
+    "lts": false,
+    "releaseDate": "2023-04-22",
+    "support": "2024-04-22",
+    "supportedPhpVersions": "8.0 - 8.2"
+  },
+  {
+    "cycle": "4.1",
+    "eol": "2025-12-08",
+    "latest": "4.1.22",
+    "latestReleaseDate": "2025-12-07",
+    "lts": true,
+    "releaseDate": "2022-11-28",
+    "support": "2023-12-11",
+    "supportedPhpVersions": "7.4 - 8.1"
+  },
+  {
+    "cycle": "4.0",
+    "eol": "2023-11-13",
+    "latest": "4.0.12",
+    "latestReleaseDate": "2023-12-08",
+    "lts": false,
+    "releaseDate": "2022-04-17",
+    "support": "2023-05-08",
+    "supportedPhpVersions": "7.3 - 8.0"
+  },
+  {
+    "cycle": "3.11",
+    "eol": "2023-11-13",
+    "latest": "3.11.18",
+    "latestReleaseDate": "2023-12-08",
+    "lts": false,
+    "releaseDate": "2021-05-15",
+    "support": "2022-11-14",
+    "supportedPhpVersions": "7.3 - 8.0"
+  },
+  {
+    "cycle": "3.10",
+    "eol": "2022-05-09",
+    "latest": "3.10.11",
+    "latestReleaseDate": "2022-05-07",
+    "lts": false,
+    "releaseDate": "2020-11-07",
+    "support": "2021-11-08",
+    "supportedPhpVersions": "7.2 - 7.4"
+  },
+  {
+    "cycle": "3.9",
+    "eol": "2023-11-13",
+    "latest": "3.9.25",
+    "latestReleaseDate": "2023-12-08",
+    "lts": true,
+    "releaseDate": "2020-06-13",
+    "support": "2021-05-10",
+    "supportedPhpVersions": "7.2 - 7.4"
+  },
+  {
+    "cycle": "3.8",
+    "eol": "2021-05-10",
+    "latest": "3.8.9",
+    "latestReleaseDate": "2021-05-08",
+    "lts": false,
+    "releaseDate": "2019-11-16",
+    "support": "2020-11-09",
+    "supportedPhpVersions": "7.1 - 7.4"
+  }
+]

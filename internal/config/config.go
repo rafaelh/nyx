@@ -153,6 +153,9 @@ type Settings struct {
 	GitHub                   GitHub
 	DNSHistory               DNSHistory
 	OriginCheck              OriginCheck
+	// EOLWarnDays is how many days before the end of a release cycle's security support the
+	// approaching finding is reported; 0 turns that finding off.
+	EOLWarnDays int
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable starting points, not
@@ -182,6 +185,7 @@ func Defaults() Settings {
 		GitHub:          GitHub{MaxResults: 500},
 		DNSHistory:      DNSHistory{MaxHosts: 200},
 		OriginCheck:     OriginCheck{MaxCandidates: 5},
+		EOLWarnDays:     90,
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -268,6 +272,7 @@ var settingTable = []setting{
 	{"jsparse-max-scripts", "jsparse.max_scripts"}, {"identifier-pivot-max-queries", "identifier_pivot.max_queries"},
 	{"github-max-results", "github.max_results"},
 	{"dnshistory-max-hosts", "dnshistory.max_hosts"}, {"origincheck-max-candidates", "origincheck.max_candidates"},
+	{"eol-warn-days", "eol_warn_days"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -309,6 +314,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("github-max-results", d.GitHub.MaxResults, "Maximum GitHub code search results read per root (at most 1000); changing it searches again")
 	fs.Int("dnshistory-max-hosts", d.DNSHistory.MaxHosts, "Maximum hostnames behind a CDN or WAF whose historical addresses are fetched from SecurityTrails per run; the rest are deferred to later runs")
 	fs.Int("origincheck-max-candidates", d.OriginCheck.MaxCandidates, "Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF")
+	fs.Int("eol-warn-days", d.EOLWarnDays, "Report software whose security support ends within this many days (0 turns the warning off)")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -375,6 +381,7 @@ type rawSettings struct {
 	OriginCheck struct {
 		MaxCandidates string `mapstructure:"max_candidates"`
 	} `mapstructure:"origincheck"`
+	EOLWarnDays string `mapstructure:"eol_warn_days"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the flags in fs that were
@@ -402,6 +409,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
 		"github.max_results":           d.GitHub.MaxResults,
 		"dnshistory.max_hosts":         d.DNSHistory.MaxHosts, "origincheck.max_candidates": d.OriginCheck.MaxCandidates,
+		"eol_warn_days": d.EOLWarnDays,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -504,6 +512,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("github.max_results", raw.GitHub.MaxResults, 1, &s.GitHub.MaxResults)
 	posInt("dnshistory.max_hosts", raw.DNSHistory.MaxHosts, 1, &s.DNSHistory.MaxHosts)
 	posInt("origincheck.max_candidates", raw.OriginCheck.MaxCandidates, 1, &s.OriginCheck.MaxCandidates)
+	posInt("eol_warn_days", raw.EOLWarnDays, 0, &s.EOLWarnDays)
 	if s.GitHub.MaxResults > maxGitHubResults {
 		bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
 	}

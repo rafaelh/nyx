@@ -176,3 +176,33 @@ func TestDKIMSelectors(t *testing.T) {
 		t.Errorf("hash = %q", config.DKIMSelectorHash())
 	}
 }
+
+// eol_warn_days (default 90, >= 0, where 0 turns the approaching finding off) is set by flag,
+// environment and file.
+func TestEOLWarnDaysSetting(t *testing.T) {
+	clearEnv(t)
+	s, err := load(t, "")
+	if err != nil || s.EOLWarnDays != 90 {
+		t.Errorf("default: %d %v", s.EOLWarnDays, err)
+	}
+	if s, err = load(t, "", "--eol-warn-days", "0"); err != nil || s.EOLWarnDays != 0 {
+		t.Errorf("flag 0: %d %v", s.EOLWarnDays, err)
+	}
+	if s, err = load(t, "", "--eol-warn-days", "30"); err != nil || s.EOLWarnDays != 30 {
+		t.Errorf("flag 30: %d %v", s.EOLWarnDays, err)
+	}
+	if s, err = load(t, writeFile(t, "eol_warn_days: 45\n")); err != nil || s.EOLWarnDays != 45 {
+		t.Errorf("file: %d %v", s.EOLWarnDays, err)
+	}
+	t.Setenv("NYX_EOL_WARN_DAYS", "7")
+	if s, err = load(t, ""); err != nil || s.EOLWarnDays != 7 {
+		t.Errorf("env: %d %v", s.EOLWarnDays, err)
+	}
+	os.Unsetenv("NYX_EOL_WARN_DAYS")
+	if _, err := load(t, "", "--eol-warn-days", "-1"); err == nil {
+		t.Error("--eol-warn-days -1 accepted")
+	}
+	if newFlagSetForHelp().Lookup("eol-warn-days") == nil {
+		t.Error("flag --eol-warn-days missing")
+	}
+}

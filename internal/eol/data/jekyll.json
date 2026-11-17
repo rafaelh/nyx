@@ -1,0 +1,54 @@
+[
+  {
+    "cycle": "4",
+    "eol": false,
+    "latest": "4.4.1",
+    "latestReleaseDate": "2025-01-29",
+    "lts": false,
+    "minRubyVersion": "2.5+",
+    "releaseDate": "2019-08-20",
+    "staleReleaseThresholdDays": 730,
+    "support": true
+  },
+  {
+    "cycle": "3",
+    "eol": false,
+    "latest": "3.10.0",
+    "latestReleaseDate": "2024-06-24",
+    "lts": false,
+    "minRubyVersion": "2.0+",
+    "releaseDate": "2015-10-26",
+    "staleReleaseThresholdDays": 1095,
+    "support": false
+  },
+  {
+    "cycle": "2",
+    "eol": "2015-10-27",
+    "latest": "2.5.3",
+    "latestReleaseDate": "2014-12-22",
+    "lts": false,
+    "minRubyVersion": "1.9.3+",
+    "releaseDate": "2014-05-06",
+    "support": false
+  },
+  {
+    "cycle": "1",
+    "eol": "2014-05-07",
+    "latest": "1.5.1",
+    "latestReleaseDate": "2014-03-28",
+    "lts": false,
+    "minRubyVersion": "1.8+",
+    "releaseDate": "2013-05-06",
+    "support": false
+  },
+  {
+    "cycle": "0",
+    "eol": "2014-05-07",
+    "latest": "0.9.0",
+    "latestReleaseDate": "2010-12-15",
+    "lts": false,
+    "minRubyVersion": "1.8+",
+    "releaseDate": "2008-10-19",
+    "support": false
+  }
+]

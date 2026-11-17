@@ -1,0 +1,152 @@
+[
+  {
+    "cycle": "2026.5",
+    "eol": "2028-03-01",
+    "latest": "2026.5.5",
+    "latestReleaseDate": "2026-11-13",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2026-5-lta/189075",
+    "lts": true,
+    "releaseDate": "2026-09-29",
+    "support": "2027-10-01"
+  },
+  {
+    "cycle": "2026.4",
+    "eol": "2026-09-29",
+    "latest": "2026.4.1",
+    "latestReleaseDate": "2026-08-07",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2026-release-4/186483",
+    "lts": false,
+    "releaseDate": "2026-07-23",
+    "support": "2026-09-29"
+  },
+  {
+    "cycle": "2026.3",
+    "eol": "2026-07-23",
+    "latest": "2026.3.1",
+    "latestReleaseDate": "2026-06-02",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2026-release-3-1/183153",
+    "lts": false,
+    "releaseDate": "2026-05-21",
+    "support": "2026-07-23"
+  },
+  {
+    "cycle": "2026.2",
+    "eol": "2026-05-21",
+    "latest": "2026.2.1",
+    "latestReleaseDate": "2026-03-30",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2026-release-2-1/180528",
+    "lts": false,
+    "releaseDate": "2026-03-24",
+    "support": "2026-05-21"
+  },
+  {
+    "cycle": "2026.1",
+    "eol": "2027-08-02",
+    "latest": "2026.1.8",
+    "latestReleaseDate": "2026-11-05",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2026-release-1-4-lta/186558",
+    "lts": true,
+    "releaseDate": "2026-01-30",
+    "support": "2027-01-30"
+  },
+  {
+    "cycle": "2025.6",
+    "eol": "2026-01-30",
+    "latest": "2025.6.1",
+    "latestReleaseDate": "2025-12-24",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2025-release-6/153802",
+    "lts": false,
+    "releaseDate": "2025-12-12",
+    "support": "2026-01-30"
+  },
+  {
+    "cycle": "2025.5",
+    "eol": "2025-12-12",
+    "latest": "2025.5",
+    "latestReleaseDate": "2025-09-26",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2025-release-4-2/146252",
+    "lts": false,
+    "releaseDate": "2025-09-26",
+    "support": "2025-12-12"
+  },
+  {
+    "cycle": "2025.4",
+    "eol": "2027-01-30",
+    "latest": "2025.4.11",
+    "latestReleaseDate": "2026-11-05",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2025-release-4-8-lta/186559",
+    "lts": true,
+    "releaseDate": "2025-07-30",
+    "support": "2026-07-30"
+  },
+  {
+    "cycle": "2025.3",
+    "eol": "2025-07-29",
+    "latest": "2025.3.1",
+    "latestReleaseDate": "2025-06-20",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2025-release-3-1/143131",
+    "lts": false,
+    "releaseDate": "2025-05-30",
+    "support": "2025-07-29"
+  },
+  {
+    "cycle": "2025.2",
+    "eol": "2025-05-26",
+    "latest": "2025.2.0",
+    "latestReleaseDate": "2025-03-27",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2025-release-2-released/137906",
+    "lts": false,
+    "releaseDate": "2025-03-27",
+    "support": "2025-05-26"
+  },
+  {
+    "cycle": "2025.1",
+    "eol": "2026-07-01",
+    "latest": "2025.1.8",
+    "latestReleaseDate": "2026-05-29",
+    "link": "https://community.sonarsource.com/t/sonarqube-server-2025-release-1-8-lta/182977",
+    "lts": true,
+    "releaseDate": "2025-01-23",
+    "support": "2026-01-23"
+  },
+  {
+    "cycle": "10",
+    "eol": "2025-03-26",
+    "latest": "10.8.0",
+    "latestReleaseDate": "2024-12-04",
+    "link": "https://www.sonarsource.com/products/sonarqube/whats-new/sonarqube-server-10-8/",
+    "lts": false,
+    "releaseDate": "2023-03-30",
+    "support": "2025-01-20"
+  },
+  {
+    "cycle": "9",
+    "eol": "2025-01-20",
+    "latest": "9.9.8",
+    "latestReleaseDate": "2024-11-25",
+    "link": "https://www.sonarsource.com/products/sonarqube/downloads/lts/9-9-lts/",
+    "lts": "2023-02-07",
+    "releaseDate": "2021-07-05",
+    "support": "2023-03-30"
+  },
+  {
+    "cycle": "8",
+    "eol": "2023-02-07",
+    "latest": "8.9.10",
+    "latestReleaseDate": "2022-10-14",
+    "link": "https://www.sonarsource.com/products/sonarqube/downloads/lts/8-9-lts/",
+    "lts": "2021-05-04",
+    "releaseDate": "2019-10-15",
+    "support": "2021-07-05"
+  },
+  {
+    "cycle": "7",
+    "eol": "2021-05-04",
+    "latest": "7.9.6",
+    "latestReleaseDate": "2021-03-01",
+    "link": "https://web.archive.org/web/20220707010454/https://www.sonarqube.org/sonarqube-7-9-lts/",
+    "lts": "2019-07-01",
+    "releaseDate": "2018-02-02",
+    "support": "2019-10-16"
+  }
+]

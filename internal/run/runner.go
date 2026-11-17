@@ -21,6 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/eol"
 	"github.com/rafaelh/nyx/internal/fault"
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/input"
@@ -183,6 +184,7 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 		"passive": r.cfg.Passive, "authorised": eng.Acked(),
 	})
 	r.warnUnauthorised()
+	r.warnStaleEOLData()
 
 	code, err := r.passes(ctx)
 	if err == nil && code == ExitOK {
@@ -397,6 +399,17 @@ func (r *Runner) gate(s Stage) (bool, string) {
 		return false, reason
 	}
 	return s.Configured(Env{Settings: r.cfg.Settings, Passive: r.cfg.Passive, Authorised: r.cfg.Engagement.Acked()})
+}
+
+// warnStaleEOLData warns, once per run and with no flag, when the run date is more than twelve
+// months after the day the embedded end-of-life data was taken: past that, findings of
+// end-of-life software may be missing or out of date. Findings are still derived from it.
+func (r *Runner) warnStaleEOLData() {
+	taken, err := time.Parse(time.DateOnly, eol.DataDate())
+	if err != nil || r.today() <= taken.AddDate(1, 0, 0).Format(time.DateOnly) {
+		return
+	}
+	r.warn("the end-of-life software data in this build was taken on %s, over twelve months ago, so end-of-life findings may be missing or out of date; use a newer build", eol.DataDate())
 }
 
 // warnUnauthorised warns, once, that stages are left out for lack of

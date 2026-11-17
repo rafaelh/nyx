@@ -1,0 +1,122 @@
+[
+  {
+    "cycle": "5.5",
+    "eol": false,
+    "latest": "5.5.1",
+    "latestReleaseDate": "2026-08-03",
+    "lts": false,
+    "releaseDate": "2025-12-22"
+  },
+  {
+    "cycle": "5.4",
+    "eol": "2026-08-25",
+    "latest": "5.4.9",
+    "latestReleaseDate": "2026-08-25",
+    "lts": false,
+    "releaseDate": "2020-06-29"
+  },
+  {
+    "cycle": "5.3",
+    "eol": "2020-09-25",
+    "latest": "5.3.6",
+    "latestReleaseDate": "2020-09-25",
+    "lts": false,
+    "releaseDate": "2015-01-12"
+  },
+  {
+    "cycle": "5.2",
+    "eol": "2015-03-07",
+    "latest": "5.2.4",
+    "latestReleaseDate": "2015-03-07",
+    "lts": false,
+    "releaseDate": "2011-12-16"
+  },
+  {
+    "cycle": "5.1",
+    "eol": "2012-02-17",
+    "latest": "5.1.5",
+    "latestReleaseDate": "2012-02-17",
+    "lts": false,
+    "releaseDate": "2006-02-21"
+  },
+  {
+    "cycle": "5.0",
+    "eol": "2006-06-26",
+    "latest": "5.0.3",
+    "latestReleaseDate": "2006-06-26",
+    "lts": false,
+    "releaseDate": "2003-04-11"
+  },
+  {
+    "cycle": "4.0",
+    "eol": "2002-07-04",
+    "latest": "4.0.1",
+    "latestReleaseDate": "2002-07-04",
+    "lts": false,
+    "releaseDate": "2000-11-06"
+  },
+  {
+    "cycle": "3.2",
+    "eol": "2000-02-22",
+    "latest": "3.2.2",
+    "latestReleaseDate": "2000-02-22",
+    "lts": false,
+    "releaseDate": "1999-07-08"
+  },
+  {
+    "cycle": "3.1",
+    "eol": "1999-07-08",
+    "latest": "3.1",
+    "latestReleaseDate": "1998-07-11",
+    "lts": false,
+    "releaseDate": "1998-07-11"
+  },
+  {
+    "cycle": "3.0",
+    "eol": "1998-07-11",
+    "latest": "3.0",
+    "latestReleaseDate": "1997-07-01",
+    "lts": false,
+    "releaseDate": "1997-07-01"
+  },
+  {
+    "cycle": "2.5",
+    "eol": "1997-07-01",
+    "latest": "2.5.1",
+    "latestReleaseDate": "1996-11-20",
+    "lts": false,
+    "releaseDate": "1996-11-19"
+  },
+  {
+    "cycle": "2.4",
+    "eol": "1996-11-19",
+    "latest": "2.4",
+    "latestReleaseDate": "1996-05-14",
+    "lts": false,
+    "releaseDate": "1996-05-14"
+  },
+  {
+    "cycle": "2.2",
+    "eol": "1996-05-14",
+    "latest": "2.2",
+    "latestReleaseDate": "1995-11-28",
+    "lts": false,
+    "releaseDate": "1995-11-28"
+  },
+  {
+    "cycle": "2.1",
+    "eol": "1995-11-28",
+    "latest": "2.1",
+    "latestReleaseDate": "1995-02-07",
+    "lts": false,
+    "releaseDate": "1995-02-07"
+  },
+  {
+    "cycle": "1.1",
+    "eol": "1995-02-07",
+    "latest": "1.1",
+    "latestReleaseDate": "1994-07-08",
+    "lts": false,
+    "releaseDate": "1994-07-08"
+  }
+]

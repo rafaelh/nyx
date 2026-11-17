@@ -128,6 +128,8 @@ func TestSeverityTable(t *testing.T) {
 		"web-posture/version-disclosure": "low",
 		"origin-exposure/confirmed":      "medium",
 		"origin-exposure/possible":       "low",
+		"eol-software/eol":               "medium",
+		"eol-software/eol-approaching":   "low",
 	}
 	got := map[string]string{}
 	for _, r := range findings.SeverityTable() {

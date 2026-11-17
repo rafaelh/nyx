@@ -680,7 +680,7 @@ func TestPortsPlumbing_OpenPortsCSV(t *testing.T) {
 	p.sweep([]int{7001, 10001})
 
 	raw := p.file(eng, "open-ports.csv")
-	if hdr := strings.SplitN(raw, "\n", 2)[0]; hdr != "ip,port,banner,hostnames,source,confirmed,shodan_last_seen,current,first_seen,last_seen" {
+	if hdr := strings.SplitN(raw, "\n", 2)[0]; hdr != "ip,port,banner,hostnames,source,confirmed,shodan_last_seen,product,version,current,first_seen,last_seen" {
 		t.Errorf("header = %q", hdr)
 	}
 	// Sorted as strings, like every other CSV: "10001" sorts before "7001".

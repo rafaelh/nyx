@@ -1,0 +1,131 @@
+[
+  {
+    "cycle": "1.15",
+    "eol": false,
+    "latest": "1.15.0",
+    "latestReleaseDate": "2026-10-08",
+    "lts": true,
+    "releaseDate": "2026-10-08"
+  },
+  {
+    "cycle": "1.14",
+    "eol": true,
+    "latest": "1.14.5",
+    "latestReleaseDate": "2024-12-08",
+    "lts": true,
+    "releaseDate": "2020-05-27"
+  },
+  {
+    "cycle": "1.13",
+    "eol": true,
+    "latest": "1.13.0",
+    "latestReleaseDate": "2019-10-30",
+    "lts": false,
+    "releaseDate": "2019-10-30"
+  },
+  {
+    "cycle": "1.12",
+    "eol": true,
+    "latest": "1.12.2",
+    "latestReleaseDate": "2019-07-24",
+    "lts": false,
+    "releaseDate": "2019-04-24"
+  },
+  {
+    "cycle": "1.11",
+    "eol": true,
+    "latest": "1.11.1",
+    "latestReleaseDate": "2019-01-11",
+    "lts": false,
+    "releaseDate": "2018-10-30"
+  },
+  {
+    "cycle": "1.10",
+    "eol": true,
+    "latest": "1.10.8",
+    "latestReleaseDate": "2022-04-12",
+    "lts": true,
+    "releaseDate": "2018-04-12"
+  },
+  {
+    "cycle": "1.9",
+    "eol": true,
+    "latest": "1.9.12",
+    "latestReleaseDate": "2019-07-24",
+    "lts": true,
+    "releaseDate": "2015-08-05"
+  },
+  {
+    "cycle": "1.8",
+    "eol": true,
+    "latest": "1.8.19",
+    "latestReleaseDate": "2017-08-10",
+    "lts": true,
+    "releaseDate": "2013-06-18"
+  },
+  {
+    "cycle": "1.7",
+    "eol": true,
+    "latest": "1.7.22",
+    "latestReleaseDate": "2015-08-14",
+    "lts": true,
+    "releaseDate": "2011-10-11"
+  },
+  {
+    "cycle": "1.6",
+    "eol": true,
+    "latest": "1.6.23",
+    "latestReleaseDate": "2013-05-31",
+    "lts": true,
+    "releaseDate": "2009-03-20"
+  },
+  {
+    "cycle": "1.5",
+    "eol": true,
+    "latest": "1.5.9",
+    "latestReleaseDate": "2010-12-22",
+    "lts": true,
+    "releaseDate": "2008-06-19"
+  },
+  {
+    "cycle": "1.4",
+    "eol": true,
+    "latest": "1.4.6",
+    "latestReleaseDate": "2007-12-20",
+    "lts": true,
+    "releaseDate": "2006-09-10"
+  },
+  {
+    "cycle": "1.3",
+    "eol": true,
+    "latest": "1.3.2",
+    "latestReleaseDate": "2006-05-31",
+    "lts": true,
+    "releaseDate": "2005-12-30"
+  },
+  {
+    "cycle": "1.2",
+    "eol": true,
+    "latest": "1.2.3",
+    "latestReleaseDate": "2005-08-25",
+    "lts": true,
+    "releaseDate": "2005-05-21"
+  },
+  {
+    "cycle": "1.1",
+    "eol": true,
+    "latest": "1.1.4",
+    "latestReleaseDate": "2005-04-01",
+    "lts": true,
+    "releaseDate": "2004-09-29"
+  },
+  {
+    "cycle": "1.0",
+    "eol": true,
+    "latest": "1.0.9",
+    "latestReleaseDate": "2004-10-13",
+    "link": null,
+    "lts": true,
+    "releaseDate": "2004-02-23"
+  }
+]

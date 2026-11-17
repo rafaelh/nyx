@@ -32,11 +32,19 @@ func ParsePortKey(key string) (netip.AddrPort, bool) {
 }
 
 // EncodeBanner escapes a banner so it is lossless for binary greetings and
-// invalid UTF-8, and readable for text. strconv.Unquote reverses it when the
-// text is wrapped in double quotes again.
+// invalid UTF-8, and readable for text. DecodeBanner reverses it.
 func EncodeBanner(b string) string {
 	q := strconv.Quote(b)
 	return q[1 : len(q)-1]
+}
+
+// DecodeBanner returns the text of a banner as EncodeBanner stored it, or the
+// stored text itself when it is not in that form.
+func DecodeBanner(b string) string {
+	if s, err := strconv.Unquote(`"` + b + `"`); err == nil {
+		return s
+	}
+	return b
 }
 
 // ShodanBanner is a third party's banner as it is stored: cut to its first line

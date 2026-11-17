@@ -5,11 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	bannerparse "github.com/rafaelh/nyx/internal/banner"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-var openPortColumns = []string{"ip", "port", "banner", "hostnames", "source", "confirmed", "shodan_last_seen"}
+var openPortColumns = []string{"ip", "port", "banner", "hostnames", "source", "confirmed", "shodan_last_seen", "product", "version"}
 
 // portSources is what is known of one address and port: nyx's own handshake and
 // the third party's report, either of which may be missing.
@@ -20,8 +21,10 @@ type portSources struct {
 // openPortRows lists the ports nyx found open and the ports a third party
 // reports, one row for each address and port. source says who knows it (nyx,
 // shodan, or nyx;shodan) and confirmed whether nyx completed a handshake. The
-// banner is nyx's when it has one, else the third party's. The record keys are
-// authoritative for the address and port.
+// banner is nyx's when it has one, else the third party's. product and version are read from
+// that banner, and are empty when it is not a recognised SSH, FTP or SMTP banner (they are
+// derived on read, so an engagement made without them gains them with no new contact). The
+// record keys are authoritative for the address and port.
 //
 // A reported port nyx found closed is still listed, as a row that is not
 // current: the showing rule hides it from the counts and findings, and the file
@@ -85,9 +88,10 @@ func openPortRows(s Snapshot) []Row {
 				banner = b
 			}
 		}
+		product, version, _ := bannerparse.Parse(kinds.DecodeBanner(banner))
 		rows = append(rows, Row{
 			Cells: []string{ap.Addr().String(), strconv.Itoa(int(ap.Port())), banner, strings.Join(hostnames[ap.Addr()], ";"),
-				strings.Join(sources, ";"), yesNo(e.open != nil && e.open.Current), seen},
+				strings.Join(sources, ";"), yesNo(e.open != nil && e.open.Current), seen, product, version},
 			Current: current, FirstSeen: first, LastSeen: last,
 		})
 	}

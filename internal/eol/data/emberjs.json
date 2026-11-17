@@ -1,0 +1,424 @@
+[
+  {
+    "cycle": "7.3",
+    "eol": false,
+    "latest": "7.3.1",
+    "latestReleaseDate": "2026-10-14",
+    "link": "https://blog.emberjs.com/ember-released-7-3/",
+    "lts": false,
+    "releaseDate": "2026-10-05",
+    "support": true
+  },
+  {
+    "cycle": "7.2",
+    "eol": "2026-10-05",
+    "latest": "7.2.1",
+    "latestReleaseDate": "2026-09-14",
+    "link": "https://blog.emberjs.com/ember-released-7-2/",
+    "lts": false,
+    "releaseDate": "2026-09-08",
+    "support": "2026-10-05"
+  },
+  {
+    "cycle": "7.1",
+    "eol": "2026-09-08",
+    "latest": "7.1.0",
+    "latestReleaseDate": "2026-06-22",
+    "link": "https://blog.emberjs.com/ember-released-7-1/",
+    "lts": false,
+    "releaseDate": "2026-07-26",
+    "support": "2026-09-08"
+  },
+  {
+    "cycle": "7.0",
+    "eol": "2026-07-26",
+    "latest": "7.0.0",
+    "latestReleaseDate": "2026-05-12",
+    "link": "https://blog.emberjs.com/ember-released-7-0/",
+    "lts": false,
+    "releaseDate": "2026-05-29",
+    "support": "2026-07-26"
+  },
+  {
+    "cycle": "6.12",
+    "eol": "2027-05-25",
+    "latest": "6.12.1",
+    "latestReleaseDate": "2026-10-14",
+    "link": "https://blog.emberjs.com/ember-released-6-12/",
+    "lts": "2026-05-12",
+    "releaseDate": "2026-05-01",
+    "support": "2026-12-08"
+  },
+  {
+    "cycle": "6.11",
+    "eol": "2026-05-01",
+    "latest": "6.11.1",
+    "latestReleaseDate": "2026-03-27",
+    "link": "https://blog.emberjs.com/ember-released-6-11/",
+    "lts": false,
+    "releaseDate": "2026-03-06",
+    "support": "2026-05-01"
+  },
+  {
+    "cycle": "6.10",
+    "eol": "2026-03-06",
+    "latest": "6.10.1",
+    "latestReleaseDate": "2026-02-03",
+    "link": "https://blog.emberjs.com/ember-released-6-10/",
+    "lts": false,
+    "releaseDate": "2026-02-06",
+    "support": "2026-03-06"
+  },
+  {
+    "cycle": "6.9",
+    "eol": "2026-02-06",
+    "latest": "6.9.0",
+    "latestReleaseDate": "2025-11-25",
+    "link": "https://blog.emberjs.com/ember-released-6-9/",
+    "lts": false,
+    "releaseDate": "2026-01-09",
+    "support": "2026-02-06"
+  },
+  {
+    "cycle": "6.8",
+    "eol": "2026-12-08",
+    "latest": "6.8.4",
+    "latestReleaseDate": "2026-03-27",
+    "link": "https://blog.emberjs.com/ember-released-6-8/",
+    "lts": "2025-11-25",
+    "releaseDate": "2025-10-25",
+    "support": "2026-06-23"
+  },
+  {
+    "cycle": "6.7",
+    "eol": "2025-10-25",
+    "latest": "6.7.0",
+    "latestReleaseDate": "2025-09-01",
+    "link": "https://blog.emberjs.com/ember-released-6-7/",
+    "lts": false,
+    "releaseDate": "2025-09-01",
+    "support": "2025-10-25"
+  },
+  {
+    "cycle": "6.6",
+    "eol": "2025-09-03",
+    "latest": "6.6.0",
+    "latestReleaseDate": "2025-07-21",
+    "link": "https://blog.emberjs.com/ember-released-6-6/",
+    "lts": false,
+    "releaseDate": "2025-07-21",
+    "support": "2025-09-03"
+  },
+  {
+    "cycle": "6.5",
+    "eol": "2025-09-01",
+    "latest": "6.5.0",
+    "latestReleaseDate": "2025-06-09",
+    "link": "https://blog.emberjs.com/ember-released-6-5/",
+    "lts": false,
+    "releaseDate": "2025-06-09",
+    "support": "2025-09-01"
+  },
+  {
+    "cycle": "6.4",
+    "eol": "2026-06-22",
+    "latest": "6.4.0",
+    "latestReleaseDate": "2025-04-28",
+    "link": "https://blog.emberjs.com/ember-released-6-4/",
+    "lts": "2025-06-09",
+    "releaseDate": "2025-04-28",
+    "support": "2026-01-05"
+  },
+  {
+    "cycle": "6.3",
+    "eol": "2025-05-26",
+    "latest": "6.3.0",
+    "latestReleaseDate": "2025-03-17",
+    "link": "https://blog.emberjs.com/ember-released-6-3/",
+    "lts": false,
+    "releaseDate": "2025-03-17",
+    "support": "2025-05-26"
+  },
+  {
+    "cycle": "6.2",
+    "eol": "2025-03-28",
+    "latest": "6.2.0",
+    "latestReleaseDate": "2025-02-03",
+    "link": "https://blog.emberjs.com/ember-released-6-2/",
+    "lts": false,
+    "releaseDate": "2025-02-03",
+    "support": "2025-03-28"
+  },
+  {
+    "cycle": "6.1",
+    "eol": "2025-02-22",
+    "latest": "6.1.0",
+    "latestReleaseDate": "2024-12-23",
+    "link": "https://blog.emberjs.com/ember-released-6-1/",
+    "lts": false,
+    "releaseDate": "2024-12-23",
+    "support": "2025-02-22"
+  },
+  {
+    "cycle": "6.0",
+    "eol": "2024-12-28",
+    "latest": "6.0.1",
+    "latestReleaseDate": "2024-11-15",
+    "link": "https://blog.emberjs.com/ember-6-0-released/",
+    "lts": false,
+    "releaseDate": "2024-11-12",
+    "support": "2024-12-28"
+  },
+  {
+    "cycle": "5.12",
+    "eol": "2025-10-13",
+    "latest": "5.12.0",
+    "latestReleaseDate": "2024-09-30",
+    "lts": "2024-09-30",
+    "releaseDate": "2024-09-30",
+    "support": "2025-04-28"
+  },
+  {
+    "cycle": "5.11",
+    "eol": "2024-10-04",
+    "latest": "5.11.1",
+    "latestReleaseDate": "2024-09-23",
+    "lts": false,
+    "releaseDate": "2024-08-19",
+    "support": "2024-10-04"
+  },
+  {
+    "cycle": "5.10",
+    "eol": "2024-08-19",
+    "latest": "5.10.2",
+    "latestReleaseDate": "2024-08-06",
+    "lts": false,
+    "releaseDate": "2024-07-08",
+    "support": "2024-08-19"
+  },
+  {
+    "cycle": "5.9",
+    "eol": "2024-07-08",
+    "latest": "5.9.0",
+    "latestReleaseDate": "2024-06-03",
+    "lts": false,
+    "releaseDate": "2024-06-03",
+    "support": "2024-07-08"
+  },
+  {
+    "cycle": "5.8",
+    "eol": "2025-06-16",
+    "latest": "5.8.0",
+    "latestReleaseDate": "2024-04-15",
+    "lts": "2024-06-03",
+    "releaseDate": "2024-04-15",
+    "support": "2024-12-30"
+  },
+  {
+    "cycle": "5.7",
+    "eol": "2024-04-20",
+    "latest": "5.7.0",
+    "latestReleaseDate": "2024-03-04",
+    "lts": false,
+    "releaseDate": "2024-03-04",
+    "support": "2024-04-20"
+  },
+  {
+    "cycle": "5.6",
+    "eol": "2024-03-04",
+    "latest": "5.6.0",
+    "latestReleaseDate": "2024-01-22",
+    "lts": false,
+    "releaseDate": "2024-01-22",
+    "support": "2024-03-04"
+  },
+  {
+    "cycle": "5.5",
+    "eol": "2024-01-22",
+    "latest": "5.5.0",
+    "latestReleaseDate": "2023-12-11",
+    "lts": false,
+    "releaseDate": "2023-12-11",
+    "support": "2024-01-22"
+  },
+  {
+    "cycle": "5.4",
+    "eol": "2024-12-23",
+    "latest": "5.4.1",
+    "latestReleaseDate": "2024-01-22",
+    "lts": "2023-12-11",
+    "releaseDate": "2023-10-30",
+    "support": "2024-07-08"
+  },
+  {
+    "cycle": "5.3",
+    "eol": "2024-12-22",
+    "latest": "5.3.0",
+    "latestReleaseDate": "2023-09-18",
+    "lts": false,
+    "releaseDate": "2023-09-18",
+    "support": "2024-07-07"
+  },
+  {
+    "cycle": "5.2",
+    "eol": "2023-09-21",
+    "latest": "5.2.0",
+    "latestReleaseDate": "2023-08-07",
+    "lts": false,
+    "releaseDate": "2023-08-07",
+    "support": "2023-09-21"
+  },
+  {
+    "cycle": "5.1",
+    "eol": "2023-08-07",
+    "latest": "5.1.2",
+    "latestReleaseDate": "2023-06-30",
+    "lts": false,
+    "releaseDate": "2023-06-26",
+    "support": "2023-08-07"
+  },
+  {
+    "cycle": "5.0",
+    "eol": "2023-07-08",
+    "latest": "5.0.0",
+    "latestReleaseDate": "2023-05-15",
+    "lts": false,
+    "releaseDate": "2023-05-15",
+    "support": "2023-07-08"
+  },
+  {
+    "cycle": "4.12",
+    "eol": "2024-05-26",
+    "latest": "4.12.4",
+    "latestReleaseDate": "2024-01-22",
+    "lts": "2023-05-14",
+    "releaseDate": "2023-04-03",
+    "support": "2023-12-10"
+  },
+  {
+    "cycle": "4.8",
+    "eol": "2023-12-21",
+    "latest": "4.8.6",
+    "latestReleaseDate": "2023-06-12",
+    "lts": "2022-12-08",
+    "releaseDate": "2022-10-17",
+    "support": "2023-07-06"
+  },
+  {
+    "cycle": "4.4",
+    "eol": "2023-07-26",
+    "latest": "4.4.5",
+    "latestReleaseDate": "2023-05-04",
+    "lts": "2022-07-13",
+    "releaseDate": "2022-05-03",
+    "support": "2023-02-08"
+  },
+  {
+    "cycle": "3.28",
+    "eol": "2023-01-02",
+    "latest": "3.28.12",
+    "latestReleaseDate": "2023-05-04",
+    "lts": "2021-12-20",
+    "releaseDate": "2021-08-10",
+    "support": "2022-07-18"
+  },
+  {
+    "cycle": "3.24",
+    "eol": "2022-03-10",
+    "latest": "3.24.7",
+    "latestReleaseDate": "2022-11-02",
+    "lts": "2021-02-25",
+    "releaseDate": "2020-12-28",
+    "support": "2021-09-23"
+  },
+  {
+    "cycle": "3.20",
+    "eol": "2021-09-15",
+    "latest": "3.20.7",
+    "latestReleaseDate": "2021-06-03",
+    "lts": "2020-09-02",
+    "releaseDate": "2020-07-13",
+    "support": "2021-03-31"
+  },
+  {
+    "cycle": "3.16",
+    "eol": "2021-03-29",
+    "latest": "3.16.10",
+    "latestReleaseDate": "2020-08-05",
+    "lts": "2020-03-16",
+    "releaseDate": "2020-01-20",
+    "support": "2020-10-12"
+  },
+  {
+    "cycle": "3.12",
+    "eol": "2020-10-07",
+    "latest": "3.12.4",
+    "latestReleaseDate": "2020-05-21",
+    "lts": "2019-09-25",
+    "releaseDate": "2019-08-06",
+    "support": "2020-04-22"
+  },
+  {
+    "cycle": "3.8",
+    "eol": "2020-04-22",
+    "latest": "3.8.3",
+    "latestReleaseDate": "2019-06-28",
+    "lts": "2019-04-10",
+    "releaseDate": "2019-02-18",
+    "support": "2019-11-06"
+  },
+  {
+    "cycle": "3.4",
+    "eol": "2019-10-28",
+    "latest": "3.4.8",
+    "latestReleaseDate": "2019-01-22",
+    "lts": "2018-10-15",
+    "releaseDate": "2018-08-28",
+    "support": "2019-05-13"
+  },
+  {
+    "cycle": "2.18",
+    "eol": "2019-02-27",
+    "latest": "2.18.3",
+    "latestReleaseDate": "2026-01-30",
+    "lts": "2018-02-14",
+    "releaseDate": "2018-01-01",
+    "support": "2018-09-12"
+  },
+  {
+    "cycle": "2.16",
+    "eol": "2018-12-03",
+    "latest": "2.16.4",
+    "latestReleaseDate": "2018-02-14",
+    "lts": "2017-11-20",
+    "releaseDate": "2017-10-10",
+    "support": "2018-06-18"
+  },
+  {
+    "cycle": "2.12",
+    "eol": "2018-05-12",
+    "latest": "2.12.2",
+    "latestReleaseDate": "2017-04-27",
+    "lts": "2017-04-29",
+    "releaseDate": "2017-03-15",
+    "support": "2017-11-25"
+  },
+  {
+    "cycle": "2.8",
+    "eol": "2017-10-30",
+    "latest": "2.8.3",
+    "latestReleaseDate": "2016-11-01",
+    "lts": "2016-10-17",
+    "releaseDate": "2016-09-09",
+    "support": "2017-05-15"
+  },
+  {
+    "cycle": "2.4",
+    "eol": "2017-04-24",
+    "latest": "2.4.6",
+    "latestReleaseDate": "2016-06-05",
+    "lts": "2016-04-11",
+    "releaseDate": "2016-02-29",
+    "support": "2016-11-07"
+  }
+]
