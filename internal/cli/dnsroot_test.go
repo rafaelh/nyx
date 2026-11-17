@@ -127,10 +127,23 @@ func TestDNSRoot_NameServers(t *testing.T) {
 			t.Errorf("an out-of-scope name server became a candidate: %v", r)
 		}
 	}
+	// Neither is resolved: no resolution row, no hostname. A known provider's name
+	// server is not looked up at all; one of unknown provider has its address looked
+	// up, only to say whether it is self-hosted.
 	for _, n := range []string{"ns1.cloudflare.com", "ns1.unknown-dns.test"} {
-		if c := w.dns.Count(n, "A") + w.dns.Count(n, "AAAA"); c != 0 {
-			t.Errorf("out-of-scope %s was resolved (%d queries)", n, c)
+		if r := resolutionRow(w, n, "A"); r != nil {
+			t.Errorf("out-of-scope %s was resolved: %v", n, r)
 		}
+		if slices.Contains(w.lines(eng, "subdomains.txt"), n) {
+			t.Errorf("out-of-scope %s is a hostname", n)
+		}
+	}
+	if c := w.dns.Count("ns1.cloudflare.com", "A") + w.dns.Count("ns1.cloudflare.com", "AAAA"); c != 0 {
+		t.Errorf("a known provider's name server was looked up (%d queries)", c)
+	}
+	if w.dns.Count("ns1.unknown-dns.test", "A") != 1 || w.dns.Count("ns1.unknown-dns.test", "AAAA") != 1 {
+		t.Errorf("an unknown name server's addresses were asked %d and %d times, want once each",
+			w.dns.Count("ns1.unknown-dns.test", "A"), w.dns.Count("ns1.unknown-dns.test", "AAAA"))
 	}
 	// A SOA primary outside scope is not a third party: only name servers are.
 	w2 := newWorld(t)
@@ -280,6 +293,7 @@ func TestDNSRoot_ChecksAndPassive(t *testing.T) {
 		if root, _, ok := strings.Cut(k, "|SRV|"); ok { // the SRV key ends in a hash of the service list
 			k = root + "|SRV"
 		}
+		k = strings.TrimSuffix(k, "|addrs") // the NS key carries a token for its address lookups
 		got = append(got, k)
 	}
 	want := []string{"example.com|CAA", "example.com|NS", "example.com|SOA", "example.com|SRV", "example.com|TXT"}
@@ -347,8 +361,8 @@ func TestDNSRoot_Outcomes(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	done := w.h.completed(eng, "dnsroot")
-	for _, k := range []string{"example.com|NS", "example.com|SOA", "example.com|CAA",
-		"gone.example.org|NS", "gone.example.org|SOA", "gone.example.org|TXT", "gone.example.org|CAA"} {
+	for _, k := range []string{"example.com|NS|addrs", "example.com|SOA", "example.com|CAA",
+		"gone.example.org|NS|addrs", "gone.example.org|SOA", "gone.example.org|TXT", "gone.example.org|CAA"} {
 		if !slices.Contains(done, k) {
 			t.Errorf("check %s did not complete (NODATA and NXDOMAIN are results): %v", k, done)
 		}

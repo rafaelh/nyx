@@ -58,7 +58,7 @@ func TestEmailPostureFile(t *testing.T) {
 		srec("email_posture", "other.org", true, "spf", "v=spf1 -all"),
 	}})
 	f := file(t, "email-posture.csv")
-	if !slices.Equal(f.Columns, []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors", "mta_sts"}) {
+	if !slices.Equal(f.Columns, []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors", "mta_sts", "mx_self_hosted"}) {
 		t.Errorf("columns = %v", f.Columns)
 	}
 	rows := f.Rows(snap)
@@ -66,7 +66,7 @@ func TestEmailPostureFile(t *testing.T) {
 		t.Fatalf("rows = %v", rows)
 	}
 	got := cellMap(f, rows[0])
-	if got["root"] != "example.com" || got["spf_lookups"] != "3" || got["dkim_selectors"] != "google;k1" || got["dmarc_policy"] != "none" || got["mta_sts"] != "absent" {
+	if got["root"] != "example.com" || got["spf_lookups"] != "3" || got["dkim_selectors"] != "google;k1" || got["dmarc_policy"] != "none" || got["mta_sts"] != "absent" || got["mx_self_hosted"] != "mail.example.com" {
 		t.Errorf("row = %v", got)
 	}
 }

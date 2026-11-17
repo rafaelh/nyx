@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/dnsname"
@@ -12,6 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/stages/serveraddr"
 )
 
 // DNSRoot records the NS, SOA, TXT and CAA records of each in-scope input
@@ -21,6 +23,9 @@ import (
 // list of SRV names under the root (mail, identity, voice, collaboration and
 // game services), as one more check per root. It asks the same public
 // resolvers as resolve and never attempts a zone transfer.
+//
+// The NS check also looks up its name servers' addresses (serveraddr), for
+// inventory.SelfHosted only; its key ends serveraddr.KeyToken.
 type DNSRoot struct{ base }
 
 // NewDNSRoot returns the dnsroot stage.
@@ -69,7 +74,11 @@ func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 				continue
 			}
 			for _, t := range rootTypes {
-				c := run.Check{Key: root + "|" + t.name, Input: rootInput{root, t, v.Scope()}}
+				key := root + "|" + t.name
+				if t.name == "NS" {
+					key += serveraddr.KeyToken
+				}
+				c := run.Check{Key: key, Input: rootInput{root, t, v.Scope()}}
 				if !yield(c, nil) {
 					return
 				}
@@ -96,6 +105,7 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		return nil, fmt.Errorf("%s %s: resolver answered SERVFAIL", in.root, in.t.name)
 	}
 	var obs []run.Observation
+	var servers []string // the name servers of an NS answer
 	for _, a := range res.Answers {
 		if a.Type != in.t.name || a.Value == "" {
 			continue
@@ -110,6 +120,9 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		switch in.t.name {
 		case "NS", "SOA":
 			target, _, _ := strings.Cut(a.Value, " ") // an SOA value starts with its primary
+			if in.t.name == "NS" {
+				servers = append(servers, target)
+			}
 			mechanism := kinds.MechanismNS
 			if in.t.name == "SOA" {
 				mechanism = "" // an SOA primary outside the scope adds nothing
@@ -121,6 +134,14 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 					kinds.ThirdPartyAttrs{Root: in.root, Mechanism: kinds.MechanismTXTVerification, Provider: platform}))
 			}
 		}
+	}
+	slices.Sort(servers)
+	for _, host := range slices.Compact(servers) {
+		addrs, err := serveraddr.Observations(ctx, e, in.sc, host)
+		if err != nil {
+			return nil, err
+		}
+		obs = append(obs, addrs...)
 	}
 	return obs, nil
 }

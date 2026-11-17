@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -49,6 +50,21 @@ type DNSResult struct {
 	// CNAMEs is the alias chain in answer order. It is populated for every
 	// rcode, so a chain ending in NXDOMAIN or NODATA is visible.
 	CNAMEs []CNAME
+}
+
+// Addrs are the A and AAAA answers, unmapped. An answer that is not an address is
+// left out.
+func (r DNSResult) Addrs() []netip.Addr {
+	var out []netip.Addr
+	for _, a := range r.Answers {
+		if a.Type != "A" && a.Type != "AAAA" {
+			continue
+		}
+		if addr, err := netip.ParseAddr(a.Value); err == nil {
+			out = append(out, addr.Unmap())
+		}
+	}
+	return out
 }
 
 // Resolver queries the fixed public resolver set. It has no zone-transfer API.

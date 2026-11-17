@@ -384,6 +384,10 @@ func (v View) OpenPorts() []OpenPort {
 // egress enforces and ips.csv reports.
 func (v View) PortEligible(a netip.Addr) bool { return v.inv.PortEligible(a, v.sc) }
 
+// SelfHosted reports whether a name server or mail host is run by the
+// organisation (see inventory.SelfHosted).
+func (v View) SelfHosted(host string) bool { return v.inv.SelfHosted(host, v.sc) }
+
 // Registered reports whether a current registration record's range holds the address.
 func (v View) Registered(a netip.Addr) bool {
 	_, ok := v.inv.RegistrationOf(a)

@@ -41,19 +41,6 @@ func lookup(ctx context.Context, e egress.Clients, name string, qtype uint16) (e
 	return res, nil
 }
 
-func addrsOf(res egress.DNSResult) []netip.Addr {
-	var out []netip.Addr
-	for _, a := range res.Answers {
-		if a.Type != "A" && a.Type != "AAAA" {
-			continue
-		}
-		if addr, err := netip.ParseAddr(a.Value); err == nil {
-			out = append(out, addr.Unmap())
-		}
-	}
-	return out
-}
-
 func sortedStrings(addrs []netip.Addr) []string {
 	out := make([]string, len(addrs))
 	for i, a := range addrs {

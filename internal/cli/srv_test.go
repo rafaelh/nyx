@@ -147,7 +147,7 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 				t.Errorf("a failed lookup completed the SRV check: %v", k)
 			}
 			done := w.h.completed(eng, "dnsroot")
-			for _, k := range []string{"example.com|NS", "example.com|SOA", "example.com|TXT", "example.com|CAA"} {
+			for _, k := range []string{"example.com|NS|addrs", "example.com|SOA", "example.com|TXT", "example.com|CAA"} {
 				if !slices.Contains(done, k) {
 					t.Errorf("check %s did not complete: %v", k, done)
 				}

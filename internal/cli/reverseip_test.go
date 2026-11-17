@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -68,19 +69,34 @@ func (x *web) hackerTarget() *htReverse {
 	return f
 }
 
-// stQuery is the body of a SecurityTrails domain search by address.
+// stQuery is the body of a SecurityTrails domain search.
 type stQuery struct {
 	Filter map[string]string `json:"filter"`
 }
 
 func (q stQuery) addr() string { return q.Filter["ipv4"] + q.Filter["ipv6"] }
 
-// stReverse is api.securitytrails.com's domain search by address. The key is
-// checked, and every request that is not a domain search is a 404.
+// server is the name server or mail host searched for, as "ns|<host>" or
+// "mx|<host>", or "" for a search by address.
+func (q stQuery) server() string {
+	switch {
+	case q.Filter["ns"] != "":
+		return "ns|" + q.Filter["ns"]
+	case q.Filter["mx"] != "":
+		return "mx|" + q.Filter["mx"]
+	}
+	return ""
+}
+
+// stReverse is api.securitytrails.com's domain search by address, name server or
+// mail host. The key is checked, and every request that is not a domain search is
+// a 404.
 type stReverse struct {
-	mu     sync.Mutex
-	byAddr map[string][]string
-	status int
+	mu                 sync.Mutex
+	byAddr, byNS, byMX map[string][]string
+	total              map[string]int // the record_count to report for a server search, where it is not the list's length
+	status             int
+	pageSize           int // records per page; 0 puts them all on one page
 }
 
 func (f *stReverse) serve(rw http.ResponseWriter, r *http.Request) {
@@ -100,12 +116,32 @@ func (f *stReverse) serve(rw http.ResponseWriter, r *http.Request) {
 	}
 	var q stQuery
 	_ = json.NewDecoder(r.Body).Decode(&q)
-	addr := q.addr()
+	names := f.byAddr[q.addr()]
+	if q.server() != "" {
+		names = slices.Concat(f.byNS[q.Filter["ns"]], f.byMX[q.Filter["mx"]])
+	}
+	total := len(names)
+	if t, ok := f.total[q.server()]; ok {
+		total = t
+	}
+	pages := 1
+	if f.pageSize > 0 {
+		pages = max(1, (len(names)+f.pageSize-1)/f.pageSize)
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		lo := min(len(names), max(0, page-1)*f.pageSize)
+		names = names[lo:min(len(names), lo+f.pageSize)]
+	}
 	records := []map[string]string{}
-	for _, n := range f.byAddr[addr] {
+	for _, n := range names {
 		records = append(records, map[string]string{"hostname": n})
 	}
-	_ = json.NewEncoder(rw).Encode(map[string]any{"endpoint": "/v1/domains/list", "pages": 1, "record_count": len(records), "records": records})
+	_ = json.NewEncoder(rw).Encode(map[string]any{"endpoint": "/v1/domains/list", "pages": pages, "record_count": total, "records": records})
+}
+
+func (f *stReverse) setStatus(code int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.status = code
 }
 
 func (x *web) securityTrails(byAddr map[string][]string) *stReverse {

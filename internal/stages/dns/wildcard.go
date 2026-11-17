@@ -102,7 +102,7 @@ func (w *Wildcard) Run(ctx context.Context, c run.Check, e egress.Clients) ([]ru
 			if len(res.CNAMEs) > 0 && cname == "" {
 				cname = res.CNAMEs[0].Target
 			}
-			addrs = append(addrs, addrsOf(res)...)
+			addrs = append(addrs, res.Addrs()...)
 		}
 	}
 	// A failed probe proves nothing: recording "no wildcard" would let every

@@ -4,13 +4,11 @@ package reverseip
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
 	"net/netip"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/dnsname"
@@ -185,48 +183,9 @@ func securityTrails(ctx context.Context, e egress.Clients, in input, f *found) e
 	if in.addr.Is6() {
 		field = "ipv6"
 	}
-	body, err := json.Marshal(map[string]any{"filter": map[string]string{field: in.addr.String()}})
-	if err != nil {
-		return err
-	}
-	for page := 1; ; page++ {
-		raw, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
-			Method: "POST", URL: "https://api.securitytrails.com/v1/domains/list?include_ips=false&scroll=false&page=" + strconv.Itoa(page),
-			Body: body, ContentType: "application/json", KeySource: "securitytrails", KeyHeader: "APIKEY",
+	return httpsrc.SecurityTrailsDomains(ctx, e, field, in.addr.String(), maxSecurityTrailsPages, "reverseip "+in.addr.String(),
+		func(_ int, names []string) bool {
+			f.add(names)
+			return f.over(in.max)
 		})
-		if errors.Is(err, httpsrc.ErrNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		// The page count is read from meta.total_pages, where SecurityTrails' domain
-		// search reports it, and from a top-level pages, whichever is larger: with
-		// neither, only the first page would ever be read and the shared-hosting guard
-		// could not be passed.
-		var r struct {
-			Pages int `json:"pages"`
-			Meta  struct {
-				TotalPages int `json:"total_pages"`
-			} `json:"meta"`
-			Records []struct {
-				Hostname string `json:"hostname"`
-			} `json:"records"`
-		}
-		if err := json.Unmarshal(raw, &r); err != nil || r.Records == nil {
-			return errors.New("unreadable SecurityTrails response")
-		}
-		names := make([]string, len(r.Records))
-		for i, rec := range r.Records {
-			names[i] = rec.Hostname
-		}
-		f.add(names)
-		if page >= max(r.Pages, r.Meta.TotalPages) || f.over(in.max) {
-			return nil
-		}
-		if page == maxSecurityTrailsPages {
-			run.Warnf(ctx, "reverseip %s: SecurityTrails result truncated after %d pages", in.addr, page)
-			return nil
-		}
-	}
 }

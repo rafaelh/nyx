@@ -44,6 +44,7 @@ var stageHelps = map[string]stageHelp{
 	"reverseip":        {"(securitytrails)", "Other hostnames that point at each dedicated address (HackerTarget)"},
 	"dnshistory":       {"securitytrails", "Addresses each CDN- or WAF-fronted hostname resolved to in the past (SecurityTrails)"},
 	"email":            {"", "Mail posture of each root (MX, SPF, DMARC, MTA-STS, DKIM) and its mail providers"},
+	"nsreverse":        {"securitytrails", "Domains hosted on the name servers and mail hosts the organisation runs itself (SecurityTrails)"},
 	"httpprobe":        {"", "HTTP and HTTPS services on each hostname and open port, as a browser sees them"},
 	"crawl":            {"", "GET-only walk of each web service's own pages, robots.txt and sitemaps"},
 	"jsparse":          {"", "URLs and hostnames named in the scripts the crawl found"},

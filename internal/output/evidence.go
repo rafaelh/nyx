@@ -2,6 +2,7 @@ package output
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -19,7 +20,7 @@ func findingsFile(f findings.File) File {
 	}}
 }
 
-var emailPostureColumns = []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors", "mta_sts"}
+var emailPostureColumns = []string{"root", "mx", "spf", "spf_lookups", "dmarc", "dmarc_policy", "dkim_selectors", "mta_sts", "mx_self_hosted"}
 
 // emailPostureRows lists the email posture evidence of each in-scope root.
 func emailPostureRows(s Snapshot) []Row {
@@ -30,7 +31,20 @@ func emailPostureRows(s Snapshot) []Row {
 			continue
 		}
 		a := kinds.EmailPosture.Attrs(r)
-		rows = append(rows, recordRow(r, r.Key, a.MX, a.SPF, strconv.Itoa(a.SPFLookups), a.DMARC, a.DMARCPolicy, a.DKIMSelectors, a.MTASTS))
+		rows = append(rows, recordRow(r, r.Key, a.MX, a.SPF, strconv.Itoa(a.SPFLookups), a.DMARC, a.DMARCPolicy, a.DKIMSelectors, a.MTASTS,
+			selfHostedMX(s, a.MX)))
 	}
 	return rows
+}
+
+// selfHostedMX is the mail hosts of a ";"-joined list that the organisation runs
+// itself, in the same form. A row that is no longer current has no hosts.
+func selfHostedMX(s Snapshot, mx string) string {
+	var own []string
+	for h := range strings.SplitSeq(mx, ";") {
+		if h != "" && s.Inv.SelfHosted(h, s.Scope) {
+			own = append(own, h)
+		}
+	}
+	return strings.Join(own, ";")
 }

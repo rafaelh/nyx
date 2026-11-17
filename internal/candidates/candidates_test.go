@@ -39,7 +39,11 @@ func TestScore(t *testing.T) {
 		{"registrant evidence about another organisation alone", ev("rdap", "Other Org"), acme, candidates.Low, 1},
 		{"reverse ip on two addresses", ev("reverseip", "198.51.100.1", "reverseip", "198.51.100.2"), nil, candidates.Medium, 2},
 		{"reverse ip on one address", ev("reverseip", "198.51.100.1"), nil, candidates.Low, 1},
-		{"shared name server or mail host", ev("nsreverse", "ns1.other.org"), nil, candidates.Medium, 1},
+		{"shared name server", ev("shared-ns", "ns1.other.org"), nil, candidates.Medium, 1},
+		{"shared mail host", ev("shared-mx", "mail.other.org"), nil, candidates.Medium, 1},
+		{"a shared name server and mail host are one family", ev("shared-ns", "ns1.other.org", "shared-mx", "mail.other.org"), nil, candidates.Medium, 2},
+		{"a shared name server and mail host joined by one family are two families", ev("shared-ns", "ns1.other.org", "shared-mx", "mail.other.org", "crtsh", "a"), nil, candidates.Medium, 3},
+		{"a shared name server joined by two families", ev("shared-ns", "ns1.other.org", "crtsh", "a", "wayback", "b"), nil, candidates.High, 3},
 		{"one source", ev("crtsh", "a"), nil, candidates.Low, 1},
 		{"one source, several items, is one family", ev("crtsh", "a", "crtsh", "b"), nil, candidates.Low, 2},
 		{"two sources of one family", ev("crtsh", "a", "certspotter", "a"), nil, candidates.Low, 2},
@@ -72,7 +76,7 @@ func TestFamily(t *testing.T) {
 		"chaos": "passive dns", "urlscan": "passive dns", "anubis": "passive dns", "hackertarget": "passive dns",
 		"reverseip": "reverse ip",
 		"rdap":      "registrant", "whoisxml": "registrant", "org-asn": "registrant",
-		"nsreverse":        "shared infrastructure",
+		"shared-ns": "shared infrastructure", "shared-mx": "shared infrastructure",
 		"identifier-pivot": "web identifier",
 		// A source with a colon has the family of the part before it, when the
 		// table has that part.

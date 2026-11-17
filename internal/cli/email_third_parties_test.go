@@ -403,7 +403,7 @@ func TestEmailMTASTS_PresentAndAbsent(t *testing.T) {
 				t.Errorf("finding = %v\n%s", f, w.file(eng, "risk-email.csv"))
 			}
 			header := csvRows(t, w.file(eng, "email-posture.csv"))[0]
-			if header[len(header)-5] != "dkim_selectors" || header[len(header)-4] != "mta_sts" || header[len(header)-3] != "current" {
+			if header[len(header)-6] != "dkim_selectors" || header[len(header)-5] != "mta_sts" || header[len(header)-4] != "mx_self_hosted" || header[len(header)-3] != "current" {
 				t.Errorf("header = %v", header)
 			}
 		})
@@ -479,7 +479,7 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	healthy().apply(w.dns, "example.com")
 	runRoot(t, w, "--no-permutations") // permutations legitimately try mta-sts.<root>
 	keys := w.h.completed(eng, "email")
-	if len(keys) != 1 || !strings.HasSuffix(keys[0], "|mta-sts") || !strings.HasPrefix(keys[0], "example.com|dkim=") {
+	if len(keys) != 1 || !strings.HasSuffix(keys[0], "|mta-sts|addrs") || !strings.HasPrefix(keys[0], "example.com|dkim=") {
 		t.Fatalf("check keys = %v", keys)
 	}
 	runRoot(t, w, "-e", eng, "--no-permutations")
@@ -496,7 +496,7 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 2 {
 		t.Errorf("the old check was not run again: %d lookups", n)
 	}
-	if got := w.h.completed(eng, "email"); len(got) < 1 || !strings.HasSuffix(got[len(got)-1], "|mta-sts") {
+	if got := w.h.completed(eng, "email"); len(got) < 1 || !strings.HasSuffix(got[len(got)-1], "|mta-sts|addrs") {
 		t.Errorf("check keys = %v", got)
 	}
 	runRoot(t, w, "-e", eng, "--no-permutations")

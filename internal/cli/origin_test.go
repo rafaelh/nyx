@@ -292,7 +292,7 @@ func TestOrigin_HistoricalOriginConfirmedByTitle(t *testing.T) {
 	if !slices.Equal(hist, want) {
 		t.Errorf("historical rows = %v, want %v", hist, want)
 	}
-	if hdr := strings.SplitN(x.file(eng, "resolutions.csv"), "\n", 2)[0]; hdr != "name,type,value,source,historical_first_seen,historical_last_seen,current,first_seen,last_seen" {
+	if hdr := strings.SplitN(x.file(eng, "resolutions.csv"), "\n", 2)[0]; hdr != "name,type,value,source,self_hosted,historical_first_seen,historical_last_seen,current,first_seen,last_seen" {
 		t.Errorf("resolutions.csv header = %q", hdr)
 	}
 	if r := find(x.table(eng, "ips.csv"), "ip", histInNet); r == nil || r["hostnames"] != "" {

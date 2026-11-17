@@ -18,6 +18,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/stages/serveraddr"
 )
 
 // Email reads MX, SPF, DMARC, MTA-STS and common DKIM selectors for each
@@ -42,6 +43,13 @@ func (*Email) RetiresUnlistedChecks() {}
 // not have it, so an engagement from before runs its email checks again once.
 const mtaSTSToken = "|mta-sts"
 
+// input is the Check.Input: the root, and the scope, which says which of its
+// mail hosts are outside it.
+type input struct {
+	root string
+	sc   *scope.Scope
+}
+
 // Checks yields one check per in-scope input root; a changed selector list creates new checks.
 func (*Email) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
@@ -49,7 +57,7 @@ func (*Email) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 			if v.Scope().ClassifyHost(root).Class != scope.InScope {
 				continue
 			}
-			if !yield(run.Check{Key: root + "|dkim=" + config.DKIMSelectorHash() + mtaSTSToken, Input: root}, nil) {
+			if !yield(run.Check{Key: root + "|dkim=" + config.DKIMSelectorHash() + mtaSTSToken + serveraddr.KeyToken, Input: input{root, v.Scope()}}, nil) {
 				return
 			}
 		}
@@ -90,10 +98,11 @@ func withPrefix(records []string, prefix string) []string {
 // Run reads the posture. A timeout or SERVFAIL on MX, the root's TXT, an SPF
 // include or redirect, the DMARC names or _mta-sts fails the check (it is
 // retried next run, and records no third parties); one on a DKIM selector is
-// recorded in dkim_errors. An include that does not exist or has no single SPF
-// record makes the SPF invalid.
+// recorded in dkim_errors, and one on a mail host's own address is ignored. An
+// include that does not exist or has no single SPF record makes the SPF invalid.
 func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
-	root := c.Input.(string)
+	in := c.Input.(input)
+	root := in.root
 	var attrs kinds.EmailPostureAttrs
 	tp := &thirdParties{root: root, found: map[string]int{}}
 
@@ -169,8 +178,13 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 	}
 
-	// The selectors and _mta-sts are independent lookups, so they are asked at
-	// once (egress still rate-limits them); the results keep the selectors' order.
+	// The selectors, _mta-sts and the mail hosts' addresses are independent
+	// lookups, so they are asked at once (egress still rate-limits them); the
+	// results keep the selectors' and the hosts' order. The addresses are
+	// best-effort: a failed lookup leaves the host without one, and never fails or
+	// retires the check (a cancelled context is caught below).
+	mailHosts := slices.Compact(slices.Clone(hosts))
+	mailAddrs := make([][]run.Observation, len(mailHosts))
 	sels := config.DKIMSelectors()
 	type lookup struct {
 		recs []string
@@ -190,6 +204,11 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	if len(hosts) > 0 {
 		wg.Go(func() {
 			mtaSTS.recs, mtaSTS.err = txt(ctx, e, "_mta-sts."+root)
+		})
+	}
+	for i, h := range mailHosts {
+		wg.Go(func() {
+			mailAddrs[i], _ = serveraddr.Observations(ctx, e, in.sc, h)
 		})
 	}
 	wg.Wait()
@@ -216,7 +235,11 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 	}
 	attrs.DKIMSelectors, attrs.DKIMErrors = strings.Join(found, ";"), strings.Join(failed, ";")
-	return append([]run.Observation{kinds.EmailPosture.Obs(root, attrs)}, tp.observations()...), nil
+	obs := append([]run.Observation{kinds.EmailPosture.Obs(root, attrs)}, tp.observations()...)
+	for _, addrs := range mailAddrs {
+		obs = append(obs, addrs...)
+	}
+	return obs, nil
 }
 
 // thirdParties collects the third parties one check found, one per mechanism and

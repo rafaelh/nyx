@@ -71,6 +71,14 @@ type IdentifierPivot struct {
 	MaxQueries int
 }
 
+// NSReverse holds the settings of the nsreverse stage.
+type NSReverse struct {
+	// MaxDomains is the number of domains one name server or mail host may host before it is
+	// treated as shared hosting and nothing is recorded. It is part of the check, so changing it
+	// asks every server again.
+	MaxDomains int
+}
+
 // ReverseIP holds the settings of the reverseip stage.
 type ReverseIP struct {
 	// MaxDomains is the number of distinct registrable domains one address may return before it is
@@ -156,6 +164,7 @@ type Settings struct {
 	// EOLWarnDays is how many days before the end of a release cycle's security support the
 	// approaching finding is reported; 0 turns that finding off.
 	EOLWarnDays int
+	NSReverse   NSReverse
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable starting points, not
@@ -186,6 +195,7 @@ func Defaults() Settings {
 		DNSHistory:      DNSHistory{MaxHosts: 200},
 		OriginCheck:     OriginCheck{MaxCandidates: 5},
 		EOLWarnDays:     90,
+		NSReverse:       NSReverse{MaxDomains: 1000},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -272,7 +282,7 @@ var settingTable = []setting{
 	{"jsparse-max-scripts", "jsparse.max_scripts"}, {"identifier-pivot-max-queries", "identifier_pivot.max_queries"},
 	{"github-max-results", "github.max_results"},
 	{"dnshistory-max-hosts", "dnshistory.max_hosts"}, {"origincheck-max-candidates", "origincheck.max_candidates"},
-	{"eol-warn-days", "eol_warn_days"},
+	{"eol-warn-days", "eol_warn_days"}, {"nsreverse-max-domains", "nsreverse.max_domains"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -315,6 +325,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("dnshistory-max-hosts", d.DNSHistory.MaxHosts, "Maximum hostnames behind a CDN or WAF whose historical addresses are fetched from SecurityTrails per run; the rest are deferred to later runs")
 	fs.Int("origincheck-max-candidates", d.OriginCheck.MaxCandidates, "Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF")
 	fs.Int("eol-warn-days", d.EOLWarnDays, "Report software whose security support ends within this many days (0 turns the warning off)")
+	fs.Int("nsreverse-max-domains", d.NSReverse.MaxDomains, "Domains one self-hosted name server or mail host may host before it is treated as shared hosting and nothing is recorded")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -382,6 +393,9 @@ type rawSettings struct {
 		MaxCandidates string `mapstructure:"max_candidates"`
 	} `mapstructure:"origincheck"`
 	EOLWarnDays string `mapstructure:"eol_warn_days"`
+	NSReverse   struct {
+		MaxDomains string `mapstructure:"max_domains"`
+	} `mapstructure:"nsreverse"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the flags in fs that were
@@ -409,7 +423,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
 		"github.max_results":           d.GitHub.MaxResults,
 		"dnshistory.max_hosts":         d.DNSHistory.MaxHosts, "origincheck.max_candidates": d.OriginCheck.MaxCandidates,
-		"eol_warn_days": d.EOLWarnDays,
+		"eol_warn_days": d.EOLWarnDays, "nsreverse.max_domains": d.NSReverse.MaxDomains,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -513,6 +527,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("dnshistory.max_hosts", raw.DNSHistory.MaxHosts, 1, &s.DNSHistory.MaxHosts)
 	posInt("origincheck.max_candidates", raw.OriginCheck.MaxCandidates, 1, &s.OriginCheck.MaxCandidates)
 	posInt("eol_warn_days", raw.EOLWarnDays, 0, &s.EOLWarnDays)
+	posInt("nsreverse.max_domains", raw.NSReverse.MaxDomains, 1, &s.NSReverse.MaxDomains)
 	if s.GitHub.MaxResults > maxGitHubResults {
 		bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
 	}

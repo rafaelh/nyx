@@ -74,7 +74,8 @@ var families = map[string]string{
 	"rdap":             registrant,
 	"whoisxml":         registrant,
 	"org-asn":          registrant,
-	"nsreverse":        sharedInfra,
+	"shared-ns":        sharedInfra,
+	"shared-mx":        sharedInfra,
 	"identifier-pivot": webIdentifier,
 	// Their own families.
 	"httpprobe": "httpprobe", "rdns": "rdns", "crawl": "crawl",

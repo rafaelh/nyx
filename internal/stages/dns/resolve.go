@@ -54,7 +54,7 @@ func (*Resolve) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	}
 	seen := map[netip.Addr]bool{}
 	for _, res := range []egress.DNSResult{a, aaaa} {
-		for _, addr := range addrsOf(res) {
+		for _, addr := range res.Addrs() {
 			if seen[addr] {
 				continue
 			}

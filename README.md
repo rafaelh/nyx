@@ -102,6 +102,10 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   lookups included, until the key is fixed or removed; a 429 stops it for the run. `reverseip.max_domains`
   (`--reverseip-max-domains`, default 100, at least 1) is how many registrable domains one address may
   return before it is treated as shared hosting.
+- **Shared name servers.** `keys.securitytrails` also turns on `nsreverse` (see
+  [Shared name servers and mail hosts](#shared-name-servers-and-mail-hosts)). A rejected key (401 or
+  403) or a 429 stops it for the run. `nsreverse.max_domains` (`--nsreverse-max-domains`, default
+  1000, at least 1) is how many domains one server may host before it is treated as shared hosting.
 - **Origin exposure.** `keys.securitytrails` also turns on `dnshistory` (see
   [Origin exposure](#origin-exposure)). `dnshistory.max_hosts` (`--dnshistory-max-hosts`, default
   200, at least 1) caps the hostnames it asks about in one run, and `origincheck.max_candidates`
@@ -236,7 +240,11 @@ the administrative mailbox as an email address (`john\.doe.example.com` is `john
 
 - A name server (or SOA primary) inside the scope is a hostname, resolved, probed and port-checked
   like any other. A name server outside it is a `third-parties.csv` row with mechanism `ns`, and is
-  never a candidate or contacted.
+  never a candidate or contacted. Its A and AAAA records are looked up, unless it is on a known
+  provider's domain, only to say whether the organisation runs it itself (the `self_hosted` column
+  of its NS row in `resolutions.csv`; see [Shared name servers and mail hosts](#shared-name-servers-and-mail-hosts)).
+  The server is not resolved, probed or port-checked because of that lookup, and a lookup that
+  fails is skipped, not retried. An engagement from before this lookup repeats its NS check once.
 - A root TXT record that starts with one of these prefixes (in any case) is one `txt-verification`
   row per platform and root, naming the platform that domain ownership was verified with:
   `google-site-verification=` (Google), `MS=` (Microsoft 365), `atlassian-domain-verification=`
@@ -725,6 +733,45 @@ netblock: only an address another stage recorded is asked. Nothing it finds ente
   with `reverseip` in `sources`. It never calls Shodan: Shodan's hostnames for an address come from
   `shodan-host`.
 
+## Shared name servers and mail hosts
+
+A name server or mail host that an organisation runs itself is a strong sign that the other domains
+it serves belong to the same owner. The `nsreverse` stage finds them. It needs `keys.securitytrails`
+and runs under `--passive`; without the key its state is `not-configured (no key)` and only the
+markers below are produced.
+
+A name server (an NS record of an in-scope root) or a mail host (an MX host of one) is
+**self-hosted** when it is in scope, or when an address looked up for it is inside an in-scope
+netblock, or is dedicated to the organisation: its owner is known, it is not shared provider
+infrastructure, and an in-scope hostname resolves to it. A server on a known provider's domain
+(Cloudflare, Route 53's own domains and so on), on a shared address, or on an address whose owner is
+unknown is never a sign, and nothing is fetched for it. A server's address is looked up by `dnsroot`
+(name servers) and `email` (mail hosts) through the public resolvers; the server itself is not
+contacted. Route 53 name servers (`ns-123.awsdns-45.com`) match no domain entry, so they are ruled out
+by their shared addresses instead.
+
+- **Markers.** `resolutions.csv` has `self_hosted` on the NS rows of nyx's own lookup (`yes` or `no`;
+  blank on every other row, on an NS row only Shodan reports, and on a row that is no longer
+  current), and `email-posture.csv` has `mx_self_hosted`, the self-hosted MX hosts joined with `;`.
+  Both are worked out when the files are written.
+- **What is asked.** For each self-hosted name server SecurityTrails is asked for the domains hosted
+  on it, and for each self-hosted mail host for the domains whose MX it is. Each domain's registrable
+  domain is a candidate root in `candidates.csv`, with `shared-ns` or `shared-mx` in `sources`. A
+  candidate found this way is at least `medium`; an excluded root stays excluded. Candidate roots are
+  never resolved or contacted, and this lookup is the only way they are found.
+- **Shared hosting.** A server that hosts more than `nsreverse.max_domains` domains (default 1000)
+  records nothing, and a WARN line names it. The total is read from the first page, so such a server
+  usually costs one query; the domains listed on later pages are counted against the cap too. The
+  cap is part of the check, so changing it asks every server again.
+- **Quota.** A rejected key (401 or 403) or a 429 stops the stage for the run, and the checks that
+  remain are made on the next run.
+- **Refresh.** Each server is asked once per engagement; new results arrive only with
+  `--redo nsreverse`. The check is keyed by the server and the cap, not by the scope, so a name
+  server that a root you promote later brings into scope is asked once it is self-hosted by either
+  test, and a server whose addresses change is not asked again before `--redo nsreverse`. Name
+  servers and mail hosts already on record have their addresses looked up the next time `dnsroot`
+  and `email` run their checks, which an engagement from before repeats once.
+
 ## Origin exposure
 
 A site behind a CDN or WAF is only as protected as its origin server is hidden. nyx looks for
@@ -830,8 +877,9 @@ results still count), registrant (`whoisxml`, `org-asn`, `rdap`) and reverse IP 
 `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other source.
 The web identifier family is `identifier-pivot`; the `sources` value is `identifier-pivot:<id>`, with
 the identifier that found the candidate, so each is a source of its own but they are one family
-(see [Web identifiers](#pivoting-on-them)). The name `nsreverse` (shared infrastructure) is reserved
-for a stage that is not built yet.
+(see [Web identifiers](#pivoting-on-them)). Shared infrastructure is a family of two sources,
+`shared-ns` and `shared-mx` (see [Shared name servers and mail hosts](#shared-name-servers-and-mail-hosts)),
+so a root found by both is still one family.
 
 The confidence follows from the families that agree:
 
@@ -869,7 +917,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `candidates.csv` | Related domains, hostnames, netblocks, autonomous systems and organisations found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](#ranked-candidates)); pass one as an input to promote it |
 | `excluded.csv` | Excluded items and the reason |
 | `subdomains.txt` | In-scope hostnames |
-| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, the NS, SOA, TXT and CAA records of each root, and the SRV records of the listed service names, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. Historical addresses of a hostname behind a CDN or WAF are rows of type `A-historical` or `AAAA-historical`, source `dnshistory`, with the `historical_first_seen` and `historical_last_seen` columns (the last two before `current`; blank on every other row). A historical address is never a current one: it is not probed, port-checked or used to detect wildcards (see [Origin exposure](#origin-exposure)). |
+| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, the NS, SOA, TXT and CAA records of each root, and the SRV records of the listed service names, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`, then `self_hosted`: `yes` or `no` on an NS row of nyx's own lookup and blank otherwise (see [Shared name servers and mail hosts](#shared-name-servers-and-mail-hosts)). Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. Historical addresses of a hostname behind a CDN or WAF are rows of type `A-historical` or `AAAA-historical`, source `dnshistory`, with the `historical_first_seen` and `historical_last_seen` columns (the last two before `current`; blank on every other row). A historical address is never a current one: it is not probed, port-checked or used to detect wildcards (see [Origin exposure](#origin-exposure)). |
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
 | `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, except that an address whose origin AS is a CDN's (Linode's list holds some of Akamai's edge space) stays shared, so an in-scope hostname that resolves to one of the others is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
@@ -877,7 +925,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)), web posture evidence (see Web posture above) and web identifiers (see [Web identifiers](#web-identifiers)) |
 | `urls.csv` | URLs from crawling, the scripts of crawled pages (see [JavaScript endpoints](#javascript-endpoints)) and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake), `shodan_last_seen` (empty on a row only nyx saw), and `product` and `version` where the banner is a recognised SSH, FTP or SMTP banner (see [End-of-life software](#end-of-life-software)) |
-| `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host |
+| `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host, then `mx_self_hosted`, the mail hosts the organisation runs itself, joined with `;` (see [Shared name servers and mail hosts](#shared-name-servers-and-mail-hosts)) |
 | `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx`, `cname` or `srv`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns`, `mx` and `srv`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |
 | `code-mentions.csv` | Files in public GitHub repositories that mention an in-scope root, from the `github` stage: `repository`, `path`, `url`, the in-scope `hostnames` the match names (`;`-joined) and the `root` searched for. A match that is no longer current keeps only its `url` (see [GitHub code search](#github-code-search)) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |

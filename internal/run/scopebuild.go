@@ -16,7 +16,7 @@ import (
 // candidates are ranked again when it changes. It also reads the candidate kinds
 // it ranks (see newDerivers).
 var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
-	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration}
+	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration, kinds.ServerAddress}
 
 // ScopeSource is what BuildScope reads: the engagement's records. A run reads
 // them from its store as it works, and an export from one snapshot of it, so
@@ -206,6 +206,15 @@ func inventoryData(src ScopeSource) (inventory.Data, error) {
 		if e1 == nil && e2 == nil {
 			d.Registrations = append(d.Registrations, inventory.Registration{Key: rec.Key, Start: start.Unmap(), End: end.Unmap(),
 				Registrant: a.Registrant, Registry: a.Registry})
+		}
+	}
+	if recs, err = src.CurrentRecords(kinds.ServerAddress); err != nil {
+		return d, err
+	}
+	for _, rec := range recs {
+		a := kinds.ServerAddress.Attrs(rec)
+		if addr, err := netip.ParseAddr(a.Addr); err == nil {
+			d.ServerAddresses = append(d.ServerAddresses, inventory.ServerAddress{Host: a.Host, Addr: addr})
 		}
 	}
 	return d, nil

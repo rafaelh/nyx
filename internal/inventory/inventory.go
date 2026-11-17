@@ -60,6 +60,13 @@ func (r Registration) Contains(a netip.Addr) bool {
 	return a.Compare(r.Start) >= 0 && a.Compare(r.End) <= 0
 }
 
+// ServerAddress is an address looked up for a name server or mail host. It is
+// not a resolution: it never makes the host resolved, probed or port-eligible.
+type ServerAddress struct {
+	Host string
+	Addr netip.Addr
+}
+
 // Data is everything the Inventory is computed from.
 type Data struct {
 	Hosts       []Host
@@ -72,6 +79,8 @@ type Data struct {
 	// ClosedPorts are the ports nyx's own handshake found closed (rejected).
 	ClosedPorts   []netip.AddrPort
 	Registrations []Registration
+	// ServerAddresses are the addresses of name servers and mail hosts, for SelfHosted only.
+	ServerAddresses []ServerAddress
 }
 
 // ProviderHost is a hostname that is on shared provider infrastructure.
@@ -118,6 +127,8 @@ type Inventory struct {
 
 	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
 
+	servers map[string][]netip.Addr // name server or mail host -> looked-up addresses
+
 	regs       []Registration // narrowest first: by start address, highest first
 	registrant sync.Once
 	byName     map[string]registrantInfo
@@ -133,7 +144,11 @@ type registrantInfo struct {
 func New(d Data, db *provider.DB) *Inventory {
 	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{}, srv: map[string][]uint16{},
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
-		class: map[netip.Addr]provider.Result{}, cnameShared: map[netip.Addr]provider.Match{}}
+		class: map[netip.Addr]provider.Result{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{}}
+	for _, s := range d.ServerAddresses {
+		host := input.NormaliseHost(s.Host)
+		i.servers[host] = append(i.servers[host], s.Addr.Unmap())
+	}
 	for _, r := range d.Resolutions {
 		switch r.Type {
 		case "A", "AAAA":
@@ -358,6 +373,33 @@ func (i *Inventory) indexRegistrants() {
 			}
 		}
 	}
+}
+
+// SelfHosted reports whether a name server or mail host looks to be run by the
+// organisation itself, the one reason such a server says anything about who
+// else uses it: it is in scope, or AddressDecides it and an address looked up for
+// it is port-eligible (inside an in-scope netblock, or dedicated, of known owner
+// and used by an in-scope host). A server with no address on record is
+// self-hosted only by being in scope.
+func (i *Inventory) SelfHosted(host string, sc *scope.Scope) bool {
+	host = input.NormaliseHost(host)
+	if sc.ClassifyHost(host).Class == scope.InScope {
+		return true
+	}
+	return AddressDecides(host, sc, i.db) &&
+		slices.ContainsFunc(i.servers[host], func(a netip.Addr) bool { return i.PortEligible(a, sc) })
+}
+
+// AddressDecides reports whether a server's addresses decide SelfHosted, which is
+// what makes them worth looking up. They do not for a host in scope (self-hosted
+// whatever they are), an excluded one, or one on a known provider's domain
+// (managed DNS and mail, never self-hosted).
+func AddressDecides(host string, sc *scope.Scope, db *provider.DB) bool {
+	if c := sc.ClassifyHost(host).Class; c == scope.InScope || c == scope.Excluded {
+		return false
+	}
+	_, ok := db.DomainOwner(host)
+	return !ok
 }
 
 // Shared reports whether the address is shared provider infrastructure.
