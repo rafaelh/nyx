@@ -396,6 +396,24 @@ type newRec struct {
 }
 
 func (s *Store) commit(batch []op) {
+	s.commitAndNotify(batch)
+	err := s.firstErr()
+	for _, o := range batch {
+		if o.kind == opBarrier {
+			o.done <- err
+		}
+	}
+}
+
+// commitAndNotify commits the batch and calls the new-record callback. A panic
+// in either is the store's sticky error, so the barriers are still released
+// and Flush returns it instead of waiting for ever.
+func (s *Store) commitAndNotify(batch []op) {
+	defer func() {
+		if v := recover(); v != nil {
+			s.setErr(fmt.Errorf("store writer: panic: %v", v))
+		}
+	}()
 	var news []newRec
 	if s.firstErr() == nil {
 		news = s.commitOps(batch)
@@ -406,11 +424,6 @@ func (s *Store) commit(batch []op) {
 	if err == nil && cb != nil {
 		for _, n := range news {
 			cb(n.kind, n.key, n.attrs)
-		}
-	}
-	for _, o := range batch {
-		if o.kind == opBarrier {
-			o.done <- err
 		}
 	}
 }

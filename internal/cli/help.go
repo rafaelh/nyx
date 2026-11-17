@@ -6,10 +6,253 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/palette"
 )
+
+// The annotations a command carries for the help, so a command added to the
+// tree is in the root help with no list of commands to keep in step.
+const (
+	// annotationEveryday names the flags the root help shows, separated by
+	// commas; absent means every flag of the command.
+	annotationEveryday = "nyx.everyday"
+	// annotationValues is the lines that name the valid values of the
+	// command's fixed-set flags, shown in the root help.
+	annotationValues = "nyx.values"
+	// annotationNote is a line the root help adds after them.
+	annotationNote = "nyx.note"
+	// annotationFooter is what the command's own help shows after its flags.
+	annotationFooter = "nyx.footer"
+)
+
+// exitCodesLine is the last line of every help text.
+const exitCodesLine = "Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)"
+
+// newRoot builds the command tree: nyx, recon and its export, help and the
+// help topics. The root owns the shared flags, which every command takes
+// before or after its name.
+func newRoot(inv *invocation) *cobra.Command {
+	root := &cobra.Command{
+		Use:   "nyx",
+		Short: "Passive-first reconnaissance for authorised engagements",
+		Long: "nyx is passive-first reconnaissance for authorised engagements. Every command takes the shared\n" +
+			"flags, and each command's own flags follow its name.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		// A subcommand would otherwise bring cobra's completion command with it.
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
+	}
+	pf := root.PersistentFlags()
+	pf.SortFlags = false
+	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Machine output: JSON on stdout, with no styling, and any error as one JSON line on stderr")
+	pf.BoolVarP(&inv.sh.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; the summary is still printed")
+	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write each failed check, and the stack of an unexpected failure, to stderr")
+	f := root.Flags()
+	f.SortFlags = false
+	f.Bool("version", false, "Print the version and exit") // long-only: -v is usually read as verbose
+	f.BoolP("help", "h", false, "Help for nyx")
+
+	recon := newReconCommand(inv)
+	recon.AddCommand(newExportCommand(inv))
+	help := newHelpCommand(inv, root)
+	depth := inv.helpDepth()
+	root.AddCommand(recon, help,
+		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp, depth),
+		newTopic(inv, "stages", "The stages, in run order, and what each one contacts and does",
+			func(dep palette.Depth) string { return stagesHelp(dep, inv.d.Stages) }, depth))
+	root.SetHelpCommand(help)
+	root.SetHelpFunc(func(c *cobra.Command, _ []string) { inv.printHelp(root, c) })
+	return root
+}
+
+// newHelpCommand is nyx help [command]: the root help, or the named command's,
+// exactly as --help prints it.
+func newHelpCommand(inv *invocation, root *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:   "help [command]",
+		Short: "The help of nyx, or of one command or topic: the same as --help",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			if err := inv.problems().Err(); err != nil {
+				return inv.start(c, err)
+			}
+			target, rest, err := root.Find(args)
+			if err != nil || len(rest) > 0 || target.Hidden {
+				word := args[0]
+				if len(rest) > 0 {
+					word = rest[0]
+				}
+				return inv.start(c, unknownCommand(word, root))
+			}
+			if target == c {
+				target = root
+			}
+			return inv.start(c, target.Help())
+		},
+	}
+}
+
+// helpDepth is the colour of help text: stdout's, except under --json.
+func (inv *invocation) helpDepth() palette.Depth {
+	if inv.raw.json || inv.sh.json {
+		return palette.None
+	}
+	return inv.dp.out
+}
+
+// printHelp writes the help of c: the root help for the root and for help.
+func (inv *invocation) printHelp(root, c *cobra.Command) {
+	inv.showHelp(c, func() string {
+		if c == root || c.Name() == "help" && c.Parent() == root {
+			return rootHelp(root, inv.helpDepth())
+		}
+		return commandHelp(c, inv.helpDepth())
+	})
+}
+
+// showHelp writes a help text to stdout, unless the shared flags are refused
+// (--quiet with --debug): then that usage error is the call's outcome and
+// nothing is printed.
+func (inv *invocation) showHelp(c *cobra.Command, text func() string) {
+	if err := inv.problems().Err(); err != nil {
+		_ = inv.start(c, err)
+		return
+	}
+	fmt.Fprint(inv.d.Stdout, text())
+}
+
+// runnable are the commands that do work, in tree order, children after
+// their parent; help and the topics are not among them.
+func runnable(root *cobra.Command) []*cobra.Command {
+	var out []*cobra.Command
+	for _, c := range descendants(root) {
+		if c.Runnable() && !c.Hidden && c.Name() != "help" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// firstExample is the first line of a command's examples.
+func firstExample(c *cobra.Command) string {
+	for l := range strings.SplitSeq(c.Example, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+// rootHelp is the whole reference, rendered from the tree: examples that pass
+// --json, the shared flags, then every command with its usage, one example,
+// its everyday flags and the valid values of its fixed-set flags, the help
+// commands, and the exit codes.
+func rootHelp(root *cobra.Command, depth palette.Depth) string {
+	cmds := runnable(root)
+	var b strings.Builder
+	b.WriteString("Examples:\n")
+	for _, c := range cmds {
+		if ex := firstExample(c); ex != "" {
+			b.WriteString("  " + ex + "\n")
+		}
+	}
+	b.WriteString("\n" + root.Long + "\n\n")
+	b.WriteString("Shared flags (every command takes them; they alone may also come before the command):\n")
+	b.WriteString(root.PersistentFlags().FlagUsages())
+	shared := root.PersistentFlags()
+	for _, c := range cmds {
+		b.WriteString("\n" + c.UseLine() + "\n")
+		b.WriteString("  " + c.Short + "\n")
+		if ex := firstExample(c); ex != "" {
+			b.WriteString("  Example: " + ex + "\n")
+		}
+		fs := pflag.NewFlagSet(c.Name(), pflag.ContinueOnError)
+		fs.SortFlags = false
+		add := func(f *pflag.Flag) {
+			if f != nil && f.Name != "help" && !f.Hidden && shared.Lookup(f.Name) == nil {
+				fs.AddFlag(f)
+			}
+		}
+		if names, ok := c.Annotations[annotationEveryday]; ok {
+			for n := range strings.SplitSeq(names, ",") {
+				add(c.Flags().Lookup(n))
+			}
+		} else {
+			c.Flags().VisitAll(add)
+		}
+		if fs.HasAvailableFlags() {
+			b.WriteString(strings.TrimPrefix(c.CommandPath(), root.Name()+" ") + " flags:\n")
+			b.WriteString(fs.FlagUsages())
+		}
+		for _, key := range []string{annotationValues, annotationNote} {
+			if v := c.Annotations[key]; v != "" {
+				b.WriteString(v + "\n")
+			}
+		}
+	}
+
+	b.WriteString("\nHelp:\n")
+	type row struct{ use, short string }
+	var rows []row
+	for _, c := range root.Commands() {
+		if c.Hidden || c.Runnable() && c.Name() != "help" {
+			continue
+		}
+		use := "nyx help " + c.Name()
+		if c.Name() == "help" {
+			use = "nyx help [command]"
+		}
+		rows = append(rows, row{use, c.Short})
+	}
+	width := 0
+	for _, r := range rows {
+		width = max(width, len(r.use))
+	}
+	for _, r := range rows {
+		fmt.Fprintf(&b, "  %-*s   %s\n", width, r.use, r.short)
+	}
+	own := pflag.NewFlagSet("nyx", pflag.ContinueOnError)
+	own.SortFlags = false
+	own.AddFlag(root.Flags().Lookup("version"))
+	own.AddFlag(root.Flags().Lookup("help"))
+	b.WriteString("\nFlags:\n" + own.FlagUsages())
+	b.WriteString("\n" + exitCodesLine + "\n")
+	return colourHelp(depth, b.String())
+}
+
+// commandHelp is a command's own help: its examples, its description, its
+// usage, its subcommands, every flag, its footer and the exit codes.
+func commandHelp(c *cobra.Command, depth palette.Depth) string {
+	var b strings.Builder
+	if c.Example != "" {
+		b.WriteString("Examples:\n" + c.Example + "\n\n")
+	}
+	if c.Long != "" {
+		b.WriteString(c.Long + "\n\n")
+	}
+	b.WriteString("Usage:\n  " + c.UseLine() + "\n")
+	if c.HasAvailableSubCommands() {
+		b.WriteString("\nCommands:\n")
+		for _, sub := range c.Commands() {
+			if sub.IsAvailableCommand() {
+				fmt.Fprintf(&b, "  %-*s %s\n", sub.NamePadding(), sub.Name(), sub.Short)
+			}
+		}
+	}
+	if local := c.LocalFlags(); local.HasAvailableFlags() {
+		b.WriteString("\nFlags:\n" + local.FlagUsages())
+	}
+	if inherited := c.InheritedFlags(); inherited.HasAvailableFlags() {
+		b.WriteString("\nShared flags:\n" + inherited.FlagUsages())
+	}
+	if footer := c.Annotations[annotationFooter]; footer != "" {
+		b.WriteString("\n" + footer)
+	}
+	b.WriteString("\n" + exitCodesLine + "\n")
+	return colourHelp(depth, b.String())
+}
 
 // findingsTopic is the text of nyx help findings.
 var findingsTopic = "Findings and their default severities (fixed in code, not configurable; the summary lists high and medium):\n" +
@@ -18,24 +261,16 @@ var findingsTopic = "Findings and their default severities (fixed in code, not c
 // newTopic builds a help topic: a command with no run of its own, which the root's help lists under
 // "Help topics" and which nyx help <name>, nyx <name> and nyx <name> --help print. render gives its
 // text at depth, the colour of stdout at that depth.
-func newTopic(name, short string, render func(palette.Depth) string, depth palette.Depth) *cobra.Command {
+func newTopic(inv *invocation, name, short string, render func(palette.Depth) string, depth palette.Depth) *cobra.Command {
 	cmd := &cobra.Command{Use: name, Short: short}
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
-		fmt.Fprint(c.OutOrStdout(), render(depth))
+		inv.showHelp(c, func() string { return render(depth) })
 	})
 	return cmd
 }
 
 // findingsHelp is the findings topic at depth d.
 func findingsHelp(d palette.Depth) string { return colourHelp(d, findingsTopic) }
-
-// cobra's usage template lists topics by command path with a single space after the longest;
-// topicsByName lists them by name, padded as the commands are, under a shorter heading.
-func topicsByName(template string) string {
-	return strings.Replace(template,
-		"Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}\n  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}",
-		"Help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}\n  {{rpad .Name .NamePadding }} {{.Short}}", 1)
-}
 
 var (
 	// helpFlag is a flag line: indent, names, an optional value type, the gap
@@ -82,7 +317,7 @@ func colourHelp(d palette.Depth, text string) string {
 			continue
 		}
 		switch {
-		case strings.HasSuffix(section, "Flags:"):
+		case strings.Contains(strings.ToLower(section), "flags"):
 			if m := helpFlag.FindStringSubmatch(l); m != nil {
 				desc, aside := m[5], ""
 				if loc := helpAside.FindStringIndex(desc); loc != nil {
@@ -91,7 +326,7 @@ func colourHelp(d palette.Depth, text string) string {
 				desc = helpNote.ReplaceAllStringFunc(desc, muted) + aside
 				lines[i] = m[1] + name(m[2]) + muted(m[3]) + m[4] + desc
 			}
-		case section == "Available Commands:" || section == "Help topics:":
+		case section == "Commands:":
 			if m := helpCommand.FindStringSubmatch(l); m != nil {
 				lines[i] = m[1] + name(m[2]) + m[3] + m[4]
 			}

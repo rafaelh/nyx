@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/input"
 )
 
@@ -296,36 +297,73 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Var(portsFlag{&riskyRaw, &rt}, "risky-ports", "Ports whose being open is reported as a risk")
 	fs.String("sensitive-paths", "", "YAML file of sensitive paths to request (default: "+BuiltinSensitivePathsLabel()+")")
 	fs.String("wordlist", "", "Subdomain wordlist file (default: "+BuiltinWordlistLabel()+")")
-	fs.Int("concurrency", d.Concurrency, "Workers per stage (ports: --port-concurrency)")
-	fs.Int("port-concurrency", d.PortConcurrency, "Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout")
-	fs.Float64("rate-per-host", d.Rate.PerHost, "Requests per second per dialled target IP (HTTP requests and TCP connects)")
-	fs.Float64("rate-per-source", d.Rate.PerSource, "Requests per second per third-party source")
-	fs.Float64("rate-dns", d.Rate.DNS, "DNS queries per second in total across public resolvers")
-	fs.Int("crawl-depth", d.Crawl.MaxDepth, "Maximum crawl depth")
-	fs.Int("crawl-pages", d.Crawl.MaxPages, "Maximum pages crawled per web service (0 disables the crawl)")
-	fs.Int("archive-max-urls", d.Archive.MaxURLs, "Maximum archived URLs recorded per root from Wayback and Common Crawl")
-	fs.Int("storage-max-names", d.Storage.MaxNames, "Cloud-storage bucket names guessed per root and per organisation (checked on AWS, Azure and GCP)")
-	fs.Int("cert-expiry-days", d.CertExpiryDays, "Report certificates that expire within this many days")
+	intFlag(fs, "concurrency", d.Concurrency, "Workers per stage (ports: --port-concurrency)")
+	intFlag(fs, "port-concurrency", d.PortConcurrency, "Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout")
+	floatFlag(fs, "rate-per-host", d.Rate.PerHost, "Requests per second per dialled target IP (HTTP requests and TCP connects)")
+	floatFlag(fs, "rate-per-source", d.Rate.PerSource, "Requests per second per third-party source")
+	floatFlag(fs, "rate-dns", d.Rate.DNS, "DNS queries per second in total across public resolvers")
+	intFlag(fs, "crawl-depth", d.Crawl.MaxDepth, "Maximum crawl depth")
+	intFlag(fs, "crawl-pages", d.Crawl.MaxPages, "Maximum pages crawled per web service (0 disables the crawl)")
+	intFlag(fs, "archive-max-urls", d.Archive.MaxURLs, "Maximum archived URLs recorded per root from Wayback and Common Crawl")
+	intFlag(fs, "storage-max-names", d.Storage.MaxNames, "Cloud-storage bucket names guessed per root and per organisation (checked on AWS, Azure and GCP)")
+	intFlag(fs, "cert-expiry-days", d.CertExpiryDays, "Report certificates that expire within this many days")
 	fs.String("output-dir", d.OutputDir, "Directory in which engagement directories are created")
 	fs.Bool("no-permutations", false, "Do not resolve permutations of discovered subdomain labels (default: on, including with --passive)")
-	fs.Int("permutations-max", d.Permutations.MaxPerSeed, "Maximum permutations generated per discovered subdomain label")
-	fs.Int("netblock-limit", d.NetblockLimit, "IPv4 address count above which the run stops unless --allow-large-netblocks is given")
+	intFlag(fs, "permutations-max", d.Permutations.MaxPerSeed, "Maximum permutations generated per discovered subdomain label")
+	intFlag(fs, "netblock-limit", d.NetblockLimit, "IPv4 address count above which the run stops unless --allow-large-netblocks is given")
 	fs.StringArray("skip", nil, "Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)")
-	fs.Int("certspotter-max-pages", d.Certspotter.MaxPages, "Result pages followed per root from Cert Spotter")
-	fs.Int("shodan-dns-max-pages", d.ShodanDNS.MaxPages, "Result pages followed per root from Shodan's DNS data (one query credit each)")
-	fs.Int("censys-max-pages", d.Censys.MaxPages, "Result pages followed per root from Censys")
-	fs.Int("chaos-max-pages", d.Chaos.MaxPages, "Result pages followed per root from Chaos (it answers in one page, so this is not reached)")
-	fs.Int("permutations-max-names", d.Permutations.MaxNames, "Maximum permutation names generated per run; the rest are deferred to later runs")
-	fs.Int("sensitive-path-max-requests", d.SensitivePathMaxRequests, "Maximum sensitive-path requests sent per run; the rest are deferred to later runs")
-	fs.Int("shodan-max-hosts", d.Shodan.MaxHosts, "Maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
-	fs.Int("reverseip-max-domains", d.ReverseIP.MaxDomains, "Registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
-	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "Maximum script files read per origin for the URLs and hostnames they name")
-	fs.Int("identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "Maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
-	fs.Int("github-max-results", d.GitHub.MaxResults, "Maximum GitHub code search results read per root (at most 1000); changing it searches again")
-	fs.Int("dnshistory-max-hosts", d.DNSHistory.MaxHosts, "Maximum hostnames behind a CDN or WAF whose historical addresses are fetched from SecurityTrails per run; the rest are deferred to later runs")
-	fs.Int("origincheck-max-candidates", d.OriginCheck.MaxCandidates, "Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF")
-	fs.Int("eol-warn-days", d.EOLWarnDays, "Report software whose security support ends within this many days (0 turns the warning off)")
-	fs.Int("nsreverse-max-domains", d.NSReverse.MaxDomains, "Domains one self-hosted name server or mail host may host before it is treated as shared hosting and nothing is recorded")
+	intFlag(fs, "certspotter-max-pages", d.Certspotter.MaxPages, "Result pages followed per root from Cert Spotter")
+	intFlag(fs, "shodan-dns-max-pages", d.ShodanDNS.MaxPages, "Result pages followed per root from Shodan's DNS data (one query credit each)")
+	intFlag(fs, "censys-max-pages", d.Censys.MaxPages, "Result pages followed per root from Censys")
+	intFlag(fs, "chaos-max-pages", d.Chaos.MaxPages, "Result pages followed per root from Chaos (it answers in one page, so this is not reached)")
+	intFlag(fs, "permutations-max-names", d.Permutations.MaxNames, "Maximum permutation names generated per run; the rest are deferred to later runs")
+	intFlag(fs, "sensitive-path-max-requests", d.SensitivePathMaxRequests, "Maximum sensitive-path requests sent per run; the rest are deferred to later runs")
+	intFlag(fs, "shodan-max-hosts", d.Shodan.MaxHosts, "Maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
+	intFlag(fs, "reverseip-max-domains", d.ReverseIP.MaxDomains, "Registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
+	intFlag(fs, "jsparse-max-scripts", d.JSParse.MaxScripts, "Maximum script files read per origin for the URLs and hostnames they name")
+	intFlag(fs, "identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "Maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
+	intFlag(fs, "github-max-results", d.GitHub.MaxResults, "Maximum GitHub code search results read per root (at most 1000); changing it searches again")
+	intFlag(fs, "dnshistory-max-hosts", d.DNSHistory.MaxHosts, "Maximum hostnames behind a CDN or WAF whose historical addresses are fetched from SecurityTrails per run; the rest are deferred to later runs")
+	intFlag(fs, "origincheck-max-candidates", d.OriginCheck.MaxCandidates, "Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF")
+	intFlag(fs, "eol-warn-days", d.EOLWarnDays, "Report software whose security support ends within this many days (0 turns the warning off)")
+	intFlag(fs, "nsreverse-max-domains", d.NSReverse.MaxDomains, "Domains one self-hosted name server or mail host may host before it is treated as shared hosting and nothing is recorded")
+}
+
+// numberFlag is a numeric setting's flag. It keeps the text as given, so that
+// Load checks it with every other setting and reports a bad value by its key;
+// its Type is never "int" or "float64", which viper would cast (turning "abc"
+// into 0) instead of passing the text through.
+type numberFlag struct {
+	raw  string
+	kind string // "integer" or "float", shown in help
+}
+
+func (n *numberFlag) String() string     { return n.raw }
+func (n *numberFlag) Set(s string) error { n.raw = s; return nil }
+func (n *numberFlag) Type() string       { return n.kind }
+
+func intFlag(fs *pflag.FlagSet, name string, def int, usage string) {
+	fs.Var(&numberFlag{raw: strconv.Itoa(def), kind: "integer"}, name, usage)
+}
+
+func floatFlag(fs *pflag.FlagSet, name string, def float64, usage string) {
+	fs.Var(&numberFlag{raw: strconv.FormatFloat(def, 'f', -1, 64), kind: "float"}, name, usage)
+}
+
+// EnvKeyValues are the API keys set as NYX_KEYS_<SOURCE> in the environment,
+// for masking before the configuration has loaded.
+func EnvKeyValues() []string { return Settings{Keys: envKeys()}.KeyValues() }
+
+// envKeys are the API keys set as NYX_KEYS_<SOURCE>, by lower-case source.
+func envKeys() map[string]Secret {
+	keys := map[string]Secret{}
+	for _, kv := range os.Environ() {
+		name, val, _ := strings.Cut(kv, "=")
+		if src, ok := strings.CutPrefix(name, "NYX_KEYS_"); ok && val != "" {
+			keys[strings.ToLower(src)] = Secret(val)
+		}
+	}
+	return keys
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -401,7 +439,13 @@ type rawSettings struct {
 // Load merges defaults, the config file, NYX_* environment variables and the flags in fs that were
 // set (flags win over env, env over file). configPath "" means the default location, which is
 // optional; an explicit path must exist.
+//
+// Every problem is reported together, as clierr.Problems named by setting key: a config file that
+// cannot be read or holds an unknown key does not stop the other settings being checked. The
+// settings are returned even then, holding what was valid (the keys among it, so they can be
+// masked); a caller must not use them for a run.
 func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
+	var probs clierr.Problems
 	d := Defaults()
 	v := viper.New()
 	v.SetEnvPrefix("NYX")
@@ -437,14 +481,14 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		v.SetConfigFile(path)
 		v.SetConfigType("yaml")
 		if err := v.ReadInConfig(); err != nil {
-			return Settings{}, fmt.Errorf("config file %s: %w", path, err)
+			probs.Add("config", path, fmt.Sprintf("config file %s: %v", path, errText(err)), "")
 		}
 	}
 	if fs != nil {
 		for _, s := range settingTable {
 			if f := fs.Lookup(s.flag); f != nil {
 				if err := v.BindPFlag(s.key, f); err != nil {
-					return Settings{}, err
+					probs.Add(s.flag, "", err.Error(), "")
 				}
 			}
 		}
@@ -452,7 +496,13 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 
 	var raw rawSettings
 	if err := v.UnmarshalExact(&raw); err != nil {
-		return Settings{}, fmt.Errorf("config: %w", err)
+		probs.Add("config", path, fmt.Sprintf("config: %v", err), "")
+		// Decode again without the unknown keys, so the rest is still checked.
+		raw = rawSettings{}
+		if err := v.Unmarshal(&raw); err != nil {
+			d.Keys = envKeys() // still masked
+			return d, probs
+		}
 	}
 
 	s := d
@@ -460,16 +510,10 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	for name, val := range raw.Keys {
 		s.Keys[strings.ToLower(name)] = Secret(val)
 	}
-	for _, kv := range os.Environ() {
-		name, val, _ := strings.Cut(kv, "=")
-		if src, ok := strings.CutPrefix(name, "NYX_KEYS_"); ok && val != "" {
-			s.Keys[strings.ToLower(src)] = Secret(val)
-		}
-	}
+	maps.Copy(s.Keys, envKeys())
 
-	var errs []string
 	bad := func(key, val string, why string) {
-		errs = append(errs, fmt.Sprintf("%s: invalid value %q: %s", key, val, why))
+		probs.Add(key, val, fmt.Sprintf("%s: invalid value %q: %s", key, val, why), "")
 	}
 	ports := func(key string, items []string, dst *[]int) {
 		ps, err := parsePortItems(items)
@@ -574,10 +618,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 			bad("sensitive_paths", s.SensitivePaths, err.Error())
 		}
 	}
-	if len(errs) > 0 {
-		return Settings{}, fmt.Errorf("%s", strings.Join(errs, "; "))
-	}
-	return s, nil
+	return s, probs.Err()
 }
 
 // parseSkip normalises the skip list: names are trimmed, lower-cased and de-duplicated, and "none"

@@ -94,6 +94,12 @@ func (r *Redactor) Any(v any) any {
 			out[r.Redact(k)] = r.Redact(e)
 		}
 		return out
+	case map[string][]string:
+		out := make(map[string][]string, len(x))
+		for k, e := range x {
+			out[r.Redact(k)] = r.Any(e).([]string)
+		}
+		return out
 	case map[string]int:
 		out := make(map[string]int, len(x))
 		for k, e := range x {

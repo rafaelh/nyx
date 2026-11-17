@@ -687,7 +687,7 @@ func TestOrigin_Help(t *testing.T) {
 	if row := stageRow(topic, "origincheck"); !strings.Contains(row, "target") {
 		t.Errorf("help stages row for origincheck = %q", row)
 	}
-	if code := h.execArgs("help", "findings"); code != 0 {
+	if code := h.execRoot("help", "findings"); code != 0 {
 		t.Fatalf("help findings: exit %d", code)
 	}
 	for _, want := range []string{"origin-exposure", "confirmed", "possible"} {

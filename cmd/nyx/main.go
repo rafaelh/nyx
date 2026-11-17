@@ -10,5 +10,7 @@ import (
 )
 
 func main() {
-	os.Exit(cli.Execute(context.Background(), os.Args[1:], cli.DefaultDeps()))
+	d := cli.DefaultDeps()
+	d.Signals = cli.NotifySignals()
+	os.Exit(cli.Execute(context.Background(), os.Args[1:], d))
 }

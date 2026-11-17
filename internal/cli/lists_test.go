@@ -377,8 +377,8 @@ func TestListsSensitive_InvalidCapExits2(t *testing.T) {
 	if code := x.run("--sensitive-paths", x.pathsFile(tierPathsYAML), "--sensitive-path-max-requests", "0"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
 	}
-	if !strings.Contains(x.h.stdout.String(), "sensitive_path_max_requests") {
-		t.Errorf("the error does not name the setting:\n%s", x.h.stdout.String())
+	if !strings.Contains(x.h.stderr.String(), "sensitive_path_max_requests") {
+		t.Errorf("the error does not name the setting:\n%s", x.h.stderr.String())
 	}
 	if total(sites, "/high-one") != 0 {
 		t.Error("nothing may be requested after a validation error")

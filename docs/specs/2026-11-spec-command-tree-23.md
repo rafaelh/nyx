@@ -23,9 +23,10 @@ B2. An old-form call exits 2 with a hint that is the caller's own arguments, she
     call is a misplaced flag under B5. `nyx export …` gets the hint `nyx recon export …`. An
     old-form call writes nothing to stdout, creates nothing and contacts nothing. (amended by D2)
 
-B3. A bare `nyx` exits 2 with "no command given" and the hint `nyx --help`, and does not print
-    the help. Any other unknown first word exits 2 naming the valid commands. There is no `help`
-    command: `nyx help` is an unknown command.
+B3. A bare `nyx` and `nyx help` print the root help, exactly as `nyx --help` does, and exit 0;
+    `nyx help <command>` prints that command's own help. Any other unknown first word exits 2
+    naming the valid commands, and prints no help. (amended by the user on 2026-11-17, during
+    the build: B3 first had a bare `nyx` exit 2 and no `help` command)
 
 B4. `nyx --help` writes to stdout and exits 0.
     - It opens with examples that pass `--json`.
@@ -115,7 +116,6 @@ B14. The exit codes, the error codes and the five keys of the error are a stable
 
 - Keeping `nyx example.com` working as an alias, silent or with a warning. Declined: a clean break
   keeps the root free and avoids a second spelling.
-- A `help` command. Declined: `--help` is the one spelling.
 - recon's tuning settings in the root help. Declined: they stay in `nyx recon --help`.
 - `--timeout`, which Specs 24 and 25 add to their own commands.
 - recon's `--json` envelope and exit 7 for recon, which are Spec 24's.
@@ -149,8 +149,9 @@ D1. **Keep cobra; the tree is `nyx` → `recon` → `export`.** The root owns th
     `--json`/`-J`, `--quiet`/`-q` and `--debug`, plus `--version` (long only) and `--help`.
     `recon` takes every flag today's root takes, the hidden `--palette` included, and `export`
     is its child with its own flags. The root keeps `SilenceErrors`, `SilenceUsage` and
-    `CompletionOptions.DisableDefaultCmd`, and gets a hidden stand-in through `SetHelpCommand`
-    so cobra's `help` command never appears. A command's run function never returns an error
+    `CompletionOptions.DisableDefaultCmd`, and its own `help [command]` command through
+    `SetHelpCommand`, which prints the root help or the named command's (B3 as amended). A
+    command's run function never returns an error
     through cobra (as today: `RunE` returns nil and the result is captured), so whatever
     `ExecuteContext` returns is cobra's or pflag's own and is a usage error. cobra's
     `MarkFlagRequired` and `MarkFlagsMutuallyExclusive` go; D6 replaces them. `-h` stays as the
@@ -162,15 +163,15 @@ D2. **A pure pre-scan classifies the arguments before cobra sees them** (user de
     - Shared tokens are skipped: `--json`, `--quiet`, `--debug` (with or without `=value`),
       `--help`, and `-J`, `-q`, `-h` alone or clustered. `--version` is valid only when no
       command is given.
-    - The first other token decides. A command name: hand the arguments to cobra. None: `--help`
-      or `--version` if asked for, else the bare-call error of B3. Not a flag: `export` or a
-      word with a dot is old-form, anything else (`help` included) is an unknown command.
+    - The first other token decides. A command name (`help` included): hand the arguments to
+      cobra. None: `--version` if asked for, else the root help. Not a flag: `export` or a word
+      with a dot is old-form, anything else is an unknown command.
     - A flag: look it up in every command's flag set to learn whether it takes a value, and walk
       on to the first positional. If that is a command name, the error is "flags follow the
       command" and the hint moves the command to directly after `nyx`. Otherwise the call is
       old-form when recon or export takes the flag and no other command does, and an unknown
       flag when no command takes it. A flag that several commands take, with no command given,
-      gets the bare-call error.
+      is the usage error `no command given`, hint `nyx --help`.
     - `nyx -e recon` is old-form: `recon` there is the value of `-e`.
     - JSON mode for errors comes from a raw scan of the arguments before a bare `--`: `--json`,
       `--json=<true value>`, `-J`, or a cluster of shared shorthands that contains `J`. So
@@ -213,7 +214,7 @@ D4. **`Execute` alone picks the exit code and writes the error.** Commands retur
 
     | Case | Message | Hint | `input` |
     |---|---|---|---|
-    | Bare `nyx` | `no command given` | `nyx --help` | `null` |
+    | A flag several commands take, and no command | `no command given` | `nyx --help` | `null` |
     | Unknown command | names it and lists the commands | `nyx --help` | `{"command":[…]}` |
     | Old-form | says nyx now takes a command | the corrected invocation | `{"argument":[<first argument>]}` |
     | Flag before the command | `flags follow the command` | the corrected invocation | `{"flag":[…]}` |
@@ -377,8 +378,9 @@ checks that stdout is empty and that stderr holds exactly one error.
   and an argument that needs quoting (`--org 'Acme Pty'`), in both modes: exit 2, the exact
   hint, no file or directory created under the output directory or the working directory, and
   no hit on the network canaries.
-- **B3.** Bare `nyx`, bare `nyx --json`, `nyx frob`, `nyx help`: exit 2, the message and hint,
-  and no help text on either stream.
+- **B3.** Bare `nyx`, bare `nyx --json`, `nyx help` and `nyx -h` print exactly what `nyx --help`
+  prints and exit 0; `nyx help recon` is `nyx recon --help`; `nyx frob` and `nyx help frob`
+  exit 2 with the message and hint, and no help text on either stream.
 - **B4.** The root help starts with examples that each pass `--json`; holds every command of
   the tree, each everyday flag of B4, the stage names and the kinds; leaves out a tuning flag
   that `nyx recon --help` has; and ends with the exit-codes line. Each command's help starts
@@ -470,9 +472,223 @@ of `report_test.go`; the tests of `config` and `input` that match error text; an
   now runs recon, so they need no change; their README examples must read `nyx recon …`, and a
   failure they assert as an `error` event is now the error on stderr.
 
+# Implementation
+
+## Develop
+
+Built on 2026-11-17 against `309c8fa`. `internal/clierr` holds the error, the codes, their exit
+codes and `Problems`. In `internal/cli`, `classify.go` is the pre-scan, the quoting and the two hint
+builders; `failure.go` is the error writer and the signal watcher; `help.go` builds the tree and
+renders both kinds of help from it; `recon.go` holds the recon command moved out of `cli.go`; and
+`cli.go` holds `Deps` and `Execute`, which alone picks the exit code. `config.Load` and
+`input.Parse` return `clierr.Problems`; numeric setting flags are a pass-through `numberFlag`
+(`integer` or `float`). `Runner.Run` returns only an error, the check workers and the enumeration
+loop recover panics into check failures (a panic's stack follows as DEBUG lines), the store's writer
+recovers into its sticky error, and the email stage's three `wg.Go` lookups recover.
+`egress.Options.UserAgent` replaces `nyx/1`. The `error` event and a failed run's `run_end` are gone.
+
+How each behaviour is tested (behaviour tests in `internal/cli`, through the harness, whose `exec`
+now runs `recon --output-dir <dir>` and whose `failed` helper checks the exit code, an empty stdout
+and exactly one error in either layout):
+
+- B1: the existing suite, through `recon`; the export tests through `recon export`.
+- B2: `TestTree_OldFormCallsGetTheCorrectedCommand` (both modes, the exact hint, quoting, nothing
+  created in the output or working directory, no canary hit, the same error twice).
+- B3 (as amended): `TestTree_HelpIsBareNyxAndTheHelpCommand`, `TestTree_UnknownCommand`.
+- B4: `TestTree_RootHelpIsTheWholeReference`, `TestTree_CommandHelpOpensWithExamplesAndEndsWithExitCodes`,
+  `TestRootHelp_CommandAddedLater` (internal: a command added to the tree, and the pre-scan knows it),
+  and the updated `TestHelp_Colour` and `TestHelp_StagesTopic`.
+- B5: `TestTree_SharedFlagsBeforeAndAfterTheCommand`, `TestTree_QuietWithDebugIsAUsageError`,
+  `TestTree_SharedFlagsAreNotSettings`, `TestTree_FlagBeforeTheCommand`.
+- B6: `TestVersionFlag`, `TestTree_UserAgentIsTheVersion` (a source and a target),
+  `egress.TestUserAgentOption`.
+- B7: `TestTree_FlagsAreSpeltInFull`.
+- B8: `TestContract_EveryProblemInOneError` (six problems in one call, a config file problem with a
+  flag's, export's), `TestContract_NewEngagementWithoutInputsCreatesNothing`,
+  `config.TestNumericFlagsTakeAnyText`, `config.TestLoadReportsFileProblemsWithTheRest`,
+  `input.TestParseProblemsNameTheirArgument`, `clierr.TestProblemsUsage`.
+- B9: `TestContract_ErrorLayout` (the exact human and JSON layouts, `null` hint and input),
+  `TestContract_JSONModeWhenParsingFails`, `TestContract_FailedRunKeepsEarlierEventLines`,
+  `TestContract_KeysAreMaskedInTheError`, `TestContract_TerminalCharactersStripped`, and the
+  internal `TestFailureWriter_TargetLines` and `TestFailureWriter_OnceAndRedacted`.
+- B10: `clierr.TestExitCodes`, `TestContract_NetblockLimit` (the hint with `--redo x`, `--redo=x`
+  and a shared flag before the command, the outputs rendered, the hint run), and the netblock tests
+  in `behaviour_test.go` now at exit 2.
+- B11: `TestSignals` and `TestSignals_SecondExitsAtOnce` in child processes (both modes),
+  `TestContract_SignalBeforeExportWrites` and `TestContract_CancelledContextIsAnInterrupt`
+  in-process.
+- B12: `TestContract_PanicIsAnUnexpectedFailure` (a panicking output file, with and without
+  `--debug`, not left locked), `TestContract_PanicInACheckFailsOnlyThatCheck` (three panicking
+  checks; a panicking enumeration), `store.TestWriterPanicSetsTheStickyError`.
+- B13: `TestContract_NoPrompt`, `TestStdinIsNotRead` (a child whose stdin pipe never closes),
+  `TestContract_DotEnvIsNotLoaded`.
+- B14: the unit tests of B9 and B10; README ("Exit codes", "Errors") and `CLAUDE.md` state it.
+
+The tests were seen to fail on their assertions against stubs first.
+
+Deviations from the design:
+
+- **B3 was amended by the user during the build.** A bare `nyx` and `nyx help` print the root help
+  and exit 0, and `nyx help <command>` is that command's help. `help` is a visible command set
+  through `SetHelpCommand`; the root help lists it with the two topics under `Help:`. D2's
+  bare-call error now applies only to a flag several commands take with no command given.
+- **D10: `DefaultDeps` does not subscribe to signals.** `cli.NotifySignals()` does, and `main` (and
+  the crash test's child) set `Deps.Signals` from it. A subscription in `DefaultDeps` would have
+  taken over SIGINT for every test process that calls it for its stage list.
+- **D10: a signal already waiting when a command starts is taken before any work.** This makes the
+  in-process export test deterministic and changes nothing a caller can see.
+- **D6: the `--skip` rules are checked even when the settings fail to load.** `config.Load` now
+  returns the settings that did load (an unparsable `skip` is left empty), so leaving the rules out
+  was not needed, and B8 reports more.
+- **D6's assumed fact was not relied on.** After an unknown key, `config.Load` decodes again
+  without `UnmarshalExact`, so the rest is checked whatever mapstructure leaves behind.
+- **The `--quiet` with `--debug` problem's input** is `{"quiet":["true"]}`.
+- **`docs/plans/2026-11-build-order.md` was not updated:** the user removed `docs/plans/` while the
+  spec was being built.
+
+Mutation checks, each made by hand on the final code, run, and undone from the saved text:
+
+| Behaviour | Code broken | Caught by |
+|---|---|---|
+| B2 | a word with a dot no longer counts as the old form | `TestTree_OldFormCallsGetTheCorrectedCommand` |
+| B8 | recon returns at the first settings problem | `TestContract_EveryProblemInOneError` |
+| B9 | the human error is not redacted | `TestContract_KeysAreMaskedInTheError` |
+| B9 | no keys are masked once the configuration fails to load | `TestContract_KeysAreMaskedInTheError` |
+| B11 | SIGTERM and SIGHUP exit 130 | `TestSignals`, `TestContract_SignalBeforeExportWrites` |
+| B11 | a second signal does not exit | `TestSignals_SecondExitsAtOnce` |
+| B12 | the worker does not recover a check's panic | `TestContract_PanicInACheckFailsOnlyThatCheck` (the test binary panics) |
+| B13 | a terminal on stdout stores the acknowledgement | `TestContract_NoPrompt` |
+
+## Known limitations
+
+- B11 (D10's accepted limit): a second signal that lands while export writes to stdout exits with
+  part of the export written.
+- B9: until Spec 24, a recon `--json` run that fails keeps the event lines it printed on stdout, so
+  stdout is not empty on that exit.
+- B10: a locked engagement, a directory that is not an engagement, an engagement `export` cannot
+  find and store or file failures are `UNEXPECTED_ERROR` until Spec 24 gives them codes.
+- B2: whether a flag before no command is old-form depends on which commands take it; a flag both
+  recon and a later command take is "no command given", exercised only by the internal test.
+- `nyx --help recon` prints recon's help, as cobra resolves the command first; the spec does not
+  say which help it should be.
+- Tests: the `internal/cli` web tests (`TestWebPlumbing_*`, `TestWebPosture_*`, `TestRedirect_*`,
+  `TestTLS_*`, `TestCrawl_*`) fail intermittently on `main` as well as here, more often when the
+  whole suite runs.
+
+## Simplify
+
+Fixed:
+
+- **Settings and the key redactor load in one place.** `invocation.loadSettings` replaces the
+  copies in recon and export. `config.Load` reads `NYX_KEYS_*` through one helper, `envKeys`, which
+  `EnvKeyValues` also uses, and keeps those keys on its early return. So callers no longer append
+  `EnvKeyValues()` themselves.
+- **Error input is masked by `config.Redactor.Any`,** which gained a `map[string][]string` case.
+  cli's own `redactInput` is gone.
+- **One panic-to-error helper.** `run.RecoverInto` is used by `runCheck` and by the email stage's
+  goroutines, so a panic there now carries its stack under `--debug` like any other check. The
+  stage's own `recoverInto` is gone.
+- **The User-Agent is set once,** in `withDefaults`, for every command, not inside recon.
+- **`engagement.Exists`** replaces recon's hard-coded `.nyx/state.db` path. `Open` and
+  `OpenReadOnly` share the path through `statePath`.
+- **Smaller tidy-ups:**
+  - `slices.Contains` replaces `clierr.contains`.
+  - `helpOf` serves both `helpHint` and `parseError`.
+  - `visibleCommands` serves both `classify` and `unknownCommand`.
+  - `flagOf` handles `NotExistError` and `ValueRequiredError` in one branch.
+  - One signal table gives each signal's code and name.
+  - The `--palette` sheet uses `helpDepth`.
+  - recon's stage names are worked out once.
+  - recon's footer is a constant.
+  - export builds its kinds line once.
+  - `input.Parse` reuses `named` for domains and files.
+  - The error writer is given stderr's depth directly; the override to none under `--json` was
+    never read.
+- **Tests:**
+  - The harness checks the JSON error's compactness and key order by encoding the decoded error
+    again and comparing, not with regular expressions.
+  - `checkInterrupted` lost its unused signal parameter.
+  - The `mixedStage` alias is gone.
+  - The harness no longer guards a nil `Signals`.
+
+Skipped:
+
+- **`--quiet --debug` is checked only by recon and export.** `nyx help`, the topics and a bare
+  `nyx` accept the pair and exit 0. Moving the check to the root would change what those calls
+  do, so it is left for verification against B5 rather than made here.
+- **Merging `clierr.PanicError` with run's `checkPanic`.** Their messages differ
+  (`unexpected failure:` against `panic:`), and `run` is kept free of `clierr` by design.
+- **The enumeration's recover in `produce`.** Rewriting it with `RecoverInto` made it longer.
+- **Marking the help command with an annotation** instead of matching its name in `help.go`. The
+  name checks are few and work.
+- **Helpers for repeated test set-up** (the untouched-directory checks, appending `--json`). Kept
+  as written, for readability in each test.
+- **`CLAUDE.md` still points at `docs/plans/2026-11-build-order.md`,** which was removed. Whether to
+  restore the plan or drop the pointer is the user's call.
+- **Efficiency.** No reviewer found a regression. `EnvKeyValues` reading the environment twice and
+  the duplicated `"nyx/devel"` default in egress were too small to matter.
+
+# Verification
+
+## Result
+
+Verified on 2026-11-17 against the working tree on `main` (base `309c8fa`), by reading the code,
+driving a built binary through the edge cases of B2 to B5, and running
+`XDG_CONFIG_HOME=$(mktemp -d) make test`, which passed before and after the changes below.
+
+The goal is met: everything nyx did runs as `nyx recon` (export as `nyx recon export`), one
+`nyx --help` lists every command, and every outcome is an exit code and one error on stderr.
+
+- **B1** met. The existing suite passes through `recon` (the harness's `exec`), and the export
+  tests through `recon export`.
+- **B2** met. All four examples, `nyx export -e acme` and `nyx -e recon` get the caller's own
+  arguments with `recon` inserted, shell-quoted, exit 2, in both modes; the pre-scan runs before
+  cobra, so nothing is printed, created or contacted.
+- **B3** (as amended) met. A bare `nyx`, `nyx --json`, `nyx help` and `nyx -h` print the root help;
+  `nyx help recon` is byte-for-byte `nyx recon --help`; `nyx frob` and `nyx help frob` exit 2 naming
+  the commands, with no help printed.
+- **B4** met. The root help opens with `--json` examples, renders every runnable command from the
+  tree with one example, the everyday flags of B4 and the stage and kind lists, says recon's tuning
+  settings are in `nyx recon --help`, and ends with the exit-codes line; each command's help opens
+  with examples and ends with that line. The two help topics print their own text, as before.
+- **B5** met after a fix. The shared flags work before and after the command, are not settings, and
+  any other flag before the command gets "flags follow the command" with the moved hint. `--quiet`
+  with `--debug` exited 2 only for recon and export: a bare `nyx`, `nyx help`, any `--help`, the
+  topics and `--version` printed and exited 0. Fixed (see below).
+- **B6** met. `--version` prints the version; `Options.UserAgent` carries `nyx/<version>`, or
+  `nyx/devel`, to sources and targets alike.
+- **B7** met. Abbreviations are unknown flags; `--authorized` is the one alias.
+- **B8** met. recon and export collect every problem (settings, config file, inputs, files,
+  engagement name, `--redo`, `--skip`, `--kind`, `--output`, the shared pair) into one error with
+  each value in `input`; `recon -e <new>` with no inputs is refused before `engagement.Open`.
+- **B9** met, with the exception B9 itself allows: a recon `--json` run that fails keeps the event
+  lines it printed. Both layouts are exact, JSON mode comes from a raw scan so parse errors are JSON
+  too, keys are masked (also when the configuration fails to load), and human lines are sanitised.
+- **B10** met. One code-to-exit table; the netblock limit is `INVALID_INPUT`, exit 2, with the
+  total and the corrected call as hint; the cases Spec 24 reclassifies stay exit 1.
+- **B11** met except one edge. Each signal gives its own code and one `INTERRUPTED` error, stdout is
+  empty in human mode, completed work is saved and a second signal exits at once. A second signal
+  that lands while export is writing to stdout leaves part of the export written (D10's accepted
+  limit, which `## Out of scope` does not record as agreed by the user).
+- **B12** met. Panics on the main goroutine, in a check, in a stage's enumeration, in the store's
+  writer and in the email stage's goroutines are recovered; a check's panic fails only that check.
+- **B13** met. No prompt, no `Deps.Stdin`, nothing loads `.env`; the acknowledgement is stored only
+  with `--authorised`.
+- **B14** met. `README.md` ("Exit codes", "Errors") and `CLAUDE.md` state the stable interface, and
+  the unit tests of B9 and B10 pin it.
+
+Changed during verification:
+
+- **`--quiet` with `--debug` is refused on every call (B5).** The pre-scan's raw scan now finds
+  `--quiet` (and `q` in a cluster), and the root help and version paths check the pair before
+  printing; the help command, every `--help` and the topics check it through one `showHelp` gate,
+  which makes the usage error the outcome and prints nothing. `TestTree_QuietWithDebugIsAUsageError`
+  gained nine cases covering those paths.
+- **`CLAUDE.md`** named the export command as `nyx export`; it now says `nyx recon export`.
+
 # Follow-ups
 
 - Update any script, alias or agent skill file of your own that calls `nyx <domain>` or
   `nyx export`: both now exit 2 with the corrected command in the hint.
-- The installed `golangci-lint` cannot check this module (see the build order file). Reinstall
-  it before `/spec-develop`, or the lint step is skipped again.
+- The web tests of `internal/cli` are flaky on `main` too (see Known limitations); worth a look of
+  their own.

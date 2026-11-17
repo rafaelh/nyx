@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"fmt"
@@ -33,6 +34,7 @@ func childMain() int {
 	n, _ := strconv.Atoi(os.Getenv("NYX_TEST_N"))
 	delay, _ := time.ParseDuration(os.Getenv("NYX_TEST_DELAY"))
 	logPath := os.Getenv("NYX_TEST_LOG")
+	stubborn := os.Getenv("NYX_TEST_STUBBORN") == "1" // checks that do not stop when cancelled
 	st := &testkit.Stage{StageName: "fake", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", n) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -43,6 +45,10 @@ func childMain() int {
 					f.Close()
 				}
 			}
+			if stubborn {
+				time.Sleep(delay)
+				return nil, nil
+			}
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
@@ -52,14 +58,16 @@ func childMain() int {
 		}}
 	d := cli.DefaultDeps()
 	d.Stages = []run.Stage{st}
+	d.Signals = cli.NotifySignals()
 	return cli.Execute(context.Background(), strings.Split(os.Getenv("NYX_TEST_ARGS"), "\x1f"), d)
 }
 
 type child struct {
-	t   *testing.T
-	cmd *exec.Cmd
-	log string
-	out string
+	t              *testing.T
+	cmd            *exec.Cmd
+	log            string
+	out            string
+	stdout, stderr *bytes.Buffer
 }
 
 type childOpts struct {
@@ -68,12 +76,19 @@ type childOpts struct {
 	fault     string
 	faultFile string
 	args      []string
+	human     bool // leave out --json
+	stubborn  bool // checks ignore cancellation
+	openStdin bool // stdin is a pipe that is never closed
 }
 
 func startChild(t *testing.T, out string, o childOpts) *child {
 	t.Helper()
-	c := &child{t: t, log: filepath.Join(t.TempDir(), "log"), out: out}
-	args := append([]string{"--output-dir", out, "--json"}, o.args...)
+	c := &child{t: t, log: filepath.Join(t.TempDir(), "log"), out: out, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
+	args := []string{"recon", "--output-dir", out}
+	if !o.human {
+		args = append(args, "--json")
+	}
+	args = append(args, o.args...)
 	c.cmd = exec.Command(os.Args[0], "-test.run=NoSuchTestEver")
 	c.cmd.Env = append(os.Environ(),
 		"NYX_TEST_CHILD=1", "NYX_TEST_N="+strconv.Itoa(o.n), "NYX_TEST_DELAY="+o.delay.String(),
@@ -81,6 +96,17 @@ func startChild(t *testing.T, out string, o childOpts) *child {
 		"XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
 	if o.fault != "" {
 		c.cmd.Env = append(c.cmd.Env, "NYX_FAULT="+o.fault, "NYX_FAULT_FILE="+o.faultFile)
+	}
+	if o.stubborn {
+		c.cmd.Env = append(c.cmd.Env, "NYX_TEST_STUBBORN=1")
+	}
+	c.cmd.Stdout, c.cmd.Stderr = c.stdout, c.stderr
+	if o.openStdin {
+		w, err := c.cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { w.Close() })
 	}
 	if err := c.cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -308,26 +334,92 @@ func TestCrashDuringRedo(t *testing.T) {
 	}
 }
 
-// SIGINT and SIGTERM exit 130 with the same guarantees.
+// Each signal ends the run with its own exit code and one INTERRUPTED error,
+// with the completed checks saved and the outputs rendered; a re-run finishes
+// the rest. In human mode stdout is empty.
 func TestSignals(t *testing.T) {
-	for name, sig := range map[string]syscall.Signal{"SIGINT": syscall.SIGINT, "SIGTERM": syscall.SIGTERM, "SIGHUP": syscall.SIGHUP} {
-		t.Run(name, func(t *testing.T) {
-			out := t.TempDir()
-			c1 := startChild(t, out, childOpts{n: nChecks, delay: 60 * time.Millisecond, args: []string{"a.com", "--concurrency", "2"}})
-			waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
-			c1.kill(sig)
-			if code := c1.wait(); code != 130 {
-				t.Fatalf("exit %d, want 130", code)
-			}
-			assertOutputsIntact(t, out)
-			done := committed(t, out)
-			if len(done) == 0 || len(done) == nChecks {
-				t.Fatalf("expected a partial run, got %d recorded", len(done))
-			}
-			if _, err := os.Stat(filepath.Join(engDirOf(out), "scope.csv")); err != nil {
-				t.Error("outputs must be rendered on interrupt")
-			}
-			finishAndCheck(t, out, setDiff(allKeys(nChecks), done), childOpts{args: []string{"-e", "a.com"}})
-		})
+	for name, c := range map[string]struct {
+		sig  syscall.Signal
+		code int
+	}{"SIGINT": {syscall.SIGINT, 130}, "SIGTERM": {syscall.SIGTERM, 143}, "SIGHUP": {syscall.SIGHUP, 129}} {
+		for _, human := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s human=%v", name, human), func(t *testing.T) {
+				out := t.TempDir()
+				c1 := startChild(t, out, childOpts{n: nChecks, delay: 60 * time.Millisecond, args: []string{"a.com", "--concurrency", "2"}, human: human})
+				waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
+				c1.kill(c.sig)
+				if code := c1.wait(); code != c.code {
+					t.Fatalf("exit %d, want %d\n%s", code, c.code, c1.stderr.String())
+				}
+				c1.checkInterrupted(!human)
+				if human && c1.stdout.Len() != 0 {
+					t.Errorf("stdout %q", c1.stdout.String())
+				}
+				assertOutputsIntact(t, out)
+				done := committed(t, out)
+				if len(done) == 0 || len(done) == nChecks {
+					t.Fatalf("expected a partial run, got %d recorded", len(done))
+				}
+				if _, err := os.Stat(filepath.Join(engDirOf(out), "scope.csv")); err != nil {
+					t.Error("outputs must be rendered on interrupt")
+				}
+				finishAndCheck(t, out, setDiff(allKeys(nChecks), done), childOpts{args: []string{"-e", "a.com"}})
+			})
+		}
+	}
+}
+
+// checkInterrupted asserts that stderr ends with exactly one INTERRUPTED error.
+func (c *child) checkInterrupted(jsonMode bool) {
+	c.t.Helper()
+	stderr := c.stderr.String()
+	if jsonMode {
+		lines := strings.Split(strings.TrimSpace(stderr), "\n")
+		if len(lines) != 1 || !strings.Contains(lines[0], `"code":"INTERRUPTED"`) || strings.Count(stderr, `"code":`) != 1 {
+			c.t.Errorf("stderr is not one INTERRUPTED error:\n%s", stderr)
+		}
+		return
+	}
+	if strings.Count(stderr, "error: ") != 1 || !strings.Contains(stderr, "(INTERRUPTED)") {
+		c.t.Errorf("stderr does not hold one INTERRUPTED error:\n%s", stderr)
+	}
+}
+
+// A second signal exits at once with the first one's code, and the error is
+// still written once.
+func TestSignals_SecondExitsAtOnce(t *testing.T) {
+	for name, c := range map[string]struct {
+		first, second syscall.Signal
+		code          int
+	}{"TERM then INT": {syscall.SIGTERM, syscall.SIGINT, 143}, "INT then HUP": {syscall.SIGINT, syscall.SIGHUP, 130}} {
+		for _, human := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s human=%v", name, human), func(t *testing.T) {
+				out := t.TempDir()
+				// The checks ignore the cancel and take a minute, so only the
+				// second signal can end the run soon.
+				c1 := startChild(t, out, childOpts{n: nChecks, delay: time.Minute, stubborn: true, human: human, args: []string{"a.com", "--concurrency", "2"}})
+				waitFor(t, "the checks to start", func() bool { return len(c1.executed()) >= 2 })
+				c1.kill(c.first)
+				time.Sleep(200 * time.Millisecond)
+				start := time.Now()
+				c1.kill(c.second)
+				if code := c1.wait(); code != c.code {
+					t.Fatalf("exit %d, want %d\n%s", code, c.code, c1.stderr.String())
+				}
+				if d := time.Since(start); d > 10*time.Second {
+					t.Errorf("the second signal took %s to end the run", d)
+				}
+				c1.checkInterrupted(!human)
+			})
+		}
+	}
+}
+
+// A run whose stdin is a pipe that never closes still finishes: nothing reads it.
+func TestStdinIsNotRead(t *testing.T) {
+	out := t.TempDir()
+	c := startChild(t, out, childOpts{n: 3, args: []string{"a.com"}, openStdin: true, human: true})
+	if code := c.wait(); code != 0 {
+		t.Fatalf("exit %d\n%s", code, c.stderr.String())
 	}
 }

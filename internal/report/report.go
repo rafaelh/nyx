@@ -151,7 +151,7 @@ func Line(d palette.Depth, t time.Time, l Level, msg string) string {
 
 // ConsoleOptions are what NewConsole needs.
 type ConsoleOptions struct {
-	Log          io.Writer // the log lines and the error line (stderr)
+	Log          io.Writer // the log lines (stderr)
 	LogDepth     palette.Depth
 	Summary      io.Writer // the end-of-run summary (stdout)
 	SummaryDepth palette.Depth
@@ -162,7 +162,8 @@ type ConsoleOptions struct {
 
 // Console renders events as log lines on one stream and the summary on
 // another. Each event has a level (see Emit) and is written only when it
-// reaches Min; the summary and the error line are always written.
+// reaches Min; the summary is always written. The error that ends a failed
+// command is not an event: cli writes it.
 type Console struct {
 	mu sync.Mutex
 	o  ConsoleOptions
@@ -240,10 +241,6 @@ func (c *Console) Emit(ev Event) {
 		level, msg = Warn, str(f, "message")
 	case "debug":
 		level, msg = Debug, str(f, "message")
-	case "error":
-		// The line that ends a run is not a log line: no timestamp or level.
-		fmt.Fprintln(c.o.Log, d.Text(palette.Semantic, "error", "error:")+" "+str(f, "message"))
-		return
 	case "summary":
 		var b strings.Builder
 		c.summary(&b, f)

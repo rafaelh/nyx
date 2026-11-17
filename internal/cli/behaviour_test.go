@@ -613,73 +613,6 @@ func ackStage() *testkit.Stage {
 	}}
 }
 
-func TestAckPromptYes(t *testing.T) {
-	st := ackStage()
-	h := newHarness(t, st)
-	h.stdinTTY, h.stdin = true, "y\n"
-	if code := h.exec("a.com"); code != 0 {
-		t.Fatal(h.stderr.String())
-	}
-	if !strings.Contains(h.stderr.String(), "Confirm you are authorised") {
-		t.Errorf("prompt missing on stderr: %q", h.stderr.String())
-	}
-	if len(st.Executed()) != 3 {
-		t.Error("stage should run after y")
-	}
-	if _, ok := h.meta("a.com", "ack_at"); !ok {
-		t.Error("ack not stored")
-	}
-	// Never asked again, even when scope grows.
-	st.Reset()
-	h.stdin = "n\n"
-	h.exec("-e", "a.com", "b.com")
-	if strings.Contains(h.stderr.String(), "Confirm you are authorised") {
-		t.Error("ack must not be asked again")
-	}
-	if got := st.Executed(); len(got) != 1 || got[0] != "r:b.com" {
-		t.Errorf("stored ack must keep covering the engagement: %v", got)
-	}
-}
-
-func TestAckPromptNo(t *testing.T) {
-	st := ackStage()
-	h := newHarness(t, st)
-	h.stdinTTY, h.stdin = true, "n\n"
-	if code := h.exec("a.com"); code != 0 {
-		t.Fatal(h.stderr.String())
-	}
-	if len(st.Executed()) != 0 {
-		t.Error("stage must not run")
-	}
-	if !strings.Contains(h.stderr.String(), "no authorisation") {
-		t.Errorf("console should show not-configured reason: %q", h.stderr.String())
-	}
-	if _, ok := h.meta("a.com", "ack_at"); ok {
-		t.Error("ack stored on n")
-	}
-}
-
-func TestAckNoPromptWithoutTTYOrInJSON(t *testing.T) {
-	for name, c := range map[string]struct {
-		tty  bool
-		args []string
-	}{
-		"no tty":  {false, nil},
-		"json":    {true, []string{"--json"}},
-		"passive": {true, []string{"--passive"}},
-	} {
-		st := ackStage()
-		h := newHarness(t, st)
-		h.stdinTTY, h.stdin = c.tty, "y\n"
-		if code := h.exec(append([]string{"a.com"}, c.args...)...); code != 0 {
-			t.Fatalf("%s: %s", name, h.stderr.String())
-		}
-		if strings.Contains(h.stderr.String(), "Confirm you are authorised") || len(st.Executed()) != 0 {
-			t.Errorf("%s: prompt=%q executed=%v", name, h.stderr.String(), st.Executed())
-		}
-	}
-}
-
 func TestAckFlag(t *testing.T) {
 	for _, flag := range []string{"--authorised", "--authorized"} {
 		st := ackStage()
@@ -716,8 +649,8 @@ func TestNetblockGuard(t *testing.T) {
 	asnServer(t, h, &prefix)
 
 	code := h.exec("--asn", "64500", "--netblock-limit", "1000")
-	if code != 3 {
-		t.Fatalf("exit %d, want 3: %s %s", code, h.stdout.String(), h.stderr.String())
+	if code != 2 {
+		t.Fatalf("exit %d, want 2: %s %s", code, h.stdout.String(), h.stderr.String())
 	}
 	if !strings.Contains(h.stdout.String()+h.stderr.String(), "1024") {
 		t.Errorf("total not shown: %q %q", h.stdout.String(), h.stderr.String())
@@ -740,7 +673,7 @@ func TestNetblockGuard(t *testing.T) {
 		t.Fatalf("remembered approval: exit %d", code)
 	}
 	prefix = "10.0.0.0/21" // 2048: growth beyond the approved count
-	if code = h.exec("-e", "as64500", "--netblock-limit", "1000", "--redo", "asn"); code != 3 {
+	if code = h.exec("-e", "as64500", "--netblock-limit", "1000", "--redo", "asn"); code != 2 {
 		t.Errorf("growth beyond approval must stop again: exit %d", code)
 	}
 }
@@ -748,7 +681,7 @@ func TestNetblockGuard(t *testing.T) {
 func TestNetblockInputGuard(t *testing.T) {
 	first := &testkit.Stage{StageName: "first", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("a", 2) }}
 	h := newHarness(t, first)
-	if code := h.exec("--cidr", "10.0.0.0/16", "--netblock-limit", "100"); code != 3 || len(first.Executed()) != 0 {
+	if code := h.exec("--cidr", "10.0.0.0/16", "--netblock-limit", "100"); code != 2 || len(first.Executed()) != 0 {
 		t.Errorf("exit %d executed %v", code, first.Executed())
 	}
 }
@@ -896,7 +829,7 @@ func TestStageStatesAndFound(t *testing.T) {
 	}
 }
 
-// With --json every stdout line is an unstyled JSON event, errors included.
+// With --json every stdout line is an unstyled JSON event, and an error is the JSON error on stderr.
 func TestJSONMode(t *testing.T) {
 	h := newHarness(t, noop())
 	if code := h.exec("a.com", "--json"); code != 0 {
@@ -916,13 +849,9 @@ func TestJSONMode(t *testing.T) {
 	if strings.Contains(h.stdout.String(), "\x1b") {
 		t.Error("ANSI in JSON mode on a TTY")
 	}
-	// Errors are JSON events too.
-	if code := h.exec("co.uk", "--json"); code != 2 {
-		t.Errorf("exit %d", code)
-	}
-	errs := ofType(h.events(), "error")
-	if len(errs) != 1 || errs[0].num("exit_code") != 2 || !strings.Contains(errs[0].str("message"), "co.uk") {
-		t.Errorf("error events = %v", errs)
+	// An error is the JSON error on stderr, not an event.
+	if f := h.failed(h.exec("co.uk", "--json"), 2, true); !strings.Contains(f.msg, "co.uk") {
+		t.Errorf("error = %+v", f)
 	}
 	if code := h.exec("--json", "--help"); code != 0 {
 		t.Errorf("exit %d", code)

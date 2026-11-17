@@ -1,19 +1,17 @@
-// Package cli is the nyx command line: flags, validation, the
-// authorisation prompt, signals and exit codes.
+// Package cli is the nyx command line: the command tree (nyx, recon, recon
+// export, help and the help topics), flags, validation, help text, signals,
+// and the one place that picks the exit code and writes the error.
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime/debug"
-	"slices"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,10 +19,9 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
+	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/engagement"
-	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
@@ -47,32 +44,71 @@ import (
 
 // Deps are the collaborators of Execute, replaceable in tests.
 type Deps struct {
-	Stages        []run.Stage // in registry order
-	Files         []output.File
-	Egress        egress.Options
-	Stdin         io.Reader
-	Stdout        io.Writer
-	Stderr        io.Writer
-	StdinIsTTY    func() bool
-	StdoutIsTTY   func() bool
-	StderrIsTTY   func() bool    // nil means false
-	Location      *time.Location // the time zone log lines are shown in; nil means time.Local
-	Clock         func() time.Time
-	HandleSignals bool   // SIGINT, SIGTERM and SIGHUP cancel the run; a second one exits at once
-	Version       string // shown by --version; empty means "devel"
+	Stages      []run.Stage // in registry order
+	Files       []output.File
+	Egress      egress.Options
+	Stdout      io.Writer
+	Stderr      io.Writer
+	StdoutIsTTY func() bool
+	StderrIsTTY func() bool    // nil means false
+	Location    *time.Location // the time zone log lines are shown in; nil means time.Local
+	Clock       func() time.Time
+	// Signals delivers SIGINT, SIGTERM and SIGHUP; nil means none arrive. The
+	// first cancels the command, a second exits at once (see NotifySignals).
+	Signals <-chan os.Signal
+	Version string // shown by --version and sent as the User-Agent; empty means "devel"
 }
 
-// DefaultDeps returns the production dependencies.
+// DefaultDeps returns the production dependencies, except Signals, which only
+// main subscribes to (see NotifySignals).
 func DefaultDeps() Deps {
 	return Deps{
 		Version: versionString(debug.ReadBuildInfo()),
 		Stages:  defaultStages(), Files: output.Default(),
-		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-		StdinIsTTY:  func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+		Stdout: os.Stdout, Stderr: os.Stderr,
 		StdoutIsTTY: func() bool { return term.IsTerminal(int(os.Stdout.Fd())) },
 		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
-		Clock:       time.Now, HandleSignals: true,
+		Clock:       time.Now,
 	}
+}
+
+// NotifySignals subscribes to SIGINT, SIGTERM and SIGHUP, for Deps.Signals.
+// The subscription changes what those signals do to the whole process, so
+// only main makes it, not DefaultDeps.
+func NotifySignals() <-chan os.Signal {
+	ch := make(chan os.Signal, 2)
+	signal.Notify(ch, os.Interrupt, unix.SIGTERM, unix.SIGHUP)
+	return ch
+}
+
+// withDefaults fills in what a test leaves out of Deps.
+func withDefaults(d Deps) Deps {
+	if d.Version == "" {
+		d.Version = develVersion
+	}
+	d.Egress.UserAgent = "nyx/" + d.Version // every command's requests carry it
+	if d.Files == nil {
+		d.Files = output.Default()
+	}
+	if d.Clock == nil {
+		d.Clock = time.Now
+	}
+	if d.Stdout == nil {
+		d.Stdout = io.Discard
+	}
+	if d.Stderr == nil {
+		d.Stderr = io.Discard
+	}
+	if d.StdoutIsTTY == nil {
+		d.StdoutIsTTY = func() bool { return false }
+	}
+	if d.StderrIsTTY == nil {
+		d.StderrIsTTY = func() bool { return false }
+	}
+	if d.Location == nil {
+		d.Location = time.Local
+	}
+	return d
 }
 
 // defaultStages is the registry order: sources first, then DNS, then the stages derived from what
@@ -96,72 +132,206 @@ func defaultStages() []run.Stage {
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }
 
-type options struct {
-	domainsFile, excludeFile, engagement, redo, configPath string
-	orgs, asns, cidrs, exclude                             []string
-	passive, authorised, allowLarge, json, quiet, debug    bool
-	palette                                                bool
-}
-
 // depths are the colour depths of the two output streams, each decided once.
 type depths struct{ out, err palette.Depth }
 
-// configFlagUsage is the help of --config, for a run and for export.
-const configFlagUsage = "Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)"
+// shared are the flags every command takes, before or after its name. None of
+// them is a setting.
+type shared struct{ json, quiet, debug bool }
 
-const ackPrompt = "Confirm you are authorised to test this engagement's scope [y/N] "
+// invocation is one call of nyx: what the commands share, and what they hand
+// back to Execute.
+type invocation struct {
+	d    Deps
+	dp   depths
+	args []string // as given, for the hints that repeat them
+	raw  shared   // the shared flags as a scan of args finds them, before any parse
+	sh   shared   // the shared flags as parsed
+	fw   *failureWriter
 
-// Execute runs nyx with args and returns the process exit code.
-func Execute(ctx context.Context, args []string, d Deps) int {
-	if d.Version == "" {
-		d.Version = develVersion // cobra only adds --version when Version is set
-	}
-	if d.Files == nil {
-		d.Files = output.Default()
-	}
-	if d.Clock == nil {
-		d.Clock = time.Now
-	}
-	if d.StdinIsTTY == nil {
-		d.StdinIsTTY = func() bool { return false }
-	}
-	if d.StdoutIsTTY == nil {
-		d.StdoutIsTTY = func() bool { return false }
-	}
-	if d.StderrIsTTY == nil {
-		d.StderrIsTTY = func() bool { return false }
-	}
-	if d.Location == nil {
-		d.Location = time.Local
-	}
-	dp := depths{out: palette.Detect(d.StdoutIsTTY(), os.Getenv), err: palette.Detect(d.StderrIsTTY(), os.Getenv)}
-	if d.Stdin == nil {
-		d.Stdin = strings.NewReader("")
-	}
-	var o options
-	var ex exportOptions
-	code := run.ExitOK
-	cmd := newCommand(&o, d, dp.out, func(c *cobra.Command, positional []string) {
-		code = runCommand(ctx, c, positional, &o, d, dp)
-	})
-	cmd.AddCommand(newExportCommand(&ex, dp.out, func(c *cobra.Command) { code = runExport(c, &ex, d, dp) }),
-		newTopic("findings", "Finding types and their default severities", findingsHelp, dp.out),
-		newTopic("stages", "The stages, in run order, and what each one contacts and does",
-			func(dep palette.Depth) string { return stagesHelp(dep, d.Stages) }, dp.out))
-	cmd.SetArgs(args)
-	cmd.SetOut(d.Stdout)
-	cmd.SetErr(d.Stderr)
-	if err := cmd.ExecuteContext(ctx); err != nil {
-		return fail(newEmitter(d, &o, dp), run.ExitInvalid, err)
-	}
-	return code
+	cmd *cobra.Command // the command that ran, for the default hint
+	err error          // what it returned
+
+	mu            sync.Mutex
+	interruptHint string // what to do after a signal, set by the command
 }
 
-// fail reports a fatal error and the run's end, and returns code.
-func fail(em report.Emitter, code int, err error) int {
-	em.Emit(report.Event{Type: "error", Fields: map[string]any{"message": err.Error(), "exit_code": code}})
-	em.Emit(report.Event{Type: "run_end", Fields: map[string]any{"exit_code": code}})
-	return code
+func newInvocation(d Deps, args []string) *invocation {
+	inv := &invocation{d: d, args: args, raw: scanShared(args)}
+	inv.dp = depths{out: palette.Detect(d.StdoutIsTTY(), os.Getenv), err: palette.Detect(d.StderrIsTTY(), os.Getenv)}
+	inv.fw = newFailureWriter(d.Stderr, inv.raw.json, inv.dp.err, config.NewRedactor(config.EnvKeyValues()...))
+	return inv
+}
+
+// loadSettings loads a command's settings into probs and has the error mask
+// every key that loaded, even when some setting did not.
+func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs *clierr.Problems) (config.Settings, *config.Redactor) {
+	settings, err := config.Load(fs, configPath)
+	probs.Merge(err)
+	red := config.NewRedactor(settings.KeyValues()...)
+	inv.fw.setRedactor(red)
+	return settings, red
+}
+
+// Execute runs nyx with args and returns the process exit code. It alone
+// picks the exit code and writes the error: commands return an error and
+// print none.
+func Execute(ctx context.Context, args []string, d Deps) int {
+	inv := newInvocation(withDefaults(d), args)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	sigs := watchSignals(inv.d.Signals, cancel, func(s os.Signal) {
+		// A second signal: exit at once, the one exit outside main.
+		inv.fw.write(inv.interruptError(s))
+		os.Exit(signalCode(s))
+	})
+	defer sigs.stop()
+
+	err := inv.execute(runCtx)
+	if err == nil {
+		return 0
+	}
+	s := sigs.received()
+	if s == nil && errors.Is(ctx.Err(), context.Canceled) {
+		s = os.Interrupt // the caller cancelled: an interrupt, as Ctrl-C would be
+	}
+	if s != nil {
+		inv.fw.write(inv.interruptError(s))
+		return signalCode(s)
+	}
+	e := inv.toError(err)
+	inv.fw.write(e)
+	return clierr.ExitCode(e.Code)
+}
+
+// execute builds the tree, classifies the arguments and runs the command. A
+// panic anywhere on this goroutine ends here, as an unexpected failure.
+func (inv *invocation) execute(ctx context.Context) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = &clierr.PanicError{Value: v, Stack: debug.Stack()}
+		}
+	}()
+	root := newRoot(inv)
+	sc := classify(inv.args, root)
+	if sc.err == nil && (sc.version || sc.help) {
+		// Every argument is a shared flag or --version, so the scan is the parse.
+		inv.sh = inv.raw
+		if err := inv.problems().Err(); err != nil {
+			return err
+		}
+	}
+	switch {
+	case sc.err != nil:
+		return sc.err
+	case sc.version:
+		fmt.Fprintf(inv.d.Stdout, "nyx %s\n", inv.d.Version)
+		return nil
+	case sc.help:
+		inv.printHelp(root, root)
+		return nil
+	}
+	root.SetArgs(inv.args)
+	root.SetOut(inv.d.Stdout)
+	root.SetErr(inv.d.Stderr)
+	cmd, perr := root.ExecuteContextC(ctx)
+	if perr != nil {
+		// A command's run never returns an error through cobra, so this is the
+		// parser's own: a usage error.
+		return parseError(cmd, perr)
+	}
+	return inv.err
+}
+
+// toError turns what a command returned into the error to write.
+func (inv *invocation) toError(err error) *clierr.Error {
+	var e *clierr.Error
+	var probs clierr.Problems
+	var pe *clierr.PanicError
+	switch {
+	case errors.As(err, &pe):
+		e = &clierr.Error{Code: clierr.Unexpected, Message: pe.Error()}
+		if inv.raw.debug {
+			_, _ = inv.d.Stderr.Write(pe.Stack) // before the error, which stays the last line
+		} else {
+			e.Hint = "add --debug for the stack trace"
+		}
+	case errors.As(err, &e):
+	case errors.As(err, &probs):
+		e = probs.Usage(inv.helpHint())
+	default:
+		e = &clierr.Error{Code: clierr.Unexpected, Message: err.Error()}
+	}
+	return e
+}
+
+// helpHint is the help of the command that ran.
+func (inv *invocation) helpHint() string { return helpOf(inv.cmd) }
+
+// helpOf is the --help call of cmd, or of nyx when there is none.
+func helpOf(cmd *cobra.Command) string {
+	if cmd == nil {
+		return "nyx --help"
+	}
+	return cmd.CommandPath() + " --help"
+}
+
+// interruptError is the error of a command a signal ended.
+func (inv *invocation) interruptError(s os.Signal) *clierr.Error {
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	return &clierr.Error{Code: clierr.Interrupted, Message: "interrupted by " + signalName(s), Hint: inv.interruptHint}
+}
+
+func (inv *invocation) setInterruptHint(h string) {
+	inv.mu.Lock()
+	inv.interruptHint = h
+	inv.mu.Unlock()
+}
+
+// problems starts a command's checks with those of the shared flags.
+func (inv *invocation) problems() *clierr.Problems {
+	var p clierr.Problems
+	if inv.sh.quiet && inv.sh.debug {
+		p.Add("quiet", "true", "--quiet and --debug cannot be used together", "drop one of --quiet and --debug")
+	}
+	return &p
+}
+
+// start records the command that runs and returns its run function's error
+// slot, so a command never returns an error through cobra.
+func (inv *invocation) start(cmd *cobra.Command, err error) error {
+	inv.cmd, inv.err = cmd, err
+	return nil
+}
+
+// parseError is the usage error of an argument the parser refused.
+func parseError(cmd *cobra.Command, err error) *clierr.Error {
+	e := &clierr.Error{Code: clierr.InvalidInput, Message: err.Error(), Hint: helpOf(cmd)}
+	if flag := flagOf(err); flag != "" {
+		e.Input = map[string][]string{"flag": {flag}}
+	}
+	return e
+}
+
+// flagOf is the flag a parser error names, as it was written, or "".
+func flagOf(err error) string {
+	// NotExistError and ValueRequiredError both name the flag as written.
+	var named interface {
+		GetSpecifiedName() string
+		GetSpecifiedShortnames() string
+	}
+	var iv *pflag.InvalidValueError
+	switch {
+	case errors.As(err, &named):
+		if named.GetSpecifiedShortnames() != "" {
+			return "-" + named.GetSpecifiedName()
+		}
+		return "--" + named.GetSpecifiedName()
+	case errors.As(err, &iv):
+		return "--" + iv.GetFlag().Name
+	}
+	return ""
 }
 
 func stageNames(stages []run.Stage) []string {
@@ -176,270 +346,23 @@ func stageNames(stages []run.Stage) []string {
 // stdout. Under --json stdout is the JSON event stream, which never carries a debug event so that
 // stdout is the same with or without --debug, and there is no console, except that --debug adds one
 // on stderr which passes only the debug events: a level threshold there would also write the
-// summary and a second copy of the error.
-func newEmitter(d Deps, o *options, dp depths) report.Emitter {
+// summary.
+func newEmitter(d Deps, sh shared, dp depths) report.Emitter {
 	minLevel := report.Info
 	switch {
-	case o.debug:
+	case sh.debug:
 		minLevel = report.Debug
-	case o.quiet:
+	case sh.quiet:
 		minLevel = report.Warn
 	}
 	console := report.ConsoleOptions{Log: d.Stderr, LogDepth: dp.err, Summary: d.Stdout, SummaryDepth: dp.out,
 		Min: minLevel, Clock: d.Clock, Location: d.Location}
-	if !o.json {
+	if !sh.json {
 		return report.NewConsole(console)
 	}
 	js := report.NewJSON(d.Stdout, d.Clock)
-	if !o.debug {
+	if !sh.debug {
 		return js
 	}
 	return report.Tee(js, report.Only("debug", report.NewConsole(console)))
-}
-
-// newCommand builds the root command. Its help is coloured at depth, the colour depth of stdout,
-// except under --json.
-func newCommand(o *options, d Deps, depth palette.Depth, runFn func(*cobra.Command, []string)) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "nyx [domain...] [flags]",
-		Short: "Passive-first reconnaissance of a target's domains, organisations and netblocks",
-		Long: "nyx records a target's hosts, IPs, web services, URLs and open ports, plus a severity-ranked\n" +
-			"list of obvious exposures, using only third-party sources and the kind of contact any member of\n" +
-			"the public could make. Results go to the console and to TXT/CSV files in an engagement directory.\n" +
-			"Re-run with the same engagement (nyx -e <name>) to resume.",
-		Args:          cobra.ArbitraryArgs,
-		Version:       d.Version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		// A subcommand would otherwise bring cobra's completion command with it.
-		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
-		RunE: func(c *cobra.Command, args []string) error {
-			runFn(c, args)
-			return nil
-		},
-	}
-	f := cmd.Flags()
-	f.SortFlags = false
-	f.StringVarP(&o.domainsFile, "domains-file", "d", "", "File of root domains, one per line (# comments allowed)")
-	f.StringArrayVar(&o.orgs, "org", nil, "Organisation name (repeatable)")
-	f.StringArrayVar(&o.asns, "asn", nil, "ASN, AS123 or 123; its announced netblocks become in scope (repeatable)")
-	f.StringArrayVar(&o.cidrs, "cidr", nil, "Netblock in CIDR notation (repeatable)")
-	f.StringArrayVarP(&o.exclude, "exclude", "x", nil, "Excluded hostname, *.wildcard or CIDR (repeatable)")
-	f.StringVar(&o.excludeFile, "exclude-file", "", "File of exclusions, one per line (# comments allowed)")
-	f.StringVarP(&o.engagement, "engagement", "e", "", "Engagement name (default: derived from the first input)")
-	f.BoolVar(&o.passive, "passive", false, "Use third-party sources only; never contact target-owned systems")
-	f.BoolVar(&o.authorised, "authorised", false, "Confirm you are authorised to test this scope (alias --authorized)")
-	f.BoolVar(&o.allowLarge, "allow-large-netblocks", false, "Proceed even if in-scope IPv4 netblocks exceed --netblock-limit")
-	f.StringVar(&o.redo, "redo", "", "Re-perform every check of one stage (see nyx help stages)")
-	f.BoolVar(&o.json, "json", false, "Emit one JSON event per line on stdout, with no styling or prompts")
-	f.BoolVarP(&o.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; the summary is still printed")
-	f.BoolVar(&o.debug, "debug", false, "Also write each failed check to stderr")
-	f.BoolVar(&o.palette, "palette", false, "Print the colour palette sheet and exit")
-	_ = f.MarkHidden("palette") // only fails for an unknown flag
-	f.StringVar(&o.configPath, "config", "", configFlagUsage)
-	f.Bool("version", false, "Print the version and exit") // long-only: -v is usually read as verbose
-	config.RegisterFlags(f)
-	f.BoolP("help", "h", false, "Help for nyx") // replaces cobra's, to capitalise it
-	f.SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
-		if name == "authorized" {
-			name = "authorised"
-		}
-		return pflag.NormalizedName(name)
-	})
-
-	cmd.MarkFlagsMutuallyExclusive("quiet", "debug")
-
-	cmd.SetVersionTemplate("nyx {{.Version}}\n")
-	cmd.SetUsageTemplate(topicsByName(cmd.UsageTemplate()))
-	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
-		if o.json {
-			depth = palette.None
-		}
-		fmt.Fprint(c.OutOrStdout(), colourHelp(depth, c.Long+"\n\n"+c.UsageString()+"\n"+helpFooter()))
-	})
-	return cmd
-}
-
-func helpFooter() string {
-	return `
-Configuration:
-  Settings come from a YAML config file, NYX_* environment variables or flags; flags override
-  environment variables, which override the file. The default config file is
-  $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml).
-  Environment variables are NYX_<SETTING> with dots as underscores, e.g. NYX_CONCURRENCY and
-  NYX_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
-  NYX_KEYS_<SOURCE> in the environment.
-
-`
-}
-
-func runCommand(ctx context.Context, cmd *cobra.Command, positional []string, o *options, d Deps, dp depths) (code int) {
-	if o.palette {
-		// First, so that a broken config, a missing scope or stray inputs do not matter, and
-		// nothing is created or contacted.
-		sheetDepth := dp.out
-		if o.json {
-			sheetDepth = palette.None
-		}
-		report.Sheet(d.Stdout, sheetDepth, d.Clock().In(d.Location))
-		return run.ExitOK
-	}
-	em := newEmitter(d, o, dp)
-	bail := func(code int, err error) int { return fail(em, code, err) }
-
-	settings, err := config.Load(cmd.Flags(), o.configPath)
-	if err != nil {
-		return bail(run.ExitInvalid, err)
-	}
-	red := config.NewRedactor(settings.KeyValues()...)
-	em = report.WithRedactor(em, red)
-
-	parsed, err := input.Parse(input.Raw{
-		Domains: positional, DomainsFile: o.domainsFile, Orgs: o.orgs, ASNs: o.asns, CIDRs: o.cidrs,
-		Exclude: o.exclude, ExcludeFile: o.excludeFile,
-	})
-	if err != nil {
-		return bail(run.ExitInvalid, err)
-	}
-	var name string
-	switch {
-	case o.engagement != "":
-		if name, err = input.EngagementName(o.engagement); err != nil {
-			return bail(run.ExitInvalid, err)
-		}
-	case parsed.Empty():
-		return bail(run.ExitInvalid, errors.New("no inputs: give domains, --org, --asn or --cidr, or -e <engagement> to resume one"))
-	default:
-		if name, err = input.EngagementName(parsed.First); err != nil {
-			return bail(run.ExitInvalid, fmt.Errorf("%w; name the engagement with -e", err))
-		}
-	}
-	names := stageNames(d.Stages)
-	if o.redo != "" && !slices.Contains(names, o.redo) {
-		return bail(run.ExitInvalid, fmt.Errorf("unknown stage %q for --redo (stages: %s)", o.redo, strings.Join(names, ", ")))
-	}
-	if err := validateSkip(settings.Skip, o.redo, names); err != nil {
-		return bail(run.ExitInvalid, err)
-	}
-
-	eng, err := engagement.Open(filepath.Join(settings.OutputDir, name), engagement.Options{Clock: d.Clock, Redactor: red})
-	if err != nil {
-		return bail(run.ExitFatal, err)
-	}
-	engOpen := true
-	defer func() {
-		if engOpen {
-			eng.Close() // an earlier error was already reported
-		}
-	}()
-
-	if err := eng.MergeInputs(parsed); err != nil {
-		return bail(run.ExitFatal, err)
-	}
-	stored, err := eng.Inputs()
-	if err != nil {
-		return bail(run.ExitFatal, err)
-	}
-	if stored.Empty() {
-		return bail(run.ExitInvalid, fmt.Errorf("engagement %s has no scope; give domains, --org, --asn or --cidr", name))
-	}
-
-	if err := acknowledge(eng, o, d, settings.Skip); err != nil {
-		return bail(run.ExitFatal, err)
-	}
-
-	if d.HandleSignals {
-		var stop context.CancelFunc
-		ctx, stop = handleSignals(ctx)
-		defer stop()
-	}
-
-	eopts := d.Egress.WithSettings(settings, red)
-	if eopts.Now == nil {
-		eopts.Now = d.Clock
-	}
-	eg := egress.New(eopts)
-	runner := run.New(run.Config{
-		Engagement: eng, Settings: settings, Stages: d.Stages, Egress: eg, Emitter: em,
-		Files: d.Files, Clock: d.Clock,
-		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo,
-	})
-	code, err = runner.Run(ctx)
-	if err != nil {
-		return bail(code, err)
-	}
-	// Close before run_end so a failure to save state is the run's only outcome.
-	engOpen = false
-	if err := eng.Close(); err != nil {
-		return bail(run.ExitFatal, err)
-	}
-	if code == run.ExitInterrupted {
-		em.Emit(report.Event{Type: "warning", Fields: map[string]any{"message": "interrupted; completed work is saved, re-run to continue"}})
-	}
-	em.Emit(report.Event{Type: "run_end", Fields: map[string]any{"exit_code": code}})
-	return code
-}
-
-// unskippable are the stages other stages' safety depends on: resolve and wildcard decide which
-// names are real, ipowner and providerranges decide which addresses are shared infrastructure that
-// must not be port-checked.
-var unskippable = []string{"resolve", "wildcard", "ipowner", "providerranges"}
-
-// validateSkip rejects a --skip (or skip setting) that names an unknown stage, a stage that is also
-// being redone, or a stage that cannot be skipped.
-func validateSkip(skip []string, redo string, names []string) error {
-	skippable := func() string {
-		return strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool { return slices.Contains(unskippable, s) }), ", ")
-	}
-	for _, n := range skip {
-		switch {
-		case !slices.Contains(names, n):
-			return fmt.Errorf("unknown stage %q for --skip or the skip setting (stages: %s)", n, strings.Join(names, ", "))
-		case n == redo:
-			return fmt.Errorf("stage %q is named in both --redo and --skip (stages that can be skipped: %s)", n, skippable())
-		case slices.Contains(unskippable, n):
-			return fmt.Errorf("stage %q cannot be skipped: other stages' safety depends on it (stages that can be skipped: %s)", n, skippable())
-		}
-	}
-	return nil
-}
-
-// acknowledge records the operator's authorisation: by flag, or once per engagement by prompt when
-// there is a terminal. A skipped stage does not need it, so the prompt is shown only when a stage
-// that contacts the target will run.
-func acknowledge(eng *engagement.Engagement, o *options, d Deps, skip []string) error {
-	if o.authorised {
-		return eng.SetAck()
-	}
-	if eng.Acked() || o.passive || o.json || !d.StdinIsTTY() {
-		return nil
-	}
-	if !slices.ContainsFunc(d.Stages, func(s run.Stage) bool {
-		return s.Contact() == run.Target && !slices.Contains(skip, s.Name())
-	}) {
-		return nil
-	}
-	fmt.Fprint(d.Stderr, ackPrompt)
-	line, _ := bufio.NewReader(d.Stdin).ReadString('\n')
-	if a := strings.ToLower(strings.TrimSpace(line)); a == "y" || a == "yes" {
-		return eng.SetAck()
-	}
-	return nil
-}
-
-func handleSignals(ctx context.Context) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(ctx)
-	ch := make(chan os.Signal, 2)
-	signal.Notify(ch, os.Interrupt, unix.SIGTERM, unix.SIGHUP)
-	go func() {
-		select {
-		case <-ch:
-			cancel()
-		case <-ctx.Done():
-			return
-		}
-		<-ch
-		os.Exit(run.ExitInterrupted)
-	}()
-	return ctx, func() { signal.Stop(ch); cancel() }
 }

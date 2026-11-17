@@ -195,6 +195,7 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	var wg sync.WaitGroup
 	for i, sel := range sels {
 		wg.Go(func() {
+			defer run.RecoverInto(&res[i].err)
 			res[i].recs, res[i].err = txt(ctx, e, sel+"._domainkey."+root)
 		})
 	}
@@ -203,11 +204,14 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	// HTTPS is never fetched.
 	if len(hosts) > 0 {
 		wg.Go(func() {
+			defer run.RecoverInto(&mtaSTS.err)
 			mtaSTS.recs, mtaSTS.err = txt(ctx, e, "_mta-sts."+root)
 		})
 	}
 	for i, h := range mailHosts {
 		wg.Go(func() {
+			var ignored error // the addresses are best-effort, as below
+			defer run.RecoverInto(&ignored)
 			mailAddrs[i], _ = serveraddr.Observations(ctx, e, in.sc, h)
 		})
 	}

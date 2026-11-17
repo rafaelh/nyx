@@ -1,29 +1,18 @@
 package cli_test
 
 import (
-	"context"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// execArgs runs nyx with exactly args: help and its topics take no
-// --output-dir, which exec always adds.
-func (h *harness) execArgs(args ...string) int {
-	h.t.Helper()
-	h.stdout.Reset()
-	h.stderr.Reset()
-	return cli.Execute(context.Background(), args, h.deps())
-}
-
 // stagesHelp is the output of nyx help stages.
 func (h *harness) stagesHelp() string {
 	h.t.Helper()
-	if code := h.execArgs("help", "stages"); code != 0 {
+	if code := h.execRoot("help", "stages"); code != 0 {
 		h.t.Fatalf("help stages: exit %d, stderr %q", code, h.stderr.String())
 	}
 	return h.stdout.String()
@@ -52,17 +41,24 @@ func TestHelp_Colour(t *testing.T) {
 		for k, v := range env {
 			t.Setenv(k, v)
 		}
-		if code := h.execArgs(args...); code != 0 {
+		if code := h.execRoot(args...); code != 0 {
 			t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
 		}
 		return h.stdout.String()
 	}
 
-	plain, coloured := help(false, nil, "--help"), help(true, nil, "--help")
+	// The root help is coloured by the same rules.
+	rootPlain, rootColoured := help(false, nil, "--help"), help(true, nil, "--help")
+	if strings.Contains(rootPlain, "\x1b") || !strings.Contains(rootColoured, "\x1b[1mExamples:\x1b[0m") ||
+		!strings.Contains(rootColoured, "--passive\x1b[0m") || sgr.ReplaceAllString(rootColoured, "") != rootPlain {
+		t.Errorf("root help colour:\n%s", rootColoured)
+	}
+
+	plain, coloured := help(false, nil, "recon", "--help"), help(true, nil, "recon", "--help")
 	if strings.Contains(plain, "\x1b") {
 		t.Error("help to a pipe is coloured")
 	}
-	for _, want := range []string{"\x1b[1mFlags:\x1b[0m", "\x1b[1mConfiguration:\x1b[0m", "--passive\x1b[0m", "\x1b[1mHelp topics:\x1b[0m",
+	for _, want := range []string{"\x1b[1mFlags:\x1b[0m", "\x1b[1mConfiguration:\x1b[0m", "--passive\x1b[0m", "\x1b[1mExamples:\x1b[0m",
 		"\x1b[38;2;124;129;145m (e.g.: 37,53,79-81,443)\x1b[0m",
 		"line \x1b[38;2;124;129;145m(# comments allowed)\x1b[0m", "name \x1b[38;2;124;129;145m(repeatable)\x1b[0m"} {
 		if !strings.Contains(coloured, want) {
@@ -91,18 +87,18 @@ func TestHelp_Colour(t *testing.T) {
 	if got := help(true, nil, "--help", "--json"); strings.Contains(got, "\x1b") {
 		t.Error("help under --json is coloured")
 	}
-	if got := help(true, nil, "export", "--help"); !strings.Contains(got, "\x1b[1mKinds accepted by --kind:\x1b[0m") ||
+	if got := help(true, nil, "recon", "export", "--help"); !strings.Contains(got, "\x1b[1mKinds accepted by --kind:\x1b[0m") ||
 		!strings.Contains(got, "this kind \x1b[38;2;124;129;145m(repeatable)\x1b[0m;") {
 		t.Errorf("export help is not coloured:\n%s", got)
 	}
-	if got := help(true, map[string]string{"NO_COLOR": "1"}, "--help"); got != plain {
+	if got := help(true, map[string]string{"NO_COLOR": "1"}, "recon", "--help"); got != plain {
 		t.Error("help under NO_COLOR differs from the plain help")
 	}
 }
 
 // nyx help stages lists every registered stage in run order with whom it
 // contacts and what it does, marks the stages --skip refuses, and the stage
-// list is no longer in --help.
+// list is not in recon --help.
 func TestHelp_StagesTopic(t *testing.T) {
 	stages := defaultStageList()
 	h := newHarness(t, stages...)
@@ -145,8 +141,11 @@ func TestHelp_StagesTopic(t *testing.T) {
 	if strings.Contains(help, "Stages accepted by --redo") || strings.Contains(help, "sensitive-paths, ports") {
 		t.Error("--help still lists the stages")
 	}
-	if !strings.Contains(help, "see nyx help stages") || !strings.Contains(help, "  stages ") {
-		t.Error("--help does not point to nyx help stages")
+	if !strings.Contains(help, "see nyx help stages") {
+		t.Error("recon --help does not point to nyx help stages")
+	}
+	if code := h.execRoot("--help"); code != 0 || !strings.Contains(h.stdout.String(), "nyx help stages") {
+		t.Error("the root help does not list nyx help stages")
 	}
 
 	// On a terminal a target stage's contact is in the warning colour, and

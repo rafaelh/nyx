@@ -75,7 +75,7 @@ func Open(dir string, o Options) (*Engagement, error) {
 		}
 		return nil, err
 	}
-	st, err := store.Open(filepath.Join(marker, "state.db"), store.Options{Clock: o.Clock, Redactor: o.Redactor})
+	st, err := store.Open(statePath(dir), store.Options{Clock: o.Clock, Redactor: o.Redactor})
 	if err != nil {
 		lock.Close()
 		return nil, err
@@ -101,12 +101,21 @@ func OpenReadOnly(dir string) (*store.ReadOnly, error) {
 	case !fi.IsDir():
 		return nil, fmt.Errorf("%s is not a nyx engagement (not a directory)", dir)
 	}
-	st, err := store.OpenReadOnly(filepath.Join(dir, ".nyx", "state.db"))
+	st, err := store.OpenReadOnly(statePath(dir))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("%s is not a nyx engagement (no .nyx/state.db)", dir)
 	}
 	return st, err
 }
+
+// Exists reports whether dir holds an engagement's state database, without
+// creating anything.
+func Exists(dir string) bool {
+	_, err := os.Stat(statePath(dir))
+	return err == nil
+}
+
+func statePath(dir string) string { return filepath.Join(dir, ".nyx", "state.db") }
 
 // Dir is the engagement directory.
 func (e *Engagement) Dir() string { return e.dir }

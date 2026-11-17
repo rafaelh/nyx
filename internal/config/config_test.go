@@ -2,14 +2,17 @@ package config_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
 
+	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 )
 
@@ -307,5 +310,63 @@ func TestHomeExpansion(t *testing.T) {
 		if s.OutputDir != c.want {
 			t.Errorf("--output-dir=%s: got %q, want %q", c.in, s.OutputDir, c.want)
 		}
+	}
+}
+
+// A numeric setting's flag takes any text, which Load checks with the rest, so
+// a bad number is reported by its key and value; help shows integer or float.
+func TestNumericFlagsTakeAnyText(t *testing.T) {
+	clearEnv(t)
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	config.RegisterFlags(fs)
+	for name, typ := range map[string]string{"concurrency": "integer", "netblock-limit": "integer", "rate-per-host": "float", "rate-dns": "float"} {
+		if got := fs.Lookup(name).Value.Type(); got != typ {
+			t.Errorf("--%s is a %s, want %s", name, got, typ)
+		}
+	}
+	if !strings.Contains(fs.FlagUsages(), "--concurrency integer") || !strings.Contains(fs.FlagUsages(), "(default 10)") {
+		t.Errorf("help:\n%s", fs.FlagUsages())
+	}
+	_, err := load(t, "", "--concurrency", "abc", "--rate-dns", "lots", "--netblock-limit", "1e3")
+	var probs clierr.Problems
+	if !errors.As(err, &probs) || len(probs) != 3 {
+		t.Fatalf("err = %v, want three problems", err)
+	}
+	for _, want := range []clierr.Problem{
+		{Name: "concurrency", Value: "abc", Message: `concurrency: invalid value "abc": not an integer`},
+		{Name: "rate.dns", Value: "lots", Message: `rate.dns: invalid value "lots": not a number`},
+		{Name: "netblock_limit", Value: "1e3", Message: `netblock_limit: invalid value "1e3": not an integer`},
+	} {
+		if !slices.Contains(probs, want) {
+			t.Errorf("problems %+v lack %+v", probs, want)
+		}
+	}
+	// A good value still parses.
+	if s, err := load(t, "", "--concurrency", "7", "--rate-dns", "2.5"); err != nil || s.Concurrency != 7 || s.Rate.DNS != 2.5 {
+		t.Errorf("%v %d %v", err, s.Concurrency, s.Rate.DNS)
+	}
+}
+
+// A config file that cannot be read, or that has an unknown key, is reported
+// with every other problem, and the keys that did load are still returned so
+// they can be masked.
+func TestLoadReportsFileProblemsWithTheRest(t *testing.T) {
+	clearEnv(t)
+	cfg := writeFile(t, "concurency: 3\nkeys:\n  shodan: filekey\n")
+	s, err := load(t, cfg, "--rate-dns", "-1")
+	if err == nil || !strings.Contains(err.Error(), "concurency") || !strings.Contains(err.Error(), "rate.dns") {
+		t.Errorf("unknown key and a bad flag: %v", err)
+	}
+	if s.Keys["shodan"].Reveal() != "filekey" {
+		t.Error("the keys of a config file with problems are not returned")
+	}
+	_, err = load(t, filepath.Join(t.TempDir(), "absent.yaml"), "--rate-dns", "-1")
+	var probs clierr.Problems
+	if !errors.As(err, &probs) || len(probs) != 2 || probs[0].Name != "config" || !strings.Contains(err.Error(), "rate.dns") {
+		t.Errorf("unreadable file and a bad flag: %v", err)
+	}
+	t.Setenv("NYX_KEYS_SOURCE", "envkey")
+	if got := config.EnvKeyValues(); !slices.Equal(got, []string{"envkey"}) {
+		t.Errorf("EnvKeyValues = %v", got)
 	}
 }

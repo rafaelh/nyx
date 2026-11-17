@@ -1,6 +1,4 @@
 
-- typer-like interface, with help showing if no arguments are given
-- move current functionality under a `recon` sub-command
 - Add:
   - Standalone IP enumeration as `ip` subcommand. Should take one or more IPs and return a table of
     results for a human, or json output for an agent. example usage: `nyx ip --json 8.8.8.8 1.1.1.1`.

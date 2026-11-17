@@ -176,7 +176,7 @@ func (t *thirdParty) Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyRes
 	if err != nil {
 		return ThirdPartyResponse{}, t.scrub(err)
 	}
-	hreq.Header.Set("User-Agent", userAgent)
+	hreq.Header.Set("User-Agent", t.e.opts.UserAgent)
 	if r.ContentType != "" {
 		hreq.Header.Set("Content-Type", r.ContentType)
 	}

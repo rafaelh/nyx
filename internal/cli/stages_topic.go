@@ -108,8 +108,8 @@ func stagesHelp(d palette.Depth, stages []run.Stage) string {
 	}
 	b.WriteString(`
 Third-party stages ask public sources and resolvers, and run under --passive. Target stages
-contact the target's own systems: they are skipped under --passive and until you confirm you
-are authorised. A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in
+contact the target's own systems: they are skipped under --passive, and unless --authorised
+has confirmed, on this run or an earlier one, that you are authorised. A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in
 brackets is optional. --redo <stage> performs every check of one stage again, and --skip <stage>
 turns one off, except the stages marked *, which other stages' safety depends on.
 `)

@@ -95,13 +95,13 @@ type exported struct {
 	stdout, stderr string
 }
 
-// export runs `nyx export` with its own output buffers, so it can run while
+// export runs `nyx recon export` with its own output buffers, so it can run while
 // another run uses the harness's.
 func export(h *harness, args ...string) exported {
 	var stdout, stderr bytes.Buffer
 	d := h.deps()
 	d.Stdout, d.Stderr = &stdout, &stderr
-	full := append([]string{"--output-dir", h.out, "export"}, args...)
+	full := append([]string{"recon", "export", "--output-dir", h.out}, args...)
 	code := cli.Execute(context.Background(), full, d)
 	return exported{code, stdout.String(), stderr.String()}
 }
@@ -486,9 +486,10 @@ func TestExport_OutputFile(t *testing.T) {
 	if err := os.Mkdir(asDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{asDir, filepath.Join(dir, "no-such-dir", "export.jsonl")} {
-		if e := export(h, "-e", "a.com", "--output", bad); e.code != 1 {
-			t.Errorf("--output %s: exit %d, want 1", bad, e.code)
+	// A directory that does not exist is a usage error; a rename that fails is not.
+	for bad, want := range map[string]int{asDir: 1, filepath.Join(dir, "no-such-dir", "export.jsonl"): 2} {
+		if e := export(h, "-e", "a.com", "--output", bad); e.code != want {
+			t.Errorf("--output %s: exit %d, want %d", bad, e.code, want)
 		}
 	}
 	if b, _ := os.ReadFile(target); string(b) != "keep me\n" {
@@ -740,7 +741,7 @@ func TestExport_FindsEngagementUnderConfiguredOutputDir(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	d := w.h.deps()
 	d.Stdout, d.Stderr = &stdout, &stderr
-	if code := cli.Execute(context.Background(), []string{"export", "-e", "a.com", "--kind", "root"}, d); code != 0 {
+	if code := cli.Execute(context.Background(), []string{"recon", "export", "-e", "a.com", "--kind", "root"}, d); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), `"key":"b.org"`) {

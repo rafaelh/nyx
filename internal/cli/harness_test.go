@@ -21,6 +21,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/run"
 )
 
@@ -29,8 +30,8 @@ type harness struct {
 	t         *testing.T
 	out       string
 	stages    []run.Stage
-	stdin     string
-	stdinTTY  bool
+	files     []output.File  // nil means the default files
+	signals   chan os.Signal // nil means the run takes no signals
 	stdoutTTY bool
 	stderrTTY bool
 	loc       *time.Location
@@ -102,30 +103,163 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 func (h *harness) deps() cli.Deps {
 	return cli.Deps{
 		Stages:      h.stages,
+		Files:       h.files,
 		Egress:      h.eopts,
-		Stdin:       strings.NewReader(h.stdin),
 		Stdout:      &h.stdout,
 		Stderr:      &h.stderr,
-		StdinIsTTY:  func() bool { return h.stdinTTY },
 		StdoutIsTTY: func() bool { return h.stdoutTTY },
 		StderrIsTTY: func() bool { return h.stderrTTY },
 		Location:    h.loc,
 		Clock:       func() time.Time { return h.now },
 		Version:     h.version,
+		Signals:     h.signals,
 	}
 }
 
-// exec runs nyx with --output-dir pointing at the temp dir.
+// exec runs nyx recon with --output-dir pointing at the temp dir.
 func (h *harness) exec(args ...string) int {
 	return h.execCtx(context.Background(), args...)
 }
 
 func (h *harness) execCtx(ctx context.Context, args ...string) int {
 	h.t.Helper()
+	return h.execRootCtx(ctx, append([]string{"recon", "--output-dir", h.out}, args...)...)
+}
+
+// execRoot runs nyx with exactly args, for the tests of the command tree
+// itself: no command and no --output-dir are added.
+func (h *harness) execRoot(args ...string) int {
+	h.t.Helper()
+	return h.execRootCtx(context.Background(), args...)
+}
+
+func (h *harness) execRootCtx(ctx context.Context, args ...string) int {
+	h.t.Helper()
 	h.stdout.Reset()
 	h.stderr.Reset()
-	full := append([]string{"--output-dir", h.out}, args...)
-	return cli.Execute(ctx, full, h.deps())
+	return cli.Execute(ctx, args, h.deps())
+}
+
+// failure is the one error a failed call writes to stderr, in either mode.
+type failure struct {
+	msg, code string
+	hint      string // "" when there is none
+	input     any    // nil when there is none
+	transient bool
+}
+
+// humanErrorLine is the error line of human mode: "error: <message> (<CODE>)".
+var humanErrorLine = regexp.MustCompile(`^error: (.*) \(([A-Z_]+)\)$`)
+
+// failed asserts that the last call failed as the contract says: the exit
+// code, an empty stdout, and exactly one error on stderr, which it returns. In
+// human mode the error is the last lines of stderr, after any log lines; under
+// --json (jsonMode) it is one compact line with exactly the five keys, in
+// order, and the only thing on stderr besides DEBUG lines.
+func (h *harness) failed(code, want int, jsonMode bool) failure {
+	h.t.Helper()
+	if code != want {
+		h.t.Fatalf("exit %d, want %d\nstdout %q\nstderr %q", code, want, h.stdout.String(), h.stderr.String())
+	}
+	if h.stdout.Len() != 0 {
+		h.t.Errorf("stdout is not empty on exit %d: %q", code, h.stdout.String())
+	}
+	return h.theError(jsonMode)
+}
+
+// theError is the one error on stderr (see failed), with no check of stdout.
+func (h *harness) theError(jsonMode bool) failure {
+	h.t.Helper()
+	var lines []string
+	for _, l := range strings.Split(strings.TrimRight(h.stderr.String(), "\n"), "\n") {
+		if !logLayout.MatchString(l) {
+			lines = append(lines, l)
+		}
+	}
+	if !jsonMode {
+		var f failure
+		n := 0
+		for _, l := range lines {
+			switch {
+			case strings.HasPrefix(l, "error: "):
+				n++
+				m := humanErrorLine.FindStringSubmatch(l)
+				if m == nil {
+					h.t.Fatalf("error line %q is not \"error: <message> (<CODE>)\"", l)
+				}
+				f.msg, f.code = m[1], m[2]
+			case strings.HasPrefix(l, "hint: ") && n == 1:
+				f.hint = strings.TrimPrefix(l, "hint: ")
+			case l == "retry: may succeed after a wait" && n == 1:
+				f.transient = true
+			default:
+				h.t.Errorf("stderr holds a line that is not part of the error: %q", l)
+			}
+		}
+		if n != 1 {
+			h.t.Fatalf("stderr holds %d errors, want 1:\n%s", n, h.stderr.String())
+		}
+		return f
+	}
+	if len(lines) != 1 {
+		h.t.Fatalf("stderr holds %d lines, want the one JSON error:\n%s", len(lines), h.stderr.String())
+	}
+	var e struct {
+		Error     *string `json:"error"`
+		Code      *string `json:"code"`
+		Hint      *string `json:"hint"`
+		Input     any     `json:"input"`
+		Transient *bool   `json:"transient"`
+	}
+	dec := json.NewDecoder(strings.NewReader(lines[0]))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&e); err != nil || e.Error == nil || e.Code == nil || e.Transient == nil {
+		h.t.Fatalf("stderr is not the JSON error: %q (%v)", lines[0], err)
+	}
+	// Encoded again, the error is the same line only when it was compact and
+	// held its keys once each, in the struct's order.
+	var again bytes.Buffer
+	enc := json.NewEncoder(&again)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(e); err != nil || strings.TrimSuffix(again.String(), "\n") != lines[0] {
+		h.t.Errorf("JSON error is not compact with the keys error,code,hint,input,transient in order: %s", lines[0])
+	}
+	f := failure{msg: *e.Error, code: *e.Code, input: e.Input, transient: *e.Transient}
+	if e.Hint != nil {
+		f.hint = *e.Hint
+	}
+	return f
+}
+
+// inputOf is the list of failing values the error's input holds for name.
+func (f failure) inputOf(name string) []string {
+	m, _ := f.input.(map[string]any)
+	list, _ := m[name].([]any)
+	out := []string{}
+	for _, v := range list {
+		s, _ := v.(string)
+		out = append(out, s)
+	}
+	return out
+}
+
+// hasInput reports whether the error's input names the argument at all.
+func (f failure) hasInput(name string) bool {
+	m, _ := f.input.(map[string]any)
+	_, ok := m[name]
+	return ok
+}
+
+// untouched fails if the call created anything under the output directory or
+// reached a network canary.
+func (h *harness) untouched() {
+	h.t.Helper()
+	if entries, _ := os.ReadDir(h.out); len(entries) != 0 {
+		h.t.Errorf("the call created %d entries in the output directory", len(entries))
+	}
+	if h.network() != 0 {
+		h.t.Error("the call made network contact")
+	}
 }
 
 func (h *harness) network() int32 { return h.udpHits.Load() + h.httpHits.Load() + h.tcpHits.Load() }
@@ -179,7 +313,7 @@ type logLine struct{ time, level, msg string }
 var logLayout = regexp.MustCompile(`^(\d\d:\d\d:\d\d) \| (DEBUG|INFO |WARN |ERROR|CRIT ) \| `)
 
 // logLines parses stderr's plain log lines; a line in another form (the
-// prompt, an error: line) is skipped.
+// error and its hint) is skipped.
 func (h *harness) logLines() []logLine {
 	var out []logLine
 	for _, l := range strings.Split(h.stderr.String(), "\n") {

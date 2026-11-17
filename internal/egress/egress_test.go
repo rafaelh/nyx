@@ -784,3 +784,32 @@ func TestHTTPSCertTrustReported(t *testing.T) {
 		t.Errorf("tls failure: %#v %v", r, err)
 	}
 }
+
+// Every request carries Options.UserAgent, nyx/devel when it is not set, to a
+// third-party source and to a target alike.
+func TestUserAgentOption(t *testing.T) {
+	for set, want := range map[string]string{"nyx/v9.9.9": "nyx/v9.9.9", "": "nyx/devel"} {
+		var gotSource string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gotSource = r.UserAgent() }))
+		eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"src.example.net": srv.URL}, RatePerSource: 1000, UserAgent: set})
+		eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
+		if _, err := eg.Clients("s", false, []string{"src.example.net"}).ThirdParty.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://src.example.net/"}); err != nil {
+			t.Fatal(err)
+		}
+		srv.Close()
+		if gotSource != want {
+			t.Errorf("UserAgent %q: the source saw %q, want %q", set, gotSource, want)
+		}
+
+		var gotTarget string
+		f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { gotTarget = r.UserAgent() })
+		f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, UserAgent: set})
+		f.eg.SetPolicy(f.pol)
+		if _, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port)); err != nil {
+			t.Fatal(err)
+		}
+		if gotTarget != want {
+			t.Errorf("UserAgent %q: the target saw %q, want %q", set, gotTarget, want)
+		}
+	}
+}

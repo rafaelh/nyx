@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/netip"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -34,20 +35,18 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Exit codes.
-const (
-	ExitOK          = 0
-	ExitFatal       = 1
-	ExitInvalid     = 2
-	ExitNetblock    = 3
-	ExitInterrupted = 130
-)
-
 // NetblockLimitError is returned when in-scope IPv4 netblocks exceed the limit.
+// The caller says how to proceed (--allow-large-netblocks).
 type NetblockLimitError struct{ Count, Limit uint64 }
 
 func (e *NetblockLimitError) Error() string {
-	return fmt.Sprintf("in-scope IPv4 netblocks cover %d addresses, over the limit of %d; nothing in them was contacted. Re-run with --allow-large-netblocks to proceed", e.Count, e.Limit)
+	return fmt.Sprintf("in-scope IPv4 netblocks cover %d addresses, over the limit of %d; nothing in them was contacted", e.Count, e.Limit)
+}
+
+// interrupted is the error of a run its context ended. It wraps the context's
+// cause, so a caller can tell a cancel from a deadline.
+func interrupted(ctx context.Context) error {
+	return fmt.Errorf("run interrupted: %w", context.Cause(ctx))
 }
 
 // Config is everything a Runner needs.
@@ -159,23 +158,25 @@ func (r *Runner) warn(format string, a ...any) {
 
 func (r *Runner) today() string { return r.cfg.Clock().UTC().Format(time.DateOnly) }
 
-// Run executes the engagement and returns the exit code. An error describes a
-// fatal condition (exit code 1 or 3) to show the user.
-func (r *Runner) Run(ctx context.Context) (int, error) {
+// Run executes the engagement. It returns nil when every pass has finished, a
+// *NetblockLimitError when the in-scope netblocks are over the limit, an error
+// that wraps context.Cause(ctx) when the context ended the run, or any other
+// error. The output files are rendered in every case once the run has started.
+func (r *Runner) Run(ctx context.Context) error {
 	eng := r.cfg.Engagement
 	if r.cfg.Redo != "" {
 		if err := r.st.Redo(r.cfg.Redo); err != nil {
-			return ExitFatal, err
+			return err
 		}
 	}
 	if err := output.Sweep(eng.Dir()); err != nil {
-		return ExitFatal, err
+		return err
 	}
 	r.st.OnNew(r.onNewRecord)
 
 	var err error
 	if r.inputs, err = eng.Inputs(); err != nil {
-		return ExitFatal, err
+		return err
 	}
 	r.emit("run_start", map[string]any{
 		"engagement": filepath.Base(eng.Dir()),
@@ -186,71 +187,61 @@ func (r *Runner) Run(ctx context.Context) (int, error) {
 	r.warnUnauthorised()
 	r.warnStaleEOLData()
 
-	code, err := r.passes(ctx)
-	if err == nil && code == ExitOK {
+	err = r.passes(ctx)
+	if err == nil {
 		// The final pass has just rendered and counted; nothing has changed since.
 		r.emitSummary()
-		return code, nil
+		return nil
 	}
-	if _, rerr := r.render(); rerr != nil && err == nil {
-		code, err = ExitFatal, rerr
-	}
-	return code, err
+	_, _ = r.render() // the run's own error is the one to report
+	return err
 }
 
-func (r *Runner) passes(ctx context.Context) (int, error) {
+func (r *Runner) passes(ctx context.Context) error {
 	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {
 		if err := r.buildScope(); err != nil {
-			return exitFor(err), err
+			return err
 		}
 		executed := 0
 		for _, s := range r.cfg.Stages {
 			if ctx.Err() != nil {
-				return ExitInterrupted, nil
+				return interrupted(ctx)
 			}
 			n, err := r.runStage(ctx, s, pass == 1)
 			if err != nil {
-				return ExitFatal, err
+				return err
 			}
 			executed += n
 			if ctx.Err() != nil {
-				return ExitInterrupted, nil
+				return interrupted(ctx)
 			}
 			if n > 0 {
 				if err := r.st.Flush(); err != nil {
-					return ExitFatal, err
+					return err
 				}
 				if err := r.buildScope(); err != nil {
-					return exitFor(err), err
+					return err
 				}
 				// Findings follow every stage that did work, so a finding's
 				// found line is printed as soon as its evidence is stored.
 				if err := r.derive(); err != nil {
-					return ExitFatal, err
+					return err
 				}
 			}
 		}
 		rendered, err := r.render()
 		if err != nil {
-			return ExitFatal, err
+			return err
 		}
 		r.emitCounts(rendered)
 		if ctx.Err() != nil {
-			return ExitInterrupted, nil
+			return interrupted(ctx)
 		}
 		if executed == 0 {
-			return ExitOK, nil
+			return nil
 		}
 	}
-}
-
-func exitFor(err error) int {
-	var nl *NetblockLimitError
-	if errors.As(err, &nl) {
-		return ExitNetblock
-	}
-	return ExitFatal
 }
 
 // buildScope builds the Scope and the egress Policy from stored inputs and
@@ -502,7 +493,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 					continue
 				}
 				fault.PointDetail("in-flight", c.Key)
-				obs, err := s.Run(runCtx, c, clients)
+				obs, err := runCheck(runCtx, s, c, clients)
 				if ctx.Err() != nil {
 					continue // in-flight checks are abandoned and redone next run
 				}
@@ -515,7 +506,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 					continue
 				}
 				if err != nil {
-					r.failCheck(name, c.Key, err.Error())
+					r.failCheck(name, c.Key, err)
 					continue
 				}
 				r.st.Complete(name, c.Key, obs)
@@ -544,61 +535,77 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 	deferredCost := 0
 	enumFailed := false
 	running := false // whether the stage has been shown as running
-produce:
-	for c, cerr := range s.Checks(ctx, view) {
-		if cerr != nil {
-			enumFailed = true
-			const enumKey = "(enumeration)"
-			r.mu.Lock()
-			again := failedSet[enumKey]
-			r.mu.Unlock()
-			if !again { // counted once per run, like any failed check, so passes still terminate
-				r.failCheck(name, enumKey, cerr.Error())
-				attempted.Add(1)
-			}
-			continue
-		}
-		stored := r.st.CheckKey(c.Key)
-		if _, dup := all[stored]; dup { // a stage may yield a key more than once
-			continue
-		}
-		if _, ok := done[stored]; ok {
-			if keepAll {
-				all[stored] = struct{}{}
-			}
-			continue
-		}
-		all[stored] = struct{}{}
+	// enumFail fails the stage's enumeration, counted once per run like any
+	// failed check, so passes still terminate.
+	enumFail := func(err error) {
+		enumFailed = true
+		const enumKey = "(enumeration)"
 		r.mu.Lock()
-		skip := failedSet[c.Key]
+		again := failedSet[enumKey]
 		r.mu.Unlock()
-		if skip {
-			continue
-		}
-		if r.isAborted(name) {
-			running = true
+		if !again {
+			r.failCheck(name, enumKey, err)
 			attempted.Add(1)
-			abortFail(c.Key, "stage aborted earlier in this run")
-			continue
-		}
-		if budget > 0 {
-			cost := max(c.Cost, 1)
-			if deferredCost > 0 || (spent > 0 && spent+cost > budget) {
-				deferredCost += cost
-				continue
-			}
-			spent += cost
-		}
-		if !running {
-			r.setState(name, "running", "", 0, 0)
-			running = true
-		}
-		select {
-		case work <- c:
-		case <-ctx.Done():
-			break produce
 		}
 	}
+	// produce sends the pending checks to the workers. A panic in the stage's
+	// own Checks is an enumeration failure: the work channel is still closed
+	// and the workers waited for.
+	produce := func() {
+		defer func() {
+			if v := recover(); v != nil {
+				enumFail(&checkPanic{value: v, stack: debug.Stack()})
+			}
+		}()
+	send:
+		for c, cerr := range s.Checks(ctx, view) {
+			if cerr != nil {
+				enumFail(cerr)
+				continue
+			}
+			stored := r.st.CheckKey(c.Key)
+			if _, dup := all[stored]; dup { // a stage may yield a key more than once
+				continue
+			}
+			if _, ok := done[stored]; ok {
+				if keepAll {
+					all[stored] = struct{}{}
+				}
+				continue
+			}
+			all[stored] = struct{}{}
+			r.mu.Lock()
+			skip := failedSet[c.Key]
+			r.mu.Unlock()
+			if skip {
+				continue
+			}
+			if r.isAborted(name) {
+				running = true
+				attempted.Add(1)
+				abortFail(c.Key, "stage aborted earlier in this run")
+				continue
+			}
+			if budget > 0 {
+				cost := max(c.Cost, 1)
+				if deferredCost > 0 || (spent > 0 && spent+cost > budget) {
+					deferredCost += cost
+					continue
+				}
+				spent += cost
+			}
+			if !running {
+				r.setState(name, "running", "", 0, 0)
+				running = true
+			}
+			select {
+			case work <- c:
+			case <-ctx.Done():
+				break send
+			}
+		}
+	}
+	produce()
 	close(work)
 	wg.Wait()
 	if ctx.Err() != nil {
@@ -669,10 +676,41 @@ func (r *Runner) isAborted(stage string) bool {
 
 // failCheck records a transient failure and reports it as a debug event: a
 // failed check is retried on the next run, so it is not a warning. The stage
-// line and the summary count it.
-func (r *Runner) failCheck(stage, key, msg string) {
-	r.recordFailure(stage, key, msg)
-	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, msg)})
+// line and the summary count it. A panic's stack follows as debug events, one
+// per line.
+func (r *Runner) failCheck(stage, key string, err error) {
+	r.recordFailure(stage, key, err.Error())
+	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, err)})
+	var p *checkPanic
+	if errors.As(err, &p) {
+		for line := range strings.SplitSeq(strings.TrimRight(string(p.stack), "\n"), "\n") {
+			r.emit("debug", map[string]any{"message": line})
+		}
+	}
+}
+
+// checkPanic is a panic inside a stage's own code: the failure of the check
+// (or the enumeration) it happened in, retried on the next run like any other.
+type checkPanic struct {
+	value any
+	stack []byte
+}
+
+func (p *checkPanic) Error() string { return fmt.Sprintf("panic: %v", p.value) }
+
+// RecoverInto, deferred, turns a panic into *err, with the stack --debug
+// shows. A stage that starts goroutines of its own defers it in each, so a
+// panic there fails the check and not the process.
+func RecoverInto(err *error) {
+	if v := recover(); v != nil {
+		*err = &checkPanic{value: v, stack: debug.Stack()}
+	}
+}
+
+// runCheck runs one check, turning a panic in it into its failure.
+func runCheck(ctx context.Context, s Stage, c Check, clients egress.Clients) (_ []Observation, err error) {
+	defer RecoverInto(&err)
+	return s.Run(ctx, c, clients)
 }
 
 // recordFailure records a transient failure: not a completion, not retried this run.

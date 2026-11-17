@@ -288,7 +288,11 @@ func TestRiskPlumbing_Help(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	help := h.stdout.String()
-	for _, w := range []string{"--storage-max-names", "50", "--cert-expiry-days", "30", "Help topics:", "findings"} {
+	if code := h.execRoot("--help"); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	help += h.stdout.String()
+	for _, w := range []string{"--storage-max-names", "50", "--cert-expiry-days", "30", "nyx help findings"} {
 		if !strings.Contains(help, w) {
 			t.Errorf("help lacks %q", w)
 		}
@@ -299,7 +303,7 @@ func TestRiskPlumbing_Help(t *testing.T) {
 	// The table is the findings help topic, however it is asked for.
 	for _, args := range [][]string{{"help", "findings"}, {"findings"}, {"findings", "--help"}} {
 		h := newHarness(t, noop())
-		if code := h.execArgs(args...); code != 0 {
+		if code := h.execRoot(args...); code != 0 {
 			t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
 		}
 		for _, line := range strings.Split(strings.TrimSpace(findings.HelpTable()), "\n") {
@@ -334,7 +338,7 @@ func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
 	cancel = c
 	defer c()
 	code := h.execCtx(ctx, "--json", "--concurrency", "1", "-e", "risk", "--cidr", "198.51.100.0/24")
-	if code != run.ExitInterrupted {
+	if code != 130 {
 		t.Fatalf("exit %d\n%s", code, h.stdout.String())
 	}
 	foundFindings := func() []event {

@@ -304,10 +304,10 @@ func TestEOL_DocumentedInReadmeAndHelp(t *testing.T) {
 		}
 	}
 	h := newHarness(t, noop())
-	if code := h.execArgs("--help"); code != 0 || !strings.Contains(h.stdout.String(), "--eol-warn-days") {
+	if code := h.exec("--help"); code != 0 || !strings.Contains(h.stdout.String(), "--eol-warn-days") {
 		t.Errorf("--help = %d, lacks --eol-warn-days", code)
 	}
-	h.execArgs("help", "findings")
+	h.execRoot("help", "findings")
 	for _, w := range []string{"eol-software", "eol-approaching"} {
 		if !strings.Contains(h.stdout.String(), w) {
 			t.Errorf("nyx help findings lacks %q", w)

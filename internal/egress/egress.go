@@ -107,6 +107,10 @@ type Options struct {
 	// Now is the clock certificates are checked against. Default: time.Now.
 	Now func() time.Time
 
+	// UserAgent is sent with every HTTP request, to a source and to a target
+	// alike: nyx/<version>. Default: DefaultUserAgent.
+	UserAgent string
+
 	Keys     map[string]config.Secret
 	Redactor *config.Redactor // default: built from Keys
 }
@@ -154,6 +158,9 @@ func New(o Options) *Egress {
 	def(&o.HTTPTimeout, 15*time.Second)
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.UserAgent == "" {
+		o.UserAgent = DefaultUserAgent
 	}
 	defr := func(v *float64, d float64) {
 		if *v <= 0 {

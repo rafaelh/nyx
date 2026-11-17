@@ -26,8 +26,10 @@ import (
 const (
 	maxTargetBody = 1 << 20
 	maxScriptBody = 4 << 20
-	userAgent     = "nyx/1"
 )
+
+// DefaultUserAgent is the User-Agent of a build with no version.
+const DefaultUserAgent = "nyx/devel"
 
 // MaxTargetBody is the cap on Response.Body; Response.Truncated says whether it cut the body.
 const MaxTargetBody = maxTargetBody
@@ -388,7 +390,7 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 	if err != nil {
 		return Refused{"bad request: " + err.Error()}, nil
 	}
-	hreq.Header.Set("User-Agent", userAgent)
+	hreq.Header.Set("User-Agent", e.opts.UserAgent)
 
 	tr := &http.Transport{
 		Proxy:              nil,

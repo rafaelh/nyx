@@ -45,15 +45,27 @@ golangci-lint run ./...         # config in .golangci.yml (v2, std-error-handlin
 
 ## Architecture
 
-Flow: `cmd/nyx` → `internal/cli` (cobra/viper flags, validation, authorisation prompt,
-signals, exit codes) → `internal/run.Runner` → stages → `internal/store` (SQLite via
-`modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output` (CSV/TXT files) and
-`internal/report` (console or `--json` event lines).
+Flow: `cmd/nyx` → `internal/cli` (the command tree `nyx` → `recon` → `export`, plus `help` and the
+help topics; cobra/viper flags, a pre-scan of the arguments, validation, help, signals, and the one
+place that picks the exit code and writes the error) → `internal/run.Runner` → stages →
+`internal/store` (SQLite via `modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output`
+(CSV/TXT files) and `internal/report` (console or `--json` event lines).
+
+**Commands and errors.** `cli.Execute` alone picks the exit code and writes the error: a command
+returns an error and prints none. The error is a `clierr.Error` (code, message, hint, input,
+transient); `clierr.Problems` collects every validation problem into one `INVALID_INPUT` error, and
+`config.Load` and `input.Parse` return it. Any other error is `UNEXPECTED_ERROR`, and a panic on the
+main goroutine, in a check or in the store's writer is recovered. `Deps.Signals` (nil in tests that
+don't send any; `cli.NotifySignals` in `main`) delivers signals: the first cancels, a second exits at
+once. A new command needs only `AddCommand`, an `Example` and its help annotations
+(`internal/cli/help.go`) to be in the root help and the pre-scan. **The exit codes, the error codes
+and the five keys of the JSON error are a stable interface**: adding one is compatible, renaming or
+removing one is a breaking change (README, "Exit codes").
 
 **Stages** (`internal/run/stage.go`) implement `Name/Contact/Sources/Configured/Checks/Run`.
 - `Contact` is either `ThirdParty` or `Target`, never both. A stage that would do both is split
   into two stages. Only `Target` stages get HTTP/TCP target clients. They are skipped under
-  `--passive`, and also until the user confirms authorisation.
+  `--passive`, and also unless the engagement holds the `--authorised` acknowledgement.
 - A `Check.Key` must encode every input and setting that changes the work (for example a wordlist
   hash or crawl depth), so that changing a setting creates new checks instead of reusing stale
   ones. Check results are persisted. A re-run executes only checks that haven't completed, so
@@ -92,7 +104,7 @@ records (the `candidate_rank` of each candidate, ranked by `internal/candidates`
 runner's list of derivers in `internal/run/derive.go`, each stored under its own pseudo-stage and
 re-derived only when the kinds it reads, the inputs or the date change.
 
-`nyx export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
+`nyx recon export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
 takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives one snapshot, and
 `run.BuildScope` classifies records with the same rules as a run. A kind a new stage's scope depends on goes in `scopeKinds`
 (`internal/run/scopebuild.go`), which the rank deriver also reads.

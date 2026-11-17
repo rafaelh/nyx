@@ -38,14 +38,33 @@ make test    # vet, race tests, and a cross-target vet for all four platforms
 `--output-dir`.
 
 ```sh
-nyx example.com                  # all stages; asks you to confirm authorisation on a terminal
-nyx example.com --passive        # third-party sources only; nothing at the target is contacted
-nyx example.com --authorised     # confirm authorisation up front (needed with --json or no terminal)
-nyx -e example-com               # re-run or resume an existing engagement by name
+nyx recon example.com --passive        # third-party sources only; nothing at the target is contacted
+nyx recon example.com --authorised     # all stages; confirms you are authorised to test the scope
+nyx recon -e example-com               # re-run or resume an existing engagement by name
 ```
 
 Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and the summary to stdout
 (see [Console and JSON](#console-and-json)).
+
+## Commands
+
+- **`nyx recon [domain...] [flags]`** runs an engagement: everything below. **`nyx recon export`**
+  writes what an engagement holds as JSON lines (see [Exporting an engagement](#exporting-an-engagement)).
+- **Help.** `nyx --help`, `nyx help` and a bare `nyx` print the whole reference: examples, every
+  command with its everyday flags and one example, the valid values of each fixed-set flag (the
+  stages, the export kinds) and the exit codes. `nyx help <command>` (or `nyx <command> --help`) is
+  one command's full help; recon's tuning settings are listed only there. `nyx help stages` and
+  `nyx help findings` are the two help topics. Help goes to stdout and exits 0.
+- **Shared flags.** Every command takes `--json` (`-J`), `--quiet` (`-q`) and `--debug`, before or
+  after its name (`nyx --json recon example.com` runs recon). `--json` implies `--quiet`, and
+  `--quiet` with `--debug` exits 2. None of them is a setting. Any other flag goes after the
+  command: one placed before it exits 2 with the same call, the command moved first, as the hint.
+- **Flags are spelt in full.** An abbreviation (`--pass` for `--passive`) is an unknown flag;
+  `--authorized` is the one alias.
+- **No prompts, no stdin.** No command asks a question or reads stdin, and none loads a `.env`
+  file: the environment is the one you gave it.
+- **Version.** `nyx --version` prints the version; every HTTP request nyx makes carries
+  `nyx/<version>` (`nyx/devel` for a build with no version) as its User-Agent.
 
 ## Inputs and engagements
 
@@ -69,8 +88,7 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   whatever else would stop it, and does nothing: results it found earlier stay in the files. The flag
   replaces the setting for that run, and `--skip none` runs every stage. An unknown stage, a stage
   also given to `--redo`, and `resolve`, `wildcard`, `ipowner` and `providerranges` (other stages'
-  safety depends on them) exit with code 2. When every stage that contacts the target is skipped,
-  there is no authorisation prompt.
+  safety depends on them) exit with code 2.
 
 ## Configuration
 
@@ -122,7 +140,7 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
 - **End-of-life software.** `eol_warn_days` (`--eol-warn-days`, default 90, at least 0) is how many
   days before the end of a release cycle's security support the low `eol-approaching` finding is
   reported; 0 turns it off (see [End-of-life software](#end-of-life-software)).
-- **Settings:** all settings and their defaults are listed by `nyx --help`.
+- **Settings:** all settings and their defaults are listed by `nyx recon --help`.
 
 Example `config.yaml` (a leading `~/` in `output_dir`, `wordlist` or `sensitive_paths` is your home
 directory):
@@ -138,7 +156,7 @@ keys:
 ```
 
 ```sh
-NYX_KEYS_SHODAN=your-shodan-key nyx example.com
+NYX_KEYS_SHODAN=your-shodan-key nyx recon example.com
 ```
 
 ## Passive boundary
@@ -213,11 +231,10 @@ the skipped checks.
 ## Authorisation acknowledgement
 
 Before any stage that contacts target-owned systems, nyx requires you to confirm you are
-authorised to test the engagement's scope.
+authorised to test the engagement's scope, with `--authorised` (`--authorized` also works). There
+is no prompt, on a terminal or anywhere else.
 
-- On a terminal, you can confirm at the prompt or with `--authorised` (`--authorized` also works).
-- With `--json` or no terminal there is no prompt, and only `--authorised` counts.
-- The confirmation is remembered per engagement.
+- The confirmation is remembered per engagement, so later runs need not repeat it.
 - Without it, those stages are shown as `not-configured (no authorisation)`, and the run writes one
   warning right after its header that names them and says that `--authorised` confirms
   authorisation. It names exactly the stages shown that way, so a stage left out by `--skip` is not
@@ -227,8 +244,10 @@ authorised to test the engagement's scope.
 ## Large netblocks
 
 If the in-scope IPv4 address count (ASN-expanded netblocks included) exceeds `netblock_limit`,
-nyx stops before contacting any address in them, shows the total and exits with code 3. Re-run
-with `--allow-large-netblocks` to proceed. The approval is remembered with the engagement.
+nyx stops before contacting any address in them, writes the output files and exits 2 with an
+`INVALID_INPUT` error that gives the total. Its hint is your own call with
+`--allow-large-netblocks` added (and any `--redo` left out), which proceeds. The approval is
+remembered with the engagement.
 
 ## Root DNS records and third parties
 
@@ -602,16 +621,16 @@ A run writes two things, to two streams.
   counts and the lines of stages that are `running`, `done`, `done-previously` or `not-configured`
   are `INFO`; a stage that `failed` is `ERROR`. Every warning is `WARN` and is shown without any
   flag: a truncated result, a spent quota, addresses skipped because their owner is unknown,
-  technology detection being off, the stages left out for lack of authorisation, an interrupted
-  run. The same warning is written once per run. A message is never wrapped to the terminal width, and a line is never redrawn.
+  technology detection being off, the stages left out for lack of authorisation. The same warning
+  is written once per run. A message is never wrapped to the terminal width, and a line is never redrawn.
 - **The summary is on stdout,** and is all that stdout holds. It lists counts, the checks that
   failed (a check that failed is retried on the next run; `--debug` shows each failure), the work a
   per-run cap deferred, the high and medium findings, and the high-confidence candidates (see
   [Ranked candidates](#ranked-candidates)). A run that ends without a summary (interrupted, stopped
-  by the netblock limit or ended by an error) writes nothing to stdout. The authorisation prompt and
-  the `error:` line that ends a failed run are on stderr, with no time or level.
+  by the netblock limit or ended by an error) writes nothing to stdout. The error that ends a failed
+  run is on stderr, with no time or level (see [Errors](#errors)).
 
-`nyx example.com 2> run.log` therefore keeps the log in a file and prints the summary.
+`nyx recon example.com 2> run.log` therefore keeps the log in a file and prints the summary.
 
 - **`--quiet` (`-q`)** writes only `WARN` and above to stderr. The summary is still printed.
 - **`--debug`** also writes a `DEBUG` line for each check that failed
@@ -624,8 +643,11 @@ A finding's `+` line and the summary show its severity as a badge: the severity 
 `medium`, `low`) in a fixed-width column.
 
 
-`--json` prints one JSON event per line on stdout, with no styling or prompts. Warnings are events
-of type `warning` with no flag, and `--quiet` changes nothing. A failed check is not an event.
+`--json` prints one JSON event per line on stdout, with no styling. Warnings are events of type
+`warning` with no flag, and `--quiet` changes nothing. A failed check is not an event. A run that
+succeeds ends with a `run_end` event whose `exit_code` is 0. A run that fails writes no `error` or
+`run_end` event: the event lines it wrote before failing stay on stdout, and the failure is the JSON
+error on stderr.
 stderr is empty unless `--debug` is given, which writes only the `DEBUG` lines there (coloured by
 the rule above) and leaves stdout unchanged. A `candidate` event for each high-confidence candidate
 comes before the `summary` event. It has `kind` (`root`, `hostname` or `netblock`), `value`,
@@ -845,7 +867,7 @@ root's name.
 - **Limits.** GitHub's code search allows few requests a minute. When it answers that the limit is
   reached and lifts it within 60 seconds (`Retry-After`, or `X-RateLimit-Reset` with none left), the
   stage waits and asks the same page again, up to five times in a row for one page; an interrupt
-  during the wait exits 130 promptly, with the roots already searched kept. A reset further away, a
+  during the wait ends the run promptly, with the roots already searched kept. A reset further away, a
   sixth refusal of the same page, a 401, and any other 403 or 429 stop the stage for the run, with
   the roots not yet searched retried on the next. Reading stops after GitHub's tenth page of 100
   results, the last it serves.
@@ -948,13 +970,13 @@ the state database and the run lock. Don't edit it. Finding severities are liste
 
 ## Exporting an engagement
 
-`nyx export -e <name>` writes everything recorded about an engagement to stdout as JSON lines, for
+`nyx recon export -e <name>` writes everything recorded about an engagement to stdout as JSON lines, for
 other tooling. The CSV columns are for people and may change; the export is the form to read from
 a program. `--output-dir` and `--config` find the engagement as they do for a run.
 
 ```sh
-nyx export -e acme > acme.jsonl
-nyx export -e acme --current --kind hostname --kind web_service --output hosts.jsonl
+nyx recon export -e acme > acme.jsonl
+nyx recon export -e acme --current --kind hostname --kind web_service --output hosts.jsonl
 ```
 
 - **Lines.** There is one line for each input (`kind` `input`, with `type` of `root`, `org`, `asn` or
@@ -974,8 +996,9 @@ nyx export -e acme --current --kind hostname --kind web_service --output hosts.j
   but their `stages` name the pseudo-stage that derived them (`findings`, `candidate-rank`), which
   is not a stage you can `--redo`.
 - **`--current`** keeps only current records. **`--kind`** (repeatable) keeps only the kinds
-  named; `nyx export --help` lists them, including `input` and `exclusion`. The two combine. An
-  unknown kind exits 2.
+  named; `nyx recon export --help` lists them, including `input` and `exclusion`. The two combine.
+  A missing `-e`, an unknown kind and an `--output` whose directory does not exist exit 2, all
+  reported together.
 - **`--output <file>`** writes to the file instead, replacing it atomically: the lines go to a
   temporary file beside it, which is renamed into place, so a failed write leaves an existing
   file as it was. A write failure exits 1.
@@ -994,16 +1017,60 @@ CSV files.
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| 0 | The run completed, including with failed checks or `not-configured` stages |
-| 1 | Fatal runtime error, an engagement already locked by another run, or an output directory that is not a nyx engagement. For `nyx export`, also an engagement that does not exist and a failure to write the export |
-| 2 | Invalid input or configuration. Nothing was contacted |
-| 3 | The netblock limit was exceeded without `--allow-large-netblocks` |
-| 130 | Interrupted (SIGINT, SIGTERM or SIGHUP). Completed work is saved; re-run to continue |
+Every command uses the same exit codes:
+
+| Code | Meaning | Error codes |
+|---|---|---|
+| 0 | Success, including a run with failed checks or `not-configured` stages | none |
+| 1 | System error: the arguments were fine and something else went wrong | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `UNEXPECTED_ERROR` |
+| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, or the netblock limit. Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
+| 3 | Not found | `NOT_FOUND` |
+| 7 | Partial result | `PARTIAL` |
+| 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |
+
+For now an engagement locked by another run, an output directory that is not a nyx engagement, an
+engagement `export` cannot find and a failure to write are `UNEXPECTED_ERROR` (exit 1). An unexpected
+failure prints its stack trace to stderr only with `--debug`. A panic inside one check is that
+check's failure: the run carries on and the check is retried on the next run.
+
+A signal ends the command with its own code. recon saves the work completed so far, as it does for
+any interruption; run the same command again to continue. A second signal exits at once with the
+first one's code.
+
+### Errors
+
+Every non-zero exit writes one error to stderr, and stdout is empty (but for a recon `--json` run's
+earlier event lines, above). It is never sent through the log formatter.
+
+```
+error: invalid domain "co.uk": it is a public suffix, not a registrable domain (INVALID_INPUT)
+hint: nyx recon --help
+```
+
+A `hint:` line follows when there is a next step, and `retry: may succeed after a wait` when the
+error is transient. A partial result from several targets adds one `error: <input>: <message>
+(<CODE>)` line for each target that failed. Under `--json`, even when the arguments fail to parse,
+the error is one compact line of JSON with exactly the keys `error`, `code`, `hint`, `input` and
+`transient`, in that order; `hint` and `input` are `null` when there is nothing to say, and `input`
+maps each failing argument to the list of its values as given:
+
+```json
+{"error":"invalid domain \"co.uk\": it is a public suffix, not a registrable domain","code":"INVALID_INPUT","hint":"nyx recon --help","input":{"domain":["co.uk"]},"transient":false}
+```
+
+Checks of values and combinations report every problem they find in one error. API keys are masked
+in the error as everywhere else.
+
+**What stays stable.** The exit codes, the error codes and the five keys of the error are an
+interface: a new one may be added, but renaming or removing one is a breaking change. The wording
+of messages and hints may change.
 
 ## Migrating from the Python version
 
+- **Commands.** What `nyx <domain>` did is now `nyx recon <domain>`, and `nyx export` is
+  `nyx recon export`. The old forms exit 2 with the corrected command as the hint, and do nothing
+  else. A bare `nyx` prints the help. There is no authorisation prompt any more: pass
+  `--authorised`.
 - **Old output directories** are not resumable. nyx refuses them (exit 1, naming the directory)
   and never writes into them. Use a different `-e` name, or move the old directory away.
 - **Retired:** the `reconsite` single-site command and XSS and SQL injection testing are gone.

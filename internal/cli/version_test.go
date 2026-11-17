@@ -13,7 +13,7 @@ import (
 func TestVersionFlag(t *testing.T) {
 	h := newHarness(t, noop())
 	h.version = "v0.0.0-20261106032157-7e34c1b8d74f"
-	if code := h.exec("--version"); code != 0 {
+	if code := h.execRoot("--version"); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
 	if got, want := h.stdout.String(), "nyx "+h.version+"\n"; got != want {
@@ -45,7 +45,7 @@ func TestVersionFlagZeroDeps(t *testing.T) {
 // --version is long-only; -v must not become a shorthand that could be mistaken for --verbose.
 func TestNoVersionShorthand(t *testing.T) {
 	h := newHarness(t, noop())
-	if code := h.exec("-v"); code != 2 {
+	if code := h.execRoot("-v"); code != 2 {
 		t.Errorf("-v: exit %d, want 2 (unknown shorthand)", code)
 	}
 }

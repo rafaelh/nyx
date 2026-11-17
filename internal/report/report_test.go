@@ -190,9 +190,8 @@ func TestConsoleLevels(t *testing.T) {
 	}
 	c := plain(report.Warn)
 	c.Emit(ev("summary", map[string]any{"totals": map[string]int{"hosts": 1}}))
-	c.Emit(ev("error", map[string]any{"message": "bad"}))
-	if c.sum.Len() == 0 || c.log.String() != "error: bad\n" {
-		t.Errorf("quiet still writes the summary and the error: summary %q, log %q", c.sum.String(), c.log.String())
+	if c.sum.Len() == 0 || c.log.Len() != 0 {
+		t.Errorf("quiet still writes the summary: summary %q, log %q", c.sum.String(), c.log.String())
 	}
 }
 
@@ -272,18 +271,12 @@ func TestConsoleFoundLines(t *testing.T) {
 	}
 }
 
-// The error line has no timestamp or level, and on a coloured stream only its
-// prefix is styled.
-func TestConsoleErrorLine(t *testing.T) {
+// There is no error event: an unknown type, error included, prints nothing.
+func TestConsoleHasNoErrorEvent(t *testing.T) {
 	p := plain(report.Info)
-	p.Emit(ev("error", map[string]any{"message": "no inputs\x1b[2J", "exit_code": 2}))
-	if got := p.log.String(); got != "error: no inputs\n" || p.sum.Len() != 0 {
-		t.Errorf("plain error: log %q, summary %q", got, p.sum.String())
-	}
-	c := newCons(palette.TrueColor, palette.None, report.Info)
-	c.Emit(ev("error", map[string]any{"message": "no inputs"}))
-	if want := "\x1b[38;2;240;138;146merror:\x1b[0m no inputs\n"; c.log.String() != want {
-		t.Errorf("coloured error = %q, want %q", c.log.String(), want)
+	p.Emit(ev("error", map[string]any{"message": "no inputs", "exit_code": 2}))
+	if p.log.Len() != 0 || p.sum.Len() != 0 {
+		t.Errorf("an error event printed: log %q, summary %q", p.log.String(), p.sum.String())
 	}
 }
 
@@ -296,7 +289,6 @@ func TestConsoleSanitises(t *testing.T) {
 		ev("found", map[string]any{"category": "finding", "value": evil, "severity": "high"}),
 		ev("warning", map[string]any{"message": evil}),
 		ev("debug", map[string]any{"message": evil}),
-		ev("error", map[string]any{"message": evil}),
 		ev("stage", map[string]any{"name": evil, "state": "done", "reason": evil}),
 		ev("warning", map[string]any{"message": long}),
 		ev("summary", map[string]any{"findings": []map[string]any{{"category": evil, "severity": "high", "target": evil, "detail": evil}},
@@ -316,8 +308,8 @@ func TestConsoleSanitises(t *testing.T) {
 				}
 			}
 		}
-		if n := strings.Count(c.log.String(), "\n"); n != 6 {
-			t.Errorf("depth %d: %d log lines for 6 events: %q", d, n, c.log.String())
+		if n := strings.Count(c.log.String(), "\n"); n != 5 {
+			t.Errorf("depth %d: %d log lines for 5 events: %q", d, n, c.log.String())
 		}
 		for _, l := range strings.Split(c.log.String(), "\n") {
 			if strings.Contains(l, long) && utf8.RuneCountInString(stripEscapes(l)) != 21+500 && utf8.RuneCountInString(stripEscapes(l)) != 19+500 {
@@ -441,9 +433,8 @@ func TestOnlyAndTee(t *testing.T) {
 	tee.Emit(ev("warning", map[string]any{"message": "w"}))
 	tee.Emit(ev("debug", map[string]any{"message": "asn check k failed: key=SEKRET"}))
 	tee.Emit(ev("summary", map[string]any{"totals": map[string]int{"hosts": 1}}))
-	tee.Emit(ev("error", map[string]any{"message": "bad"}))
-	if got := strings.Count(js.String(), "\n"); got != 4 {
-		t.Errorf("JSON got %d events, want 4 (not the debug one):\n%s", got, js.String())
+	if got := strings.Count(js.String(), "\n"); got != 3 {
+		t.Errorf("JSON got %d events, want 3 (not the debug one):\n%s", got, js.String())
 	}
 	if want := "12:00:00 | DEBUG | asn check k failed: key=****\n"; logb.String() != want {
 		t.Errorf("stderr = %q, want only the redacted DEBUG line %q", logb.String(), want)

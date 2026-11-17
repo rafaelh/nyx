@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
@@ -249,9 +250,12 @@ func ParseList(r io.Reader) ([]string, error) {
 	return out, sc.Err()
 }
 
-// Parse validates every input. All errors are reported together, each naming its value.
+// Parse validates every input. All problems are reported together, as
+// clierr.Problems, each under the name of the argument it came from (domain,
+// domains-file, org, asn, cidr, exclude or exclude-file) with the value as
+// given.
 func Parse(raw Raw) (Parsed, error) {
-	var errs []error
+	var probs clierr.Problems
 	var p Parsed
 	first := ""
 	setFirst := func(s string) {
@@ -260,19 +264,32 @@ func Parse(raw Raw) (Parsed, error) {
 		}
 	}
 
-	domains := append([]string(nil), raw.Domains...)
+	// item is one value and the argument it came from.
+	type item struct{ name, value string }
+	named := func(name string, vals []string) []item {
+		out := make([]item, len(vals))
+		for i, v := range vals {
+			out[i] = item{name, v}
+		}
+		return out
+	}
+	domains := named("domain", raw.Domains)
 	if len(raw.Domains) > 0 {
 		setFirst(raw.Domains[0])
 	}
-	if raw.DomainsFile != "" {
-		lines, err := ReadList(raw.DomainsFile)
+	readFile := func(name, path string) []item {
+		lines, err := ReadList(path)
 		if err != nil {
-			errs = append(errs, err)
-		} else {
-			domains = append(domains, lines...)
-			if len(lines) > 0 {
-				setFirst(lines[0])
-			}
+			probs.Add(name, path, err.Error(), "")
+			return nil
+		}
+		return named(name, lines)
+	}
+	if raw.DomainsFile != "" {
+		lines := readFile("domains-file", raw.DomainsFile)
+		domains = append(domains, lines...)
+		if len(lines) > 0 {
+			setFirst(lines[0].value)
 		}
 	}
 	for _, o := range raw.Orgs {
@@ -289,13 +306,13 @@ func Parse(raw Raw) (Parsed, error) {
 		setFirst(c)
 	}
 
-	set := func(vals []string, parse func(string) (string, error)) []string {
+	set := func(items []item, parse func(string) (string, error)) []string {
 		seen := map[string]bool{}
 		var out []string
-		for _, v := range vals {
-			c, err := parse(v)
+		for _, it := range items {
+			c, err := parse(it.value)
 			if err != nil {
-				errs = append(errs, err)
+				probs.Add(it.name, it.value, err.Error(), "")
 				continue
 			}
 			if !seen[c] {
@@ -307,27 +324,23 @@ func Parse(raw Raw) (Parsed, error) {
 		return out
 	}
 	p.Roots = set(domains, ParseDomain)
-	p.Orgs = set(raw.Orgs, ParseOrg)
-	p.ASNs = set(raw.ASNs, ParseASN)
-	p.CIDRs = set(raw.CIDRs, func(s string) (string, error) {
+	p.Orgs = set(named("org", raw.Orgs), ParseOrg)
+	p.ASNs = set(named("asn", raw.ASNs), ParseASN)
+	p.CIDRs = set(named("cidr", raw.CIDRs), func(s string) (string, error) {
 		pr, err := ParseCIDR(s)
 		return pr.String(), err
 	})
-	excl := append([]string(nil), raw.Exclude...)
+	excl := named("exclude", raw.Exclude)
 	if raw.ExcludeFile != "" {
-		lines, err := ReadList(raw.ExcludeFile)
-		if err != nil {
-			errs = append(errs, err)
-		}
-		excl = append(excl, lines...)
+		excl = append(excl, readFile("exclude-file", raw.ExcludeFile)...)
 	}
 	p.Exclusions = set(excl, func(s string) (string, error) {
 		e, err := ParseExclusion(s)
 		return e.Entry, err
 	})
 	p.First = first
-	if len(errs) > 0 {
-		return Parsed{}, errors.Join(errs...)
+	if err := probs.Err(); err != nil {
+		return Parsed{}, err
 	}
 	return p, nil
 }

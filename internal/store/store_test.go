@@ -713,3 +713,26 @@ func TestViewIsOneSnapshot(t *testing.T) {
 		t.Errorf("a later read does not see the commit: %v", recs)
 	}
 }
+
+// A panic in the writer, here in the new-record callback, sets the sticky
+// error, and Flush returns it instead of waiting for ever.
+func TestWriterPanicSetsTheStickyError(t *testing.T) {
+	s, _ := open(t, newClock(), nil)
+	s.OnNew(func(kind, key string, attrs map[string]any) { panic("callback boom") })
+	s.Complete("st", "c1", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
+	done := make(chan error, 1)
+	go func() { done <- s.Flush() }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "callback boom") {
+			t.Errorf("Flush = %v, want the panic", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Flush hung after a panic in the writer")
+	}
+	// Later writes fail with the same error rather than hang.
+	s.Complete("st", "c2", nil)
+	if err := s.Flush(); err == nil {
+		t.Error("the sticky error was cleared")
+	}
+}

@@ -96,7 +96,8 @@ func TestSkip_InvalidExits2(t *testing.T) {
 			if code := w.run(append(c.args, "--passive", "example.com")...); code != 2 {
 				t.Fatalf("exit %d, want 2", code)
 			}
-			msg := strings.Join(messages(w, "error", ""), "; ")
+			f := w.h.theError(true)
+			msg := f.msg + "; " + f.hint // the valid stages are in the hint
 			if !strings.Contains(msg, c.want) {
 				t.Errorf("message %q does not mention %q", msg, c.want)
 			}
@@ -170,36 +171,4 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 			t.Error("crtsh did not run")
 		}
 	})
-}
-
-// When every stage that contacts the target is skipped there is nothing to
-// authorise, so there is no prompt.
-func TestSkip_NoPromptWhenEveryTargetStageIsSkipped(t *testing.T) {
-	const prompt = "Confirm you are authorised"
-	runConsole := func(w *world, extra ...string) {
-		w.h.stdinTTY = true
-		w.h.stdin = "n\n"
-		args := append([]string{"--rate-per-source", "1000", "--rate-dns", "100000"}, extra...)
-		if code := w.h.exec(append(args, "example.com")...); code != 0 {
-			t.Fatalf("exit %d: %s", code, w.h.stderr.String())
-		}
-	}
-
-	w := newWorld(t)
-	runConsole(w)
-	if !strings.Contains(w.h.stderr.String(), prompt) {
-		t.Fatalf("control: expected a prompt with target stages enabled; stderr = %q", w.h.stderr.String())
-	}
-
-	w = newWorld(t)
-	runConsole(w, "--skip", "httpprobe", "--skip", "crawl", "--skip", "jsparse", "--skip", "origincheck")
-	if strings.Contains(w.h.stderr.String(), prompt) {
-		t.Errorf("prompted although every target stage is skipped: %q", w.h.stderr.String())
-	}
-
-	w = newWorld(t)
-	runConsole(w, "--skip", "httpprobe")
-	if !strings.Contains(w.h.stderr.String(), prompt) {
-		t.Error("crawl still contacts the target, so the prompt is needed")
-	}
 }

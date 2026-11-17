@@ -1,12 +1,15 @@
 package input_test
 
 import (
+	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/input"
 )
 
@@ -232,5 +235,32 @@ func TestRangeCIDRs(t *testing.T) {
 		if strings.Join(got, " ") != strings.Join(c.want, " ") {
 			t.Errorf("RangeCIDRs(%s, %s) = %v, want %v", c.start, c.end, got, c.want)
 		}
+	}
+}
+
+// Every problem is reported, each under the name of the argument it came from
+// with the value as given.
+func TestParseProblemsNameTheirArgument(t *testing.T) {
+	_, err := input.Parse(input.Raw{
+		Domains: []string{"co.uk", "ok.example.com"}, DomainsFile: writeList(t, "bad domain.org\n"),
+		Orgs: []string{" "}, ASNs: []string{"ASxyz"}, CIDRs: []string{"1.2.3.4/99"},
+		Exclude: []string{"a b"}, ExcludeFile: "/no/such/exclusions",
+	})
+	var probs clierr.Problems
+	if !errors.As(err, &probs) {
+		t.Fatalf("err = %v, want Problems", err)
+	}
+	got := map[string]string{}
+	for _, p := range probs {
+		got[p.Name] = p.Value
+	}
+	want := map[string]string{"domain": "co.uk", "domains-file": "bad domain.org", "org": " ", "asn": "ASxyz",
+		"cidr": "1.2.3.4/99", "exclude": "a b", "exclude-file": "/no/such/exclusions"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("problems by name = %v, want %v", got, want)
+	}
+	_, err = input.Parse(input.Raw{DomainsFile: "/no/such/domains"})
+	if !errors.As(err, &probs) || len(probs) != 1 || probs[0].Name != "domains-file" || probs[0].Value != "/no/such/domains" {
+		t.Errorf("an unreadable domains file: %+v", probs)
 	}
 }

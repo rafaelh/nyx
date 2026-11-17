@@ -117,7 +117,7 @@ func TestLog_RunsWithoutASummaryWriteNothingToStdout(t *testing.T) {
 	})
 	t.Run("netblock limit", func(t *testing.T) {
 		h := newHarness(t, noop())
-		if code := h.exec("--cidr", "10.0.0.0/16", "--netblock-limit", "1000"); code != 3 {
+		if code := h.exec("--cidr", "10.0.0.0/16", "--netblock-limit", "1000"); code != 2 {
 			t.Fatalf("exit %d\n%s", code, h.stderr.String())
 		}
 		if h.stdout.Len() != 0 || !strings.Contains(h.stderr.String(), "error: in-scope IPv4 netblocks cover 65536 addresses") {
@@ -140,23 +140,10 @@ func TestLog_RunsWithoutASummaryWriteNothingToStdout(t *testing.T) {
 		if h.stdout.Len() != 0 {
 			t.Errorf("stdout %q", h.stdout.String())
 		}
-		if w := h.logMsgs("WARN"); len(w) != 1 || !strings.HasPrefix(w[0], "interrupted;") {
-			t.Errorf("WARN lines = %q", w)
+		if f := h.theError(false); f.code != "INTERRUPTED" || !strings.Contains(f.hint, "completed work is saved") {
+			t.Errorf("error = %+v", f)
 		}
 	})
-}
-
-// The prompt is on stderr with no timestamp or level.
-func TestLog_PromptIsOnStderrWithoutAPrefix(t *testing.T) {
-	h := newHarness(t, targetStage("probe"))
-	h.stdinTTY, h.stdin = true, "n\n"
-	h.exec("a.com")
-	if !strings.HasPrefix(h.stderr.String(), "Confirm you are authorised to test this engagement's scope [y/N] ") {
-		t.Errorf("stderr = %q", h.stderr.String())
-	}
-	if strings.Contains(h.stdout.String(), "Confirm") {
-		t.Errorf("the prompt is on stdout: %q", h.stdout.String())
-	}
 }
 
 // On a coloured stderr only the error: prefix of the closing line is styled.
@@ -737,11 +724,10 @@ func TestLog_JSON(t *testing.T) {
 	if !strings.Contains(h.stderr.String(), "\x1b[38;2;169;177;198;48;2;42;47;58m DEBUG ") || strings.Contains(h.stdout.String(), esc) {
 		t.Errorf("stderr %q", h.stderr.String())
 	}
-	// An error is one event on stdout, and not copied to stderr.
+	// An error is the one JSON error on stderr, and stdout is empty.
 	h = newHarness(t, mk()...)
-	h.exec("--json", "--debug")
-	if errs := ofType(h.events(), "error"); len(errs) != 1 || h.stderr.Len() != 0 {
-		t.Errorf("error events %v, stderr %q", errs, h.stderr.String())
+	if f := h.failed(h.exec("--json", "--debug"), 2, true); !strings.HasPrefix(f.msg, "no inputs") {
+		t.Errorf("error = %+v", f)
 	}
 }
 

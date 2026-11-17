@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +22,6 @@ import (
 	"github.com/rafaelh/nyx/internal/engagement"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/palette"
-	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/sanitize"
 	"github.com/rafaelh/nyx/internal/store"
@@ -40,9 +39,10 @@ type exportOptions struct {
 	kinds                          []string
 }
 
-// newExportCommand builds the export command. Its help is coloured at depth,
-// the colour depth of stdout.
-func newExportCommand(o *exportOptions, depth palette.Depth, runFn func(*cobra.Command)) *cobra.Command {
+// newExportCommand builds recon's export command.
+func newExportCommand(inv *invocation) *cobra.Command {
+	o := &exportOptions{}
+	kindsLine := exportKindsLine()
 	cmd := &cobra.Command{
 		Use:   "export -e <engagement> [flags]",
 		Short: "Write everything recorded about an engagement as JSON lines",
@@ -50,12 +50,15 @@ func newExportCommand(o *exportOptions, depth palette.Depth, runFn func(*cobra.C
 			"current or not, and for its inputs and exclusions. It reads a snapshot of the state database, takes no\n" +
 			"lock, so it works while a run is in progress, writes nothing to the engagement and makes no network\n" +
 			"requests. API keys are never in it.",
-		Args:          cobra.NoArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Example: "  nyx recon export -e example.com --json\n" +
+			"  nyx recon export -e example.com --current --kind finding --output findings.jsonl --json",
+		Args: cobra.NoArgs,
+		Annotations: map[string]string{
+			annotationValues: kindsLine,
+			annotationFooter: kindsLine,
+		},
 		RunE: func(c *cobra.Command, _ []string) error {
-			runFn(c)
-			return nil
+			return inv.start(c, runExport(c.Context(), inv, c, o))
 		},
 	}
 	f := cmd.Flags()
@@ -68,12 +71,13 @@ func newExportCommand(o *exportOptions, depth palette.Depth, runFn func(*cobra.C
 	config.RegisterFlags(settings)
 	f.AddFlag(settings.Lookup("output-dir")) // read by config.Load, as for a run
 	f.StringVar(&o.configPath, "config", "", configFlagUsage)
-	f.BoolP("help", "h", false, "Help for export") // replaces cobra's, to capitalise it
-	_ = cmd.MarkFlagRequired("engagement")         // only fails for an unknown flag
-	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
-		fmt.Fprint(c.OutOrStdout(), colourHelp(depth, c.Long+"\n\n"+c.UsageString()+"\nKinds accepted by --kind: "+strings.Join(exportKinds(), ", ")+"\n"))
-	})
+	f.BoolP("help", "h", false, "Help for export")
 	return cmd
+}
+
+// exportKindsLine names the values --kind accepts.
+func exportKindsLine() string {
+	return "Kinds accepted by --kind: " + strings.Join(exportKinds(), ", ")
 }
 
 // exportKinds are the names --kind accepts: every record kind, then the two
@@ -109,41 +113,50 @@ type exportInputLine struct {
 	Added string `json:"added"`
 }
 
-func runExport(cmd *cobra.Command, o *exportOptions, d Deps, dp depths) int {
-	em := newEmitter(d, &options{}, dp)
-	bail := func(code int, err error) int { return fail(em, code, err) }
-
+// runExport checks every value, reporting all problems in one usage error,
+// then writes the snapshot unless a signal arrived while it was read.
+func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *exportOptions) error {
+	probs := inv.problems()
+	if o.engagement == "" {
+		probs.Add("engagement", "", "missing -e: name the engagement to export", "nyx recon export -e <engagement>")
+	}
 	valid := exportKinds()
 	for _, k := range o.kinds {
 		if !slices.Contains(valid, k) {
-			return bail(run.ExitInvalid, fmt.Errorf("unknown kind %q for --kind (kinds: %s)", k, strings.Join(valid, ", ")))
+			probs.Add("kind", k, fmt.Sprintf("unknown kind %q for --kind", k), "kinds: "+strings.Join(valid, ", "))
 		}
 	}
-	settings, err := config.Load(cmd.Flags(), o.configPath)
-	if err != nil {
-		return bail(run.ExitInvalid, err)
+	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, probs)
+	var name string
+	if o.engagement != "" {
+		var err error
+		if name, err = input.EngagementName(o.engagement); err != nil {
+			probs.Add("engagement", o.engagement, err.Error(), "")
+		}
 	}
-	red := config.NewRedactor(settings.KeyValues()...)
-	em = report.WithRedactor(em, red)
-	name, err := input.EngagementName(o.engagement)
-	if err != nil {
-		return bail(run.ExitInvalid, err)
+	if o.output != "" {
+		if fi, err := os.Stat(filepath.Dir(o.output)); err != nil || !fi.IsDir() {
+			probs.Add("output", o.output, "the directory of --output does not exist: "+filepath.Dir(o.output), "")
+		}
+	}
+	if err := probs.Err(); err != nil {
+		return err
 	}
 
 	db, err := engagement.OpenReadOnly(filepath.Join(settings.OutputDir, name))
 	if err != nil {
-		return bail(run.ExitFatal, err)
+		return err
 	}
 	defer db.Close() // nothing to save: it cannot write
 
-	lines, err := exportSnapshot(db, stageNames(d.Stages), o, red)
+	lines, err := exportSnapshot(db, stageNames(inv.d.Stages), o, red)
 	if err != nil {
-		return bail(run.ExitFatal, err)
+		return err
 	}
-	if err := writeExport(o.output, d.Stdout, lines); err != nil {
-		return bail(run.ExitFatal, err)
+	if ctx.Err() != nil {
+		return context.Cause(ctx) // a signal while reading: write nothing
 	}
-	return run.ExitOK
+	return writeExport(o.output, inv.d.Stdout, lines)
 }
 
 // exportSnapshot reads the engagement in one read transaction and returns the

@@ -184,8 +184,8 @@ func TestSensitivePaths_InvalidEntriesExit2(t *testing.T) {
 		if code := x.run("--sensitive-paths", x.pathsFile(body)); code != 2 {
 			t.Errorf("%s: exit %d, want 2", name, code)
 		}
-		if !strings.Contains(x.h.stdout.String(), "sensitive_paths") {
-			t.Errorf("%s: the error does not name sensitive_paths:\n%s", name, x.h.stdout.String())
+		if !strings.Contains(x.h.stderr.String(), "sensitive_paths") {
+			t.Errorf("%s: the error does not name sensitive_paths:\n%s", name, x.h.stderr.String())
 		}
 	}
 }
