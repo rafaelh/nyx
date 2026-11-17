@@ -122,6 +122,10 @@ type WebServiceAttrs struct {
 	TLSVersion    string `json:"tls_version,omitempty"`
 	TLSCipher     string `json:"tls_cipher,omitempty"`
 	TLSTrust      string `json:"tls_trust,omitempty"`
+	// BodyLen is the length in bytes of the first response's body (the part read, which is capped);
+	// origin exposure compares it with a candidate origin's. Absent for a service probed before it
+	// was recorded.
+	BodyLen int `json:"body_len,omitempty"`
 }
 
 // The tls_trust values. They are the strings egress.Response.CertTrust

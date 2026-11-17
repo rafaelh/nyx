@@ -15,6 +15,7 @@ const (
 	Ports               = "ports"
 	Certificates        = "certificates"
 	WebPosture          = "web-posture"
+	OriginExposure      = "origin-exposure"
 )
 
 // Severities.
@@ -62,6 +63,8 @@ var table = []Row{
 	{WebPosture, "insecure-cookie", Low, "a cookie set over HTTPS lacks Secure"},
 	{WebPosture, "directory-listing", Low, "the service's page is an automatic directory listing (Index of /)"},
 	{WebPosture, "version-disclosure", Low, "a Server or X-Powered-By header carries a version (Apache/2.4.41)"},
+	{OriginExposure, "confirmed", Medium, "a hostname behind a CDN or WAF is also served directly by an address nyx may contact, which answers for it"},
+	{OriginExposure, "possible", Low, "an address that may be the origin of a hostname behind a CDN or WAF, found from its history or a sibling and not confirmed"},
 }
 
 // SeverityTable is the documented default severity of every finding type.

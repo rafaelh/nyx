@@ -42,6 +42,7 @@ var stageHelps = map[string]stageHelp{
 	"rdap":             {"", "Who registered each netblock, and what is registered to each --org"},
 	"shodan-host":      {"shodan", "Ports, banners and hostnames Shodan holds for addresses its search missed"},
 	"reverseip":        {"(securitytrails)", "Other hostnames that point at each dedicated address (HackerTarget)"},
+	"dnshistory":       {"securitytrails", "Addresses each CDN- or WAF-fronted hostname resolved to in the past (SecurityTrails)"},
 	"email":            {"", "Mail posture of each root (MX, SPF, DMARC, MTA-STS, DKIM) and its mail providers"},
 	"httpprobe":        {"", "HTTP and HTTPS services on each hostname and open port, as a browser sees them"},
 	"crawl":            {"", "GET-only walk of each web service's own pages, robots.txt and sitemaps"},
@@ -50,6 +51,7 @@ var stageHelps = map[string]stageHelp{
 	"storage":          {"", "Cloud storage buckets that are referenced or guessed, checked anonymously"},
 	"takeover":         {"", "One GET of each provider-hosted site, matched against unclaimed-resource pages"},
 	"sensitive-paths":  {"", "Requests for the sensitive-path list on each web service"},
+	"origincheck":      {"", "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site"},
 	"ports":            {"", "TCP handshakes to the configured ports, keeping any banner sent unprompted"},
 }
 

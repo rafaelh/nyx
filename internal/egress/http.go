@@ -164,6 +164,7 @@ type target struct {
 	sensitiveIdx int // >=0: index into the sensitive-path list
 	requestURI   string
 	pin          netip.Addr // if valid, the only address dialled
+	origin       bool       // set by OriginCheck: pin need not be an address of host (see OriginCheck)
 	script       string     // set by Script: the URL, which Policy.Scripts must list
 	maxBody      int        // 0 means maxTargetBody
 }
@@ -190,6 +191,19 @@ func Root(host, scheme string, port int) Request {
 // addresses. Redirects and links from the response are not pinned.
 func RootAt(host, scheme string, port int, addr netip.Addr) Request {
 	return req{target{scheme: scheme, host: host, port: port, sensitiveIdx: -1, requestURI: "/", pin: addr.Unmap()}}
+}
+
+// OriginCheck requests "/" of a candidate origin: it dials addr on port 443 (https) or 80 (http),
+// with host as both the TLS server name and the Host header, so the answer says what that address
+// serves for the host. host must be an in-scope hostname, and addr must not be excluded and must be
+// inside an in-scope netblock or be port-eligible. Unlike RootAt it does not require addr to be one
+// of host's resolved addresses. Redirects are not followed.
+func OriginCheck(host, scheme string, addr netip.Addr) Request {
+	port := 80
+	if scheme == "https" {
+		port = 443
+	}
+	return req{target{scheme: scheme, host: host, port: port, sensitiveIdx: -1, requestURI: "/", pin: addr.Unmap(), origin: true}}
 }
 
 // SensitivePath requests entry index of the configured sensitive-path list.
@@ -300,6 +314,9 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 	case tg.host == "" || tg.port < 1 || tg.port > 65535 || (!isIP && strings.ContainsAny(tg.host, "@/?#: \\[]%")):
 		return Refused{"malformed host or port"}, nil
 	}
+	if tg.origin && isIP {
+		return Refused{"an origin check names a hostname, not an address"}, nil
+	}
 	if isIP {
 		host = lit.String()
 		// An address is a web target iff it is in an in-scope netblock and not
@@ -333,7 +350,18 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		return Refused{"request path " + strconv.Quote(uri) + " does not start with /"}, nil
 	}
 	addrs := []netip.Addr{lit}
-	if !isIP {
+	switch {
+	case tg.origin:
+		// The address is a candidate origin, so it is not one of the host's. It must be one that
+		// may be port-checked: not excluded, and in an in-scope netblock or dedicated and known.
+		if !tg.pin.IsValid() {
+			return Refused{"no address"}, nil
+		}
+		if r, refused := p.portIneligible(tg.pin); refused {
+			return r, nil
+		}
+		addrs = []netip.Addr{tg.pin}
+	case !isIP:
 		addrs = p.vetted(host)
 	}
 	if len(addrs) == 0 {

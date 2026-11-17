@@ -48,11 +48,8 @@ func (t *targetTCP) Connect(ctx context.Context, addr netip.Addr, port int) (TCP
 		return Refused{"port " + strconv.Itoa(port) + " not in the configured list"}, nil
 	}
 	addr = addr.Unmap()
-	if ok, why, excluded := p.Scope.PortEligible(addr, p.owner); !ok {
-		if excluded {
-			p.reportExcluded(addr.String(), why)
-		}
-		return Refused{why}, nil
+	if r, refused := p.portIneligible(addr); refused {
+		return r, nil
 	}
 	if err := t.e.hostLimiter(addr).Wait(ctx); err != nil {
 		return nil, err

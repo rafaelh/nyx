@@ -31,6 +31,7 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/stages/asn"
 	"github.com/rafaelh/nyx/internal/stages/dns"
+	"github.com/rafaelh/nyx/internal/stages/dnshistory"
 	"github.com/rafaelh/nyx/internal/stages/github"
 	"github.com/rafaelh/nyx/internal/stages/orgpivot"
 	"github.com/rafaelh/nyx/internal/stages/ports"
@@ -80,7 +81,9 @@ func DefaultDeps() Deps {
 // records a root's own NS, SOA, TXT and CAA, among them); rdap and shodan-host follow ipowner,
 // whose owners decide which addresses may be asked about; storage follows the crawl so references
 // found in the same pass are checked, identifier-pivot follows the web stages whose identifiers it
-// searches, and the Target stages run before the port sweep.
+// searches, and the Target stages run before the port sweep. dnshistory follows reverseip, as both ask
+// SecurityTrails about addresses and names the earlier stages found; origincheck follows dnshistory
+// and the probe, whose historical addresses and web services its candidates come from.
 func defaultStages() []run.Stage {
 	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, hackertarget, urlscan, certspotter, censys, chaos
 	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
@@ -88,8 +91,8 @@ func defaultStages() []run.Stage {
 	return append(stages,
 		github.New(), shodan.New(), shodan.NewDNS(), providerranges.New(),
 		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
-		risk.NewEmail(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
-		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), ports.New())
+		dnshistory.New(), risk.NewEmail(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
+		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }
 
 type options struct {

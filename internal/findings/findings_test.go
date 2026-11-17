@@ -126,6 +126,8 @@ func TestSeverityTable(t *testing.T) {
 		"web-posture/insecure-cookie":    "low",
 		"web-posture/directory-listing":  "low",
 		"web-posture/version-disclosure": "low",
+		"origin-exposure/confirmed":      "medium",
+		"origin-exposure/possible":       "low",
 	}
 	got := map[string]string{}
 	for _, r := range findings.SeverityTable() {

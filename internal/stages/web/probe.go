@@ -269,6 +269,7 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 	if pg, ok := chain[len(chain)-1].page(); ok {
 		attrs.Title = pg.title()
 	}
+	attrs.BodyLen = len(first.Body)
 	attrs.TLSVersion, attrs.TLSCipher = first.TLSVersion, first.TLSCipher
 	if len(first.PeerCerts) > 0 {
 		leaf := first.PeerCerts[0]

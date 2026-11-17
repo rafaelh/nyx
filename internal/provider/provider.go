@@ -107,6 +107,10 @@ const ClassSaaS = "saas"
 // ClassCDN marks an address served by a content delivery network.
 const ClassCDN = "cdn"
 
+// ClassWAF marks a CNAME entry of a web application firewall that fronts a site. An asn entry
+// given this class must be shared, as cdn is.
+const ClassWAF = "waf"
+
 // Entry is a matched CNAME entry of providers.yaml. NXDomain says a chain that
 // dangles into it can be claimed; Body, an RE2 regex, matches the page an
 // unclaimed resource serves.
@@ -287,7 +291,7 @@ func wholeListRule(shared bool, class string) rangeRule {
 
 // awsRule: an address is a dedicated VM only if an EC2 range proves it. A range
 // of any other service makes it shared, and one only in the AMAZON superset
-// fails closed.
+// fails closed. A CloudFront range is a CDN's edge, so it carries class cdn.
 func awsRule(rs []*Range) Result {
 	var ec2, amazon *Range
 	for _, r := range rs {
@@ -296,6 +300,8 @@ func awsRule(rs []*Range) Result {
 			ec2 = cmp.Or(ec2, r)
 		case "AMAZON":
 			amazon = cmp.Or(amazon, r)
+		case "CLOUDFRONT":
+			return Result{Shared: true, Service: r.Service, Region: r.Region, Class: ClassCDN}
 		default:
 			return Result{Shared: true, Service: r.Service, Region: r.Region}
 		}
@@ -363,24 +369,36 @@ func classifyRanges(covering []*Range) (res Result, ok bool) {
 // Classify says what is known about an address from the provider ranges and
 // its owner. An address is Known if its owner is, or a range covers it. A
 // published range takes precedence over the owner's ASN, which is the fallback
-// when the list is missing. Each provider's own rule says what its ranges
+// when the list is missing, except that an owner whose ASN is a CDN keeps the
+// address shared inside a dedicated provider's list. Each provider's own rule says what its ranges
 // mean (see rangeRules); hyperscaler addresses with no range to prove
 // otherwise, and Azure (no ranges), fail closed.
 func (db *DB) Classify(a netip.Addr, owner Owner, ranges *Ranges) Result {
 	a = a.Unmap()
 	if res, ok := classifyRanges(ranges.covering(a)); ok {
+		// A dedicated provider's list can hold a CDN's edge space (Linode's covers Akamai's). An
+		// address whose origin AS is a CDN is the CDN's, whatever list covers it.
+		if r, ok := db.asnResult(owner); ok && !res.Shared && r.Class == ClassCDN {
+			return r
+		}
 		return res
 	}
 	if r, ok := db.staticRange(a); ok {
 		return Result{Known: true, Shared: true, Provider: r.Provider, Service: r.Service, Evidence: "range", Class: r.class}
 	}
-	if owner.Known {
-		if p, ok := db.asns[owner.ASN]; ok {
-			return Result{Known: true, Shared: true, Provider: p.provider, Evidence: "asn", Class: p.class}
-		}
-		return Result{Known: true}
+	if r, ok := db.asnResult(owner); ok {
+		return r
 	}
-	return Result{}
+	return Result{Known: owner.Known}
+}
+
+// asnResult is what the owner's ASN says of an address: shared, if the ASN is a listed provider's.
+func (db *DB) asnResult(owner Owner) (Result, bool) {
+	p, ok := db.asns[owner.ASN]
+	if !owner.Known || !ok {
+		return Result{}, false
+	}
+	return Result{Known: true, Shared: true, Provider: p.provider, Evidence: "asn", Class: p.class}, true
 }
 
 // Verification returns the platform a root TXT record is a domain-ownership

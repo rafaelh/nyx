@@ -102,6 +102,11 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
   lookups included, until the key is fixed or removed; a 429 stops it for the run. `reverseip.max_domains`
   (`--reverseip-max-domains`, default 100, at least 1) is how many registrable domains one address may
   return before it is treated as shared hosting.
+- **Origin exposure.** `keys.securitytrails` also turns on `dnshistory` (see
+  [Origin exposure](#origin-exposure)). `dnshistory.max_hosts` (`--dnshistory-max-hosts`, default
+  200, at least 1) caps the hostnames it asks about in one run, and `origincheck.max_candidates`
+  (`--origincheck-max-candidates`, default 5, at least 1) caps the candidate origins kept, and
+  checked, for each hostname.
 - **Shodan per address.** `keys.shodan` also turns on `shodan-host` (see
   [Shodan per address](#shodan-per-address)). `shodan.max_hosts` (`--shodan-max-hosts`, default 500,
   at least 1) caps the addresses it looks up in one run.
@@ -144,6 +149,15 @@ nyx limits what target-owned systems can receive. It sends only:
   service: the same-host `<link rel="icon">` URL of its page, or `/favicon.ico` (see
   [Web identifiers](#web-identifiers)).
 
+- **One GET of `/` to an address it is already allowed to contact, with an in-scope hostname as
+  the server name and the Host header.** The `origincheck` stage sends it to see whether a
+  hostname behind a CDN or WAF is also served directly by its origin server (see
+  [Origin exposure](#origin-exposure)). The address is one that may be port-checked: inside an
+  in-scope netblock, or dedicated to the organisation, known, not excluded, and the current address
+  of an in-scope hostname. It is asked in place of the CDN, so that the answer says what that address
+  serves for the hostname; it is never an address nyx would not already handshake. One GET goes over
+  HTTPS on 443 and, only if nothing answers there, one over HTTP on 80; a redirect is not followed.
+
 It never sends credentials, submits forms, uses other HTTP methods, puts payloads in parameters or
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
 scope) and excluded hosts are never contacted. Everything else comes from third parties: CT logs
@@ -152,7 +166,9 @@ GitHub's code search, public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and
 provider endpoints. Only hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
 reports that its free quota is spent, its stage alone stops, and its checks are retried on the next
 run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
-addresses, for its reverse IP lookup (see [Reverse IP](#reverse-ip)); the target never does. The
+addresses, for its reverse IP lookup (see [Reverse IP](#reverse-ip)); SecurityTrails also receives
+the hostnames behind a CDN or WAF, for their DNS history (see [Origin exposure](#origin-exposure)); the
+target never does. The
 `otx` and `anubis` stages no longer exist, because neither service answers an unkeyed client any
 more. An engagement that already holds their results keeps them, and a `skip` setting
 that names either is rejected as an unknown stage.
@@ -182,7 +198,7 @@ than signals and file locking, and if any package imports `os/exec`.
 ## Passive-only mode
 
 `--passive` restricts a run to third-party sources. The stages that contact target-owned systems
-(`httpprobe`, `crawl`, `jsparse`, `sensitive-paths`, `ports` and `takeover`'s HTTP fingerprinting) are
+(`httpprobe`, `crawl`, `jsparse`, `sensitive-paths`, `origincheck`, `ports` and `takeover`'s HTTP fingerprinting) are
 shown as `not-configured (passive-only)`. Takeover findings that DNS evidence alone supports are
 still reported. The restriction applies to that run only; a later run without `--passive` performs
 the skipped checks.
@@ -501,7 +517,7 @@ new entries are requested on the first run after an upgrade.
   current while its neighbours wait.
 
 A cap that defers work is not a failure: the stage shows `done`, and the summary gives the amount
-deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`, searches for `identifier-pivot`) under `Deferred to
+deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`, searches for `identifier-pivot`, hostnames for `dnshistory`) under `Deferred to
 the next run`, and as `deferred` in the `--json` `summary` event. Run the same command again to do
 the rest.
 
@@ -648,6 +664,58 @@ netblock: only an address another stage recorded is asked. Nothing it finds ente
   with `reverseip` in `sources`. It never calls Shodan: Shodan's hostnames for an address come from
   `shodan-host`.
 
+## Origin exposure
+
+A site behind a CDN or WAF is only as protected as its origin server is hidden. nyx looks for
+origin servers that can be reached directly, in two stages.
+
+The `dnshistory` stage runs under `--passive` and needs `keys.securitytrails`; without it the stage
+is `not-configured (no key)`. For each in-scope hostname that currently resolves to a known CDN or
+WAF (a CNAME on its chain, or an address, that belongs to CloudFront, Azure Front Door and CDN,
+Cloudflare, Fastly, Akamai, Imperva or Sucuri, or an address of Vercel's or Yandex's network), it asks SecurityTrails for the hostname's
+historical A and AAAA records. Each historical address is a row in `resolutions.csv` of type
+`A-historical` or `AAAA-historical`, with the dates the source gave, and an address in `ips.csv`,
+where its owner is looked up. A historical address is never treated as a current one: it is not
+probed or port-checked, and takes no part in wildcard detection, because of that alone.
+
+- **Cap.** At most `dnshistory.max_hosts` hostnames (default 200) are asked in a run, in name order.
+  The rest are deferred, which is not a failure: the number under `Deferred to the next run` counts
+  hostnames. Each hostname is asked once per engagement, and again only after `--redo dnshistory`.
+- **Quota.** A 401, 403 or 429 from SecurityTrails stops the stage for the run, as it does for the
+  other keyed sources. Each hostname is two requests, one per record type, and each further page
+  of a long history is another, up to five pages per type.
+- **Not verified against the live API.** The request and response shapes were taken from
+  SecurityTrails' documentation and have not been tried with a real key.
+
+A hostname's **candidate origins** are addresses whose owner is known and that are not shared
+provider infrastructure, and that are either a historical address of the hostname or the current
+address of a *sibling*: another in-scope, non-wildcard-only hostname that is not itself behind a
+CDN or WAF, and whose certificate names the hostname or whose page title equals the hostname's
+(neither empty nor one a CDN, WAF or default server page shows). Up to `origincheck.max_candidates`
+(default 5) are kept for each hostname: historical addresses most recent first, then siblings. An
+address in a CDN's published range, or whose origin AS is a CDN's, is the CDN's own and never a
+candidate. Without a SecurityTrails key only siblings are candidates.
+
+The `origincheck` stage contacts the target, so it is skipped under `--passive` and until you
+confirm authorisation. It makes one check for each pair of a hostname and a candidate, but only if
+the candidate may be contacted (it is inside an in-scope netblock, or is the current address of an
+in-scope hostname with a known, dedicated owner, and is not excluded) and the probe has a 2xx
+result for the hostname's HTTPS service. Every other candidate is reported as a possible origin and
+is never contacted. The check is one `GET /` over HTTPS on port 443 with the hostname as both the TLS
+server name and the Host header, and, only if nothing answers on 443 (not if it fails the TLS
+handshake), one over HTTP on port 80. Redirects are not followed, and a 3xx confirms nothing. If
+the title or certificate the probe saw changes, the pair is checked again.
+
+The exposure is **confirmed** when the response's non-empty title equals the probe's title for the
+hostname and is not a CDN, WAF or default-server title, or when the response has the same status as
+the probe, a body length within 10% of it, and a certificate that names the hostname. A certificate
+alone is not enough. The finding is a medium `origin-exposure`, with the console line `+ medium origin
+exposure <hostname> -> <address> (behind <provider>)`; a candidate that is not confirmed is a low
+possible origin in the same row, which becomes the medium finding if a later check confirms it.
+The finding is no longer current when the hostname is no longer behind a CDN or WAF, the address
+becomes provider infrastructure, or the sibling no longer matches; after `--redo origincheck`, an
+answer that no longer confirms leaves the row current as a possible origin.
+
 ## GitHub code search
 
 The `github` stage runs under `--passive` and needs `keys.github`, a GitHub personal access token
@@ -740,10 +808,10 @@ Everything is in `<output-dir>/<engagement>/`:
 | `candidates.csv` | Related domains, hostnames, netblocks, autonomous systems and organisations found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](#ranked-candidates)); pass one as an input to promote it |
 | `excluded.csv` | Excluded items and the reason |
 | `subdomains.txt` | In-scope hostnames |
-| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, the NS, SOA, TXT and CAA records of each root, and the SRV records of the listed service names, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. |
+| `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, the NS, SOA, TXT and CAA records of each root, and the SRV records of the listed service names, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`. Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. Historical addresses of a hostname behind a CDN or WAF are rows of type `A-historical` or `AAAA-historical`, source `dnshistory`, with the `historical_first_seen` and `historical_last_seen` columns (the last two before `current`; blank on every other row). A historical address is never a current one: it is not probed, port-checked or used to detect wildcards (see [Origin exposure](#origin-exposure)). |
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
-| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, so an in-scope hostname that resolves to one is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
+| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, except that an address whose origin AS is a CDN's (Linode's list holds some of Akamai's edge space) stays shared, so an in-scope hostname that resolves to one of the others is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](#tls-detail)), web posture evidence (see Web posture above) and web identifiers (see [Web identifiers](#web-identifiers)) |
 | `urls.csv` | URLs from crawling, the scripts of crawled pages (see [JavaScript endpoints](#javascript-endpoints)) and web archives, with status and source |
@@ -759,6 +827,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `risk-ports.csv` | Open ports on the risky-port list, with `confirmed` (`no` for a port only Shodan reports, which is one severity step lower) |
 | `risk-certificates.csv` | Expired, soon-to-expire and self-signed certificates, certificates that do not name the host, and services that negotiate only TLS 1.0 or 1.1 (see [TLS detail](#tls-detail)) |
 | `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |
+| `risk-origin-exposure.csv` | One row per hostname behind a CDN or WAF and address that may be its origin server: the `provider`, the `address`, `found_by` (`historical`, `sibling-certificate`, `sibling-title`, joined with `;`), `confirmed_by` (`title` or `status-body-certificate`) and `confirmed` (`yes` or `no`). Confirmed rows are medium and possible origins low (see [Origin exposure](#origin-exposure)) |
 
 A file is only written when it has rows, so a missing `risk-*.csv` means no findings of that kind
 (a file that later has no rows is removed). Files are sorted, except `candidates.csv`, which is

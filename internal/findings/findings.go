@@ -70,6 +70,7 @@ func (d *deriver) findings() []Finding {
 	out = append(out, d.ports()...)
 	out = append(out, d.certificates()...)
 	out = append(out, d.webPosture()...)
+	out = append(out, d.originExposure()...)
 	slices.SortStableFunc(out, func(a, b Finding) int { return strings.Compare(a.Key(), b.Key()) })
 	return slices.CompactFunc(out, func(a, b Finding) bool { return a.Key() == b.Key() })
 }

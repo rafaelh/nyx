@@ -776,6 +776,9 @@ func foundFields(kind, key string, attrs map[string]any) map[string]any {
 		if fd.Severity != "" {
 			f["severity"] = fd.Severity
 		}
+		if text := fd.FoundText(); text != "" {
+			f["text"] = text
+		}
 	}
 	return f
 }

@@ -79,6 +79,19 @@ type ReverseIP struct {
 	MaxDomains int
 }
 
+// DNSHistory holds the settings of the dnshistory stage.
+type DNSHistory struct {
+	// MaxHosts caps the hostnames whose history is fetched per run; the rest are deferred.
+	MaxHosts int
+}
+
+// OriginCheck holds the settings of origin exposure: how many origin candidates are kept for each
+// hostname behind a CDN or WAF. It is shared by the origincheck stage and the findings, so the
+// stage checks the candidates the findings report.
+type OriginCheck struct {
+	MaxCandidates int
+}
+
 // GitHub holds the settings of the github stage.
 type GitHub struct {
 	// MaxResults caps the code search results read per root (GitHub serves at most 1,000). It is
@@ -138,6 +151,8 @@ type Settings struct {
 	JSParse                  JSParse
 	IdentifierPivot          IdentifierPivot
 	GitHub                   GitHub
+	DNSHistory               DNSHistory
+	OriginCheck              OriginCheck
 }
 
 // Defaults returns the default settings. The limits and rates are reasonable starting points, not
@@ -165,6 +180,8 @@ func Defaults() Settings {
 		JSParse:         JSParse{MaxScripts: 50},
 		IdentifierPivot: IdentifierPivot{MaxQueries: 50},
 		GitHub:          GitHub{MaxResults: 500},
+		DNSHistory:      DNSHistory{MaxHosts: 200},
+		OriginCheck:     OriginCheck{MaxCandidates: 5},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -250,6 +267,7 @@ var settingTable = []setting{
 	{"shodan-max-hosts", "shodan.max_hosts"}, {"reverseip-max-domains", "reverseip.max_domains"},
 	{"jsparse-max-scripts", "jsparse.max_scripts"}, {"identifier-pivot-max-queries", "identifier_pivot.max_queries"},
 	{"github-max-results", "github.max_results"},
+	{"dnshistory-max-hosts", "dnshistory.max_hosts"}, {"origincheck-max-candidates", "origincheck.max_candidates"},
 }
 
 // RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
@@ -289,6 +307,8 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int("jsparse-max-scripts", d.JSParse.MaxScripts, "Maximum script files read per origin for the URLs and hostnames they name")
 	fs.Int("identifier-pivot-max-queries", d.IdentifierPivot.MaxQueries, "Maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs")
 	fs.Int("github-max-results", d.GitHub.MaxResults, "Maximum GitHub code search results read per root (at most 1000); changing it searches again")
+	fs.Int("dnshistory-max-hosts", d.DNSHistory.MaxHosts, "Maximum hostnames behind a CDN or WAF whose historical addresses are fetched from SecurityTrails per run; the rest are deferred to later runs")
+	fs.Int("origincheck-max-candidates", d.OriginCheck.MaxCandidates, "Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF")
 }
 
 // rawPages is the raw form of a PagedSource.
@@ -349,6 +369,12 @@ type rawSettings struct {
 	GitHub struct {
 		MaxResults string `mapstructure:"max_results"`
 	} `mapstructure:"github"`
+	DNSHistory struct {
+		MaxHosts string `mapstructure:"max_hosts"`
+	} `mapstructure:"dnshistory"`
+	OriginCheck struct {
+		MaxCandidates string `mapstructure:"max_candidates"`
+	} `mapstructure:"origincheck"`
 }
 
 // Load merges defaults, the config file, NYX_* environment variables and the flags in fs that were
@@ -375,6 +401,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
 		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
 		"github.max_results":           d.GitHub.MaxResults,
+		"dnshistory.max_hosts":         d.DNSHistory.MaxHosts, "origincheck.max_candidates": d.OriginCheck.MaxCandidates,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -475,6 +502,8 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	posInt("jsparse.max_scripts", raw.JSParse.MaxScripts, 1, &s.JSParse.MaxScripts)
 	posInt("identifier_pivot.max_queries", raw.IdentifierPivot.MaxQueries, 1, &s.IdentifierPivot.MaxQueries)
 	posInt("github.max_results", raw.GitHub.MaxResults, 1, &s.GitHub.MaxResults)
+	posInt("dnshistory.max_hosts", raw.DNSHistory.MaxHosts, 1, &s.DNSHistory.MaxHosts)
+	posInt("origincheck.max_candidates", raw.OriginCheck.MaxCandidates, 1, &s.OriginCheck.MaxCandidates)
 	if s.GitHub.MaxResults > maxGitHubResults {
 		bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
 	}

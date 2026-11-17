@@ -56,6 +56,19 @@ func (p *Policy) reportExcluded(value, reason string) {
 	}
 }
 
+// portIneligible refuses an address that may not be port-checked (excluded, or neither inside an
+// in-scope netblock nor dedicated and known), reporting an excluded one.
+func (p *Policy) portIneligible(a netip.Addr) (Refused, bool) {
+	ok, why, excluded := p.Scope.PortEligible(a, p.owner)
+	if ok {
+		return Refused{}, false
+	}
+	if excluded {
+		p.reportExcluded(a.String(), why)
+	}
+	return Refused{why}, true
+}
+
 func (p *Policy) portAllowed(port int, alsoWeb bool) bool {
 	return (alsoWeb && (port == 80 || port == 443)) || slices.Contains(p.Ports, port)
 }

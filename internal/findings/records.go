@@ -15,21 +15,33 @@ import (
 // finding record: its key, how to read one back, which ones the summary lists,
 // and the files that list them. Adding a category changes only this package.
 
-// Key is the finding's record key: one per hostname for takeovers, otherwise
+// originArrow joins the hostname and the address of an origin exposure's target.
+const originArrow = " -> "
+
+// Key is the finding's record key: one per hostname for takeovers, one per hostname and address for
+// origin exposures (so the row is the same while it moves between possible and confirmed), otherwise
 // category, type and target. ParseKey reverses it.
 func (f Finding) Key() string {
 	if f.Category == Takeover {
 		return f.Category + "|" + f.Target
 	}
+	if f.Category == OriginExposure {
+		host, addr := splitOriginTarget(f.Target)
+		return f.Category + "|" + host + "|" + addr
+	}
 	return f.Category + "|" + f.Type + "|" + f.Target
 }
 
 // ParseKey reads the category, type and target from a finding's record key. A
-// takeover key carries no type.
+// takeover or origin-exposure key carries no type.
 func ParseKey(key string) (category, typ, target string) {
 	category, rest, _ := strings.Cut(key, "|")
 	if category == Takeover {
 		return category, "", rest
+	}
+	if category == OriginExposure {
+		host, addr, _ := strings.Cut(rest, "|")
+		return category, "", originTarget(host, addr)
 	}
 	typ, target, _ = strings.Cut(rest, "|")
 	return category, typ, target
@@ -52,6 +64,21 @@ func FromRecord(r store.Record) Finding {
 	}
 	f.Severity, f.Detail = r.Str("severity"), r.Str("detail")
 	return f
+}
+
+// FoundText is the text the console prints for a newly found finding in place of its category and
+// target, or "" when the category has none. An origin exposure reads "[possible ]origin exposure
+// <host> -> <address> (behind <provider>)".
+func (f Finding) FoundText() string {
+	if f.Category != OriginExposure {
+		return ""
+	}
+	provider, _ := f.Attrs["provider"].(string)
+	text := "origin exposure " + f.Target + " (behind " + provider + ")"
+	if f.Type != "confirmed" {
+		text = "possible " + text
+	}
+	return text
 }
 
 // Headline lists the current high and medium findings among recs, high first,
@@ -132,6 +159,11 @@ var riskFiles = []struct {
 		func(_, target string) map[string]string { return map[string]string{"url": target} }},
 	{WebPosture, []string{"severity", "url", "type", "detail"},
 		func(_, target string) map[string]string { return map[string]string{"url": target} }},
+	{OriginExposure, []string{"severity", "hostname", "provider", "address", "found_by", "confirmed_by", "confirmed"},
+		func(_, target string) map[string]string {
+			host, addr := splitOriginTarget(target)
+			return map[string]string{"hostname": host, "address": addr}
+		}},
 }
 
 // Files are the findings files: storage-unattributed.csv, then one

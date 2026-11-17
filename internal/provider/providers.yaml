@@ -12,6 +12,8 @@
 #
 # cname entries may also carry:
 #   class: saas      the host is served by a third-party SaaS platform, never requested for sensitive paths
+#   class: cdn, waf  the host is behind a content delivery network or a web application firewall
+#                    that fronts the site, so its origin server may be reachable another way
 #   nxdomain: true   a chain that dangles into the suffix can be claimed by anyone (a takeover)
 #   body: <RE2>      matches the page an unclaimed resource serves; a takeover when a probe sees it
 # and a `ranges:` list of static CIDRs (SaaS reached by apex A records).
@@ -28,7 +30,7 @@
 # The Squarespace and Wix ASNs and the Squarespace ranges were taken from the providers' published
 # documentation and have not been re-confirmed against live data.
 cname:
-  - {suffix: cloudfront.net, provider: aws, service: CloudFront}
+  - {suffix: cloudfront.net, provider: aws, service: CloudFront, class: cdn}
   - {suffix: elb.amazonaws.com, provider: aws, service: ELB}
   - {suffix: s3.amazonaws.com, provider: aws, service: S3, body: 'NoSuchBucket'}
   - {suffix: s3-website.amazonaws.com, provider: aws, service: S3}
@@ -39,8 +41,8 @@ cname:
   - {suffix: cloudapp.azure.com, provider: azure, service: Cloud Services, nxdomain: true}
   - {suffix: cloudapp.net, provider: azure, service: Cloud Services, nxdomain: true}
   - {suffix: blob.core.windows.net, provider: azure, service: Blob Storage, nxdomain: true}
-  - {suffix: azureedge.net, provider: azure, service: CDN}
-  - {suffix: azurefd.net, provider: azure, service: Front Door}
+  - {suffix: azureedge.net, provider: azure, service: CDN, class: cdn}
+  - {suffix: azurefd.net, provider: azure, service: Front Door, class: cdn}
   - {suffix: trafficmanager.net, provider: azure, service: Traffic Manager, nxdomain: true}
   - {suffix: appspot.com, provider: gcp, service: App Engine}
   - {suffix: run.app, provider: gcp, service: Cloud Run}
@@ -55,11 +57,15 @@ cname:
   - {suffix: vercel-dns.com, provider: vercel, service: Vercel}
   - {suffix: pages.dev, provider: cloudflare, service: Pages}
   - {suffix: workers.dev, provider: cloudflare, service: Workers}
-  - {suffix: cdn.cloudflare.net, provider: cloudflare, service: CDN}
-  - {suffix: fastly.net, provider: fastly, service: CDN}
-  - {suffix: akamaiedge.net, provider: akamai, service: CDN}
-  - {suffix: edgekey.net, provider: akamai, service: CDN}
-  - {suffix: edgesuite.net, provider: akamai, service: CDN}
+  - {suffix: cdn.cloudflare.net, provider: cloudflare, service: CDN, class: cdn}
+  - {suffix: fastly.net, provider: fastly, service: CDN, class: cdn}
+  - {suffix: akamaiedge.net, provider: akamai, service: CDN, class: cdn}
+  - {suffix: edgekey.net, provider: akamai, service: CDN, class: cdn}
+  - {suffix: akamaized.net, provider: akamai, service: CDN, class: cdn}
+  - {suffix: edgesuite.net, provider: akamai, service: CDN, class: cdn}
+  - {suffix: incapdns.net, provider: incapsula, service: WAF, class: waf}
+  - {suffix: sucuri.net, provider: sucuri, service: WAF, class: waf}
+  - {suffix: linodeobjects.com, provider: linode, service: Object Storage}
   - {suffix: myshopify.com, provider: shopify, service: Shopify, class: saas, body: 'Sorry, this shop is currently unavailable'}
   - {suffix: zendesk.com, provider: zendesk, service: Zendesk, class: saas, body: 'Help Center Closed'}
   - {suffix: readme.io, provider: readme, service: ReadMe, class: saas, body: 'Project doesnt exist'}

@@ -200,7 +200,7 @@ func Default() []File {
 		{Name: "candidates.csv", Format: CSV, Columns: candidateColumns, Rows: candidateRows, Order: candidateOrder},
 		{Name: "excluded.csv", Format: CSV, Columns: []string{"value", "reason"}, Rows: excludedRows},
 		{Name: "subdomains.txt", Format: TXT, Rows: inScopeHostRows(false)},
-		{Name: "resolutions.csv", Format: CSV, Columns: []string{"name", "type", "value", "source"}, Rows: resolutionRows},
+		{Name: "resolutions.csv", Format: CSV, Columns: []string{"name", "type", "value", "source", "historical_first_seen", "historical_last_seen"}, Rows: resolutionRows},
 		{Name: "unresolved.txt", Format: TXT, Rows: unresolvedRows},
 		{Name: "wildcard-excluded.txt", Format: TXT, Rows: inScopeHostRows(true)},
 		{Name: "ips.csv", Format: CSV, Columns: []string{"ip", "asn", "owner", "provider", "service", "in_scope", "port_eligible", "hostnames", "registrant", "registrant_netblock", "registry", "srv_ports"}, Rows: ipRows},
@@ -425,7 +425,11 @@ func unresolvedRows(s Snapshot) []Row {
 // resolutionRows merges nyx's own DNS answers with the records third parties
 // reported, by key. source is "resolve" for a record nyx's lookup holds,
 // the reporting source for a claim alone, and both, joined with ";", when both
-// hold it. A record nyx holds takes its dates and currency from nyx.
+// hold it. A record nyx holds takes its dates and currency from nyx. A
+// historical address (type A-historical or AAAA-historical, source dnshistory)
+// follows, with the dates its source gave in the last two columns, which every
+// other row leaves blank. It is a kind of its own, so it never shares a key
+// with an answer.
 func resolutionRows(s Snapshot) []Row {
 	var rows []Row
 	at := map[string]int{}
@@ -435,7 +439,7 @@ func resolutionRows(s Snapshot) []Row {
 			a.Name, a.Type, a.Value = splitResolutionKey(r.Key)
 		}
 		at[r.Key] = len(rows)
-		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, "resolve"))
+		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, "resolve", "", ""))
 	}
 	for _, r := range s.of(kinds.DNSClaim) {
 		a := kinds.DNSClaim.Attrs(r)
@@ -443,7 +447,18 @@ func resolutionRows(s Snapshot) []Row {
 			rows[i].Cells[3] += ";" + a.Source
 			continue
 		}
-		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, a.Source))
+		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, a.Source, "", ""))
+	}
+	vis := s.vis()
+	for _, r := range s.of(kinds.HistoricalAddress) {
+		if r.Current && !vis.Shown(kinds.HistoricalAddress, r) {
+			continue
+		}
+		a := kinds.HistoricalAddress.Attrs(r)
+		if a.Host == "" { // no longer current: the key is "host|type|address"
+			a.Host, a.Type, a.Addr = splitResolutionKey(r.Key)
+		}
+		rows = append(rows, recordRow(r, a.Host, a.Type+"-historical", a.Addr, "dnshistory", a.FirstSeen, a.LastSeen))
 	}
 	return rows
 }

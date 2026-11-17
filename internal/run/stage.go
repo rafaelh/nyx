@@ -18,6 +18,7 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/origin"
 	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/store"
 )
@@ -329,6 +330,21 @@ func (v View) ProviderHosts() []inventory.ProviderHost { return v.inv.ProviderHo
 // SaaSServed reports whether a host (a name or an IP literal) is served by a
 // third-party SaaS platform, by CNAME chain, address ASN or address range.
 func (v View) SaaSServed(host string) bool { return v.inv.SaaSServed(host) }
+
+// FrontedHostnames are the probe hostnames that currently resolve to a CDN or WAF, in name order.
+func (v View) FrontedHostnames() []string {
+	var out []string
+	for _, f := range origin.FrontedHosts(v.sc, v.inv) {
+		out = append(out, f.Host)
+	}
+	return out
+}
+
+// OriginPairs are the candidate origins of the fronted hostnames, at most
+// origincheck.max_candidates for each: the same pairs the findings report.
+func (v View) OriginPairs() []origin.Pair {
+	return origin.Pairs(v.sc, v.inv, v.Records, v.Settings().OriginCheck.MaxCandidates)
+}
 
 // StorageRefs are the buckets and containers in-scope names and pages point at,
 // sorted. A bucket with a reference is attributed.
