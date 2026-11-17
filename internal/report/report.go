@@ -18,9 +18,11 @@ import (
 )
 
 // Event is one thing that happened in a run. Types: run_start, stage, found,
-// count, warning, debug, error, candidate, summary, run_end. A candidate event
-// is one high-confidence candidate, emitted before the summary; the console
-// prints it only as part of the summary. A debug event is one failed check; the
+// count, warning, debug, error, candidate, summary, change, run_end. A candidate
+// event is one high-confidence candidate, emitted before the summary; the console
+// prints it only as part of the summary. A change event is one row of
+// changes.csv, emitted after the summary; the console prints it not at all (the
+// summary's "since last run" block counts them). A debug event is one failed check; the
 // JSON stream does not carry it.
 type Event struct {
 	Type   string
@@ -194,7 +196,7 @@ func str(f map[string]any, k string) string {
 
 // Emit renders one event. run_start, found and count are INFO; stage is INFO,
 // or ERROR when its state is failed; warning is WARN and debug is DEBUG.
-// candidate, run_end and unknown types print nothing.
+// candidate, change, run_end and unknown types print nothing.
 func (c *Console) Emit(ev Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -288,15 +290,7 @@ func (c *Console) summary(b *strings.Builder, f map[string]any) {
 			counts(m)
 		}
 	}
-	if fs, ok := f["findings"].([]map[string]any); ok && len(fs) > 0 {
-		b.WriteString("\n" + d.Bold("Findings (high and medium)"))
-		for _, x := range fs {
-			fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, str(x, "severity")), str(x, "category"), str(x, "target"))
-			if det := str(x, "detail"); det != "" {
-				b.WriteString(" - " + det)
-			}
-		}
-	}
+	findingList(b, d, "Findings (high and medium)", f["findings"])
 	if list, _ := f["candidates"].([]map[string]any); len(list) > 0 {
 		b.WriteString("\n" + d.Bold("Candidates worth promoting (high confidence)"))
 		for _, x := range list[:min(len(list), maxListedCandidates)] {
@@ -304,6 +298,47 @@ func (c *Console) summary(b *strings.Builder, f map[string]any) {
 		}
 		if more := len(list) - maxListedCandidates; more > 0 {
 			fmt.Fprintf(b, "\n  and %d more in candidates.csv", more)
+		}
+	}
+	if ch, ok := f["changes"].(map[string]any); ok {
+		sinceLastRun(b, d, ch)
+	}
+}
+
+// sinceLastRun writes the block that ends the summary of a run that has an
+// earlier one to compare with: what is new (including what returned) and the
+// findings that are gone, then the new findings of high and medium severity.
+func sinceLastRun(b *strings.Builder, d palette.Depth, ch map[string]any) {
+	counts, _ := ch["counts"].(map[string]map[string]int)
+	b.WriteString("\n" + d.Bold("Since last run"))
+	for _, l := range []struct {
+		heading, label, change string
+	}{
+		{"new hostnames", "hostname", "new"}, {"new addresses", "address", "new"}, {"new web services", "web service", "new"},
+		{"new open ports", "open port", "new"}, {"new candidates", "candidate", "new"}, {"new findings", "finding", "new"},
+		{"gone findings", "finding", "gone"},
+	} {
+		n := counts[l.label][l.change]
+		if l.change == "new" {
+			n += counts[l.label]["returned"]
+		}
+		fmt.Fprintf(b, "\n  %-16s %d", l.heading, n)
+	}
+	findingList(b, d, "New findings (high and medium)", ch["findings"])
+}
+
+// findingList writes a heading and one line per finding of a summary's findings
+// list, or nothing when the list is empty.
+func findingList(b *strings.Builder, d palette.Depth, heading string, list any) {
+	fs, _ := list.([]map[string]any)
+	if len(fs) == 0 {
+		return
+	}
+	b.WriteString("\n" + d.Bold(heading))
+	for _, x := range fs {
+		fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, str(x, "severity")), str(x, "category"), str(x, "target"))
+		if det := str(x, "detail"); det != "" {
+			b.WriteString(" - " + det)
 		}
 	}
 }

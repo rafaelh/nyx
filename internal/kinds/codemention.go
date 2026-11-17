@@ -6,7 +6,7 @@ package kinds
 // shown while its root is in scope.
 var CodeMention = define[CodeMentionAttrs](Kind{
 	Name: "code_mention", Singular: "code mention", Category: "code mentions", Counted: true,
-	HostAttr: "root",
+	HostAttr: "root", Change: "code mention",
 })
 
 // CodeMentionAttrs: the root that was searched for, the repository ("owner/name"),

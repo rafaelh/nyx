@@ -54,6 +54,8 @@ type Snapshot struct {
 	// Storage is the storage Attribution derived with the findings, which the
 	// findings files are written from.
 	Storage map[string]findings.StorageAttr
+	// Changes are what changed since the run started (see changes.csv).
+	Changes []Change
 }
 
 // File is a registry entry. CSV files get the columns Columns followed by
@@ -196,8 +198,8 @@ func csvSafe(s string) string {
 }
 
 // Default returns the registered files: scope, candidates and excluded, then
-// the DNS files, the web files, open-ports.csv, email-posture.csv and the
-// findings files.
+// the DNS files, the web files, open-ports.csv, email-posture.csv, the
+// findings files and changes.csv.
 func Default() []File {
 	files := []File{
 		{Name: "scope.csv", Format: CSV, Columns: []string{"type", "value", "source"}, Rows: scopeRows},
@@ -219,6 +221,7 @@ func Default() []File {
 	for _, f := range findings.Files() {
 		files = append(files, findingsFile(f))
 	}
+	files = append(files, File{Name: "changes.csv", Format: CSV, Columns: changeColumns, Rows: changeRows, Order: changeOrder})
 	return files
 }
 

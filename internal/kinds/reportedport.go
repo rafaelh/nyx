@@ -10,7 +10,7 @@ import (
 // ReportedPort is a TCP service a third party (Shodan) says is open on an
 // address. It is shown like an open_port while its address is port-eligible,
 // but nothing that decides contact ever reads it.
-var ReportedPort = define[ReportedPortAttrs](Kind{Name: "reported_port", Singular: "reported port", Category: "open ports (third-party reported)", PortKey: true, ClosedHides: true})
+var ReportedPort = define[ReportedPortAttrs](Kind{Name: "reported_port", Singular: "reported port", Category: "open ports (third-party reported)", PortKey: true, ClosedHides: true, Change: "open port"})
 
 // ReportedPortAttrs: the banner as cut and escaped by ShodanBanner, and the
 // date (YYYY-MM-DD) the third party last saw the service.

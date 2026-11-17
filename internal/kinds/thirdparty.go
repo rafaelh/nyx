@@ -14,7 +14,7 @@ import (
 // third party.
 var ThirdParty = define[ThirdPartyAttrs](Kind{
 	Name: "third_party", Singular: "third party", Category: "third parties", Printed: true,
-	HostAttr: "root", OutsideAttr: "domain", Found: thirdPartyFound,
+	HostAttr: "root", OutsideAttr: "domain", Found: thirdPartyFound, Change: "third party",
 })
 
 // Mechanisms of a third party.

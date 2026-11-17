@@ -41,9 +41,9 @@ type ExcludedAttrs struct {
 
 // DNS and address inventory.
 var (
-	Resolution    = define[ResolutionAttrs](Kind{Name: "resolution"})
-	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Counted: true})
-	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Counted: true})
+	Resolution    = define[ResolutionAttrs](Kind{Name: "resolution", Change: "resolution"})
+	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Counted: true, Change: "address"})
+	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Counted: true, Change: "unresolved name"})
 	Wildcard      = define[WildcardAttrs](Kind{Name: "wildcard"})
 	IPOwner       = define[IPOwnerAttrs](Kind{Name: "ip_owner"})
 	IPHostname    = define[IPHostnameAttrs](Kind{Name: "ip_hostname"})
@@ -95,9 +95,9 @@ type ProviderRangeAttrs struct {
 
 // Web.
 var (
-	WebService = define[WebServiceAttrs](Kind{Name: "web_service", Singular: "web service", Category: "web services", Printed: true, HostAttr: "host"})
+	WebService = define[WebServiceAttrs](Kind{Name: "web_service", Singular: "web service", Category: "web services", Printed: true, HostAttr: "host", Change: "web service"})
 	HTTPPort   = define[HTTPPortAttrs](Kind{Name: "http_port"})
-	URL        = define[URLAttrs](Kind{Name: "url", Singular: "url", Category: "urls", Counted: true, HostAttr: "host"})
+	URL        = define[URLAttrs](Kind{Name: "url", Singular: "url", Category: "urls", Counted: true, HostAttr: "host", Change: "url"})
 )
 
 // WebServiceAttrs is what a probe of an origin found.
@@ -178,7 +178,7 @@ type URLAttrs struct {
 }
 
 // Ports.
-var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true})
+var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true, Change: "open port"})
 
 // OpenPortAttrs: an open TCP port and the banner it sent unprompted, escaped
 // with strconv.Quote's rules and without the quotes.
@@ -190,7 +190,7 @@ type OpenPortAttrs struct {
 
 // Findings, derived by the findings package. Their attributes depend on the
 // finding's category, which the findings package owns.
-var Finding = define[map[string]any](Kind{Name: "finding", Singular: "finding", Category: "findings", Printed: true})
+var Finding = define[map[string]any](Kind{Name: "finding", Singular: "finding", Category: "findings", Printed: true, Change: LabelFinding})
 
 // Evidence: stages store these, the findings package derives findings from them.
 var (
@@ -200,7 +200,7 @@ var (
 	StorageObject  = define[StorageObjectAttrs](Kind{Name: "storage_object"})
 	StorageRef     = define[StorageRefAttrs](Kind{Name: "storage_ref", HostAttr: "page_host"})
 	SensitiveHit   = define[SensitiveHitAttrs](Kind{Name: "sensitive_hit"})
-	EmailPosture   = define[EmailPostureAttrs](Kind{Name: "email_posture", HostKey: true})
+	EmailPosture   = define[EmailPostureAttrs](Kind{Name: "email_posture", HostKey: true, Change: "email posture"})
 )
 
 // TakeoverHTTPAttrs: a provider-hosted service whose root serves the page of

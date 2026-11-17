@@ -105,6 +105,12 @@ type Runner struct {
 
 	derivers   []*deriver           // the derived records other than findings (see deriveRecords)
 	evidencers map[string]Evidencer // the stages that account for their own candidate evidence
+
+	base       *baseline        // the state the run started from, nil on a first run (see loadBaseline)
+	changes    []output.Change  // what the last render found changed since then
+	target     map[string]bool  // the stages that make contact with the target
+	lastShown  []store.ShownRow // the baseline last saved, and whether one was (see saveShown)
+	shownSaved bool
 }
 
 // recordsCache holds the records of a kind, and the current ones among them,
@@ -135,6 +141,7 @@ func New(cfg Config) *Runner {
 		}
 	}
 	r.derivers = r.newDerivers()
+	r.target = targetStages(cfg.Stages)
 	if cfg.Clock == nil {
 		r.cfg.Clock = time.Now
 	}
@@ -188,6 +195,12 @@ func (r *Runner) Run(ctx context.Context) error {
 	r.warnUnauthorised()
 	r.warnStaleEOLData()
 
+	// The baseline is read before anything is derived, from what the last render
+	// saved, so that a run that is resumed compares against where the run it
+	// resumes stopped.
+	if r.base, err = r.loadBaseline(); err != nil {
+		return err
+	}
 	err = r.passes(ctx)
 	if err == nil {
 		// The final pass has just rendered and counted; nothing has changed since.
@@ -750,16 +763,17 @@ func (r *Runner) emitSummary() {
 	}
 	r.mu.Unlock()
 	recs, _ := r.records(kinds.Finding.Name())
-	listed := []map[string]any{}
-	for _, f := range findings.Headline(recs) {
-		listed = append(listed, map[string]any{"category": f.Category, "severity": f.Severity, "target": f.Target, "detail": f.Detail})
-	}
 	high := r.rankedCandidates()
 	for _, c := range high {
 		r.emit("candidate", c)
 	}
-	r.emit("summary", map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": listed, "candidates": high,
-		"unconfirmed_risky_ports": findings.UnconfirmedRisky(recs), "notes": r.notes()})
+	summary := map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": headlineFields(recs), "candidates": high,
+		"unconfirmed_risky_ports": findings.UnconfirmedRisky(recs), "notes": r.notes()}
+	if changes := r.changesSummary(recs); changes != nil {
+		summary["changes"] = changes
+	}
+	r.emit("summary", summary)
+	r.emitChanges()
 }
 
 // notes are the lines the stages that run (see Noter) add to the summary, in
@@ -848,11 +862,29 @@ func (r *Runner) render() (output.Snapshot, error) {
 		return output.Snapshot{}, err
 	}
 	eng := r.cfg.Engagement
+	snap, err := r.snapshot(r.sc.Load(), r.inv.Load())
+	if err != nil {
+		return output.Snapshot{}, err
+	}
+	entries := entriesOf(snap)
+	var carried []store.ShownRow
+	snap.Changes, carried = r.base.compare(entries, r.cfg.Passive, r.target)
+	r.changes = snap.Changes
+	if err := output.Render(eng.Dir(), r.cfg.Files, snap, !r.cfg.NoFsync); err != nil {
+		return output.Snapshot{}, err
+	}
+	return snap, r.saveShown(entries, carried)
+}
+
+// snapshot reads the records of every kind, which it does so that a new kind's
+// file can never render empty, with the scope they are shown under (empty ones if
+// none has been built yet).
+func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory) (output.Snapshot, error) {
 	inputs, err := r.st.Inputs()
 	if err != nil {
 		return output.Snapshot{}, err
 	}
-	snap := output.Snapshot{Today: r.today(), Inputs: inputs, Records: map[string][]store.Record{}, Scope: r.sc.Load(), Inv: r.inv.Load()}
+	snap := output.Snapshot{Today: r.today(), Inputs: inputs, Records: map[string][]store.Record{}, Scope: sc, Inv: inv}
 	for _, k := range kinds.All() {
 		recs, err := r.records(k.Name)
 		if err != nil {
@@ -871,7 +903,7 @@ func (r *Runner) render() (output.Snapshot, error) {
 	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.inputs); err != nil {
 		return output.Snapshot{}, err
 	}
-	return snap, output.Render(eng.Dir(), r.cfg.Files, snap, !r.cfg.NoFsync)
+	return snap, nil
 }
 
 // deriveFindings derives the findings from the evidence and stores them as

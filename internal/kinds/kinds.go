@@ -52,12 +52,28 @@ type Kind struct {
 	// Found, if set, describes a new record's found line: its fields are added
 	// to the found event, and its "text" is what the console prints after "+".
 	Found func(store.Record) map[string]any
+	// Change is the label changes.csv lists a record of the kind under, and the
+	// kinds whose records share one output file row share one (a resolution and a
+	// claim with one key are one row of resolutions.csv). A kind with none, an
+	// evidence or internal kind, is not listed. An entity kind is listed under the
+	// label of its summary category instead (see Visibility.ChangeLabel).
+	Change string
 }
 
 // scoped reports whether showing a record of k depends on the scope.
 func (k Kind) scoped() bool {
 	return k.Entity || k.HostAttr != "" || k.PortKey || k.HostKey || k.OutsideAttr != ""
 }
+
+// The changes.csv labels other packages read: those of the entity categories
+// (see Visibility.ChangeLabel) and the finding's.
+const (
+	LabelHostname  = "hostname"
+	LabelCandidate = "candidate"
+	LabelExcluded  = "excluded"
+	LabelNetblock  = "netblock"
+	LabelFinding   = "finding"
+)
 
 // Summary categories of entity kinds.
 const (

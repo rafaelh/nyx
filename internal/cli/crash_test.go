@@ -36,6 +36,7 @@ func childMain() int {
 	delay, _ := time.ParseDuration(os.Getenv("NYX_TEST_DELAY"))
 	logPath := os.Getenv("NYX_TEST_LOG")
 	stubborn := os.Getenv("NYX_TEST_STUBBORN") == "1" // checks that do not stop when cancelled
+	hosts := os.Getenv("NYX_TEST_HOSTS") == "1"       // each check finds the hostname <key>.a.com, not a web service
 	st := &testkit.Stage{StageName: "fake", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", n) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -54,6 +55,9 @@ func childMain() int {
 			case <-time.After(delay):
 			case <-ctx.Done():
 				return nil, ctx.Err()
+			}
+			if hosts {
+				return []run.Observation{obs("hostname", c.Key+".a.com")}, nil
 			}
 			return []run.Observation{obs("web_service", "ws-"+c.Key)}, nil
 		}}
@@ -80,6 +84,7 @@ type childOpts struct {
 	human     bool // leave out --json
 	stubborn  bool // checks ignore cancellation
 	openStdin bool // stdin is a pipe that is never closed
+	hosts     bool // each check finds a hostname in scope of a.com
 }
 
 func startChild(t *testing.T, out string, o childOpts) *child {
@@ -102,6 +107,9 @@ func startChild(t *testing.T, out string, o childOpts) *child {
 	}
 	if o.stubborn {
 		c.cmd.Env = append(c.cmd.Env, "NYX_TEST_STUBBORN=1")
+	}
+	if o.hosts {
+		c.cmd.Env = append(c.cmd.Env, "NYX_TEST_HOSTS=1")
 	}
 	c.cmd.Stdout, c.cmd.Stderr = c.stdout, c.stderr
 	if o.openStdin {
@@ -432,5 +440,70 @@ func TestStdinIsNotRead(t *testing.T) {
 	c := startChild(t, out, childOpts{n: 3, args: []string{"a.com"}, openStdin: true, human: true})
 	if code := c.wait(); code != 0 {
 		t.Fatalf("exit %d\n%s", code, c.stderr.String())
+	}
+}
+
+// changedHosts are the hostnames of the "new" rows of an engagement's changes.csv.
+func changedHosts(t *testing.T, out string) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(engDirOf(out), "changes.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hosts []string
+	for _, row := range csvRows(t, string(b))[1:] {
+		if row[0] == "new" && row[1] == "hostname" {
+			hosts = append(hosts, strings.TrimSuffix(row[2], ".a.com"))
+		}
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
+// An interrupted run writes changes.csv for the work it completed before it
+// exited 130, and the run that resumes it compares against where that run
+// stopped, so the two files together list each new hostname once.
+func TestSignals_InterruptedRunWritesChanges(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	args := []string{"a.com", "--concurrency", "2"}
+	c0 := startChild(t, out, childOpts{n: 3, hosts: true, args: args})
+	if code := c0.wait(); code != 0 {
+		t.Fatalf("first run exit %d\n%s", code, c0.stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(engDirOf(out), "changes.csv")); err == nil {
+		t.Error("a first run wrote changes.csv")
+	}
+
+	c1 := startChild(t, out, childOpts{n: nChecks, hosts: true, delay: 60 * time.Millisecond, args: []string{"-e", "a.com", "--concurrency", "2"}})
+	waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
+	c1.kill(syscall.SIGINT)
+	if code := c1.wait(); code != 130 {
+		t.Fatalf("exit %d, want 130\n%s", code, c1.stderr.String())
+	}
+	assertOutputsIntact(t, out)
+	interrupted := changedHosts(t, out)
+	if len(interrupted) == 0 || len(interrupted) >= nChecks-3 {
+		t.Fatalf("the interrupted run listed %d new hostnames of %d", len(interrupted), nChecks-3)
+	}
+	for _, h := range interrupted {
+		if slices.Contains(allKeys(3), h) {
+			t.Errorf("%s was found by the first run, not the interrupted one", h)
+		}
+	}
+
+	c2 := startChild(t, out, childOpts{n: nChecks, hosts: true, args: []string{"-e", "a.com", "--concurrency", "2"}})
+	if code := c2.wait(); code != 0 {
+		t.Fatalf("resumed run exit %d\n%s", code, c2.stderr.String())
+	}
+	resumed := changedHosts(t, out)
+	for _, h := range resumed {
+		if slices.Contains(interrupted, h) {
+			t.Errorf("%s was new in the interrupted run and is new again in the resumed one", h)
+		}
+	}
+	all := sorted(append(slices.Clone(interrupted), resumed...))
+	if want := allKeys(nChecks)[3:]; !slices.Equal(all, want) {
+		t.Errorf("new hostnames across both runs\n got %v\nwant %v", all, want)
 	}
 }

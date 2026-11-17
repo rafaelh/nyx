@@ -202,6 +202,37 @@ func (v *Visibility) placement(k Kind, r store.Record) scope.Class {
 	return scope.Excluded // an address or name that triggered an exclusion
 }
 
+// ChangeLabel is the label a record is listed under in changes.csv, or "" if it
+// is not listed, and its scope column there. The label is the kind's Change, and
+// for an entity kind the label of the category it is counted under (a hostname
+// that is excluded is listed as excluded, a root that is in scope not at all),
+// which also fixes its placement. Another kind's scope is in-scope when showing
+// it depends on the scope, and blank otherwise. It says nothing of whether the
+// record is shown; Shown, or a current entity's category, decides that.
+func (v *Visibility) ChangeLabel(kind Named, r store.Record) (label, place string) {
+	k := kind.kind()
+	if !k.Entity {
+		if k.Change != "" && k.scoped() {
+			return k.Change, scope.InScope.String()
+		}
+		return k.Change, ""
+	}
+	if v == nil {
+		return "", ""
+	}
+	switch v.category(k, r) {
+	case Hosts:
+		return LabelHostname, scope.InScope.String()
+	case Candidates:
+		return LabelCandidate, scope.Candidate.String()
+	case Excluded:
+		return LabelExcluded, scope.Excluded.String()
+	case Netblocks:
+		return LabelNetblock, scope.InScope.String()
+	}
+	return "", ""
+}
+
 // Totals counts the current records by summary category. Hosts and the
 // category of every non-entity kind are listed even when they are empty. An
 // excluded value is counted once, however many records (a hostname, a root, a

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -285,6 +286,9 @@ func initDB(db *sql.DB) error {
 		if _, err := tx.Exec(schema); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(shownSchema); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(fmt.Sprintf("PRAGMA application_id=%d", applicationID)); err != nil {
 			return err
 		}
@@ -293,7 +297,11 @@ func initDB(db *sql.DB) error {
 		}
 		return tx.Commit()
 	}
-	return checkIDs(appID, version) // future migrations go after it, keyed on user_version
+	if err := checkIDs(appID, version); err != nil { // future migrations go after it, keyed on user_version
+		return err
+	}
+	_, err = db.Exec(shownSchema)
+	return err
 }
 
 func (s *Store) today() string { return s.clock().UTC().Format(time.DateOnly) }
@@ -986,4 +994,92 @@ func sweepObservations(tx *sql.Tx, stage string, valid map[string]struct{}) (map
 		kinds[o.kind] = true
 	}
 	return kinds, nil
+}
+
+// shownSchema is the table of the baseline a run compares against (see
+// SaveShown). It is created when missing, so an engagement an earlier nyx wrote
+// gains it when it is opened.
+const shownSchema = `CREATE TABLE IF NOT EXISTS shown(kind TEXT NOT NULL, key TEXT NOT NULL, stages TEXT NOT NULL,
+                  scope TEXT NOT NULL, severity TEXT NOT NULL, PRIMARY KEY(kind, key))`
+
+// shownMeta is the meta key that says a baseline was saved (its value is the day).
+// A table with no rows is a baseline of nothing shown only while it is set.
+const shownMeta = "shown_saved"
+
+// ShownRow is one entry of the baseline a run compares against: something the
+// output files showed at the last render, under the label (Kind) and Key the
+// changes file lists it by, with the stages that observed it and the Scope and
+// Severity it had, which the store cannot give back once a record is no longer
+// current.
+type ShownRow struct {
+	Kind, Key       string
+	Stages          []string
+	Scope, Severity string
+}
+
+// Equal reports whether two rows hold the same values.
+func (r ShownRow) Equal(o ShownRow) bool {
+	return r.Kind == o.Kind && r.Key == o.Key && r.Scope == o.Scope && r.Severity == o.Severity && slices.Equal(r.Stages, o.Stages)
+}
+
+// SaveShown replaces the baseline with rows, in one transaction.
+func (s *Store) SaveShown(rows []ShownRow) error {
+	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
+		if _, err := tx.Exec("DELETE FROM shown"); err != nil {
+			return nil, err
+		}
+		ins, err := tx.Prepare("INSERT OR REPLACE INTO shown(kind,key,stages,scope,severity) VALUES(?,?,?,?,?)")
+		if err != nil {
+			return nil, err
+		}
+		defer ins.Close()
+		for _, r := range rows {
+			if _, err := ins.Exec(r.Kind, r.Key, strings.Join(r.Stages, ","), r.Scope, r.Severity); err != nil {
+				return nil, err
+			}
+		}
+		_, err = tx.Exec(setMetaSQL, shownMeta, s.today())
+		return nil, err
+	})
+}
+
+// Shown returns the baseline, ordered by kind then key, and whether one was ever
+// saved: an engagement last written by a nyx that kept none has no baseline,
+// which is not the same as a baseline of nothing shown.
+func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
+	var day string
+	switch err := s.db.QueryRow("SELECT value FROM meta WHERE key=?", shownMeta).Scan(&day); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, err
+	}
+	q, err := s.db.Query("SELECT kind,key,stages,scope,severity FROM shown ORDER BY kind,key")
+	if err != nil {
+		return nil, false, err
+	}
+	defer q.Close()
+	for q.Next() {
+		var r ShownRow
+		var stages string
+		if err := q.Scan(&r.Kind, &r.Key, &stages, &r.Scope, &r.Severity); err != nil {
+			return nil, false, err
+		}
+		if stages != "" {
+			r.Stages = strings.Split(stages, ",")
+		}
+		rows = append(rows, r)
+	}
+	return rows, true, q.Err()
+}
+
+// HasRecords reports whether the store holds a record of any kind, current or
+// not: an engagement with none has not been run.
+func (s *Store) HasRecords() (bool, error) {
+	var one int
+	err := s.db.QueryRow("SELECT 1 FROM records LIMIT 1").Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }

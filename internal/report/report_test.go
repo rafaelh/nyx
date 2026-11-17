@@ -508,3 +508,94 @@ func TestConsoleSummaryNotesAndUnconfirmedRiskyPorts(t *testing.T) {
 		t.Errorf("a zero count must print no line:\n%s", q.sum.String())
 	}
 }
+
+// The summary ends with a "since last run" block of what is new (new and
+// returned together) and the new findings of high and medium severity. It is
+// left out when the run has none to compare with.
+func TestConsoleSummary_SinceLastRun(t *testing.T) {
+	t.Parallel()
+	changes := map[string]any{
+		"counts": map[string]map[string]int{
+			"hostname":    {"new": 2, "returned": 1},
+			"web service": {"new": 1},
+			"finding":     {"new": 1, "gone": 3},
+			"url":         {"new": 40}, // not one of the six the block counts
+		},
+		"findings": []map[string]any{{"category": "certificates", "severity": "medium", "target": "https://a.example.com", "detail": "expired certificate"}},
+	}
+	fields := map[string]any{
+		"totals":     map[string]int{"hosts": 12},
+		"candidates": []map[string]any{{"kind": "root", "value": "x.org", "sources": "crtsh", "evidence_count": 1, "confidence": "high", "promote": "-d x.org"}},
+		"deferred":   map[string]int{"shodan": 4},
+		"changes":    changes,
+	}
+	p := plain(report.Warn)
+	p.Emit(ev("summary", fields))
+	out := p.sum.String()
+	for _, w := range []string{
+		"Since last run\n",
+		"  new hostnames    3\n", "  new addresses    0\n", "  new web services 1\n",
+		"  new open ports   0\n", "  new candidates   0\n", "  new findings     1\n", "  gone findings    3",
+		"New findings (high and medium)\n  medium   certificates https://a.example.com - expired certificate",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "urls") && strings.Index(out, "Since last run") < strings.Index(out, "urls") {
+		t.Errorf("an uncounted label is in the block:\n%s", out)
+	}
+	// The block comes after the candidate list and the deferred block.
+	for _, before := range []string{"Candidates worth promoting", "Deferred to the next run"} {
+		if i := strings.Index(out, before); i < 0 || i > strings.Index(out, "Since last run") {
+			t.Errorf("%q is not before the block:\n%s", before, out)
+		}
+	}
+
+	delete(fields, "changes")
+	p = plain(report.Warn)
+	p.Emit(ev("summary", fields))
+	if out := p.sum.String(); strings.Contains(out, "Since last run") {
+		t.Errorf("a first run has a block:\n%s", out)
+	}
+
+	// A run with changes of none still says so.
+	fields["changes"] = map[string]any{"counts": map[string]map[string]int{}, "findings": []map[string]any{}}
+	p = plain(report.Warn)
+	p.Emit(ev("summary", fields))
+	out = p.sum.String()
+	if !strings.Contains(out, "Since last run\n  new hostnames    0") || strings.Contains(out, "New findings") {
+		t.Errorf("an empty block:\n%s", out)
+	}
+}
+
+// Target-supplied text in the block is sanitised, and the heading is bold on a
+// coloured stream.
+func TestConsoleSummary_SinceLastRunSanitisesAndStyles(t *testing.T) {
+	t.Parallel()
+	evil := "x\x1b[31mred"
+	fields := map[string]any{"changes": map[string]any{
+		"counts":   map[string]map[string]int{},
+		"findings": []map[string]any{{"category": evil, "severity": "high", "target": evil, "detail": evil}},
+	}}
+	p := plain(report.Warn)
+	p.Emit(ev("summary", fields))
+	if out := p.sum.String(); strings.Contains(out, "\x1b") || !strings.Contains(out, "New findings") {
+		t.Errorf("block = %q", out)
+	}
+	c := newCons(palette.None, palette.TrueColor, report.Info)
+	c.Emit(ev("summary", fields))
+	if out := c.sum.String(); !strings.Contains(out, "\x1b[1mSince last run\x1b[0m\n") || !strings.Contains(out, "\x1b[1mNew findings (high and medium)\x1b[0m\n") {
+		t.Errorf("headings are not bold: %q", out)
+	}
+}
+
+// A change event is for --json: the console prints nothing for it.
+func TestConsole_ChangeEventPrintsNothing(t *testing.T) {
+	t.Parallel()
+	c := plain(report.Debug)
+	c.Emit(ev("change", map[string]any{"change": "new", "kind": "hostname", "key": "a.example.com"}))
+	if c.log.Len() != 0 || c.sum.Len() != 0 {
+		t.Errorf("a change event printed: log %q summary %q", c.log.String(), c.sum.String())
+	}
+}

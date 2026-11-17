@@ -652,7 +652,10 @@ stderr is empty unless `--debug` is given, which writes only the `DEBUG` lines t
 the rule above) and leaves stdout unchanged. A `candidate` event for each high-confidence candidate
 comes before the `summary` event. It has `kind` (`root`, `hostname` or `netblock`), `value`,
 `sources`, `evidence_count`, `confidence` and `promote`. The `summary` event's `candidates` field
-lists the same candidates.
+lists the same candidates. After the `summary` event comes one `change` event for each row of
+`changes.csv` (see [What changed since the last run](#what-changed-since-the-last-run)), with
+`change`, `kind`, `key`, `scope` and, for a finding, `severity`. The `summary` event has a `changes`
+field on a run that has an earlier run to compare with, and none on a first run.
 
 ## RDAP netblocks and registrants
 
@@ -960,6 +963,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |
 | `risk-eol-software.csv` | Web technologies and banners whose version is past the end of security support (`eol`, medium) or within `eol_warn_days` of it (`eol-approaching`, low), with `product`, `version`, `end_date`, `seen` (`web` or `banner`) and `confirmed`; a distribution build or a version only Shodan reports is one step lower (see [End-of-life software](#end-of-life-software)) |
 | `risk-origin-exposure.csv` | One row per hostname behind a CDN or WAF and address that may be its origin server: the `provider`, the `address`, `found_by` (`historical`, `sibling-certificate`, `sibling-title`, joined with `;`), `confirmed_by` (`title` or `status-body-certificate`) and `confirmed` (`yes` or `no`). Confirmed rows are medium and possible origins low (see [Origin exposure](#origin-exposure)) |
+| `changes.csv` | What is new, returned or gone since the run started (see [What changed since the last run](#what-changed-since-the-last-run)): `change`, `kind`, `key`, `scope` and, for a finding, `severity` |
 
 A file is only written when it has rows, so a missing `risk-*.csv` means no findings of that kind
 (a file that later has no rows is removed). Files are sorted, except `candidates.csv`, which is
@@ -967,6 +971,45 @@ sorted by confidence. Every CSV ends with `current`, `first_seen` and `last_seen
 that were not found by a later run are kept and marked not current. The `.nyx/` directory holds
 the state database and the run lock. Don't edit it. Finding severities are listed by
 `nyx help findings`.
+
+## What changed since the last run
+
+After a re-run, `changes.csv` and the end of the console summary say what is new and what has
+disappeared, so you need not diff the CSV files. A change is a difference between what the output
+files showed when the run started and what they show when it ends, for the things the files list
+(hostnames, addresses, DNS records, web services, URLs, open ports, email posture, third parties, code
+mentions, findings, candidates, excluded names and netblocks). Evidence and internal records are not
+listed.
+
+- **`new`** is shown at the end and was not on record at the start, **`returned`** is shown at the end
+  and was on record but not shown at the start (a finding that stopped being derived and is derived
+  again, a host a scope change had hidden), and **`gone`** was shown at the start and is not shown at
+  the end. A hostname that an exclusion hides is `gone` as a hostname and `new` as an excluded name.
+- **`changes.csv`** has one row per change: `change`, `kind` (the label above, such as `hostname`,
+  `web service`, `open port` or `finding`), `key` (what the other files call it), `scope`
+  (`in-scope`, `candidate` or `excluded` for hostnames, candidates, excluded names and netblocks,
+  `in-scope` for records shown only while their host or address is, and blank otherwise) and, for a
+  finding, `severity`, then `current`, `first_seen` and `last_seen`. A `gone` row has the scope and
+  severity the thing had when it was last shown, and is not current. The file is replaced on each
+  run, and removed when a run has no changes.
+- **A first run** (an engagement with no records when the run starts) writes no `changes.csv`,
+  emits no `change` events and prints no block.
+- **The console summary** ends with a "Since last run" block: the number of new (including returned)
+  hostnames, addresses, web services, open ports, candidates and findings, and of gone findings,
+  then the new high and medium findings as a list. `--json` emits a `change` event for each row of
+  `changes.csv` after the `summary` event, as well as the `found` events of the run.
+- **Resuming.** The comparison is with the state when this invocation started, which nyx saved
+  each time it wrote the files, so a run that resumes an interrupted one compares against where the
+  interrupted run stopped. An interrupted run writes `changes.csv` for the work it completed, then
+  exits 130.
+- **With no contact.** Findings can become new or gone when nothing was contacted: a certificate
+  passes its expiry date, a setting such as `--cert-expiry-days` changes, or the binary does. A
+  `--passive` run never reports a record gone when every stage that observed it made contact with
+  the target, because those stages did not run; findings are the exception, since they are worked
+  out again on every run.
+
+Only the last two states are compared: nyx keeps no history across more than one run, and does not
+report a change in the attributes of something that stayed shown.
 
 ## Exporting an engagement
 

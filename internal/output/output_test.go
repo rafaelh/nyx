@@ -206,7 +206,49 @@ func TestDefaultRegistry(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "scope.csv,candidates.csv,excluded.csv,subdomains.txt,resolutions.csv,unresolved.txt,wildcard-excluded.txt,ips.csv,provider-hosts.csv,web-services.csv,urls.csv,open-ports.csv,email-posture.csv,third-parties.csv,code-mentions.csv,storage-unattributed.csv,risk-takeover.csv,risk-storage.csv,risk-sensitive-paths.csv,risk-email.csv,risk-ports.csv,risk-certificates.csv,risk-web-posture.csv,risk-origin-exposure.csv,risk-eol-software.csv" {
+	if strings.Join(names, ",") != "scope.csv,candidates.csv,excluded.csv,subdomains.txt,resolutions.csv,unresolved.txt,wildcard-excluded.txt,ips.csv,provider-hosts.csv,web-services.csv,urls.csv,open-ports.csv,email-posture.csv,third-parties.csv,code-mentions.csv,storage-unattributed.csv,risk-takeover.csv,risk-storage.csv,risk-sensitive-paths.csv,risk-email.csv,risk-ports.csv,risk-certificates.csv,risk-web-posture.csv,risk-origin-exposure.csv,risk-eol-software.csv,changes.csv" {
 		t.Errorf("default files = %v", names)
+	}
+}
+
+// changes.csv lists the snapshot's changes, new then returned then gone, then by
+// kind and key; a gone row is not current. It is removed when a run has none.
+func TestChangesFile(t *testing.T) {
+	t.Parallel()
+	dir := newDir(t)
+	changes := file(t, "changes.csv")
+	snap := output.Snapshot{Changes: []output.Change{
+		{Change: "gone", Kind: "finding", Key: "takeover|x", Scope: "", Severity: "high", Current: false, FirstSeen: "2026-10-01", LastSeen: "2026-10-30"},
+		{Change: "new", Kind: "web service", Key: "https://b.a.com", Scope: "in-scope", Current: true, FirstSeen: "2026-11-01", LastSeen: "2026-11-01"},
+		{Change: "returned", Kind: "hostname", Key: "c.a.com", Scope: "in-scope", Current: true, FirstSeen: "2026-09-01", LastSeen: "2026-11-01"},
+		{Change: "new", Kind: "hostname", Key: "=cmd()", Scope: "in-scope", Current: true, FirstSeen: "2026-11-01", LastSeen: "2026-11-01"},
+	}}
+	if err := output.Render(dir, []output.File{changes}, snap, true); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := csv.NewReader(strings.NewReader(read(t, dir, "changes.csv"))).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"change,kind,key,scope,severity,current,first_seen,last_seen",
+		"new,hostname,'=cmd(),in-scope,,true,2026-11-01,2026-11-01",
+		"new,web service,https://b.a.com,in-scope,,true,2026-11-01,2026-11-01",
+		"returned,hostname,c.a.com,in-scope,,true,2026-09-01,2026-11-01",
+		"gone,finding,takeover|x,,high,false,2026-10-01,2026-10-30",
+	}
+	if len(recs) != len(want) {
+		t.Fatalf("csv = %v", recs)
+	}
+	for i := range want {
+		if got := strings.Join(recs[i], ","); got != want[i] {
+			t.Errorf("row %d = %s, want %s", i, got, want[i])
+		}
+	}
+	if err := output.Render(dir, []output.File{changes}, output.Snapshot{}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "changes.csv")); !os.IsNotExist(err) {
+		t.Errorf("a snapshot with no changes left changes.csv: %v", err)
 	}
 }
