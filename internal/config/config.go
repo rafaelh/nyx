@@ -250,15 +250,34 @@ func builtinSensitivePaths() []SensitivePath {
 	return list
 }
 
+// Env is the process environment in the "NAME=value" form os.Environ returns. Settings are read
+// from an Env rather than from the process, so the caller decides what it holds.
+type Env []string
+
+// Get returns the value of name, or "" when it is unset. As with os.Getenv, the first entry for a
+// name wins.
+func (e Env) Get(name string) string {
+	for _, kv := range e {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			return v
+		}
+	}
+	return ""
+}
+
+// home is the user's home directory, or "" when it is not known. It is $HOME, as os.UserHomeDir
+// gives it on macOS and Linux.
+func (e Env) home() string { return e.Get("HOME") }
+
 // DefaultConfigPath is $XDG_CONFIG_HOME/nyx/config.yaml, or ~/.config/nyx/config.yaml. It is ""
 // when neither XDG_CONFIG_HOME nor the home directory is known, so a missing $HOME never resolves
 // to a config file relative to the working directory. os.UserConfigDir is deliberately not used: on
 // macOS it would move the file to ~/Library/Application Support.
-func DefaultConfigPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
+func DefaultConfigPath(env Env) string {
+	base := env.Get("XDG_CONFIG_HOME")
 	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
+		home := env.home()
+		if home == "" {
 			return ""
 		}
 		base = filepath.Join(home, ".config")
@@ -352,12 +371,12 @@ func floatFlag(fs *pflag.FlagSet, name string, def float64, usage string) {
 
 // EnvKeyValues are the API keys set as NYX_KEYS_<SOURCE> in the environment,
 // for masking before the configuration has loaded.
-func EnvKeyValues() []string { return Settings{Keys: envKeys()}.KeyValues() }
+func EnvKeyValues(env Env) []string { return Settings{Keys: envKeys(env)}.KeyValues() }
 
 // envKeys are the API keys set as NYX_KEYS_<SOURCE>, by lower-case source.
-func envKeys() map[string]Secret {
+func envKeys(env Env) map[string]Secret {
 	keys := map[string]Secret{}
-	for _, kv := range os.Environ() {
+	for _, kv := range env {
 		name, val, _ := strings.Cut(kv, "=")
 		if src, ok := strings.CutPrefix(name, "NYX_KEYS_"); ok && val != "" {
 			keys[strings.ToLower(src)] = Secret(val)
@@ -436,7 +455,7 @@ type rawSettings struct {
 	} `mapstructure:"nsreverse"`
 }
 
-// Load merges defaults, the config file, NYX_* environment variables and the flags in fs that were
+// Load merges defaults, the config file, the NYX_* variables in env and the flags in fs that were
 // set (flags win over env, env over file). configPath "" means the default location, which is
 // optional; an explicit path must exist.
 //
@@ -444,13 +463,10 @@ type rawSettings struct {
 // cannot be read or holds an unknown key does not stop the other settings being checked. The
 // settings are returned even then, holding what was valid (the keys among it, so they can be
 // masked); a caller must not use them for a run.
-func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
+func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	var probs clierr.Problems
 	d := Defaults()
 	v := viper.New()
-	v.SetEnvPrefix("NYX")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
 	defaults := map[string]any{
 		"ports": FormatPorts(d.Ports), "risky_ports": FormatPorts(d.RiskyPorts),
 		"sensitive_paths": "", "wordlist": "", "concurrency": d.Concurrency,
@@ -475,7 +491,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 
 	path, explicit := configPath, configPath != ""
 	if !explicit {
-		path = DefaultConfigPath()
+		path = DefaultConfigPath(env)
 	}
 	if _, err := os.Stat(path); explicit || (path != "" && err == nil) {
 		v.SetConfigFile(path)
@@ -493,6 +509,11 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 			}
 		}
 	}
+	// Viper ranks its config layer above the file it read and below the flags, which is where the
+	// NYX_* variables go.
+	if err := v.MergeConfigMap(envSettings(v.AllKeys(), env)); err != nil {
+		probs.Add("config", "", fmt.Sprintf("environment: %v", err), "")
+	}
 
 	var raw rawSettings
 	if err := v.UnmarshalExact(&raw); err != nil {
@@ -500,7 +521,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 		// Decode again without the unknown keys, so the rest is still checked.
 		raw = rawSettings{}
 		if err := v.Unmarshal(&raw); err != nil {
-			d.Keys = envKeys() // still masked
+			d.Keys = envKeys(env) // still masked
 			return d, probs
 		}
 	}
@@ -510,7 +531,7 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 	for name, val := range raw.Keys {
 		s.Keys[strings.ToLower(name)] = Secret(val)
 	}
-	maps.Copy(s.Keys, envKeys())
+	maps.Copy(s.Keys, envKeys(env))
 
 	bad := func(key, val string, why string) {
 		probs.Add(key, val, fmt.Sprintf("%s: invalid value %q: %s", key, val, why), "")
@@ -590,11 +611,12 @@ func Load(fs *pflag.FlagSet, configPath string) (Settings, error) {
 			s.Permutations.Enabled = false
 		}
 	}
-	s.OutputDir = expandHome(raw.OutputDir)
+	home := env.home()
+	s.OutputDir = expandHome(raw.OutputDir, home)
 	if s.OutputDir == "" {
 		bad("output_dir", "", "must not be empty")
 	}
-	s.Wordlist, s.SensitivePaths = expandHome(raw.Wordlist), expandHome(raw.SensitivePaths)
+	s.Wordlist, s.SensitivePaths = expandHome(raw.Wordlist, home), expandHome(raw.SensitivePaths, home)
 	if s.Wordlist != "" {
 		if f, err := os.Open(s.Wordlist); err != nil {
 			bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
@@ -642,15 +664,38 @@ func parseSkip(items []string) ([]string, error) {
 	return out, nil
 }
 
-// expandHome replaces a leading "~" or "~/" with the user's home directory. Paths from the config
-// file or environment are not shell-expanded, so without this "output_dir: ~/engagements" would
-// create a directory named "~". "~user" forms are left as is.
-func expandHome(p string) string {
-	if p != "~" && !strings.HasPrefix(p, "~/") {
-		return p
+// envSettings are the NYX_* variables in env for the settings in keys, as a nested map for viper:
+// rate.per_host is NYX_RATE_PER_HOST. As with viper's AutomaticEnv, which reads only the process
+// environment, a variable counts only for a setting viper already knows of and only when it is not
+// empty.
+func envSettings(keys []string, env Env) map[string]any {
+	out := map[string]any{}
+	for _, key := range keys {
+		val := env.Get("NYX_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_")))
+		if val == "" {
+			continue
+		}
+		parts := strings.Split(key, ".")
+		m := out
+		for _, p := range parts[:len(parts)-1] {
+			next, ok := m[p].(map[string]any)
+			if !ok {
+				next = map[string]any{}
+				m[p] = next
+			}
+			m = next
+		}
+		m[parts[len(parts)-1]] = val
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	return out
+}
+
+// expandHome replaces a leading "~" or "~/" with home, the user's home directory. Paths from the
+// config file or environment are not shell-expanded, so without this "output_dir: ~/engagements"
+// would create a directory named "~". "~user" forms, and every path when home is unknown, are left
+// as is.
+func expandHome(p, home string) string {
+	if home == "" || (p != "~" && !strings.HasPrefix(p, "~/")) {
 		return p
 	}
 	return filepath.Join(home, p[1:])

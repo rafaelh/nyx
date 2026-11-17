@@ -85,6 +85,7 @@ func uris(w *world, host string) []string {
 
 // Each list is its own check, fetched once and refreshed only by --redo.
 func TestProviderRanges_EachListIsItsOwnCheckFetchedOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	serveAllRanges(w)
 	if code := w.run("--passive", "example.com"); code != 0 {
@@ -126,6 +127,7 @@ func TestProviderRanges_EachListIsItsOwnCheckFetchedOnce(t *testing.T) {
 
 // An engagement that already holds AWS and GCP fetches only the six new lists.
 func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	serveOldRanges(w) // the new publishers answer 404 until they are served
 	w.run("--passive", "example.com")
@@ -151,6 +153,7 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 // A list that cannot be read is a failed check named in a --debug line;
 // the ranges fetched before still apply and nothing is reported as a finding.
 func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		serve http.HandlerFunc
@@ -210,6 +213,7 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 // DigitalOcean and Linode addresses are customers' own machines and are
 // port-checked; a Cloudflare address is shared and is not.
 func TestProviderRanges_DedicatedRangesArePortCheckedAndCDNsAreNot(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	serveAllRanges(p.world)
 	ports := []int{8080}
@@ -247,6 +251,7 @@ func TestProviderRanges_DedicatedRangesArePortCheckedAndCDNsAreNot(t *testing.T)
 // With no DigitalOcean list the ASN still applies, as before: the address is
 // shared and is not handshaken.
 func TestProviderRanges_DigitalOceanWithoutItsListStaysShared(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	serveOldRanges(p.world)
 	p.names("do.example.com")
@@ -271,6 +276,7 @@ func TestProviderRanges_DigitalOceanWithoutItsListStaysShared(t *testing.T) {
 // A published range names the provider, and the service or region, in ips.csv
 // even when the owner lookup failed.
 func TestProviderRanges_IPsCSVNamesProviderAndRegionWithoutAnOwner(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	serveAllRanges(w)
 	hosts := map[string]string{
@@ -309,6 +315,7 @@ func TestProviderRanges_IPsCSVNamesProviderAndRegionWithoutAnOwner(t *testing.T)
 // A CNAME into a known provider still makes a host shared, even on a range
 // that calls the address dedicated.
 func TestProviderRanges_CNAMEIntoProviderStillMakesAHostShared(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	serveAllRanges(w)
 	w.crtsh(map[string][]string{"example.com": {"hk.example.com"}}, nil)
@@ -350,6 +357,7 @@ func readmeSection(t *testing.T, heading string) (section, whole string) {
 // The passive-boundary section names every range publisher the stage contacts,
 // and says why Azure is not one of them.
 func TestReadme_NamesEveryRangePublisher(t *testing.T) {
+	t.Parallel()
 	section, whole := readmeSection(t, "## Passive boundary")
 	for _, p := range []string{"aws", "gcp", "cloudflare", "fastly", "digitalocean", "oracle", "linode"} {
 		if !strings.Contains(section, p) {

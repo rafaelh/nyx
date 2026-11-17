@@ -41,6 +41,7 @@ func crawlFixture(t *testing.T) (*web, *site) {
 }
 
 func TestCrawl_FetchesAndRecords(t *testing.T) {
+	t.Parallel()
 	x, s := crawlFixture(t)
 	x.mustRun("--crawl-depth", "2", "--crawl-pages", "100")
 
@@ -104,6 +105,7 @@ func TestCrawl_FetchesAndRecords(t *testing.T) {
 }
 
 func TestCrawl_RelativeLinksResolveAgainstBaseHref(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -124,6 +126,7 @@ func TestCrawl_RelativeLinksResolveAgainstBaseHref(t *testing.T) {
 }
 
 func TestCrawl_PageAndDepthCaps(t *testing.T) {
+	t.Parallel()
 	t.Run("pages count the root", func(t *testing.T) {
 		x, s := crawlFixture(t)
 		x.mustRun("--crawl-pages", "3", "--skip", "jsparse") // the page limit is the crawl's; jsparse would add the script
@@ -144,6 +147,7 @@ func TestCrawl_PageAndDepthCaps(t *testing.T) {
 }
 
 func TestCrawl_RecordedURLsAreCappedAt20TimesPages(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -165,14 +169,20 @@ func TestCrawl_RecordedURLsAreCappedAt20TimesPages(t *testing.T) {
 }
 
 func TestCrawl_Errors(t *testing.T) {
+	t.Parallel()
 	t.Run("a failing non-root page is skipped and the check completes", func(t *testing.T) {
 		x := newWeb(t)
 		x.names("a.example.com")
 		x.host("a.example.com", "203.0.113.5")
 		s := x.plain("203.0.113.5", 80, routes(map[string]http.HandlerFunc{
-			"/":     page(`<a href="/ok">ok</a><a href="/slow">slow</a>`),
-			"/ok":   page("ok"),
-			"/slow": func(w http.ResponseWriter, r *http.Request) { time.Sleep(1500 * time.Millisecond) }, // past the 1 s timeout
+			"/":   page(`<a href="/ok">ok</a><a href="/slow">slow</a>`),
+			"/ok": page("ok"),
+			"/slow": func(w http.ResponseWriter, r *http.Request) { // past the 1 s timeout
+				select {
+				case <-r.Context().Done():
+				case <-time.After(1500 * time.Millisecond):
+				}
+			},
 		}))
 		x.mustRun()
 		if got := x.completedKeys("crawl"); !slices.Equal(got, []string{"http://a.example.com|depth=2|pages=100"}) {
@@ -218,6 +228,7 @@ func TestCrawl_Errors(t *testing.T) {
 }
 
 func TestCrawl_RootRedirectToAnotherOriginEndsTheCrawl(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -247,6 +258,7 @@ func TestCrawl_RootRedirectToAnotherOriginEndsTheCrawl(t *testing.T) {
 }
 
 func TestCrawl_SameOriginRedirectsAreFollowedAndOnlyHTMLIsParsed(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -278,6 +290,7 @@ func TestCrawl_SameOriginRedirectsAreFollowedAndOnlyHTMLIsParsed(t *testing.T) {
 // robots.txt and the sitemaps are read for the URLs they list, which are crawled
 // as if the root linked to them. A Disallow is a path to visit, not a rule.
 func TestCrawl_ReadsRobotsAndSitemaps(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -323,6 +336,7 @@ func TestCrawl_ReadsRobotsAndSitemaps(t *testing.T) {
 
 // A service without robots.txt or a sitemap adds no rows for them.
 func TestCrawl_MissingListsAreNotRecorded(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -336,6 +350,7 @@ func TestCrawl_MissingListsAreNotRecorded(t *testing.T) {
 }
 
 func TestCrawl_DisabledAndSettingsAreInTheCheckKey(t *testing.T) {
+	t.Parallel()
 	x, s := crawlFixture(t)
 	x.mustRun("--crawl-pages", "0")
 	if st, reason := stateOf(x.world, "crawl"); st != "not-configured" || reason != "disabled" {

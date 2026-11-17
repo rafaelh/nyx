@@ -90,7 +90,7 @@ func sharedWorld(t *testing.T, key bool) (*risk, *stReverse) {
 		},
 		total: map[string]int{},
 	}
-	x.t.Setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+	x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
 	x.handle("api.securitytrails.com", f.serve)
 	return x, f
 }
@@ -119,6 +119,7 @@ func (x *risk) resolutionRows(typ string) map[string]map[string]string {
 // name, a shared address and an address of unknown owner are not. The marker is
 // on NS rows of resolutions.csv and in email-posture.csv.
 func TestNSReverse_MarkersInBothFiles(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	x.mustShared()
 
@@ -153,6 +154,7 @@ func TestNSReverse_MarkersInBothFiles(t *testing.T) {
 // Without the key the stage is not-configured, nothing is fetched, and the
 // markers are still produced.
 func TestNSReverse_WithoutKeyOnlyTheMarkers(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, false)
 	x.mustShared()
 
@@ -179,6 +181,7 @@ func TestNSReverse_WithoutKeyOnlyTheMarkers(t *testing.T) {
 // and not a known provider's name; a failed lookup neither fails the check nor
 // loses the NS rows or the posture.
 func TestNSReverse_AddressLookupsAreBestEffort(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	x.dns.Rcode("ns.nbhosted.test", int(mdns.RcodeServerFailure))
 	x.dns.Rcode("mail.nbhosted.test", int(mdns.RcodeServerFailure))
@@ -207,6 +210,7 @@ func TestNSReverse_AddressLookupsAreBestEffort(t *testing.T) {
 // --- What is fetched ---
 
 func TestNSReverse_AsksOnlySelfHostedServers(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	x.mustShared()
 
@@ -236,6 +240,7 @@ func TestNSReverse_AsksOnlySelfHostedServers(t *testing.T) {
 // is at least medium. A root both a name server and a mail host give has both
 // sources and counts their two pieces of evidence, but is one family, so not high.
 func TestNSReverse_CandidatesAreSharedAndMedium(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	x.mustShared()
 
@@ -265,6 +270,7 @@ func TestNSReverse_CandidatesAreSharedAndMedium(t *testing.T) {
 
 // An excluded root a server's domain list gives stays excluded.
 func TestNSReverse_ExcludedRootStaysExcluded(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	x.mustShared("-x", "sister-org.test")
 
@@ -279,6 +285,7 @@ func TestNSReverse_ExcludedRootStaysExcluded(t *testing.T) {
 // Changing the cap asks again, and the cap is left out of the evidence item, so
 // a root found under both settings still counts once.
 func TestNSReverse_ChangingTheCapAsksAgainWithoutCountingTwice(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	x.mustShared()
 	before := len(x.stServers())
@@ -297,6 +304,7 @@ func TestNSReverse_ChangingTheCapAsksAgainWithoutCountingTwice(t *testing.T) {
 // its first page lists, and a WARN line names it. Exactly the cap is recorded.
 // Raising the cap asks again.
 func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
+	t.Parallel()
 	x, st := sharedWorld(t, true)
 	st.byNS["ns.nbhosted.test"] = []string{"one.test", "two.test", "three.test"}
 	st.total["ns|ns.nbhosted.test"] = 3 // at the cap
@@ -335,6 +343,7 @@ func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
 // across pages are counted, and once they pass it nothing the server listed is
 // recorded.
 func TestNSReverse_CapCountsPagesWithoutATotal(t *testing.T) {
+	t.Parallel()
 	x, st := sharedWorld(t, true)
 	st.pageSize = 2
 	st.byNS["ns-eligible.other.test"] = []string{"big-a.test", "big-b.test", "big-c.test", "big-d.test"}
@@ -359,6 +368,7 @@ func TestNSReverse_CapCountsPagesWithoutATotal(t *testing.T) {
 // A refused key or spent quota stops the stage, completes nothing, and the checks
 // are made on the next run.
 func TestNSReverse_QuotaStopsTheStage(t *testing.T) {
+	t.Parallel()
 	x, st := sharedWorld(t, true)
 	st.setStatus(http.StatusTooManyRequests)
 	x.mustShared("--concurrency", "1")
@@ -388,6 +398,7 @@ func TestNSReverse_QuotaStopsTheStage(t *testing.T) {
 // contacted or made a hostname, address to probe or port-check target: a full,
 // authorised run sends nothing to any address a server was looked up at.
 func TestNSReverse_NothingFoundIsContacted(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, true)
 	var sites []*site
 	for _, ip := range []string{"198.51.100.5", "198.51.100.6", "198.51.100.77", "192.0.2.77"} {
@@ -431,6 +442,7 @@ func TestNSReverse_NothingFoundIsContacted(t *testing.T) {
 // The NS and email check keys carry a token for the address lookups, so an
 // engagement from before has them looked up once and not again.
 func TestNSReverse_ExistingEngagementLooksUpAddressesOnce(t *testing.T) {
+	t.Parallel()
 	x, _ := sharedWorld(t, false)
 	x.mustShared()
 	asked := func() int { return x.dns.Count("ns.unknown.test", "A") }

@@ -12,6 +12,7 @@ import (
 // --- Redirects ---
 
 func TestRedirect_InScopeRedirectChain(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -52,6 +53,7 @@ func TestRedirect_InScopeRedirectChain(t *testing.T) {
 }
 
 func TestRedirect_OutOfScopeRedirectIsACandidateAndNotRequested(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -84,6 +86,7 @@ func TestRedirect_OutOfScopeRedirectIsACandidateAndNotRequested(t *testing.T) {
 }
 
 func TestRedirect_ExcludedRedirectTargetIsNotRequested(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "blocked.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -104,6 +107,7 @@ func TestRedirect_ExcludedRedirectTargetIsNotRequested(t *testing.T) {
 }
 
 func TestRedirect_LoopAndHopCapTerminate(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("loop.example.com", "deep.example.com")
 	x.host("loop.example.com", "203.0.113.5")
@@ -145,6 +149,7 @@ func TestRedirect_LoopAndHopCapTerminate(t *testing.T) {
 }
 
 func TestRedirect_RedirectToSelfOrAnIPAddsNoHostname(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -172,6 +177,7 @@ func TestRedirect_RedirectToSelfOrAnIPAddsNoHostname(t *testing.T) {
 // observations are made by the web stages, but only names first seen by a stage
 // other than the permutation stage are seeds.
 func TestRedirect_PermutationOnlyNameIsNeverSeededByItsOwnService(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.perms = true
 	wl := writeFile(t, t.TempDir(), "words.txt", "dev\n")
@@ -200,6 +206,7 @@ func TestRedirect_PermutationOnlyNameIsNeverSeededByItsOwnService(t *testing.T) 
 // --- Certificate SANs ---
 
 func TestCertificateSANsFlowThroughOrBecomeCandidates(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")

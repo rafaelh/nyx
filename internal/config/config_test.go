@@ -23,7 +23,7 @@ func load(t *testing.T, cfgPath string, args ...string) (config.Settings, error)
 	if err := fs.Parse(args); err != nil {
 		t.Fatal(err)
 	}
-	return config.Load(fs, cfgPath)
+	return config.Load(fs, cfgPath, os.Environ())
 }
 
 func writeFile(t *testing.T, body string) string {
@@ -101,6 +101,32 @@ func TestPrecedence(t *testing.T) {
 	}
 	if s.Concurrency != 7 || config.FormatPorts(s.Ports) != "9000-9003" {
 		t.Fatalf("flag: %d %v", s.Concurrency, s.Ports)
+	}
+}
+
+// Load reads the environment it is given, never the process's, so that callers (and parallel
+// tests) each decide what a run sees.
+func TestLoadReadsOnlyTheGivenEnv(t *testing.T) {
+	clearEnv(t)
+	home := t.TempDir()
+	t.Setenv("NYX_CONCURRENCY", "3")
+	t.Setenv("NYX_KEYS_SHODAN", "process-key")
+	t.Setenv("HOME", home)
+	s, err := config.Load(nil, "", config.Env{"NYX_RATE_DNS=9", "NYX_KEYS_CENSYS=given-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Concurrency != config.Defaults().Concurrency || s.Rate.DNS != 9 {
+		t.Errorf("concurrency %d, rate.dns %v: want the default and the given 9", s.Concurrency, s.Rate.DNS)
+	}
+	if got := s.KeyValues(); !slices.Equal(got, []string{"given-key"}) {
+		t.Errorf("keys = %v, want only the given one", got)
+	}
+	if got := config.DefaultConfigPath(config.Env{"HOME=/given"}); got != "/given/.config/nyx/config.yaml" {
+		t.Errorf("DefaultConfigPath = %q", got)
+	}
+	if s, _ := config.Load(nil, "", nil); s.OutputDir != "." {
+		t.Errorf("with no HOME given, output_dir = %q", s.OutputDir)
 	}
 }
 
@@ -216,12 +242,12 @@ func TestExplicitConfigMissing(t *testing.T) {
 
 func TestDefaultConfigPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
-	if got := config.DefaultConfigPath(); got != "/xdg/nyx/config.yaml" {
+	if got := config.DefaultConfigPath(os.Environ()); got != "/xdg/nyx/config.yaml" {
 		t.Errorf("got %s", got)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "/home/u")
-	if got := config.DefaultConfigPath(); got != "/home/u/.config/nyx/config.yaml" {
+	if got := config.DefaultConfigPath(os.Environ()); got != "/home/u/.config/nyx/config.yaml" {
 		t.Errorf("got %s", got)
 	}
 }
@@ -229,7 +255,7 @@ func TestDefaultConfigPath(t *testing.T) {
 func TestDefaultConfigPathWithoutHome(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
-	if got := config.DefaultConfigPath(); got != "" {
+	if got := config.DefaultConfigPath(os.Environ()); got != "" {
 		t.Errorf("got %q, want empty", got)
 	}
 }
@@ -366,7 +392,7 @@ func TestLoadReportsFileProblemsWithTheRest(t *testing.T) {
 		t.Errorf("unreadable file and a bad flag: %v", err)
 	}
 	t.Setenv("NYX_KEYS_SOURCE", "envkey")
-	if got := config.EnvKeyValues(); !slices.Equal(got, []string{"envkey"}) {
+	if got := config.EnvKeyValues(os.Environ()); !slices.Equal(got, []string{"envkey"}) {
 		t.Errorf("EnvKeyValues = %v", got)
 	}
 }

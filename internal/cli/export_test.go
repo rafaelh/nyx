@@ -142,6 +142,7 @@ func exportLine(t *testing.T, lines []exLine, kind, key string) exLine {
 }
 
 func TestExport_EveryRecordOnce(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	w.markOldGone(t)
 	h := w.h
@@ -305,6 +306,7 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 
 // A line names its fields in the order the README gives them.
 func TestExport_FieldOrder(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	e := export(w.h, "-e", "a.com", "--kind", "hostname", "--kind", "web_service")
 	if e.code != 0 {
@@ -329,6 +331,7 @@ func TestExport_FieldOrder(t *testing.T) {
 
 // Merged attributes follow the registry's stage order, as a run's do.
 func TestExport_MergeFollowsRegistryOrder(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	l := exportLine(t, export(w.h, "-e", "a.com").lines(t), "web_service", "https://shared.a.com")
 	if l.attrs()["title"] != "from alpha" || l.attrs()["server"] != "zeta-server" {
@@ -347,6 +350,7 @@ func TestExport_MergeFollowsRegistryOrder(t *testing.T) {
 }
 
 func TestExport_Filters(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	w.markOldGone(t)
 	h := w.h
@@ -408,6 +412,7 @@ func TestExport_Filters(t *testing.T) {
 }
 
 func TestExport_UnknownKind(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	e := export(w.h, "-e", "a.com", "--kind", "hostname", "--kind", "hostnames")
 	if e.code != 2 {
@@ -422,6 +427,7 @@ func TestExport_UnknownKind(t *testing.T) {
 }
 
 func TestExport_RequiresEngagementName(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	if e := export(w.h); e.code != 2 || e.stdout != "" {
 		t.Errorf("exit %d stdout %q, want 2 and nothing", e.code, e.stdout)
@@ -429,6 +435,7 @@ func TestExport_RequiresEngagementName(t *testing.T) {
 }
 
 func TestExport_HelpListsKinds(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	e := export(h, "--help")
 	if e.code != 0 {
@@ -453,6 +460,7 @@ func TestExport_HelpListsKinds(t *testing.T) {
 }
 
 func TestExport_OutputFile(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	h := w.h
 	stdout := export(h, "-e", "a.com")
@@ -509,6 +517,7 @@ func TestExport_OutputFile(t *testing.T) {
 // A failure part-way through must not leave a half-written file in place of
 // the old one.
 func TestExport_OutputReplacesAtomically(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	dir := t.TempDir()
 	target := filepath.Join(dir, "export.jsonl")
@@ -532,6 +541,7 @@ func TestExport_OutputReplacesAtomically(t *testing.T) {
 }
 
 func TestExport_NoSecrets(t *testing.T) {
+	t.Parallel()
 	const secret = "tok_Zq81xYw3"
 	seen := &testkit.Stage{StageName: "leaky", Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
@@ -551,7 +561,7 @@ func TestExport_NoSecrets(t *testing.T) {
 		t.Fatal("the test needs the value in the database")
 	}
 
-	t.Setenv("NYX_KEYS_SHODAN", secret)
+	h.setenv("NYX_KEYS_SHODAN", secret)
 	e := export(h, "-e", "a.com")
 	if e.code != 0 {
 		t.Fatalf("exit %d: %s", e.code, e.stderr)
@@ -569,6 +579,7 @@ func TestExport_NoSecrets(t *testing.T) {
 }
 
 func TestExport_SanitisesTargetText(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	w.title.Store("\x1b[31mred\x1b[0m title\x1b]0;owned\x07 \u202eevil\x00")
 	if code := w.h.exec("-e", "a.com", "--redo", "disc"); code != 0 {
@@ -589,6 +600,7 @@ func TestExport_SanitisesTargetText(t *testing.T) {
 // The export reads while a run holds the engagement, and sees the state as of
 // one moment.
 func TestExport_WhileRunning(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	h := w.h
 	before := export(h, "-e", "a.com")
@@ -664,6 +676,7 @@ func snapshotDir(t *testing.T, dir string) map[string]string {
 }
 
 func TestExport_NeverWrites(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
 	h := w.h
 	before := snapshotDir(t, h.out)
@@ -681,6 +694,7 @@ func TestExport_NeverWrites(t *testing.T) {
 }
 
 func TestExport_NoEngagement(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, &testkit.Stage{StageName: "s", Kind: run.ThirdParty})
 
 	if e := export(h, "-e", "missing"); e.code != 1 {
@@ -736,8 +750,9 @@ func inode(fi fs.FileInfo) uint64 {
 
 // The engagement is found under output_dir from the configuration, as for a run.
 func TestExport_FindsEngagementUnderConfiguredOutputDir(t *testing.T) {
+	t.Parallel()
 	w := newExportWorld(t)
-	t.Setenv("NYX_OUTPUT_DIR", w.h.out)
+	w.h.setenv("NYX_OUTPUT_DIR", w.h.out)
 	var stdout, stderr bytes.Buffer
 	d := w.h.deps()
 	d.Stdout, d.Stderr = &stdout, &stderr

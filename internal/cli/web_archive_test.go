@@ -36,6 +36,7 @@ func (x *web) summaryTotal(category string) int {
 // --- Archived URLs ---
 
 func TestArchive_ArchivedURLsUnderPassive(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.host("a.example.com", "203.0.113.5")
 	a80 := x.plain("203.0.113.5", 80, page("live"))
@@ -99,6 +100,7 @@ func archiveWorld(t *testing.T) *web {
 // Archives return some URLs without a scheme; their hosts were always kept,
 // and so are the URLs.
 func TestArchive_ArchivedURLsWithoutASchemeAreKept(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.waybackURLs("www.example.com/admin/login.php")
 	x.commonCrawl("CC-1", "cc.example.com/z")
@@ -114,6 +116,7 @@ func TestArchive_ArchivedURLsWithoutASchemeAreKept(t *testing.T) {
 }
 
 func TestArchive_CapIsRoundRobinDeterministicAndPartOfTheCheckKey(t *testing.T) {
+	t.Parallel()
 	x := archiveWorld(t)
 	x.mustPassive("--archive-max-urls", "4")
 	capped := []string{"http://a.example.com/1", "http://a.example.com/2", "http://b.example.com/1", "http://b.example.com/2"}
@@ -144,6 +147,7 @@ func TestArchive_CapIsRoundRobinDeterministicAndPartOfTheCheckKey(t *testing.T) 
 }
 
 func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{"0", "-1", "many"} {
 		x := archiveWorld(t)
 		if code := x.passive("--archive-max-urls", bad); code != 2 {
@@ -151,7 +155,7 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 		}
 	}
 	x := archiveWorld(t)
-	t.Setenv("NYX_ARCHIVE_MAX_URLS", "4") // after the harness, which clears NYX_*
+	x.h.setenv("NYX_ARCHIVE_MAX_URLS", "4") // after the harness, which clears NYX_*
 	x.mustPassive()
 	if got := x.completedKeys("wayback"); !slices.Equal(got, []string{"example.com|urls=4"}) {
 		t.Errorf("NYX_ARCHIVE_MAX_URLS ignored: %v", got)
@@ -175,6 +179,7 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 }
 
 func TestArchive_AnExclusionAddedLaterHidesArchivedURLs(t *testing.T) {
+	t.Parallel()
 	x := archiveWorld(t)
 	x.mustPassive()
 	if n := len(x.urlSet()); n != 6 {

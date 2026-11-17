@@ -32,6 +32,7 @@ func (x *web) postureRows() []map[string]string { return x.table(eng, "risk-web-
 func (x *web) postureTypes() []string { return typeURLs(x.postureRows()) }
 
 func TestWebPosture_ColumnsAndFindingsFromLoopbackServices(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("bad.example.com", "plain.example.com", "good.example.com")
 	x.host("bad.example.com", "203.0.113.5")
@@ -103,6 +104,7 @@ func TestWebPosture_ColumnsAndFindingsFromLoopbackServices(t *testing.T) {
 // The listing that counts is the last page of the service's own origin: a
 // listing a redirect leads to on another host is that host's, not this one's.
 func TestWebPosture_RedirectChainDecidesWhatIsRead(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com", "files.example.com", "cookie.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -139,6 +141,7 @@ func TestWebPosture_RedirectChainDecidesWhatIsRead(t *testing.T) {
 
 // An IP-literal service and a SaaS-served service have the evidence but no finding.
 func TestWebPosture_NoFindingForIPLiteralOrSaaS(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("help.example.com", "www.example.com")
 	x.host("help.example.com", "203.0.113.20")
@@ -196,6 +199,7 @@ func (x *web) switchable(t *testing.T) (*postureSite, *site) {
 // An engagement probed before posture was recorded has none of it: the columns
 // are blank and there are no findings until httpprobe is redone.
 func TestWebPosture_ExistingEngagementGainsPostureOnlyAfterRedo(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	p, s := x.switchable(t)
 	p.bad.Store(true)
@@ -242,6 +246,7 @@ func TestWebPosture_ExistingEngagementGainsPostureOnlyAfterRedo(t *testing.T) {
 
 // A condition that is gone after a redo leaves its finding on record, not current.
 func TestWebPosture_FixedConditionGoesNotCurrentAfterRedo(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	p, _ := x.switchable(t)
 	p.bad.Store(true)

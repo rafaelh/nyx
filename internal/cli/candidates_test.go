@@ -106,6 +106,7 @@ func wantRow(t *testing.T, r map[string]string, sources, count, confidence strin
 // candidates.csv has sources, evidence_count and confidence in place of
 // found_by, and is sorted high first, then by evidence, then by value.
 func TestCandidates_ColumnsAndOrder(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t,
 		newSrc("whoisxml", finds("Acme", list(root("high.org"), root("med.org")))),
 		newSrc("certspotter", finds("k1", list(root("high.org")))),
@@ -135,6 +136,7 @@ func TestCandidates_ColumnsAndOrder(t *testing.T) {
 // A row that is not current is last, with the confidence it last had; it is
 // not listed in the summary.
 func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
+	t.Parallel()
 	pv := pivot{newSrc("pivot", finds("crtsh:a", list(root("x.org")), "wayback:b", list(root("x.org")), "otx:c", list(root("x.org"))))}
 	h := newHarness(t, pv, newSrc("crtsh", finds("k", list(root("y.org")))))
 	if code := h.exec("a.com"); code != 0 {
@@ -169,6 +171,7 @@ func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
 // then no longer finds it, the row shows the confidence it last had while
 // supported, not an empty one.
 func TestCandidates_NotCurrentAfterRedoKeepsTheRankItHadWhileSupported(t *testing.T) {
+	t.Parallel()
 	early := newSrc("asn", finds("k1", nil))
 	who := newSrc("whoisxml", finds("Acme", list(root("x.org"))))
 	h := newHarness(t, early, who)
@@ -193,6 +196,7 @@ func TestCandidates_NotCurrentAfterRedoKeepsTheRankItHadWhileSupported(t *testin
 // hostname's evidence does not make the root current, so while the redone
 // stage is pending the root keeps the rank it had with both.
 func TestCandidates_RootAwaitingRedoKeepsItsRankDespiteItsHostnames(t *testing.T) {
+	t.Parallel()
 	early := newSrc("asn", finds("k1", nil))
 	who := newSrc("whoisxml", finds("Acme", list(root("x.org"))))
 	h := newHarness(t, early, who, newSrc("httpprobe", finds("a.com:443", list(host("www.x.org")))))
@@ -216,6 +220,7 @@ func TestCandidates_RootAwaitingRedoKeepsItsRankDespiteItsHostnames(t *testing.T
 // After a redo of a supporting stage that no longer finds the candidate, the
 // candidate drops a level.
 func TestCandidates_RedoLowersALevel(t *testing.T) {
+	t.Parallel()
 	cs := newSrc("certspotter", finds("k", list(root("x.org"))))
 	h := newHarness(t, newSrc("whoisxml", finds("Acme", list(root("x.org")))), cs)
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
@@ -233,6 +238,7 @@ func TestCandidates_RedoLowersALevel(t *testing.T) {
 // Confidence follows the evidence of every run: a stage that finds the
 // candidate later raises it, with no redo.
 func TestCandidates_RecomputedOnEveryRun(t *testing.T) {
+	t.Parallel()
 	cs := newSrc("certspotter", finds())
 	h := newHarness(t, newSrc("whoisxml", finds("Acme", list(root("x.org")))), cs)
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
@@ -250,6 +256,7 @@ func TestCandidates_RecomputedOnEveryRun(t *testing.T) {
 // Without --org there is no registrant match: the same evidence is only as
 // strong as the number of families that agree.
 func TestCandidates_NoOrgInput(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, newSrc("whoisxml", finds("Acme", list(root("x.org")))))
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -260,6 +267,7 @@ func TestCandidates_NoOrgInput(t *testing.T) {
 // A candidate root also counts the evidence of the candidate hostnames under
 // it; each hostname keeps its own rank.
 func TestCandidates_HostnameEvidenceRaisesItsRoot(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t,
 		newSrc("whoisxml", finds("Acme", list(root("other.org")))),
 		newSrc("httpprobe", finds("a.com:443", list(host("www.other.org")))),
@@ -276,6 +284,7 @@ func TestCandidates_HostnameEvidenceRaisesItsRoot(t *testing.T) {
 // setting in the key cannot count one piece of support twice; without it the
 // stage name and the whole key are the source and the item.
 func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
+	t.Parallel()
 	probe := newSrc("httpprobe", finds("a.com:80", list(host("h1.other.org")), "a.com:443", list(host("h1.other.org"))))
 	pv := pivot{newSrc("pivot", finds("crtsh:https://a.com|depth=2", list(host("h2.other.org")), "crtsh:https://a.com|depth=3", list(host("h2.other.org"))))}
 	h := newHarness(t, probe, pv)
@@ -290,6 +299,7 @@ func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
 // A change to an evidence kind alone still re-derives the findings, with the
 // candidate ranks unchanged.
 func TestCandidates_FindingsStillDerivedWhenOnlyEvidenceChanges(t *testing.T) {
+	t.Parallel()
 	spf := ""
 	posture := &testkit.Stage{StageName: "posture", Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check { return testkit.Keys("p", 1) },
@@ -354,6 +364,7 @@ func highHarness(t *testing.T) *harness {
 // The console lists up to 20 high candidates with the input that promotes each,
 // then how many more there are. Medium and low candidates are not listed.
 func TestCandidates_ConsoleSummary(t *testing.T) {
+	t.Parallel()
 	h := highHarness(t)
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -378,6 +389,7 @@ func TestCandidates_ConsoleSummary(t *testing.T) {
 // --json emits one candidate event per high candidate before the summary, and
 // the summary carries the same list.
 func TestCandidates_JSONEvents(t *testing.T) {
+	t.Parallel()
 	h := highHarness(t)
 	if code := h.exec("a.com", "--org", "Acme", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())

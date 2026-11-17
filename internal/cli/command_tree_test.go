@@ -168,6 +168,7 @@ func lastLine(s string) string {
 // command with its everyday flags, an example and the values of its fixed-set
 // flags, and the exit codes; recon's tuning settings are only in recon's own.
 func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, defaultStageList()...)
 	if code := h.execRoot("--help"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
@@ -232,6 +233,7 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 
 // Each command's own help opens with examples and ends with the exit codes.
 func TestTree_CommandHelpOpensWithExamplesAndEndsWithExitCodes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	for _, args := range [][]string{{"recon", "--help"}, {"recon", "export", "--help"}, {"recon", "-h"}} {
 		if code := h.execRoot(args...); code != 0 || h.stderr.Len() != 0 {
@@ -260,6 +262,7 @@ func TestTree_CommandHelpOpensWithExamplesAndEndsWithExitCodes(t *testing.T) {
 // --json, --quiet and --debug are taken before and after the command, by
 // every command.
 func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
+	t.Parallel()
 	recon := func(h *harness, before, after []string) int {
 		args := append(slices.Clone(before), "recon", "--output-dir", h.out, "a.com")
 		return h.execRoot(append(args, after...)...)
@@ -366,10 +369,11 @@ func TestTree_QuietWithDebugIsAUsageError(t *testing.T) {
 // None of the shared flags is a setting: no environment variable and no config
 // key sets one.
 func TestTree_SharedFlagsAreNotSettings(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, failingCheck("boom"))
-	t.Setenv("NYX_JSON", "1")
-	t.Setenv("NYX_QUIET", "1")
-	t.Setenv("NYX_DEBUG", "1")
+	h.setenv("NYX_JSON", "1")
+	h.setenv("NYX_QUIET", "1")
+	h.setenv("NYX_DEBUG", "1")
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
@@ -448,6 +452,7 @@ func TestTree_FlagsAreSpeltInFull(t *testing.T) {
 // Every HTTP request carries the version as its User-Agent, to a third-party
 // source and to a target alike.
 func TestTree_UserAgentIsTheVersion(t *testing.T) {
+	t.Parallel()
 	for version, want := range map[string]string{"v1.2.3": "nyx/v1.2.3", "": "nyx/devel"} {
 		x := newWeb(t)
 		x.h.version = version

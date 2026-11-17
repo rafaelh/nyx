@@ -41,6 +41,7 @@ func permRun(w *world, wl string, args ...string) int {
 // pass the cap is deferred whole, with every seed after it; the next run does
 // them. A seed that exactly fills the cap is taken.
 func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	if code := permRun(w, wl, "--permutations-max-names", "35"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -81,6 +82,7 @@ func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 
 // The cap falls part-way through a seed's names: none of them are queried.
 func TestListsPermutations_SeedIsNeverSplit(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	permRun(w, wl, "--permutations-max-names", "20") // the root's 9 names, then 26 would reach 35
 	if got := derived(w, "api"); len(got) != 0 {
@@ -94,6 +96,7 @@ func TestListsPermutations_SeedIsNeverSplit(t *testing.T) {
 // The first check of the run is taken even if it alone exceeds the cap, so a
 // small cap cannot stop the stage making progress.
 func TestListsPermutations_RootAloneOverCapIsTaken(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, "dev\ntest\nbeta\nold\nqa\nuat\nstg\nprod\nint\nlab\n")
 	if code := permRun(w, wl, "--permutations-max-names", "3"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -114,6 +117,7 @@ func TestListsPermutations_RootAloneOverCapIsTaken(t *testing.T) {
 // Names under a zone already known to be a wildcard are not generated, for a
 // root or for a seed whose parent is that zone; other zones are unaffected.
 func TestListsPermutations_NoNamesUnderWildcardZone(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	wl := writeFile(t, t.TempDir(), "words.txt", fourWords)
 	w.crtsh(map[string][]string{"example.com": {"api.example.com"}, "corp.net": {"vpn.corp.net"}}, nil)
@@ -147,6 +151,7 @@ func TestListsPermutations_NoNamesUnderWildcardZone(t *testing.T) {
 // A seed that is itself a wildcard zone is still permuted beside it (api-dev,
 // devapi, ...), but no generated name directly under it (dev.api) is queried.
 func TestListsPermutations_SeedThatIsAWildcardZone(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	wl := writeFile(t, t.TempDir(), "words.txt", fourWords)
 	w.crtsh(map[string][]string{"example.com": {"api.example.com", "x.api.example.com"}}, nil)
@@ -177,6 +182,7 @@ func derivedUnder(w *world, label, zone string) []string {
 
 // The console and the --json summary both give the deferred count.
 func TestListsPermutations_ConsoleAndJSONCounts(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	args := []string{"--rate-per-source", "1000", "--rate-dns", "100000", "--passive", "--concurrency", "1",
 		"--wordlist", wl, "--permutations-max-names", "35", "example.com"}
@@ -194,6 +200,7 @@ func TestListsPermutations_ConsoleAndJSONCounts(t *testing.T) {
 }
 
 func TestListsPermutations_InvalidCapExits2(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	if code := permRun(w, wl, "--permutations-max-names", "0"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
@@ -206,6 +213,7 @@ func TestListsPermutations_InvalidCapExits2(t *testing.T) {
 // The first run after the list changes repeats every permutation check once;
 // the run after that repeats none.
 func TestListsPermutations_ChangedListRepeatsChecksOnce(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	permRun(w, wl, "--permutations-max", "5")
 	old := w.h.completed(eng, "permutations")
@@ -214,7 +222,7 @@ func TestListsPermutations_ChangedListRepeatsChecksOnce(t *testing.T) {
 	}
 	// The upgrade: the engagement now runs with a different list (here the real
 	// built-in one, which a new release has changed).
-	t.Setenv("NYX_WORDLIST", "")
+	w.h.setenv("NYX_WORDLIST", "")
 	w.run("--passive", "--permutations-max", "5", "example.com")
 	upgraded := w.h.completed(eng, "permutations")
 	if len(upgraded) != 6 {
@@ -285,6 +293,7 @@ func twoServices(t *testing.T) (*risk, []*site) {
 // every service gets its highest-severity paths first; what does not fit waits
 // for later runs, which do not repeat what was done.
 func TestListsSensitive_SeverityOrderAcrossServices(t *testing.T) {
+	t.Parallel()
 	x, sites := twoServices(t)
 	file := x.pathsFile(tierPathsYAML)
 	// 2 services × 4 entries = 8 requests; 3 fit: high-one on both, then high-two on one.
@@ -331,6 +340,7 @@ func TestListsSensitive_SeverityOrderAcrossServices(t *testing.T) {
 // A hit from an earlier run stays current in a run that defers other
 // requests, even a redo that repeats only the first of them.
 func TestListsSensitive_EarlierHitStaysCurrentWhenDeferring(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -359,6 +369,7 @@ func TestListsSensitive_EarlierHitStaysCurrentWhenDeferring(t *testing.T) {
 
 // Both the console summary and the --json summary give the deferred count.
 func TestListsSensitive_ConsoleCount(t *testing.T) {
+	t.Parallel()
 	x, _ := twoServices(t)
 	x.fill()
 	file := x.pathsFile(tierPathsYAML)
@@ -373,6 +384,7 @@ func TestListsSensitive_ConsoleCount(t *testing.T) {
 }
 
 func TestListsSensitive_InvalidCapExits2(t *testing.T) {
+	t.Parallel()
 	x, sites := twoServices(t)
 	if code := x.run("--sensitive-paths", x.pathsFile(tierPathsYAML), "--sensitive-path-max-requests", "0"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
@@ -388,6 +400,7 @@ func TestListsSensitive_InvalidCapExits2(t *testing.T) {
 // After an upgrade the paths that were already checked are not requested
 // again: only the entries the new list adds are.
 func TestListsSensitive_UpgradeRequestsOnlyNewEntries(t *testing.T) {
+	t.Parallel()
 	x, sites := twoServices(t)
 	before := `
 - path: /high-one

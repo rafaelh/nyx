@@ -35,6 +35,7 @@ func (x *web) completedKeys(stage string) []string { return x.h.completed(eng, s
 // --- Which hostnames and ports are probed ---
 
 func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com", "c.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -68,6 +69,7 @@ func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
 }
 
 func TestProbe_WildcardSharedAndExcluded(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("wild1.w.example.com", "wild2.w.example.com", "hk.example.com", "ex.example.com")
 	x.dns.Wildcard("w.example.com", "203.0.113.20")
@@ -97,6 +99,7 @@ func TestProbe_WildcardSharedAndExcluded(t *testing.T) {
 }
 
 func TestProbe_NonStandardPortDetectedOnce(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com", "c.example.com")
 	for _, n := range []string{"a", "b", "c"} {
@@ -127,6 +130,7 @@ func TestProbe_NonStandardPortDetectedOnce(t *testing.T) {
 }
 
 func TestProbe_DetectionTestsItsOwnAddress(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com", "c.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -153,6 +157,7 @@ func TestProbe_DetectionTestsItsOwnAddress(t *testing.T) {
 }
 
 func TestProbe_NameOnTwoAddressesIsDetectedOnce(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5", "203.0.113.6")
@@ -180,8 +185,10 @@ func (x *web) wantRecordCount(kind string, n int) {
 }
 
 func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"reset", "hang"} {
 		t.Run("plain server that "+mode+"s a ClientHello", func(t *testing.T) {
+			t.Parallel()
 			x := newWeb(t)
 			x.names("a.example.com")
 			x.host("a.example.com", "203.0.113.5")
@@ -198,6 +205,7 @@ func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
 		})
 	}
 	t.Run("https wins when the port speaks TLS", func(t *testing.T) {
+		t.Parallel()
 		x := newWeb(t)
 		x.names("a.example.com")
 		x.host("a.example.com", "203.0.113.5")
@@ -210,6 +218,7 @@ func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
 		}
 	})
 	t.Run("a closed open_port records nothing", func(t *testing.T) {
+		t.Parallel()
 		x := newWeb(t)
 		x.names("a.example.com")
 		x.host("a.example.com", "203.0.113.5")
@@ -223,6 +232,7 @@ func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
 }
 
 func TestProbe_BannerAndNonHTTPPortsGetNoVhostRequests(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com", "c.example.com")
 	for _, n := range []string{"a", "b", "c"} {
@@ -255,6 +265,7 @@ func TestProbe_BannerAndNonHTTPPortsGetNoVhostRequests(t *testing.T) {
 // --- Services by IP ---
 
 func TestProbeIP_IPLiteralService(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	v4 := x.plain("198.51.100.7", 8080, page("<title>v4</title>"))
 	v6 := x.plain("2001:db8:1::5", 80, page("<title>v6</title>"))
@@ -289,6 +300,7 @@ func TestProbeIP_IPLiteralService(t *testing.T) {
 }
 
 func TestProbeIP_ANameWinsOverTheIP(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "198.51.100.7")
@@ -303,6 +315,7 @@ func TestProbeIP_ANameWinsOverTheIP(t *testing.T) {
 }
 
 func TestProbeIP_OutOfScopeAndExcludedIPsAreNotProbed(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	outside := x.plain("192.0.2.9", 8080, page("outside"))
 	excluded := x.plain("198.51.100.200", 8080, page("excluded"))
@@ -319,6 +332,7 @@ func TestProbeIP_OutOfScopeAndExcludedIPsAreNotProbed(t *testing.T) {
 // --- What is recorded for a live service ---
 
 func TestWebService_AllAttributes(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -365,6 +379,7 @@ func TestWebService_AllAttributes(t *testing.T) {
 }
 
 func TestWebService_ExpiredAndSelfSignedCertificatesAreRecorded(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("exp.example.com", "self.example.com", "selfca.example.com")
 	ca := newCA(t, "Test Root CA")
@@ -409,6 +424,7 @@ func TestWebService_ExpiredAndSelfSignedCertificatesAreRecorded(t *testing.T) {
 }
 
 func TestWebService_TitleIsTrimmedAndCapped(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	cases := map[string]struct{ ctype, body string }{
 		"t1": {"text/html", "<html><head><title>\n  Hello \t World  </title><title>second</title></head></html>"},
@@ -452,6 +468,7 @@ func TestWebService_TitleIsTrimmedAndCapped(t *testing.T) {
 }
 
 func TestWebService_AnyStatusIsALiveService(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("gone.example.com", "broken.example.com")
 	x.host("gone.example.com", "203.0.113.5")
@@ -472,6 +489,7 @@ func TestWebService_AnyStatusIsALiveService(t *testing.T) {
 }
 
 func TestWebService_RedoHTTPProbeRefreshesTheService(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")

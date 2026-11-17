@@ -57,6 +57,12 @@ type Deps struct {
 	// first cancels the command, a second exits at once (see NotifySignals).
 	Signals <-chan os.Signal
 	Version string // shown by --version and sent as the User-Agent; empty means "devel"
+	// Env is the environment settings and colours are read from, as os.Environ gives it; nil
+	// means an empty one.
+	Env config.Env
+	// NoFsync writes output files without syncing them to disk first, which on macOS costs a full
+	// flush of the drive's cache per file. Only tests set it.
+	NoFsync bool
 }
 
 // DefaultDeps returns the production dependencies, except Signals, which only
@@ -69,6 +75,7 @@ func DefaultDeps() Deps {
 		StdoutIsTTY: func() bool { return term.IsTerminal(int(os.Stdout.Fd())) },
 		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
 		Clock:       time.Now,
+		Env:         os.Environ(),
 	}
 }
 
@@ -158,15 +165,15 @@ type invocation struct {
 
 func newInvocation(d Deps, args []string) *invocation {
 	inv := &invocation{d: d, args: args, raw: scanShared(args)}
-	inv.dp = depths{out: palette.Detect(d.StdoutIsTTY(), os.Getenv), err: palette.Detect(d.StderrIsTTY(), os.Getenv)}
-	inv.fw = newFailureWriter(d.Stderr, inv.raw.json, inv.dp.err, config.NewRedactor(config.EnvKeyValues()...))
+	inv.dp = depths{out: palette.Detect(d.StdoutIsTTY(), d.Env.Get), err: palette.Detect(d.StderrIsTTY(), d.Env.Get)}
+	inv.fw = newFailureWriter(d.Stderr, inv.raw.json, inv.dp.err, config.NewRedactor(config.EnvKeyValues(d.Env)...))
 	return inv
 }
 
 // loadSettings loads a command's settings into probs and has the error mask
 // every key that loaded, even when some setting did not.
 func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs *clierr.Problems) (config.Settings, *config.Redactor) {
-	settings, err := config.Load(fs, configPath)
+	settings, err := config.Load(fs, configPath, inv.d.Env)
 	probs.Merge(err)
 	red := config.NewRedactor(settings.KeyValues()...)
 	inv.fw.setRedactor(red)

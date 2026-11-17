@@ -57,6 +57,7 @@ func includes(n int) string {
 
 // SPF, DMARC and MX cases, each producing exactly the findings listed.
 func TestEmail_Posture(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		edit func(*mail)
@@ -142,6 +143,7 @@ func TestEmail_Posture(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			x := newRisk(t, "email")
 			x.names()
 			m := healthy()
@@ -172,6 +174,7 @@ func TestEmail_Posture(t *testing.T) {
 
 // Severities of the email findings.
 func TestEmail_Severities(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "email")
 	x.names()
 	m := healthy()
@@ -193,6 +196,7 @@ func TestEmail_Severities(t *testing.T) {
 
 // A SERVFAIL on _dmarc is a failed check, retried on the next run.
 func TestEmail_DMARCServfailIsTransient(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "email")
 	x.names()
 	m := healthy()
@@ -219,6 +223,7 @@ func TestEmail_DMARCServfailIsTransient(t *testing.T) {
 // A SERVFAIL on an SPF include is a temperror: the check fails and is
 // retried, instead of completing with a permanent spf-invalid.
 func TestEmail_IncludeServfailIsTransient(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "email")
 	x.names()
 	m := healthy()
@@ -245,6 +250,7 @@ func TestEmail_IncludeServfailIsTransient(t *testing.T) {
 
 // A SERVFAIL on a selector is recorded, not fatal.
 func TestEmail_SelectorErrorsRecorded(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "email")
 	x.names()
 	m := healthy()
@@ -261,6 +267,7 @@ func TestEmail_SelectorErrorsRecorded(t *testing.T) {
 
 // For a subdomain root the organisational domain's sp= applies, and its p= when there is no sp=.
 func TestEmail_SubdomainRootUsesOrgPolicy(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		dmarc string
 		want  []string
@@ -299,6 +306,7 @@ func TestEmail_SubdomainRootUsesOrgPolicy(t *testing.T) {
 
 // Only in-scope input roots are checked; an excluded root is not.
 func TestEmail_OnlyInScopeRoots(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "email")
 	x.names()
 	healthy().apply(x.dns, "example.com")

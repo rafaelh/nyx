@@ -55,6 +55,7 @@ func day(t *testing.T, d string) time.Time {
 // risk-eol-software.csv, with the file's columns; a distribution build is one step lower; the
 // high and medium ones reach the summary; and open-ports.csv names the product and version.
 func TestEOL_FindingsFromTechnologiesAndBanners(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "198.51.100.5")
@@ -115,6 +116,7 @@ func TestEOL_FindingsFromTechnologiesAndBanners(t *testing.T) {
 // A service whose Server and X-Powered-By headers carry a distribution suffix, which Wappalyzer
 // leaves out of the version, is a distribution build: one step lower.
 func TestEOL_DistributionBuildFromTheProbe(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "198.51.100.5")
@@ -134,6 +136,7 @@ func TestEOL_DistributionBuildFromTheProbe(t *testing.T) {
 // A banner nyx cannot name leaves product and version empty, and an engagement made before
 // the columns existed gains them on the next run with no contact.
 func TestEOL_PortColumnsOnAnExistingEngagement(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "198.51.100.5")
@@ -174,6 +177,7 @@ func TestEOL_PortColumnsOnAnExistingEngagement(t *testing.T) {
 // and when the clock passes the end date it is end of life, including under --passive, which
 // reads the records kept from the earlier run.
 func TestEOL_ClockMovesFindingsWithNoContact(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "198.51.100.5")
@@ -213,6 +217,7 @@ func TestEOL_ClockMovesFindingsWithNoContact(t *testing.T) {
 
 // --eol-warn-days 0 turns the approaching finding off and keeps the end-of-life one.
 func TestEOL_WarnDaysFlag(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "198.51.100.5")
@@ -238,6 +243,7 @@ func TestEOL_WarnDaysFlag(t *testing.T) {
 
 // A redo of the probe that no longer shows the version marks its finding not current.
 func TestEOL_RedoProbeWithANewVersion(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "198.51.100.5")
@@ -263,6 +269,7 @@ func TestEOL_RedoProbeWithANewVersion(t *testing.T) {
 // A run warns once when the embedded data is more than twelve months old, with no flag, and
 // not before.
 func TestEOL_StaleDataWarning(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names()
 	taken := day(t, eol.DataDate())
@@ -290,6 +297,7 @@ func TestEOL_StaleDataWarning(t *testing.T) {
 // The README lists the products and where the data came from and when, the banners nyx
 // recognises and the output file; --help and the findings topic list the setting and the types.
 func TestEOL_DocumentedInReadmeAndHelp(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)

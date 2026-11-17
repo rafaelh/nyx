@@ -36,6 +36,7 @@ func selfFor(t *testing.T, host string) tls.Certificate {
 // checked for sensitive paths like any other, and is a low finding. A service with TLS 1.2
 // or later is recorded with its version and is not.
 func TestTLS_LegacyServicesAreRecordedCrawledAndChecked(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("old10.example.com", "old11.example.com", "new.example.com")
 	x.host("old10.example.com", "203.0.113.10")
@@ -83,6 +84,7 @@ func TestTLS_LegacyServicesAreRecordedCrawledAndChecked(t *testing.T) {
 // web-services.csv has tls_version, tls_cipher and tls_trust (the header is checked with the
 // other web columns), and each trust value is the first that applies.
 func TestTLS_ColumnsAndTrustValues(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	ca := newCA(t, "Test Root CA")
 	hosts := map[string]struct {
@@ -137,6 +139,7 @@ func TestTLS_ColumnsAndTrustValues(t *testing.T) {
 
 // The values come from the service's own first response, not from where it redirects.
 func TestTLS_ValuesComeFromTheFirstResponse(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names("a.example.com", "b.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -163,6 +166,7 @@ func TestTLS_ValuesComeFromTheFirstResponse(t *testing.T) {
 // A service whose handshake fails is not recorded and has no TLS finding, including one that
 // offers only RC4, which is not offered.
 func TestTLS_FailedHandshakeIsNotRecorded(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names("rc4.example.com")
 	x.host("rc4.example.com", "203.0.113.5")
@@ -186,6 +190,7 @@ func TestTLS_FailedHandshakeIsNotRecorded(t *testing.T) {
 // A record from before these columns shows a trust worked out from its old attributes and no
 // version or cipher, and a plain re-run sends nothing, until --redo httpprobe.
 func TestTLS_ExistingRecordsHaveDerivedTrustAndNoVersionUntilRedo(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -222,6 +227,7 @@ func TestTLS_ExistingRecordsHaveDerivedTrustAndNoVersionUntilRedo(t *testing.T) 
 // Findings of a service that now negotiates a modern version and a matching certificate go not
 // current after --redo httpprobe, and stay on record.
 func TestTLS_FindingsGoNotCurrentAfterRedoAgainstFixedService(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")

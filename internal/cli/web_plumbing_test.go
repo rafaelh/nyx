@@ -9,6 +9,7 @@ import (
 )
 
 func TestWebPlumbing_FilesAreSortedSafeDatedAndCounted(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("b.example.com", "a.example.com")
 	x.host("a.example.com", "203.0.113.5")

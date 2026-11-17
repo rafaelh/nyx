@@ -33,6 +33,7 @@ func rootWith(t *testing.T) *cobra.Command {
 // flags and the values of its fixed-set flags, and the pre-scan knows it,
 // with no second list of commands to keep in step.
 func TestRootHelp_CommandAddedLater(t *testing.T) {
+	t.Parallel()
 	root := rootWith(t)
 	help := rootHelp(root, palette.None)
 	for _, want := range []string{
@@ -76,6 +77,7 @@ func TestRootHelp_CommandAddedLater(t *testing.T) {
 
 // Hints quote each argument for a POSIX shell, only when it needs it.
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"example.com": "example.com", "--engagement=acme": "--engagement=acme", "a/b,c:d@e%f+g_h": "a/b,c:d@e%f+g_h",
 		"": "''", "Acme Pty": "'Acme Pty'", "it's": `'it'\''s'`, "$HOME": "'$HOME'", "a*": "'a*'", "née": "'née'",

@@ -43,7 +43,7 @@ func TestTXTAndCSV(t *testing.T) {
 		{Name: "list.txt", Format: output.TXT, Rows: rs},
 		{Name: "table.csv", Format: output.CSV, Columns: []string{"host", "src"}, Rows: rs},
 	}
-	if err := output.Render(dir, files, output.Snapshot{}); err != nil {
+	if err := output.Render(dir, files, output.Snapshot{}, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, dir, "list.txt"); got != "a.example.com\nb.example.com\n" {
@@ -82,7 +82,7 @@ func TestFileOrder(t *testing.T) {
 		{Name: "ordered.csv", Format: output.CSV, Columns: []string{"v", "n"}, Rows: rs, Order: byNumberDesc},
 		{Name: "plain.csv", Format: output.CSV, Columns: []string{"v", "n"}, Rows: rs},
 	}
-	if err := output.Render(dir, files, output.Snapshot{}); err != nil {
+	if err := output.Render(dir, files, output.Snapshot{}, true); err != nil {
 		t.Fatal(err)
 	}
 	firstCells := func(name string) string {
@@ -116,7 +116,7 @@ func TestEmptyFilesNotWritten(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := output.Render(dir, files, output.Snapshot{}); err != nil {
+	if err := output.Render(dir, files, output.Snapshot{}, true); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range files {
@@ -124,7 +124,7 @@ func TestEmptyFilesNotWritten(t *testing.T) {
 			t.Errorf("%s: want no file, got err %v", f.Name, err)
 		}
 	}
-	if err := output.Render(dir, files, output.Snapshot{}); err != nil {
+	if err := output.Render(dir, files, output.Snapshot{}, true); err != nil {
 		t.Errorf("rendering again with nothing to remove: %v", err)
 	}
 }
@@ -140,7 +140,7 @@ func TestCSVSafety(t *testing.T) {
 		output.Row{Cells: []string{"\x00=cmd()", "\x1b[0m+1"}, Current: true},
 		output.Row{Cells: []string{"a\u202eb", "c"}, Current: true},
 	)}}
-	if err := output.Render(dir, files, output.Snapshot{}); err != nil {
+	if err := output.Render(dir, files, output.Snapshot{}, true); err != nil {
 		t.Fatal(err)
 	}
 	recs, err := csv.NewReader(strings.NewReader(read(t, dir, "t.csv"))).ReadAll()
@@ -169,7 +169,7 @@ func TestCSVSafety(t *testing.T) {
 func TestAtomicRenderAndSweep(t *testing.T) {
 	dir := newDir(t)
 	f := output.File{Name: "a.txt", Format: output.TXT, Rows: rows(output.Row{Cells: []string{"one"}, Current: true})}
-	if err := output.Render(dir, []output.File{f}, output.Snapshot{}); err != nil {
+	if err := output.Render(dir, []output.File{f}, output.Snapshot{}, true); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(filepath.Join(dir, ".nyx", "tmp"))

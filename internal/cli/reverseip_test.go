@@ -146,7 +146,7 @@ func (f *stReverse) setStatus(code int) {
 
 func (x *web) securityTrails(byAddr map[string][]string) *stReverse {
 	x.t.Helper()
-	x.t.Setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+	x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
 	f := &stReverse{byAddr: byAddr}
 	x.handle("api.securitytrails.com", f.serve)
 	return f
@@ -199,6 +199,7 @@ func manyDomains(n int) []string {
 // recorded name, and a netblock address that was recorded, but never the rest of
 // a netblock, and never a shared, excluded or unknown-owner address.
 func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	x.names("app.example.com", "cdn.example.com", "ex.example.com", "u.example.com", "nb.example.com")
@@ -235,6 +236,7 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 // answer. The check exists once a key is added, and the addresses already done
 // are not asked again.
 func TestReverseIP_IPv6WaitsForTheKey(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.hackerTarget()
 	x.names("v6.example.com")
@@ -270,6 +272,7 @@ func TestReverseIP_IPv6WaitsForTheKey(t *testing.T) {
 // excluded, and a wildcard name gives its parent. "No records" completes the
 // check with nothing.
 func TestReverseIP_RecordsNamesByScope(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	x.names("app.example.com")
@@ -313,6 +316,7 @@ func TestReverseIP_RecordsNamesByScope(t *testing.T) {
 // Each of HackerTarget's "nothing found" replies completes the check with
 // nothing.
 func TestReverseIP_NoRecordsCompletesWithNothing(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{"No records found", "no dns a records found for 203.0.113.250", "error check your search parameter", ""} {
 		t.Run(body, func(t *testing.T) {
 			x := newWeb(t)
@@ -335,6 +339,7 @@ func TestReverseIP_NoRecordsCompletesWithNothing(t *testing.T) {
 // A reply that is not a list of names is an error, retried: it is never recorded
 // as "no names".
 func TestReverseIP_UnreadableReplyIsAFailedCheck(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	ht.answerAll(func(rw http.ResponseWriter) { _, _ = rw.Write([]byte("<html>Service unavailable, try later</html>")) })
@@ -353,6 +358,7 @@ func TestReverseIP_UnreadableReplyIsAFailedCheck(t *testing.T) {
 // and warns, naming the address; exactly the cap is recorded. Names under one
 // registrable domain count once. Changing the cap asks again.
 func TestReverseIP_SharedHostingGuard(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	x.names("app.example.com", "big.example.com")
@@ -410,6 +416,7 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 // HackerTarget's spent quota, as a 429 or as its 200 reply with a text body,
 // stops the stage with one warning, completes nothing, and is retried next run.
 func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
+	t.Parallel()
 	variants := map[string]func(rw http.ResponseWriter){
 		"HTTP 429": func(rw http.ResponseWriter) { http.Error(rw, "slow down", 429) },
 		"API count exceeded": func(rw http.ResponseWriter) {
@@ -460,6 +467,7 @@ func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 // IPv6 is covered. The key goes in the APIKEY header and never appears in any
 // output or file.
 func TestReverseIP_SecurityTrailsKey(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	x.names("app.example.com", "v6.example.com")
@@ -500,6 +508,7 @@ func TestReverseIP_SecurityTrailsKey(t *testing.T) {
 // A rejected SecurityTrails key stops the stage, HackerTarget lookups included:
 // the checks that remain are not sent, and nothing is completed.
 func TestReverseIP_RejectedSecurityTrailsKeyStopsTheStage(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.hackerTarget()
 	x.names("app.example.com")
@@ -527,6 +536,7 @@ func TestReverseIP_RejectedSecurityTrailsKeyStopsTheStage(t *testing.T) {
 // stays at two pairs when the cap changes and both addresses are asked again. A
 // root on one address is low. No candidate root is resolved or contacted.
 func TestReverseIP_RootOnTwoAddressesIsMedium(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	x.names("a.example.com", "b.example.com")
@@ -568,6 +578,7 @@ func TestReverseIP_RootOnTwoAddressesIsMedium(t *testing.T) {
 
 // Each address is asked once per engagement; --redo reverseip asks again.
 func TestReverseIP_OncePerEngagementUntilRedo(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	x.names("a.example.com")
@@ -601,6 +612,7 @@ func TestReverseIP_OncePerEngagementUntilRedo(t *testing.T) {
 
 // The registry order is pinned by TestRiskStageRegistry.
 func TestReverseIP_HelpAndSetting(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, defaultStageList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -614,6 +626,7 @@ func TestReverseIP_HelpAndSetting(t *testing.T) {
 }
 
 func TestReverseIP_ReadmeSaysWhatItDoes(t *testing.T) {
+	t.Parallel()
 	boundary, readme := readmeSection(t, "## Passive boundary")
 	for _, want := range []string{
 		"reverseip", "--redo reverseip", "reverseip.max_domains", "--reverseip-max-domains", "HackerTarget",

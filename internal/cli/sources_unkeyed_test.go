@@ -88,6 +88,7 @@ func messages(w *world, typ, containing string) []string {
 }
 
 func TestUnkeyed_NamesAreRecorded(t *testing.T) {
+	t.Parallel()
 	forEachUnkeyed(t, func(t *testing.T, w *world, s unkeyedSource) {
 		s.serve(w, s.ok)
 		for _, n := range s.names {
@@ -122,6 +123,7 @@ func TestUnkeyed_NamesAreRecorded(t *testing.T) {
 
 // A root that is not in scope is not queried, for the new sources and the old.
 func TestUnkeyed_ExcludedRootIsNotQueried(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	for _, s := range unkeyedSources {
 		s.serve(w, s.ok)
@@ -144,6 +146,7 @@ func TestUnkeyed_ExcludedRootIsNotQueried(t *testing.T) {
 
 // Scope decides which file a returned name appears in.
 func TestUnkeyed_ScopeDecidesTheFile(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.handle("api.hackertarget.com", jsonBody("junk1.example.com,203.0.113.1\njunk2.example.com,203.0.113.2\n"+
 		"real.example.com,203.0.113.50\nex.example.com,203.0.113.51\n"))
@@ -168,6 +171,7 @@ func TestUnkeyed_ScopeDecidesTheFile(t *testing.T) {
 }
 
 func TestUnkeyed_NamesAreNormalised(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	// crt.sh and a new source both give a wildcard; the new source also gives
 	// upper case, a trailing dot, a Unicode name and one that is not a hostname.
@@ -194,6 +198,7 @@ func TestUnkeyed_NamesAreNormalised(t *testing.T) {
 // HackerTarget's two "nothing found" answers, and an empty body (no lines),
 // complete the check without retry.
 func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{"No records found", "error check your search parameter", ""} {
 		t.Run(body, func(t *testing.T) {
 			w := newWorld(t)
@@ -218,6 +223,7 @@ func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 
 // A spent quota stops that stage alone: one warning, the checks fail and are retried.
 func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
+	t.Parallel()
 	type variant struct {
 		name  string
 		serve func(w *world, s unkeyedSource)
@@ -235,6 +241,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				continue
 			}
 			t.Run(v.name+"/"+s.stage, func(t *testing.T) {
+				t.Parallel()
 				w := newWorld(t)
 				v.serve(w, s)
 				w.crtsh(map[string][]string{"example.com": {"c.example.com"}}, nil)
@@ -287,6 +294,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 
 // A runner-level check of the abort warning, independent of any source.
 func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
+	t.Parallel()
 	if !errors.Is(run.ErrQuota, run.ErrAbortStage) {
 		t.Error("ErrQuota must be an abort of the stage")
 	}
@@ -331,6 +339,7 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 }
 
 func TestUnkeyed_NotFoundIsEmpty(t *testing.T) {
+	t.Parallel()
 	forEachUnkeyed(t, func(t *testing.T, w *world, s unkeyedSource) {
 		w.handle(s.host, status(404))
 		if code := w.run("--passive", "example.com"); code != 0 {
@@ -353,6 +362,7 @@ func TestUnkeyed_NotFoundIsEmpty(t *testing.T) {
 // A wrong-shaped body, a server error and an oversized body are transient: the
 // check is not recorded, and the next run retries it.
 func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
+	t.Parallel()
 	oversize := func(s unkeyedSource) http.HandlerFunc {
 		return func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = rw.Write([]byte(s.ok))
@@ -369,6 +379,7 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 			{"oversized", func(w *world) { w.handle(s.host, oversize(s)) }},
 		} {
 			t.Run(s.stage+"/"+v.name, func(t *testing.T) {
+				t.Parallel()
 				w := newWorld(t)
 				v.serve(w)
 				for _, n := range s.names {
@@ -399,6 +410,7 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 // Get is unchanged: a 429 from one range publisher fails that list's check and
 // does not abort providerranges.
 func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.handle("ip-ranges.amazonaws.com", status(429))
 	w.handle("www.gstatic.com", jsonBody(`{"prefixes":[{"ipv4Prefix":"100.64.0.0/16","service":"Google Cloud","scope":"europe-west1"}]}`))
@@ -420,6 +432,7 @@ func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
 // Re-running an engagement made before these sources existed does not repeat
 // the old sources' checks and resolves only the names the new ones add.
 func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.crtsh(map[string][]string{"example.com": {"old.example.com"}}, nil)
 	w.dns.A("old.example.com", "203.0.113.5")
@@ -468,6 +481,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 }
 
 func TestUnkeyed_HelpAndRedo(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.h.exec("--help")
 	help := w.h.stdout.String()
@@ -530,6 +544,7 @@ func resolveAll(w *world, names ...string) {
 }
 
 func TestCertSpotter_UnkeyedSendsNoCredentials(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	certspotterPages(w, always)
 	resolveAll(w, "p1", "p1b", "p2", "p3")
@@ -559,8 +574,9 @@ func TestCertSpotter_UnkeyedSendsNoCredentials(t *testing.T) {
 }
 
 func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	t.Setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
+	w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
 	if code := w.run("--passive", "example.com"); code != 0 {
@@ -580,10 +596,11 @@ func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
 // A rejected key stops the stage like a spent quota, and is not retried within
 // the run.
 func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
+	t.Parallel()
 	for _, code := range []int{401, 403} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
+			w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
 			if c := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); c != 0 {
 				t.Fatalf("exit %d", c)
@@ -607,6 +624,7 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 // A key added after checks failed applies to the checks not yet done, and the
 // key is not part of the check, so --redo is only needed for the finished ones.
 func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
@@ -616,7 +634,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 	if st, _ := stateOf(w, "certspotter"); st != "failed" {
 		t.Fatalf("without the key the server refuses: state = %s", st)
 	}
-	t.Setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
+	w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -643,6 +661,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 // Paging stops at certspotter.max_pages with a warning; the cap is part of the
 // check, so raising it repeats the check.
 func TestCertSpotter_PageCap(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	certspotterPages(w, always)
 	resolveAll(w, "p1", "p1b", "p2", "p3")
@@ -682,6 +701,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 }
 
 func TestCertSpotter_MaxPagesMustBePositive(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	if code := w.run("--passive", "--certspotter-max-pages", "0", "example.com"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
@@ -694,6 +714,7 @@ func TestCertSpotter_MaxPagesMustBePositive(t *testing.T) {
 // --- README ---
 
 func TestReadme_NamesTheNewSources(t *testing.T) {
+	t.Parallel()
 	section, readme := readmeSection(t, "## Passive boundary")
 	for _, src := range []string{"hackertarget", "urlscan", "cert spotter"} {
 		if !strings.Contains(section, src) {
@@ -712,6 +733,7 @@ func TestReadme_NamesTheNewSources(t *testing.T) {
 // urlscan reads one page of results; it says so when the answer has more. The
 // live service reports total beyond the page with has_more false.
 func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
+	t.Parallel()
 	const one = `"results":[{"page":{"domain":"us.example.com"},"task":{}}]`
 	cases := []struct {
 		name, body string

@@ -65,6 +65,7 @@ const aboutPage = `<html><body><script>fbq('init', '111111111');</script>
 // The columns follow the posture columns, and the cells are the union over the
 // pages the probe and the crawl fetched.
 func TestIdentifiers_ProbeAndCrawlUnion(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -99,6 +100,7 @@ func TestIdentifiers_ProbeAndCrawlUnion(t *testing.T) {
 
 // A negative hash is written with the quote every cell starting with "-" gets.
 func TestIdentifiers_NegativeHashCellIsQuoted(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -111,6 +113,7 @@ func TestIdentifiers_NegativeHashCellIsQuoted(t *testing.T) {
 
 // With the crawl off, only the root page's identifiers are known.
 func TestIdentifiers_ProbeOnlySeesTheRootPage(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -125,6 +128,7 @@ func TestIdentifiers_ProbeOnlySeesTheRootPage(t *testing.T) {
 // Identifiers are read from the pages of the chain served by the service's own
 // host, not from a page a redirect led to elsewhere.
 func TestIdentifiers_OnlyThePagesOfTheServiceItself(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com", "other.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -159,6 +163,7 @@ func (x *web) otherSite() *site {
 }
 
 func TestFavicon_FromTheSameHostLink(t *testing.T) {
+	t.Parallel()
 	x, s := faviconCase(t, page(`<head><link rel="stylesheet" href="/s.css"><link rel="apple-touch-icon" href="/apple.png"><link rel="shortcut icon" href="/static/fav.png"></head>`),
 		map[string]http.HandlerFunc{"/static/fav.png": icon("image/png", iconOf(100)), "/favicon.ico": icon("image/x-icon", iconOf(50)), "/apple.png": icon("image/png", iconOf(30))})
 	x.mustRun("--crawl-pages", "0")
@@ -175,6 +180,7 @@ func TestFavicon_FromTheSameHostLink(t *testing.T) {
 
 // A relative icon link resolves against the page's <base href>, as a browser does.
 func TestFavicon_LinkUnderBaseHref(t *testing.T) {
+	t.Parallel()
 	x, s := faviconCase(t, page(`<head><base href="/static/"><link rel="icon" href="fav.png"></head>`),
 		map[string]http.HandlerFunc{"/static/fav.png": icon("image/png", iconOf(100)), "/fav.png": icon("image/png", iconOf(50))})
 	x.mustRun("--crawl-pages", "0")
@@ -187,6 +193,7 @@ func TestFavicon_LinkUnderBaseHref(t *testing.T) {
 }
 
 func TestFavicon_FallsBackToFaviconIco(t *testing.T) {
+	t.Parallel()
 	x, s := faviconCase(t, page(`<head><title>x</title><link rel="apple-touch-icon" href="/apple.png"></head>`),
 		map[string]http.HandlerFunc{"/favicon.ico": icon("image/x-icon", iconOf(100))})
 	x.mustRun("--crawl-pages", "0")
@@ -201,6 +208,7 @@ func TestFavicon_FallsBackToFaviconIco(t *testing.T) {
 // An icon link on another host is not followed, even to an in-scope host: the
 // service's own /favicon.ico is used.
 func TestFavicon_OffHostLinkFallsBack(t *testing.T) {
+	t.Parallel()
 	x, s := faviconCase(t, page(`<head><link rel="icon" href="http://cdn.elsewhere.test/fav.png"></head>`),
 		map[string]http.HandlerFunc{"/favicon.ico": icon("image/x-icon", iconOf(100))})
 	other := x.otherSite()
@@ -219,6 +227,7 @@ func TestFavicon_OffHostLinkFallsBack(t *testing.T) {
 // When the probe's chain ends on another host, that host's page and its icon
 // link are not used for this service.
 func TestFavicon_ChainEndingOnAnotherHost(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com", "other.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -244,6 +253,7 @@ func TestFavicon_ChainEndingOnAnotherHost(t *testing.T) {
 
 // A redirect of the icon is followed once, and only to the same host.
 func TestFavicon_Redirects(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		routes map[string]http.HandlerFunc
 		want   string
@@ -271,6 +281,7 @@ func TestFavicon_Redirects(t *testing.T) {
 
 // No hash from a missing file, a web page, or something that is not an image.
 func TestFavicon_NoHashFromAnAnswerThatIsNotAnIcon(t *testing.T) {
+	t.Parallel()
 	for name, h := range map[string]http.HandlerFunc{
 		"404":              http.NotFound,
 		"html page":        page("<html><body>Not found, honest</body></html>"),
@@ -294,6 +305,7 @@ func TestFavicon_NoHashFromAnAnswerThatIsNotAnIcon(t *testing.T) {
 // An icon request that fails (the server cuts the connection mid-body) is no icon,
 // and does not cost the service its record or fail the probe.
 func TestFavicon_FailedRequestDoesNotLoseTheService(t *testing.T) {
+	t.Parallel()
 	x, s := faviconCase(t, page("<title>home</title>"), map[string]http.HandlerFunc{"/favicon.ico": func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")
 		w.Header().Set("Content-Length", "1000")
@@ -316,6 +328,7 @@ func TestFavicon_FailedRequestDoesNotLoseTheService(t *testing.T) {
 // A response with no content type is hashed (an icon often has none), and so is
 // an empty file, whose hash is 0.
 func TestFavicon_NoContentTypeAndEmptyFile(t *testing.T) {
+	t.Parallel()
 	x, _ := faviconCase(t, page("<p>home</p>"), map[string]http.HandlerFunc{"/favicon.ico": icon("", iconOf(100))})
 	x.mustRun("--crawl-pages", "0")
 	if _, _, f, _ := x.ids("http://www.example.com"); f != hash100 {
@@ -330,6 +343,7 @@ func TestFavicon_NoContentTypeAndEmptyFile(t *testing.T) {
 
 // Exactly one favicon GET per web service, and never one to a service that does not answer.
 func TestFavicon_OneGetPerService(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -412,7 +426,7 @@ func hit(ip string, hostnames ...string) map[string]any {
 // pivot installs the fake and the key.
 func (x *web) pivot() *pivotFake {
 	x.t.Helper()
-	x.t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	x.h.setenv("NYX_KEYS_SHODAN", shodanKey)
 	f := &pivotFake{answers: map[string]string{}, status: map[string]int{}}
 	x.handle("api.shodan.io", f.serve)
 	return f
@@ -479,6 +493,7 @@ func pivotWorld(t *testing.T) (x *web, f *pivotFake, canaries, sites []*site) {
 }
 
 func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
+	t.Parallel()
 	x, _, canaries, _ := pivotWorld(t)
 	x.mustRun()
 
@@ -534,8 +549,9 @@ func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
 
 // Identifiers are recorded even where nothing can be searched, and the stage says why.
 func TestIdentifierPivot_NotConfiguredWithoutKey(t *testing.T) {
+	t.Parallel()
 	x, _, _, _ := pivotWorld(t)
-	t.Setenv("NYX_KEYS_SHODAN", "")
+	x.h.setenv("NYX_KEYS_SHODAN", "")
 	x.mustRun()
 	if st, reason := x.stageState("identifier-pivot"); st != "not-configured" || reason != "no key" {
 		t.Errorf("identifier-pivot = %s (%s), want not-configured (no key)", st, reason)
@@ -550,6 +566,7 @@ func TestIdentifierPivot_NotConfiguredWithoutKey(t *testing.T) {
 
 // The cap is in searches. The rest wait for later runs, which never repeat one.
 func TestIdentifierPivot_PerRunCapDefersTheRest(t *testing.T) {
+	t.Parallel()
 	x, _, _, _ := pivotWorld(t)
 	x.mustRun("--identifier-pivot-max-queries", "1")
 	if got := x.queries(); !slices.Equal(got, []string{qFavicon}) {
@@ -570,6 +587,7 @@ func TestIdentifierPivot_PerRunCapDefersTheRest(t *testing.T) {
 
 // A search with more than 200 hosts is a shared or common identifier: nothing is recorded.
 func TestIdentifierPivot_TooManyHostsRecordsNothing(t *testing.T) {
+	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
 	f.set(qGA, searchJSON(201, hit("198.51.100.10", "sister.example.com", "brand.other-brand.co.uk")))
 	x.mustRun()
@@ -599,6 +617,7 @@ func TestIdentifierPivot_TooManyHostsRecordsNothing(t *testing.T) {
 
 // A key without search access fails the stage once, with one warning.
 func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
+	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
 	f.failAll(403)
 	x.mustRun("--concurrency", "1")
@@ -625,6 +644,7 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 // No query credits (402) stops the stage for the run. The search that was refused and the
 // ones not yet sent run next time; the ones that finished do not.
 func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
+	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
 	f.fail(qPixel, 402)
 	x.mustRun("--concurrency", "1")
@@ -651,8 +671,9 @@ func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
 
 // Under --passive nothing is collected, but identifiers kept from an earlier run are searched.
 func TestIdentifierPivot_PassivePivotsStoredIdentifiers(t *testing.T) {
+	t.Parallel()
 	x, _, _, sites := pivotWorld(t)
-	t.Setenv("NYX_KEYS_SHODAN", "")
+	x.h.setenv("NYX_KEYS_SHODAN", "")
 	x.mustRun() // records the identifiers; nothing to search with
 	hits := func() (n int) {
 		for _, s := range sites {
@@ -661,7 +682,7 @@ func TestIdentifierPivot_PassivePivotsStoredIdentifiers(t *testing.T) {
 		return n
 	}
 	before := hits()
-	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	x.h.setenv("NYX_KEYS_SHODAN", shodanKey)
 	if code := x.passive(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -681,6 +702,7 @@ func TestIdentifierPivot_PassivePivotsStoredIdentifiers(t *testing.T) {
 
 // A passive run of a fresh engagement collects no identifiers: the probe and the crawl do not run.
 func TestIdentifierPivot_PassiveCollectsNothing(t *testing.T) {
+	t.Parallel()
 	x, _, _, _ := pivotWorld(t)
 	x.mustPassive()
 	if got := x.queries(); len(got) != 0 {
@@ -694,6 +716,7 @@ func TestIdentifierPivot_PassiveCollectsNothing(t *testing.T) {
 // An engagement probed before identifiers existed has none until httpprobe and
 // crawl are redone, and a plain re-run sends nothing.
 func TestIdentifiers_ExistingEngagementGainsThemOnlyAfterRedo(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")

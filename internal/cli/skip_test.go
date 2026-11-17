@@ -9,6 +9,7 @@ import (
 // A skipped stage is shown as not-configured (skipped) before any other reason,
 // performs no checks and sends no requests.
 func TestSkip_StateAndNoChecks(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.crtsh(map[string][]string{"example.com": {"a.example.com"}}, nil)
 	// virustotal has no key and httpprobe is passive-only: skipped wins over both.
@@ -47,6 +48,7 @@ func TestSkip_StateAndNoChecks(t *testing.T) {
 
 // Skipping marks nothing not current: what a stage found earlier stays.
 func TestSkip_KeepsEarlierResults(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.crtsh(map[string][]string{"example.com": {"a.example.com"}}, nil)
 	w.dns.A("a.example.com", "203.0.113.5")
@@ -75,6 +77,7 @@ func TestSkip_KeepsEarlierResults(t *testing.T) {
 }
 
 func TestSkip_InvalidExits2(t *testing.T) {
+	t.Parallel()
 	protected := []string{"resolve", "wildcard", "ipowner", "providerranges"}
 	type tc struct {
 		name        string
@@ -117,8 +120,9 @@ func TestSkip_InvalidExits2(t *testing.T) {
 
 // Naming an unknown stage in the environment or file exits 2 too.
 func TestSkip_InvalidSettingExits2(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	t.Setenv("NYX_SKIP", "crtsh,nonesuch")
+	w.h.setenv("NYX_SKIP", "crtsh,nonesuch")
 	if code := w.run("--passive", "example.com"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
 	}
@@ -127,6 +131,7 @@ func TestSkip_InvalidSettingExits2(t *testing.T) {
 // The flag, the file and NYX_SKIP all set the list; the flag replaces the
 // setting for the run, and none clears it.
 func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
+	t.Parallel()
 	skipped := func(w *world) []string {
 		var out []string
 		for _, s := range []string{"crtsh", "wayback", "hackertarget", "urlscan"} {
@@ -138,7 +143,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	}
 	t.Run("environment is comma separated", func(t *testing.T) {
 		w := newWorld(t)
-		t.Setenv("NYX_SKIP", "crtsh,wayback")
+		w.h.setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "example.com")
 		if got := skipped(w); !slices.Equal(got, []string{"crtsh", "wayback"}) {
 			t.Errorf("skipped = %v", got)
@@ -154,7 +159,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	})
 	t.Run("flag replaces the setting", func(t *testing.T) {
 		w := newWorld(t)
-		t.Setenv("NYX_SKIP", "crtsh,wayback")
+		w.h.setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "--skip", "hackertarget", "--skip", "urlscan", "example.com")
 		if got := skipped(w); !slices.Equal(got, []string{"hackertarget", "urlscan"}) {
 			t.Errorf("skipped = %v", got)
@@ -162,7 +167,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 	})
 	t.Run("none runs every stage", func(t *testing.T) {
 		w := newWorld(t)
-		t.Setenv("NYX_SKIP", "crtsh,wayback")
+		w.h.setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "--skip", "none", "example.com")
 		if got := skipped(w); len(got) != 0 {
 			t.Errorf("skipped = %v, want nothing", got)

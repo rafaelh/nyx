@@ -38,6 +38,7 @@ func srvChecks(w *world) []string {
 // target; every listed service name is asked once, and a name is never
 // treated as a hostname.
 func TestSRV_AnswersAreRows(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 	w.dns.SRV("_sip._tls.example.com", 20, 40, 5061, "sipfallback.example.com")
@@ -85,6 +86,7 @@ func TestSRV_AnswersAreRows(t *testing.T) {
 // An in-scope target is a hostname; any other is a third party recorded by its
 // registrable domain, never a candidate and never resolved.
 func TestSRV_Targets(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 	w.dns.SRV("_caldav._tcp.example.com", 1, 1, 443, "cal.cloudflare.com")
@@ -132,6 +134,7 @@ func TestSRV_Targets(t *testing.T) {
 // A SERVFAIL or a timeout on any service fails the SRV check, and only it; the
 // next run retries it and repeats nothing else.
 func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
+	t.Parallel()
 	for name, fail := range map[string]func(w *world){
 		"servfail": func(w *world) { w.dns.RcodeType("_matrix._tcp.example.com", "SRV", egress.RCodeServFail) },
 		"timeout":  func(w *world) { w.dns.Drop("_matrix._tcp.example.com") },
@@ -175,6 +178,7 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 // An engagement that already has the four record types runs the SRV check once
 // and asks nothing it already holds.
 func TestSRV_ExistingEngagementRunsOnlyTheNewCheck(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test")
 	runRoot(t, w)
@@ -213,6 +217,7 @@ func TestSRV_ExistingEngagementRunsOnlyTheNewCheck(t *testing.T) {
 // ips.csv gives the ports SRV records advertise for an address's hostnames,
 // and nyx still connects only to the configured ports.
 func TestSRV_PortsReportedNeverConnected(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	p.host("sip.example.com", "203.0.113.7")
 	p.owner("203.0.113.7", 64500, "ACME-NET")
@@ -277,6 +282,7 @@ func TestSRV_PortsReportedNeverConnected(t *testing.T) {
 // A service name is not a hostname: it is never tested as a wildcard zone, and
 // rows of type SRV from any source do not name zones or addresses.
 func TestSRV_NoWildcardCheckForServiceNames(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 	w.dns.A("sip.example.com", "203.0.113.11")
@@ -315,6 +321,7 @@ func TestSRV_NoWildcardCheckForServiceNames(t *testing.T) {
 // A new third party is announced like any other, and a row that is no longer
 // current still shows its root, mechanism and domain.
 func TestSRV_ThirdPartyAnnouncedAndKeptWhenNotCurrent(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.SRV("_xmpp-server._tcp.example.com", 5, 0, 5269, "xmpp.chat-host.test")
 	w.dns.SRV("_caldav._tcp.example.com", 1, 1, 443, "cal.cloudflare.com")
@@ -349,6 +356,7 @@ func TestSRV_ThirdPartyAnnouncedAndKeptWhenNotCurrent(t *testing.T) {
 // once even when the wordlist has them, and not at all without permutations or
 // under a wildcard zone.
 func TestSRV_WellKnownLabelsAreAlwaysTried(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	wl := writeFile(t, t.TempDir(), "words.txt", "dev\ntest\nmta-sts\n")
 	w.dns.Wildcard("corp.net", "203.0.113.99")
@@ -390,6 +398,7 @@ func TestSRV_WellKnownLabelsAreAlwaysTried(t *testing.T) {
 // The labels are part of the root check, which prices them: with a cap that
 // takes one root of four words and five labels, the other is deferred.
 func TestSRV_WellKnownLabelsAreCosted(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	wl := writeFile(t, t.TempDir(), "words.txt", fourWords)
 	if code := w.run("--passive", "--concurrency", "1", "--wordlist", wl, "--permutations-max-names", "9", "example.com", "corp.net"); code != 0 {
@@ -411,6 +420,7 @@ func TestSRV_WellKnownLabelsAreCosted(t *testing.T) {
 
 // Adding the labels to an engagement repeats the root check once, and no seed check.
 func TestSRV_WellKnownLabelsRepeatRootChecksOnce(t *testing.T) {
+	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	permRun(w, wl, "--permutations-max", "5")
 	checks := w.h.completed(eng, "permutations")

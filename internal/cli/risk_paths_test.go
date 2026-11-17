@@ -43,6 +43,7 @@ func leaky(w http.ResponseWriter, r *http.Request) {
 // Each path once per live service, flagged by signature or magic, with the
 // body never stored; a catch-all 200 is not flagged.
 func TestSensitivePaths_RequestedOnceAndMatched(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("www.example.com", "plain.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -101,6 +102,7 @@ func TestSensitivePaths_RequestedOnceAndMatched(t *testing.T) {
 
 // A transient failure is retried on the next run; the rest are not repeated.
 func TestSensitivePaths_TransientFailureRetried(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -136,6 +138,7 @@ func TestSensitivePaths_TransientFailureRetried(t *testing.T) {
 // Company hosts behind CDNs, on PaaS and by IP literal are requested; hosts
 // served by third-party SaaS (by CNAME, and an apex by address range) are not.
 func TestSensitivePaths_WhichServicesAreRequested(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("cdn.example.com", "app.example.com", "help.example.com", "pages.example.com", "plain.example.com")
 	x.dns.CNAME("cdn.example.com", "d1.cloudfront.net")
@@ -177,6 +180,7 @@ func TestSensitivePaths_WhichServicesAreRequested(t *testing.T) {
 
 // Invalid sensitive-path entries exit 2.
 func TestSensitivePaths_InvalidEntriesExit2(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	for name, body := range map[string]string{
 		"plain string": "- /admin\n", "no signature": "- path: /admin\n", "bad regex": "- path: /a\n  signature: '(['\n",
@@ -192,6 +196,7 @@ func TestSensitivePaths_InvalidEntriesExit2(t *testing.T) {
 
 // A hit is a finding only while its service is current and visible.
 func TestSensitivePaths_HitNeedsCurrentService(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -215,6 +220,7 @@ func TestSensitivePaths_HitNeedsCurrentService(t *testing.T) {
 // being current instead of staying a finding at its old evidence; the other
 // entries are not requested again.
 func TestSensitivePaths_EditedEntrySupersedesOldHit(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -247,6 +253,7 @@ func TestSensitivePaths_EditedEntrySupersedesOldHit(t *testing.T) {
 // A body larger than the 1 MiB read cap reports its Content-Length, or
 // "1048576+" when the response does not declare one.
 func TestSensitivePaths_LargeBodySize(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")

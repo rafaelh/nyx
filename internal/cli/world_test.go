@@ -110,7 +110,7 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("NYX_WORDLIST", words)
+	w.h.setenv("NYX_WORDLIST", words)
 	w.dns = egresstest.NewDNS(t)
 	// The input root is resolved too, like any in-scope name; give it an address.
 	w.dns.A("example.com", "203.0.113.250")

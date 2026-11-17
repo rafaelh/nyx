@@ -67,8 +67,10 @@ type File struct {
 	Order func(a, b Row) int
 }
 
-// Render writes every file via .nyx/tmp and renames it into dir.
-func Render(dir string, files []File, snap Snapshot) error {
+// Render writes every file via .nyx/tmp and renames it into dir. With fsync, each file reaches the
+// disk before it is renamed, so a power loss cannot leave a renamed but empty file. On macOS that
+// costs a full flush of the drive's cache per file, so tests turn it off.
+func Render(dir string, files []File, snap Snapshot, fsync bool) error {
 	if snap.Vis == nil {
 		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
 	}
@@ -77,7 +79,7 @@ func Render(dir string, files []File, snap Snapshot) error {
 		return err
 	}
 	for _, f := range files {
-		if err := renderFile(dir, tmp, f, snap); err != nil {
+		if err := renderFile(dir, tmp, f, snap, fsync); err != nil {
 			return fmt.Errorf("render %s: %w", f.Name, err)
 		}
 	}
@@ -106,7 +108,7 @@ func Sweep(dir string) error {
 // lists only current rows), so an empty file is never left in the engagement.
 // This is deliberate: a file with only a header row tells the operator nothing,
 // so a file's presence is itself the signal that there is something to read.
-func renderFile(dir, tmp string, f File, snap Snapshot) error {
+func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
 	rows := f.Rows(snap)
 	if f.Format == TXT {
 		var listed []Row
@@ -171,9 +173,11 @@ func renderFile(dir, tmp string, f File, snap Snapshot) error {
 		out.Close()
 		return err
 	}
-	if err := out.Sync(); err != nil {
-		out.Close()
-		return err
+	if fsync {
+		if err := out.Sync(); err != nil {
+			out.Close()
+			return err
+		}
 	}
 	if err := out.Close(); err != nil {
 		return err

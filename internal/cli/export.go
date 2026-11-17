@@ -156,7 +156,7 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 	if ctx.Err() != nil {
 		return context.Cause(ctx) // a signal while reading: write nothing
 	}
-	return writeExport(o.output, inv.d.Stdout, lines)
+	return writeExport(o.output, inv.d.Stdout, lines, !inv.d.NoFsync)
 }
 
 // exportSnapshot reads the engagement in one read transaction and returns the
@@ -296,8 +296,8 @@ func cleanValue(v any, red *config.Redactor) any {
 // writeExport writes the lines to stdout, or to the file path, which it
 // replaces by renaming a complete temporary file beside it into place. A file
 // it replaces keeps its permissions; a new one gets the umask's, as any file
-// the shell creates would.
-func writeExport(path string, stdout io.Writer, lines []any) (err error) {
+// the shell creates would. With fsync, the file reaches the disk before the rename.
+func writeExport(path string, stdout io.Writer, lines []any, fsync bool) (err error) {
 	if path == "" {
 		return encodeLines(stdout, lines)
 	}
@@ -314,8 +314,10 @@ func writeExport(path string, stdout io.Writer, lines []any) (err error) {
 	if err = encodeLines(tmp, lines); err != nil {
 		return err
 	}
-	if err = tmp.Sync(); err != nil {
-		return err
+	if fsync {
+		if err = tmp.Sync(); err != nil {
+			return err
+		}
 	}
 	if fi, serr := os.Stat(path); serr == nil {
 		if err = tmp.Chmod(fi.Mode().Perm()); err != nil {

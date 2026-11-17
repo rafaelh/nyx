@@ -132,7 +132,7 @@ func newOriginWorld(t *testing.T, mod ...func(*originOpts)) *oworld {
 	x := &oworld{web: newWeb(t), hist: &stHistory{records: map[string][]histRec{}},
 		cdnTitle: acmeTitle, cdnStatus: 200, originWWW: acmeTitle, ownTitle: "Origin Server", provider: "fastly"}
 	if !o.noKey {
-		t.Setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+		x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
 	}
 	x.handle("api.securitytrails.com", x.hist.serve)
 	x.names("www.example.com", "origin.example.com")
@@ -260,6 +260,7 @@ func (x *oworld) historicalOrigin() *site {
 // and when it answers with the fronted host's own title it is a confirmed medium finding with a
 // `+` line, the row's provider, how it was found and what confirmed it.
 func TestOrigin_HistoricalOriginConfirmedByTitle(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 	x.hist.set(originWWW, "a", histRec{histInNet, "2023-01-01", "2024-02-02"})
 	x.hist.set(originWWW, "aaaa", histRec{"2001:db8::5", "2022-03-03", "2022-04-04"})
@@ -322,6 +323,7 @@ func TestOrigin_HistoricalOriginConfirmedByTitle(t *testing.T) {
 
 // The console line.
 func TestOrigin_ConsoleLine(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 	x.hist.set(originWWW, "a", histRec{histInNet, "2023-01-01", "2024-02-02"})
 	x.historicalOrigin()
@@ -339,6 +341,7 @@ func TestOrigin_ConsoleLine(t *testing.T) {
 
 // The probe records the length of the first response's body, which the body-size rule compares.
 func TestOrigin_ProbeRecordsBodyLength(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 	x.mustRun()
 	attrs := x.obsAttrs(eng, "web_service")["https://www.example.com"]
@@ -351,6 +354,7 @@ func TestOrigin_ProbeRecordsBodyLength(t *testing.T) {
 // title the origin answers with, or by the same status, a similar body and a certificate that names
 // the host. A certificate that names the host is not enough by itself.
 func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
+	t.Parallel()
 	t.Run("by certificate, confirmed by status, size and certificate", func(t *testing.T) {
 		x := newOriginWorld(t)
 		x.set(func() { x.originWWW = "" }) // no title: only the body rule can confirm
@@ -399,6 +403,7 @@ func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
 // not the check, not a probe, not a port check. A historical address is an address in ips.csv and
 // no more, whatever it is a historical address of.
 func TestOrigin_UncontactableCandidateIsPossibleAndNeverContacted(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 	x.hist.set(originWWW, "a", histRec{histOutside, "2023-01-01", "2024-02-02"})
 	canary443 := x.secure(histOutside, 443, selfFor(t, originWWW), x.originHandler)
@@ -427,6 +432,7 @@ func TestOrigin_UncontactableCandidateIsPossibleAndNeverContacted(t *testing.T) 
 
 // An excluded address is never contacted either, even inside an in-scope netblock.
 func TestOrigin_ExcludedCandidateIsNeverContacted(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 	x.hist.set(originWWW, "a", histRec{histInNet, "2023-01-01", "2024-02-02"})
 	canary := x.historicalOrigin()
@@ -440,6 +446,7 @@ func TestOrigin_ExcludedCandidateIsNeverContacted(t *testing.T) {
 // No check is created until the probe has a 2xx result for the fronted host; once it does, the
 // pair is checked.
 func TestOrigin_NoCheckBeforeTheProbeHasA2xx(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t)
 	x.set(func() { x.cdnStatus = 403 }) // the CDN blocks the probe
 	x.mustRun()
@@ -458,6 +465,7 @@ func TestOrigin_NoCheckBeforeTheProbeHasA2xx(t *testing.T) {
 // If the title the probe saw changes, the pair is checked again, and what the new check finds is
 // what counts: the origin no longer carries the new title, so it is confirmed by size instead.
 func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t)
 	x.mustRun()
 	x.wantRow(siblingAddr, "medium", "sibling-certificate", "title", "yes", "true")
@@ -479,12 +487,14 @@ func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 // The check is one GET per scheme. It falls back to HTTP on 80 only when nothing answers on 443,
 // not when 443 answers or fails the TLS handshake.
 func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T) *oworld {
 		x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 		x.hist.set(originWWW, "a", histRec{histInNet, "2023-01-01", "2024-02-02"})
 		return x
 	}
 	t.Run("443 answers: 80 is never asked", func(t *testing.T) {
+		t.Parallel()
 		x := setup(t)
 		https := x.historicalOrigin()
 		http80 := x.plain(histInNet, 80, x.originHandler)
@@ -494,6 +504,7 @@ func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 		}
 	})
 	t.Run("443 refuses: one GET on 80", func(t *testing.T) {
+		t.Parallel()
 		x := setup(t)
 		http80 := x.plain(histInNet, 80, x.originHandler)
 		x.mustRun()
@@ -503,6 +514,7 @@ func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 		x.wantRow(histInNet, "medium", "historical", "title", "yes", "true") // the title alone, over http
 	})
 	t.Run("a TLS error on 443: 80 is not asked", func(t *testing.T) {
+		t.Parallel()
 		x := setup(t)
 		x.plain(histInNet, 443, x.originHandler) // plain HTTP where TLS is expected
 		http80 := x.plain(histInNet, 80, x.originHandler)
@@ -513,6 +525,7 @@ func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 		x.wantRow(histInNet, "low", "historical", "", "no", "true")
 	})
 	t.Run("a redirect confirms nothing and is not followed", func(t *testing.T) {
+		t.Parallel()
 		x := setup(t)
 		https := x.secure(histInNet, 443, selfFor(t, originWWW), func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.Host, originWWW) {
@@ -534,6 +547,7 @@ func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 // A finding is marked not current when the pair no longer qualifies: the hostname is no longer behind
 // a CDN or WAF, the address becomes provider infrastructure, or the sibling no longer matches.
 func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
+	t.Parallel()
 	t.Run("the hostname is no longer behind a CDN or WAF", func(t *testing.T) {
 		x := newOriginWorld(t, func(o *originOpts) { o.byRange = true })
 		x.mustRun()
@@ -571,6 +585,7 @@ func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
 // When --redo origincheck gets an answer that no longer confirms, the row stays current (its key
 // does not change) but is a possible origin: low, not confirmed.
 func TestOrigin_RedoThatFailsToConfirmLeavesAPossibleOrigin(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t)
 	x.mustRun()
 	x.wantRow(siblingAddr, "medium", "sibling-certificate", "title", "yes", "true")
@@ -590,6 +605,7 @@ func TestOrigin_RedoThatFailsToConfirmLeavesAPossibleOrigin(t *testing.T) {
 // Without a SecurityTrails key dnshistory is not configured and nothing is asked of SecurityTrails,
 // and origincheck runs over sibling-derived candidates.
 func TestOrigin_NoKeyLeavesSiblingCandidatesOnly(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noKey = true })
 	x.hist.set(originWWW, "a", histRec{histInNet, "2023-01-01", "2024-02-02"})
 	x.historicalOrigin()
@@ -614,8 +630,9 @@ func TestOrigin_NoKeyLeavesSiblingCandidatesOnly(t *testing.T) {
 // dnshistory asks hostnames in name order up to dnshistory.max_hosts per run, the rest are deferred
 // and counted in the summary, and a later run asks the next ones.
 func TestDNSHistory_CapAndDeferredCount(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
-	t.Setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+	x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
 	hist := &stHistory{records: map[string][]histRec{}}
 	x.handle("api.securitytrails.com", hist.serve)
 	x.names("www3.example.com", "www1.example.com", "www2.example.com", "plain.example.com")
@@ -649,6 +666,7 @@ func TestDNSHistory_CapAndDeferredCount(t *testing.T) {
 
 // Under --passive origincheck is skipped, so nothing reaches any address, and dnshistory runs.
 func TestOrigin_PassiveSkipsOriginCheckAndRunsDNSHistory(t *testing.T) {
+	t.Parallel()
 	x := newOriginWorld(t)
 	x.hist.set(originWWW, "a", histRec{histOutside, "2023-01-01", "2024-02-02"})
 	x.historicalOrigin()
@@ -671,6 +689,7 @@ func TestOrigin_PassiveSkipsOriginCheckAndRunsDNSHistory(t *testing.T) {
 
 // The flags and stages are documented, and the severity list names both finding types.
 func TestOrigin_Help(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, defaultStageList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -700,6 +719,7 @@ func TestOrigin_Help(t *testing.T) {
 // The README states the one new request the target can receive, and why, and lists origincheck among
 // the stages --passive skips, the new file and the settings.
 func TestOrigin_ReadmeStatesTheBoundary(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)

@@ -19,6 +19,7 @@ import (
 
 // The error has one exact layout in each mode.
 func TestContract_ErrorLayout(t *testing.T) {
+	t.Parallel()
 	const msg = `invalid domain "co.uk": it is a public suffix, not a registrable domain`
 	h := newHarness(t, noop())
 	h.failed(h.exec("co.uk"), 2, false)
@@ -61,6 +62,7 @@ func TestContract_ErrorLayout(t *testing.T) {
 
 // --json applies even when the arguments fail to parse, wherever it is.
 func TestContract_JSONModeWhenParsingFails(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{
 		{"recon", "--bogus", "--json"},
 		{"--json", "recon", "--bogus"},
@@ -86,6 +88,7 @@ func TestContract_JSONModeWhenParsingFails(t *testing.T) {
 // A recon --json run that fails once it has started keeps the event lines it
 // wrote, and its failure is the error on stderr, not an event.
 func TestContract_FailedRunKeepsEarlierEventLines(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	code := h.exec("--json", "--cidr", "10.0.0.0/16", "--netblock-limit", "1000")
 	if code != 2 {
@@ -114,11 +117,12 @@ func TestContract_FailedRunKeepsEarlierEventLines(t *testing.T) {
 // An API key never reaches the error, in either mode, from the environment or
 // the config file, also when the configuration fails to load.
 func TestContract_KeysAreMaskedInTheError(t *testing.T) {
+	t.Parallel()
 	const envKey, fileKey = "envsecret4242", "filesecret777"
 	for _, jsonMode := range []bool{false, true} {
 		for _, broken := range []bool{false, true} {
 			h := newHarness(t, noop())
-			t.Setenv("NYX_KEYS_FAKE", envKey)
+			h.setenv("NYX_KEYS_FAKE", envKey)
 			cfg := writeFile(t, t.TempDir(), "config.yaml", "keys:\n  other: "+fileKey+"\n")
 			args := []string{"--config", cfg, "--asn", envKey, "--cidr", fileKey}
 			if broken {
@@ -141,6 +145,7 @@ func TestContract_KeysAreMaskedInTheError(t *testing.T) {
 
 // Terminal-acting characters in an error are stripped in human mode.
 func TestContract_TerminalCharactersStripped(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	h.failed(h.exec("a\x1b[2Jb\x07\u202e.com"), 2, false)
 	if s := h.stderr.String(); strings.ContainsAny(s, "\x1b\x07\u202e") {
@@ -213,6 +218,7 @@ func TestContract_EveryProblemInOneError(t *testing.T) {
 // nothing, whether its directory is absent or present and empty; the same
 // call gives the same error again.
 func TestContract_NewEngagementWithoutInputsCreatesNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	f := h.failed(h.exec("-e", "fresh"), 2, false)
 	if !strings.Contains(f.msg, "fresh") {
@@ -253,6 +259,7 @@ func splitHint(t *testing.T, hint string) []string {
 // call with --allow-large-netblocks and without --redo, the outputs rendered,
 // and the hint runs.
 func TestContract_NetblockLimit(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		before, after []string
 	}{
@@ -297,6 +304,7 @@ func TestContract_NetblockLimit(t *testing.T) {
 // A signal that arrives before export writes leaves stdout empty, and the
 // error is INTERRUPTED with the signal's code.
 func TestContract_SignalBeforeExportWrites(t *testing.T) {
+	t.Parallel()
 	for sig, want := range map[syscall.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143, syscall.SIGHUP: 129} {
 		w := newExportWorld(t)
 		w.h.signals = make(chan os.Signal, 1)
@@ -311,6 +319,7 @@ func TestContract_SignalBeforeExportWrites(t *testing.T) {
 // A context the caller cancels is SIGINT, and recon's hint says the completed
 // work is saved.
 func TestContract_CancelledContextIsAnInterrupt(t *testing.T) {
+	t.Parallel()
 	for _, jsonMode := range []bool{false, true} {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -362,6 +371,7 @@ func boomFile() output.File {
 // A panic on the way to the exit is an unexpected failure: exit 1, its stack
 // only under --debug, and the engagement is not left locked.
 func TestContract_PanicIsAnUnexpectedFailure(t *testing.T) {
+	t.Parallel()
 	for _, debug := range []bool{false, true} {
 		h := newHarness(t, noop())
 		h.files = append(output.Default(), boomFile())
@@ -410,6 +420,7 @@ func TestContract_PanicIsAnUnexpectedFailure(t *testing.T) {
 // A panic inside one check is that check's failure: the run carries on, the
 // other checks complete, and the panicking ones are retried next run.
 func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
+	t.Parallel()
 	panics := map[string]bool{"c001": true, "c003": true, "c005": true}
 	var armed = true
 	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 6) },
@@ -459,10 +470,11 @@ func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 // not-configured (no authorisation) with the warning, and nothing reaches the
 // target; --authorised stores the acknowledgement for later runs.
 func TestContract_NoPrompt(t *testing.T) {
+	t.Parallel()
 	st := ackStage()
 	h := newHarness(t, st)
 	h.stdoutTTY, h.stderrTTY = true, true
-	t.Setenv("NO_COLOR", "1") // terminals, with plain lines to read
+	h.setenv("NO_COLOR", "1") // terminals, with plain lines to read
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}

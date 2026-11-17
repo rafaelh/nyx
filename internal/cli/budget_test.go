@@ -51,6 +51,7 @@ func deferredBlock(t *testing.T, out string) string {
 // deferred. Deferred checks are not run, not failed and not recorded, and the
 // stage shows done.
 func TestBudget_StopsAtFirstOverflow(t *testing.T) {
+	t.Parallel()
 	st := budgeted(3, func(run.View) []run.Check { return costed(1, 1, 1, 1, 1) })
 	h := newHarness(t, st)
 	if code := h.exec("--json", "a.com"); code != 0 {
@@ -74,6 +75,7 @@ func TestBudget_StopsAtFirstOverflow(t *testing.T) {
 // A check is deferred when it would pass the budget, not when the budget is
 // already spent, and the checks after it wait even if they are cheaper.
 func TestBudget_CostsAddUpAndLaterChecksWait(t *testing.T) {
+	t.Parallel()
 	st := budgeted(10, func(run.View) []run.Check { return costed(4, 4, 3, 1, 1) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
@@ -87,6 +89,7 @@ func TestBudget_CostsAddUpAndLaterChecksWait(t *testing.T) {
 
 // A cost of 0 counts as 1.
 func TestBudget_ZeroCostIsOne(t *testing.T) {
+	t.Parallel()
 	st := budgeted(2, func(run.View) []run.Check { return costed(0, 0, 0) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
@@ -98,6 +101,7 @@ func TestBudget_ZeroCostIsOne(t *testing.T) {
 // The first pending check of the run is taken even when it alone exceeds the
 // budget, so a run always makes progress.
 func TestBudget_FirstCheckAlwaysTaken(t *testing.T) {
+	t.Parallel()
 	st := budgeted(3, func(run.View) []run.Check { return costed(10, 1) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
@@ -117,6 +121,7 @@ func TestBudget_FirstCheckAlwaysTaken(t *testing.T) {
 // Completed checks cost nothing, so each run does the next slice of the work
 // and the last run defers nothing.
 func TestBudget_RemainderRunsNextTime(t *testing.T) {
+	t.Parallel()
 	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1, 1, 1) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
@@ -145,6 +150,7 @@ func TestBudget_RemainderRunsNextTime(t *testing.T) {
 // Within one run the budget is spent across passes: the exception for the
 // first check does not take a second overflowing check in a later pass.
 func TestBudget_LaterPassDoesNotTakeAnotherOverflowingCheck(t *testing.T) {
+	t.Parallel()
 	passes := 0
 	st := budgeted(3, func(run.View) []run.Check {
 		passes++
@@ -168,6 +174,7 @@ func TestBudget_LaterPassDoesNotTakeAnotherOverflowingCheck(t *testing.T) {
 
 // A stage without a budget is not limited, however many checks it has.
 func TestBudget_UnbudgetedStageIsUnlimited(t *testing.T) {
+	t.Parallel()
 	plain := &testkit.Stage{StageName: "plain", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return costed(5, 5, 5) }}
 	h := newHarness(t, plain, budgeted(1, func(run.View) []run.Check { return nil }))
 	h.exec("--json", "a.com")
@@ -182,6 +189,7 @@ func TestBudget_UnbudgetedStageIsUnlimited(t *testing.T) {
 // A check that fails still spent its share of the budget in this run, and the
 // deferred checks are not counted as failures.
 func TestBudget_FailedCheckSpendsBudgetDeferredAreNotFailures(t *testing.T) {
+	t.Parallel()
 	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1) })
 	st.RunFn = func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
 		if c.Key == "c0" {
@@ -202,6 +210,7 @@ func TestBudget_FailedCheckSpendsBudgetDeferredAreNotFailures(t *testing.T) {
 // With nothing deferred the console says nothing about it; with something
 // deferred it lists each stage under its own heading.
 func TestBudget_ConsoleBlock(t *testing.T) {
+	t.Parallel()
 	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1, 1) })
 	h := newHarness(t, st)
 	h.exec("a.com")
@@ -218,6 +227,7 @@ func TestBudget_ConsoleBlock(t *testing.T) {
 // earlier hits of the checks it defers current: they are still valid checks,
 // only not repeated yet. A hit whose check ran again is replaced by the new result.
 func TestBudget_RedoKeepsDeferredHitsCurrent(t *testing.T) {
+	t.Parallel()
 	hit := func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
 		return []run.Observation{obs("hostname", "host-"+c.Key+".a.com")}, nil
 	}

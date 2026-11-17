@@ -35,6 +35,7 @@ func resolutionRow(w *world, name, typ string) map[string]string {
 
 // NS, SOA, TXT and CAA answers are resolutions.csv rows in the stated formats.
 func TestDNSRoot_RecordFormats(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test")
 	w.dns.SOA("example.com", "ns1.dns-host.test", `john\.doe.example.com`)
@@ -65,6 +66,7 @@ func TestDNSRoot_RecordFormats(t *testing.T) {
 
 // The first unescaped dot of the mailbox is the @; only that one.
 func TestDNSRoot_SOAMailbox(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ rname, want string }{
 		{"hostmaster.example.com", "hostmaster@example.com"},
 		{`a\.b\.c.dept.example.com`, "a.b.c@dept.example.com"},
@@ -82,6 +84,7 @@ func TestDNSRoot_SOAMailbox(t *testing.T) {
 // An in-scope name server becomes a hostname and is resolved and probed like
 // any other; one outside scope is a third party, never a candidate.
 func TestDNSRoot_NameServers(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.example.com")
 	w.dns.NS("example.com", "ns1.cloudflare.com")
@@ -156,6 +159,7 @@ func TestDNSRoot_NameServers(t *testing.T) {
 
 // Every listed prefix, in any case, is one row per platform and root, without the token.
 func TestDNSRoot_VerificationPlatforms(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ txt, platform string }{
 		{"google-site-verification=g0ogleTOKEN", "Google"},
 		{"MS=ms12345678", "Microsoft 365"},
@@ -212,6 +216,7 @@ func TestDNSRoot_VerificationPlatforms(t *testing.T) {
 
 // A TXT record that matches nothing is only a resolutions.csv row.
 func TestDNSRoot_UnmatchedTXT(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "v=spf1 -all")
 	w.dns.TXT("example.com", "not-a-google-site-verification=abc")
@@ -233,6 +238,7 @@ func TestDNSRoot_UnmatchedTXT(t *testing.T) {
 
 // third-parties.csv ends with the standard columns and is not written when empty.
 func TestDNSRoot_FileColumns(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	runRoot(t, w)
 	if got := w.file(eng, "third-parties.csv"); got != "" {
@@ -253,6 +259,7 @@ func TestDNSRoot_FileColumns(t *testing.T) {
 
 // --redo dnsroot marks a record the root no longer has as not current.
 func TestDNSRoot_RedoMarksVanishedRecords(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "google-site-verification=abc")
 	w.dns.NS("example.com", "ns1.cloudflare.com")
@@ -282,6 +289,7 @@ func TestDNSRoot_RedoMarksVanishedRecords(t *testing.T) {
 // One check per root and type, run under --passive; the checks are in the
 // state database and no transfer is attempted.
 func TestDNSRoot_ChecksAndPassive(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "MS=ms1")
 	runRoot(t, w)
@@ -318,6 +326,7 @@ func TestDNSRoot_ChecksAndPassive(t *testing.T) {
 // A root that is an alias has no name servers or SOA of its own, so its alias
 // target's are not recorded as the root's.
 func TestDNSRoot_AliasRootTakesNoTargetNameServers(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.CNAME("example.com", "edge.cdn-host.test")
 	w.dns.A("edge.cdn-host.test", "203.0.113.50")
@@ -336,6 +345,7 @@ func TestDNSRoot_AliasRootTakesNoTargetNameServers(t *testing.T) {
 
 // Only roots that are in scope are queried.
 func TestDNSRoot_ExcludedRootNotQueried(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("other.test", "ns1.dns-host.test")
 	if code := w.run("--passive", "--exclude", "other.test", "example.com", "other.test"); code != 0 {
@@ -354,6 +364,7 @@ func TestDNSRoot_ExcludedRootNotQueried(t *testing.T) {
 // NODATA and NXDOMAIN complete a type's check with no rows; SERVFAIL fails
 // only that type, and only it is retried.
 func TestDNSRoot_Outcomes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test") // SOA, TXT and CAA are NODATA
 	w.dns.RcodeType("example.com", "TXT", egress.RCodeServFail)
@@ -398,6 +409,7 @@ func TestDNSRoot_Outcomes(t *testing.T) {
 
 // The console and --json announce a new third party.
 func TestDNSRoot_FoundLine(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "google-site-verification=abc")
 	w.dns.NS("example.com", "ns1.cloudflare.com")
@@ -440,6 +452,7 @@ func TestDNSRoot_FoundLine(t *testing.T) {
 
 // The summary counts third parties.
 func TestDNSRoot_SummaryCount(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "google-site-verification=abc")
 	w.dns.NS("example.com", "ns1.cloudflare.com")
@@ -453,6 +466,7 @@ func TestDNSRoot_SummaryCount(t *testing.T) {
 
 // A root added later that covers a third party's domain hides the row without a re-run.
 func TestDNSRoot_DomainInScopeHidesRow(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test")
 	runRoot(t, w)
@@ -470,6 +484,7 @@ func TestDNSRoot_DomainInScopeHidesRow(t *testing.T) {
 // A name server row that is no longer current is also hidden once a root
 // covers its domain, though the store keeps no attributes for it.
 func TestDNSRoot_DomainInScopeHidesNotCurrentRow(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test")
 	runRoot(t, w)
@@ -489,6 +504,7 @@ func TestDNSRoot_DomainInScopeHidesNotCurrentRow(t *testing.T) {
 // Rows of the new types do not create wildcard checks: only A, AAAA and CNAME
 // rows name zones.
 func TestDNSRoot_RowsCreateNoWildcardChecks(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	feed := &testkit.Stage{StageName: "feed", Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "x"}} },

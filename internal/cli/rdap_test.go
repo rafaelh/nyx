@@ -306,6 +306,7 @@ func globexNets() (r1, r2, r3 rdapNet) {
 // An address is looked up at the registry the bootstrap file names, and a second
 // address in the same registered range costs no request.
 func TestRDAP_AddressLookupAtBootstrapRegistry(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=198.51.100.7", "c=203.0.113.8")
 	x.net(hostARIN, rdapNet{"203.0.113.0", "203.0.113.255", "NET-203-0-113-0-1", "Acme Holdings Pty Ltd"})
 	x.net(hostRIPE, rdapNet{"198.51.100.0", "198.51.100.255", "198.51.100.0 - 198.51.100.255", "Acme Europe BV"})
@@ -336,6 +337,7 @@ func TestRDAP_AddressLookupAtBootstrapRegistry(t *testing.T) {
 
 // An IPv6 address is looked up at the registry IANA's ipv6.json names.
 func TestRDAP_IPv6AddressLookup(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=2001:db8::7")
 	x.handle(hostIANA, func(rw http.ResponseWriter, r *http.Request) {
 		switch {
@@ -359,6 +361,7 @@ func TestRDAP_IPv6AddressLookup(t *testing.T) {
 
 // A registered range that is not aligned is shown with its two addresses.
 func TestRDAP_RegisteredNetblockText(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=198.51.100.7")
 	x.net(hostRIPE, rdapNet{"198.51.100.5", "198.51.100.20", "HANDLE-1", "Acme Europe BV"})
 	x.mustScan()
@@ -370,6 +373,7 @@ func TestRDAP_RegisteredNetblockText(t *testing.T) {
 // Addresses in an input netblock, on shared provider infrastructure, with no
 // known owner, or excluded are not looked up.
 func TestRDAP_ExcludedClassesAreNotLookedUp(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t,
 		"inblock=198.18.0.5",   // inside --cidr
 		"nowner=203.0.113.99?", // owner unknown
@@ -401,6 +405,7 @@ func TestRDAP_ExcludedClassesAreNotLookedUp(t *testing.T) {
 // --- referrals ---
 
 func TestRDAP_ReferralInsideTheSixIsFollowed(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7")
 	x.net(hostARIN, rdapNet{"203.0.113.128", "203.0.113.255", "NET-ARIN", "Acme"})
 	x.net(hostAPNIC, rdapNet{"203.0.113.0", "203.0.113.127", "NET-APNIC", "Acme Pacific Pty Ltd"})
@@ -413,6 +418,7 @@ func TestRDAP_ReferralInsideTheSixIsFollowed(t *testing.T) {
 }
 
 func TestRDAP_ReferralOutsideTheSixCompletesWithAWarning(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7")
 	x.net(hostARIN, rdapNet{"203.0.113.128", "203.0.113.255", "NET-ARIN", "Acme"})
 	x.fake(hostARIN).redirect = map[string]string{"203.0.113.7": "https://rdap.elsewhere.example.org/ip/203.0.113.7"}
@@ -430,6 +436,7 @@ func TestRDAP_ReferralOutsideTheSixCompletesWithAWarning(t *testing.T) {
 
 // A referral is followed three times at most.
 func TestRDAP_ReferralLoopStops(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7")
 	x.net(hostARIN, rdapNet{"203.0.113.128", "203.0.113.255", "NET-ARIN", "Acme"})
 	x.fake(hostARIN).redirect = map[string]string{"203.0.113.7": "https://" + hostARIN + "/registry/ip/203.0.113.7"}
@@ -456,6 +463,7 @@ func acmeEntities(x *rdapWorld) {
 // Only entities whose name has every word of the organisation are kept; their
 // netblocks and autonomous systems are candidates and never in scope.
 func TestRDAP_OrganisationSearchKeepsWordRuleMatches(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	acmeEntities(x)
 	x.mustScan("--org", "Acme Widgets Pty Ltd")
@@ -499,6 +507,7 @@ func (x *rdapWorld) summaryNum(category string) int {
 // A registry whose RDAP does not return an organisation's networks completes
 // with no results and a note; it is not asked.
 func TestRDAP_RegistryWithoutSearchCompletesWithANote(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	acmeEntities(x)
 	x.mustScan("--org", "Acme Widgets Pty Ltd")
@@ -520,6 +529,7 @@ func TestRDAP_RegistryWithoutSearchCompletesWithANote(t *testing.T) {
 
 // At most 50 results are kept per registry, and the cut is a warning.
 func TestRDAP_SearchKeepsFiftyPerRegistry(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	var nets []rdapNet
 	for i := 0; i < 60; i++ {
@@ -549,6 +559,7 @@ func TestRDAP_SearchKeepsFiftyPerRegistry(t *testing.T) {
 // Each autonomous system of an autnum range counts toward the 50, and the cut is
 // a warning.
 func TestRDAP_ASNRangeCountsTowardTheFifty(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	x.entities(hostAPNIC, true, rdapEntity{handle: "ORG-AW1-AP", name: "Acme Widgets", asnRange: [2]int{64600, 64659}})
 	x.mustScan("--org", "Acme Widgets")
@@ -568,6 +579,7 @@ func TestRDAP_ASNRangeCountsTowardTheFifty(t *testing.T) {
 
 // An organisation with no words keeps no results.
 func TestRDAP_OrganisationWithNoWordsMatchesNothing(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	acmeEntities(x)
 	x.mustScan("--org", "Pty Ltd")
@@ -590,6 +602,7 @@ func registrantWorld(t *testing.T, hosts ...string) *rdapWorld {
 // A registrant on three registered netblocks is an organisation candidate; two
 // addresses of one range count once.
 func TestRDAP_RegistrantOnThreeRangesIsACandidate(t *testing.T) {
+	t.Parallel()
 	x := registrantWorld(t, "a=203.0.113.7", "b=203.0.114.7", "c=203.0.113.8") // the root's address is in R2
 	x.mustScan()
 	r := x.candidate("Globex Holdings Ltd")
@@ -608,6 +621,7 @@ func TestRDAP_RegistrantOnThreeRangesIsACandidate(t *testing.T) {
 
 // One whose third range is found on a later run appears then.
 func TestRDAP_ThirdRangeFoundOnALaterRun(t *testing.T) {
+	t.Parallel()
 	x := registrantWorld(t, "a=203.0.113.7")
 	x.mustScan()
 	if r := x.candidate("Globex Holdings Ltd"); r != nil {
@@ -625,6 +639,7 @@ func TestRDAP_ThirdRangeFoundOnALaterRun(t *testing.T) {
 // A registrant that matches an --org input is not a candidate; one with a
 // shared address inside its ranges is not either.
 func TestRDAP_RegistrantMatchingOrgOrOnSharedAddressesIsNotACandidate(t *testing.T) {
+	t.Parallel()
 	x := registrantWorld(t, "a=203.0.113.7", "b=203.0.114.7")
 	x.mustScan("--org", "Globex")
 	if r := x.candidate("Globex Holdings Ltd"); r != nil {
@@ -648,6 +663,7 @@ func TestRDAP_RegistrantMatchingOrgOrOnSharedAddressesIsNotACandidate(t *testing
 // asn and organisation rows carry the rank of their evidence, and a netblock or
 // asn from an --org search alone is medium.
 func TestRDAP_RanksAndPromotionHints(t *testing.T) {
+	t.Parallel()
 	x := registrantWorld(t, "a=203.0.113.7", "b=203.0.114.7", "c=203.0.113.8")
 	x.entities(hostARIN, false, rdapEntity{handle: "ACME-1", name: "Acme Widgets", nets: []rdapNet{{"192.0.2.0", "192.0.2.255", "NET-A", ""}}, asns: []int{64501}})
 	// Two other families agree about the organisation and about the ASN.
@@ -683,6 +699,7 @@ func TestRDAP_RanksAndPromotionHints(t *testing.T) {
 
 // Passing the ASN as --asn removes its candidate row.
 func TestRDAP_ASNInputRemovesItsCandidateRow(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	x.entities(hostARIN, false, rdapEntity{handle: "ACME-1", name: "Acme Widgets", asns: []int{64501}})
 	x.mustScan("--org", "Acme Widgets")
@@ -700,6 +717,7 @@ func TestRDAP_ASNInputRemovesItsCandidateRow(t *testing.T) {
 
 // A 429 from a registry stops the stage; the checks run on the next run.
 func TestRDAP_QuotaStopsTheStageAndTheChecksRunNextTime(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=203.0.114.7")
 	r1, _, r3 := globexNets()
 	x.net(hostARIN, r1)
@@ -729,6 +747,7 @@ func TestRDAP_QuotaStopsTheStageAndTheChecksRunNextTime(t *testing.T) {
 // redo two addresses of one range fetch the range once, and an organisation
 // search is made again.
 func TestRDAP_LookupsOnceAndRefreshedByRedo(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=203.0.113.8")
 	x.net(hostARIN, rdapNet{"203.0.113.0", "203.0.113.255", "NET-203", "Acme Holdings Pty Ltd"})
 	x.mustScan()
@@ -751,6 +770,7 @@ func TestRDAP_LookupsOnceAndRefreshedByRedo(t *testing.T) {
 
 // An address that turns up inside a range already looked up, on a later run, costs no request.
 func TestRDAP_AddressInAKnownRangeOnALaterRunCostsNoRequest(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7")
 	x.net(hostARIN, rdapNet{"203.0.113.0", "203.0.113.255", "NET-203", "Acme Holdings Pty Ltd"})
 	x.mustScan()
@@ -765,6 +785,7 @@ func TestRDAP_AddressInAKnownRangeOnALaterRunCostsNoRequest(t *testing.T) {
 }
 
 func TestRDAP_OrganisationSearchOnceAndRefreshedByRedo(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t)
 	acmeEntities(x)
 	x.mustScan("--org", "Acme Widgets Pty Ltd")
@@ -781,6 +802,7 @@ func TestRDAP_OrganisationSearchOnceAndRefreshedByRedo(t *testing.T) {
 // The bootstrap file is fetched once per run, and a failure to fetch it fails the
 // checks of that run only.
 func TestRDAP_BootstrapOncePerRun(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=198.51.100.7", "c=100.64.0.7")
 	x.net(hostARIN, rdapNet{"203.0.113.0", "203.0.113.255", "N1", "Acme"})
 	x.net(hostRIPE, rdapNet{"198.51.100.0", "198.51.100.255", "N2", "Acme"})
@@ -796,6 +818,7 @@ func TestRDAP_BootstrapOncePerRun(t *testing.T) {
 }
 
 func TestRDAP_BootstrapFailureRetriesNextRun(t *testing.T) {
+	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7")
 	x.net(hostARIN, rdapNet{"203.0.113.0", "203.0.113.255", "N1", "Acme"})
 	x.handle(hostIANA, status(503))
@@ -816,6 +839,7 @@ func TestRDAP_BootstrapFailureRetriesNextRun(t *testing.T) {
 // The stage is available under --passive and contacts only IANA and the
 // registries: it is in the registry after dnsroot and is a third-party stage.
 func TestRDAP_RunsUnderPassiveAndIsRegistered(t *testing.T) {
+	t.Parallel()
 	var names []string
 	var rd run.Stage
 	for _, s := range defaultStageList() {

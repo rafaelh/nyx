@@ -32,9 +32,9 @@ func colourAt(t *testing.T, h *harness, d palette.Depth) {
 	h.stdoutTTY, h.stderrTTY = true, true
 	switch d {
 	case palette.TrueColor:
-		t.Setenv("COLORTERM", "truecolor")
+		h.setenv("COLORTERM", "truecolor")
 	case palette.Color256:
-		t.Setenv("TERM", "xterm-256color")
+		h.setenv("TERM", "xterm-256color")
 	}
 }
 
@@ -87,6 +87,7 @@ func summaryOnly(t *testing.T, h *harness) {
 
 // With a completed run stdout is the summary; the log is on stderr.
 func TestLog_StreamsOfACompletedRun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, someFindings())
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
@@ -106,6 +107,7 @@ func TestLog_StreamsOfACompletedRun(t *testing.T) {
 
 // A run with no summary writes nothing to stdout, and ends with its own line on stderr.
 func TestLog_RunsWithoutASummaryWriteNothingToStdout(t *testing.T) {
+	t.Parallel()
 	t.Run("error", func(t *testing.T) {
 		h := newHarness(t, noop())
 		if code := h.exec(); code != 2 {
@@ -148,6 +150,7 @@ func TestLog_RunsWithoutASummaryWriteNothingToStdout(t *testing.T) {
 
 // On a coloured stderr only the error: prefix of the closing line is styled.
 func TestLog_ErrorLineColour(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	colourAt(t, h, palette.TrueColor)
 	h.exec()
@@ -159,7 +162,7 @@ func TestLog_ErrorLineColour(t *testing.T) {
 	// Plain on a terminal that is not coloured: no escape at all.
 	h = newHarness(t, noop())
 	h.stderrTTY = true
-	t.Setenv("NO_COLOR", "1")
+	h.setenv("NO_COLOR", "1")
 	h.exec()
 	if got := h.stderr.String(); strings.Contains(got, esc) || !strings.HasPrefix(got, "error: no inputs") {
 		t.Errorf("stderr = %q", got)
@@ -168,6 +171,7 @@ func TestLog_ErrorLineColour(t *testing.T) {
 
 // Every log line has the layout, in the local time zone.
 func TestLog_LineLayoutAndTimeZone(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, someFindings())
 	h.loc = time.FixedZone("AEDT", 11*3600)
 	if code := h.exec("a.com"); code != 0 {
@@ -189,6 +193,7 @@ func TestLog_LineLayoutAndTimeZone(t *testing.T) {
 
 // Warnings are WARN lines with no flag; a failed stage is ERROR; a check failure is DEBUG only.
 func TestLog_Levels(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	warner := &testkit.Stage{StageName: "warner", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
@@ -258,6 +263,7 @@ func TestLog_Levels(t *testing.T) {
 // A check that fails among several: the rest complete, the stage line and the
 // summary count it, and its line appears only with --debug, as DEBUG.
 func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, failingCheck("boom"))
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -288,6 +294,7 @@ func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
 
 // The authorisation warning names the stages left out, once, before any stage line.
 func TestLog_AuthorisationWarning(t *testing.T) {
+	t.Parallel()
 	const tail = "; --authorised confirms authorisation"
 	mk := func() []run.Stage {
 		return []run.Stage{finder("src"), targetStage("probe"), targetStage("crawl2")}
@@ -383,6 +390,7 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 // With the default registry the warning names exactly the stages whose line
 // reads not-configured (no authorisation).
 func TestLog_AuthorisationWarningMatchesTheStageLines(t *testing.T) {
+	t.Parallel()
 	w := newWorldWith(t, "takeover", "sensitive-paths")
 	if code := w.run("example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -404,6 +412,7 @@ func TestLog_AuthorisationWarningMatchesTheStageLines(t *testing.T) {
 
 // --quiet, --debug and the flags that are gone.
 func TestLog_Flags(t *testing.T) {
+	t.Parallel()
 	stages := func() []run.Stage {
 		return []run.Stage{
 			&testkit.Stage{StageName: "warns", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { v.Warn("careful"); return testkit.Keys("w", 1) }},
@@ -452,8 +461,8 @@ func TestLog_Flags(t *testing.T) {
 
 	// Neither is a setting.
 	h = newHarness(t, stages()...)
-	t.Setenv("NYX_QUIET", "1")
-	t.Setenv("NYX_DEBUG", "1")
+	h.setenv("NYX_QUIET", "1")
+	h.setenv("NYX_DEBUG", "1")
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
@@ -471,6 +480,7 @@ func TestLog_Flags(t *testing.T) {
 
 // Header, stage and count messages keep their text; found lines carry the severity badge.
 func TestLog_FoundLinesPlain(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, someFindings())
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -503,6 +513,7 @@ func TestLog_FoundLinesPlain(t *testing.T) {
 // DEBUG style, and the only escapes in a coloured line are the chrome, the level
 // badge and the severity badge.
 func TestLog_FoundLinesColoured(t *testing.T) {
+	t.Parallel()
 	st := finder("s", obs("hostname", "www.a.com"), findingObs("h", "high"), findingObs("m", "medium"), findingObs("l", "low"), findingObs("w", "weird"))
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
 		h := newHarness(t, st)
@@ -550,6 +561,7 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 // The summary is printed with --quiet, its findings carry badges, its headings
 // are bold on a coloured stdout and nothing else is styled.
 func TestLog_Summary(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, someFindings(), failingCheck("boom"))
 	if code := h.exec("a.com", "--quiet"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -588,11 +600,12 @@ func TestLog_Summary(t *testing.T) {
 
 // stdout and stderr are coloured separately, and only on a terminal.
 func TestLog_ColourDecision(t *testing.T) {
+	t.Parallel()
 	run1 := func(t *testing.T, stdout, stderr bool, env map[string]string) *harness {
 		h := newHarness(t, someFindings())
-		t.Setenv("COLORTERM", "truecolor")
+		h.setenv("COLORTERM", "truecolor")
 		for k, v := range env {
-			t.Setenv(k, v)
+			h.setenv(k, v)
 		}
 		h.stdoutTTY, h.stderrTTY = stdout, stderr
 		if code := h.exec("a.com"); code != 0 {
@@ -623,6 +636,7 @@ func TestLog_ColourDecision(t *testing.T) {
 
 // The depth variables choose the depth only on a terminal.
 func TestLog_ColourDepth(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		d    palette.Depth
 		env  map[string]string
@@ -634,7 +648,7 @@ func TestLog_ColourDepth(t *testing.T) {
 	} {
 		h := newHarness(t, noop())
 		for k, v := range c.env {
-			t.Setenv(k, v)
+			h.setenv(k, v)
 		}
 		h.stderrTTY = true
 		h.exec("a.com")
@@ -643,8 +657,8 @@ func TestLog_ColourDepth(t *testing.T) {
 		}
 	}
 	h := newHarness(t, noop())
-	t.Setenv("COLORTERM", "truecolor")
-	t.Setenv("TERM", "xterm-256color")
+	h.setenv("COLORTERM", "truecolor")
+	h.setenv("TERM", "xterm-256color")
 	h.exec("a.com") // not a terminal
 	if strings.Contains(h.stdout.String()+h.stderr.String(), esc) {
 		t.Error("the depth variables turned colour on")
@@ -654,6 +668,7 @@ func TestLog_ColourDepth(t *testing.T) {
 // Under --json stdout is the event stream with or without --debug and --quiet,
 // warnings are events with no flag, and stderr carries only DEBUG lines.
 func TestLog_JSON(t *testing.T) {
+	t.Parallel()
 	const key = "sekret-key-4242"
 	mk := func() []run.Stage {
 		warns := &testkit.Stage{StageName: "warns", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { v.Warn("careful"); return testkit.Keys("w", 1) }}
@@ -679,7 +694,7 @@ func TestLog_JSON(t *testing.T) {
 			continue // --quiet and --debug are exclusive
 		}
 		h := newHarness(t, mk()...)
-		t.Setenv("NYX_KEYS_FAKE", key)
+		h.setenv("NYX_KEYS_FAKE", key)
 		if code := h.exec(append([]string{"a.com", "--json"}, args...)...); code != 0 {
 			t.Fatalf("%v: exit %d", args, code)
 		}
@@ -733,6 +748,7 @@ func TestLog_JSON(t *testing.T) {
 
 // Target-supplied text and secrets never reach either stream as an escape or a key.
 func TestLog_MessageHandling(t *testing.T) {
+	t.Parallel()
 	const key = "sekret-key-4242"
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
 	long := strings.Repeat("w", 800)
@@ -752,7 +768,7 @@ func TestLog_MessageHandling(t *testing.T) {
 		}}
 	for _, coloured := range []bool{false, true} {
 		h := newHarness(t, st)
-		t.Setenv("NYX_KEYS_FAKE", key)
+		h.setenv("NYX_KEYS_FAKE", key)
 		if coloured {
 			colourAt(t, h, palette.TrueColor)
 		}
@@ -791,6 +807,7 @@ func stripSGR(s string) string { return sgr.ReplaceAllString(s, "") }
 
 // --palette prints every table through the formatter and touches nothing.
 func TestLog_Palette(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("--palette"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
@@ -860,6 +877,7 @@ func TestLog_Palette(t *testing.T) {
 // --help describes the new flags and the streams they write to, and not the
 // removed one; the README, not --help, describes the console in full.
 func TestLog_Help(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("--help"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -879,6 +897,7 @@ func TestLog_Help(t *testing.T) {
 
 // The otx and anubis stages are gone; what they found stays.
 func TestLog_OTXAndAnubisAreRemoved(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"otx", "anubis"} {
 		for _, flag := range []string{"--redo", "--skip"} {
 			h := newHarness(t, cli.DefaultDeps().Stages...)

@@ -23,6 +23,7 @@ import (
 // A risky open port is medium; an exclusion added later makes it not-current
 // in risk-ports.csv and removes it from the summary.
 func TestRiskyPorts(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names()
 	x.open("198.51.100.5:3389", "")
@@ -56,6 +57,7 @@ func TestRiskyPorts(t *testing.T) {
 
 // A custom --risky-ports list replaces the default.
 func TestRiskyPortsConfigurable(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names()
 	x.open("198.51.100.5:3389", "")
@@ -68,6 +70,7 @@ func TestRiskyPortsConfigurable(t *testing.T) {
 
 // Expired, expiring and self-signed certificates; the clock moves the findings with no new requests.
 func TestCertificateFindings(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t)
 	x.names("old.example.com", "soon.example.com", "self.example.com", "fine.example.com")
 	ca := newCA(t, "Test CA")
@@ -155,6 +158,7 @@ func TestCertificateFindings(t *testing.T) {
 
 // The crawl records every storage URL in any link or asset, off-scope hosts included.
 func TestCrawlRecordsStorageRefs(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -201,6 +205,7 @@ func TestCrawlRecordsStorageRefs(t *testing.T) {
 
 // A reference counts only while its page host is in scope.
 func TestStorageRefFollowsPageScope(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -221,6 +226,7 @@ func TestStorageRefFollowsPageScope(t *testing.T) {
 // Plumbing: a file with no rows is not written; a spreadsheet formula in a cell is
 // neutralised; rows are sorted.
 func TestRiskPlumbing_FilesWrittenSortedAndSafe(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
 	x.names("a.example.com", "b.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -258,6 +264,7 @@ func TestRiskPlumbing_FilesWrittenSortedAndSafe(t *testing.T) {
 
 // The registry order and each stage's contact.
 func TestRiskStageRegistry(t *testing.T) {
+	t.Parallel()
 	var names []string
 	contact := map[string]run.Contact{}
 	for _, s := range cli.DefaultDeps().Stages {
@@ -283,6 +290,7 @@ func TestRiskStageRegistry(t *testing.T) {
 // Plumbing: help shows the new settings and lists the findings topic, which
 // holds the severity table.
 func TestRiskPlumbing_Help(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -317,6 +325,7 @@ func TestRiskPlumbing_Help(t *testing.T) {
 // Plumbing: a found line is printed once per engagement, including for a finding
 // derived on the interrupt path, and a resumed run does not print it again.
 func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
+	t.Parallel()
 	var cancel context.CancelFunc
 	var armed atomic.Bool
 	armed.Store(true)
@@ -373,6 +382,7 @@ func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
 // pass ends, so a later stage in the same pass (the hours-long port sweep) does
 // not delay them.
 func TestFindingsDerivedAfterEachStage(t *testing.T) {
+	t.Parallel()
 	seed := &testkit.Stage{StageName: "seed", Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "c1"}} },
 		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
@@ -399,6 +409,7 @@ func TestFindingsDerivedAfterEachStage(t *testing.T) {
 // Plumbing: an interrupted run still lists exactly the current high and medium findings in no summary,
 // and the run state shows the pseudo-stage `findings` is not a visible stage.
 func TestRiskPlumbing_FindingsPseudoStageHidden(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("--json", "-e", "pseudo", "--cidr", "198.51.100.0/24"); code != 0 {
 		t.Fatal(code)

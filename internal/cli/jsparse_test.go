@@ -59,6 +59,7 @@ func (x *web) warnings() string { return strings.Join(messages(x.world, "warning
 // A script on an in-scope host is fetched with one GET and never again, whatever
 // later runs do; the crawl still never fetches it.
 func TestJSParse_FetchesSameHostScriptsOnce(t *testing.T) {
+	t.Parallel()
 	x, s := jsFixture(t, []string{"/app.js", "/vendor/lib.js?v=2", "/app.js"}, map[string]http.HandlerFunc{
 		"/app.js":        js(`fetch("/api/v1/users")`),
 		"/vendor/lib.js": js(`x("/api/lib")`),
@@ -89,6 +90,7 @@ func TestJSParse_FetchesSameHostScriptsOnce(t *testing.T) {
 // Scripts on a CDN, on a SaaS platform's host and on an excluded host are never
 // requested, and one on another in-scope host is.
 func TestJSParse_NeverFetchesCDNOrSaaSScripts(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com", "help.example.com", "bad.example.com")
 	x.dns.CNAME("help.example.com", "acme.zendesk.com")
@@ -124,6 +126,7 @@ func TestJSParse_NeverFetchesCDNOrSaaSScripts(t *testing.T) {
 // A redirect is followed only to the same host. A non-2xx answer completes with
 // nothing and is not repeated; a timeout is a failed check that is tried again.
 func TestJSParse_RedirectsAndFailures(t *testing.T) {
+	t.Parallel()
 	var slow atomic.Int32
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com")
@@ -140,7 +143,11 @@ func TestJSParse_RedirectsAndFailures(t *testing.T) {
 		"/boom.js": func(w http.ResponseWriter, r *http.Request) { http.Error(w, `x("/api/boom")`, 500) },
 		"/slow.js": func(w http.ResponseWriter, r *http.Request) {
 			slow.Add(1)
-			time.Sleep(time.Second)
+			// Answer only after the client has given up, without holding the server's Close.
+			select {
+			case <-r.Context().Done():
+			case <-time.After(time.Second):
+			}
 			_, _ = w.Write([]byte(`x("/api/slow")`))
 		},
 		"/loop.js": redirectTo(302, "/loop.js"),
@@ -181,6 +188,7 @@ func TestJSParse_RedirectsAndFailures(t *testing.T) {
 // URLs are recorded without a status and found by jsparse; in-scope hosts become
 // hostnames; out-of-scope hosts and non-paths are ignored.
 func TestJSParse_RecordsURLsAndHostnames(t *testing.T) {
+	t.Parallel()
 	body := `var a="/api/v1/users",b="//api.example.com/v2",c="https://c.example.com/x?y=1",
 d="https://evil.example.net/steal",e="/.js",f=s.match(/\d+/g),g="/ ",h="//comment",
 i="/api/${id}",j='/static/app.css',k="https://c.example.com/again",
@@ -219,6 +227,7 @@ l="https://p.example.com/v1/${id}",m="https:\/\/q.example.com\/w";`
 // At most jsparse.max_scripts scripts are fetched per origin, in URL order, and a
 // warning says how many were left.
 func TestJSParse_PerOriginCapAndWarning(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -249,6 +258,7 @@ func TestJSParse_PerOriginCapAndWarning(t *testing.T) {
 
 // The default is 50, and the setting must be at least 1.
 func TestJSParse_DefaultCapIsFifty(t *testing.T) {
+	t.Parallel()
 	var srcs []string
 	routesMap := map[string]http.HandlerFunc{}
 	for i := 0; i < 55; i++ {
@@ -278,6 +288,7 @@ func TestJSParse_DefaultCapIsFifty(t *testing.T) {
 // A script that was fetched keeps its place within the cap, and its URLs stay
 // current, when a re-crawl finds new scripts that sort before it.
 func TestJSParse_ParsedScriptStaysWithinTheCap(t *testing.T) {
+	t.Parallel()
 	var body atomic.Value
 	body.Store(scriptPage("/s1.js", "/s2.js"))
 	x := newWeb(t)
@@ -319,6 +330,7 @@ func TestJSParse_ParsedScriptStaysWithinTheCap(t *testing.T) {
 
 // An HTML answer, or a body that starts with "<", records nothing.
 func TestJSParse_HTMLAnswerRecordsNothing(t *testing.T) {
+	t.Parallel()
 	x, _ := jsFixture(t, []string{"/spa.js", "/fallback.js", "/ok.js"}, map[string]http.HandlerFunc{
 		"/spa.js":      page(`<html><script>x("/api/in-html")</script></html>`),
 		"/fallback.js": js("  \n<!doctype html><title>x</title>\"/api/behind-markup\""),
@@ -333,6 +345,7 @@ func TestJSParse_HTMLAnswerRecordsNothing(t *testing.T) {
 // A body past 4 MiB is read as far as 4 MiB, what is in that part is recorded, and
 // a warning says it was cut.
 func TestJSParse_TruncatedBundle(t *testing.T) {
+	t.Parallel()
 	const limit = 4 << 20
 	bundle := `x("/api/early");` + strings.Repeat(" ", limit) + `x("/api/late");`
 	x, _ := jsFixture(t, []string{"/big.js"}, map[string]http.HandlerFunc{"/big.js": js(bundle)})
@@ -353,6 +366,7 @@ func TestJSParse_TruncatedBundle(t *testing.T) {
 
 // At most 500 URLs are recorded per script, in order of appearance, with a warning.
 func TestJSParse_URLCap(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	for i := 0; i < 600; i++ {
 		fmt.Fprintf(&b, "x(\"/api/%03d\");", i)
@@ -384,6 +398,7 @@ func TestJSParse_URLCap(t *testing.T) {
 // When a re-crawl stops referencing a script, the URLs only it found are marked
 // not current, and those another script also found are kept.
 func TestJSParse_ReCrawlThatDropsAScriptRetiresItsURLs(t *testing.T) {
+	t.Parallel()
 	var body atomic.Value
 	body.Store(scriptPage("/app.js", "/keep.js"))
 	x := newWeb(t)
@@ -419,6 +434,7 @@ func TestJSParse_ReCrawlThatDropsAScriptRetiresItsURLs(t *testing.T) {
 
 // Nothing found in a script is ever requested, however many runs and passes follow.
 func TestJSParse_CanaryNothingFoundInAScriptIsRequested(t *testing.T) {
+	t.Parallel()
 	x := newWeb(t)
 	x.names("a.example.com", "b.example.com", "api.example.com")
 	x.host("a.example.com", "203.0.113.5")
@@ -458,6 +474,7 @@ x("https://api.example.com/v1/items");x("http://evil.example.net/off");x("/stati
 
 // Under --passive nothing is fetched, and the stage is reported as not configured.
 func TestJSParse_NotUnderPassive(t *testing.T) {
+	t.Parallel()
 	x, s := jsFixture(t, []string{"/app.js"}, map[string]http.HandlerFunc{"/app.js": js(`x("/api/a")`)})
 	x.mustRun("--passive")
 	if s.hits() != 0 {
@@ -473,6 +490,7 @@ func TestJSParse_NotUnderPassive(t *testing.T) {
 
 // The crawl keeps its own behaviour: it records the script URL and never fetches it.
 func TestJSParse_CrawlRecordsScriptsForAllHosts(t *testing.T) {
+	t.Parallel()
 	x, _ := jsFixture(t, []string{"/app.js", "https://cdn.example.net/lib.js"}, map[string]http.HandlerFunc{"/app.js": js("1")})
 	x.mustRun("--crawl-depth", "0")
 	got := queryStrings(x.t, x.h.openDB(eng), "SELECT key FROM records WHERE kind='script' ORDER BY key")

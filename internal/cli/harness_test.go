@@ -38,6 +38,7 @@ type harness struct {
 	eopts     egress.Options
 	now       time.Time
 	version   string
+	env       map[string]string // the environment cli.Execute sees; see setenv
 
 	stdout, stderr bytes.Buffer
 
@@ -47,19 +48,11 @@ type harness struct {
 
 func newHarness(t *testing.T, stages ...run.Stage) *harness {
 	t.Helper()
-	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "NYX_") {
-			os.Unsetenv(strings.SplitN(kv, "=", 2)[0])
-		}
-	}
-	// Pin the terminal environment so a developer's shell cannot change a result.
-	t.Setenv("NO_COLOR", "")
-	t.Setenv("TERM", "xterm")
-	t.Setenv("COLORTERM", "")
+	// The run sees only this environment, never the process's, so a developer's shell cannot
+	// change a result and tests can run in parallel.
 	cfgHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfgHome)
-	t.Setenv("HOME", cfgHome)
-	h := &harness{t: t, out: t.TempDir(), stages: stages, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), loc: time.UTC}
+	env := map[string]string{"TERM": "xterm", "XDG_CONFIG_HOME": cfgHome, "HOME": cfgHome}
+	h := &harness{t: t, out: t.TempDir(), stages: stages, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), loc: time.UTC, env: env}
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -113,7 +106,21 @@ func (h *harness) deps() cli.Deps {
 		Clock:       func() time.Time { return h.now },
 		Version:     h.version,
 		Signals:     h.signals,
+		Env:         h.environ(),
+		NoFsync:     true,
 	}
+}
+
+// setenv sets a variable in the environment of the runs that follow. To nyx, "" is the same as
+// unset.
+func (h *harness) setenv(name, val string) { h.env[name] = val }
+
+func (h *harness) environ() []string {
+	env := make([]string, 0, len(h.env))
+	for k, v := range h.env {
+		env = append(env, k+"="+v)
+	}
+	return env
 }
 
 // exec runs nyx recon with --output-dir pointing at the temp dir.

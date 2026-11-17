@@ -95,6 +95,7 @@ func leaks(w *world) []string {
 }
 
 func TestKeyed_NotConfiguredWithoutKey(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -110,8 +111,9 @@ func TestKeyed_NotConfiguredWithoutKey(t *testing.T) {
 }
 
 func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
+	t.Parallel()
 	forEachKeyed(t, func(t *testing.T, w *world, s keyedSource) {
-		t.Setenv(s.env, s.key)
+		w.h.setenv(s.env, s.key)
 		s.serveOK(w)
 		for _, n := range s.names {
 			w.dns.A(n, "203.0.113.5")
@@ -149,10 +151,11 @@ func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 
 // The three request shapes, as far as the sources document them.
 func TestKeyed_RequestShapes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
-	t.Setenv("NYX_KEYS_CENSYS", censysKey)
-	t.Setenv("NYX_KEYS_CHAOS", chaosKey)
+	w.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	w.h.setenv("NYX_KEYS_CENSYS", censysKey)
+	w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
 	for _, s := range keyedSources {
 		s.serveOK(w)
 	}
@@ -191,12 +194,14 @@ func TestKeyed_RequestShapes(t *testing.T) {
 
 // A rejected key or a spent quota stops that stage for the run, and only that stage.
 func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
+	t.Parallel()
 	for _, s := range keyedSources {
 		for _, code := range []int{401, 403, 429} {
 			t.Run(fmt.Sprintf("%s/%d", s.stage, code), func(t *testing.T) {
+				t.Parallel()
 				w := newWorld(t)
 				for _, o := range keyedSources {
-					t.Setenv(o.env, o.key)
+					w.h.setenv(o.env, o.key)
 					if o.host != s.host {
 						o.serveOK(w)
 					}
@@ -236,13 +241,14 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 
 // Chaos answers 404 or an empty list for a root it knows nothing about.
 func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
+	t.Parallel()
 	for name, h := range map[string]http.HandlerFunc{
 		"404":   status(404),
 		"empty": jsonBody(`{"domain":"example.com","subdomains":[],"count":0}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv("NYX_KEYS_CHAOS", chaosKey)
+			w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
 			w.handle("dns.projectdiscovery.io", h)
 			if code := w.run("--passive", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
@@ -262,8 +268,9 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 
 // A body of the wrong shape is a failed check (retried), never "no names".
 func TestKeyed_WrongShapeIsAnError(t *testing.T) {
+	t.Parallel()
 	forEachKeyed(t, func(t *testing.T, w *world, s keyedSource) {
-		t.Setenv(s.env, s.key)
+		w.h.setenv(s.env, s.key)
 		s.serveWith(w, `{"error":"nope"}`)
 		if code := w.run("--passive", "example.com"); code != 0 {
 			t.Fatalf("exit %d", code)
@@ -319,10 +326,11 @@ func pagedSources() []pagedSource {
 // Paging stops at <stage>.max_pages with a warning when the source has more;
 // the cap is part of the check, so raising it repeats the check.
 func TestKeyed_PageCap(t *testing.T) {
+	t.Parallel()
 	for _, s := range pagedSources() {
 		t.Run(s.stage, func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv(s.env, s.key)
+			w.h.setenv(s.env, s.key)
 			s.serve(w)
 			resolveAll(w, "p1", "p2", "p3")
 			if code := w.run("--passive", "--no-permutations", s.flag, "2", "example.com"); code != 0 {
@@ -369,10 +377,11 @@ func TestKeyed_PageCap(t *testing.T) {
 
 // A result that ends exactly at the cap is not truncated.
 func TestKeyed_PageCapNotReached(t *testing.T) {
+	t.Parallel()
 	for _, s := range pagedSources() {
 		t.Run(s.stage, func(t *testing.T) {
 			w := newWorld(t)
-			t.Setenv(s.env, s.key)
+			w.h.setenv(s.env, s.key)
 			s.serve(w)
 			if code := w.run("--passive", s.flag, "3", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
@@ -387,8 +396,9 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 // Chaos answers with the whole list at once, so its cap never bites, but it is
 // still part of the check.
 func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	t.Setenv("NYX_KEYS_CHAOS", chaosKey)
+	w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
 	w.handle("dns.projectdiscovery.io", jsonBody(`{"domain":"example.com","subdomains":["a"],"count":1}`))
 	if code := w.run("--passive", "--chaos-max-pages", "3", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -402,6 +412,7 @@ func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
 }
 
 func TestKeyed_MaxPagesMustBePositive(t *testing.T) {
+	t.Parallel()
 	for _, flag := range []string{"--shodan-dns-max-pages", "--censys-max-pages", "--chaos-max-pages"} {
 		t.Run(flag, func(t *testing.T) {
 			w := newWorld(t)
@@ -435,8 +446,9 @@ func resolutionSource(w *world, name, typ, value string) string {
 }
 
 func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	w.h.setenv("NYX_KEYS_SHODAN", shodanKey)
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
 			_, _ = rw.Write([]byte(claimsBody))
@@ -500,8 +512,9 @@ func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
 // In-scope targets of CNAME, MX and NS records become hostnames; the others are not
 // recorded, so they are not even candidates.
 func TestShodanDNS_TargetsBecomeHostnamesOnlyInScope(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
-	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	w.h.setenv("NYX_KEYS_SHODAN", shodanKey)
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
 			_, _ = rw.Write([]byte(`{"domain":"example.com","subdomains":["www"],"more":false,"data":[
@@ -546,8 +559,9 @@ func TestShodanDNS_TargetsBecomeHostnamesOnlyInScope(t *testing.T) {
 // A Shodan-only address decides nothing: it is never contacted, never in ips.csv,
 // and its name is neither resolved nor probed because of it.
 func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
-	t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	p.h.setenv("NYX_KEYS_SHODAN", shodanKey)
 	const ghost = "198.51.100.77"
 	p.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
@@ -605,6 +619,7 @@ func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
 // --- registry, help and README ---
 
 func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
+	t.Parallel()
 	var names []string
 	for _, s := range defaultStageList() {
 		names = append(names, s.Name())
@@ -633,6 +648,7 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 }
 
 func TestKeyed_ReadmeNamesTheSources(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)

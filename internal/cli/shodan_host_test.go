@@ -113,7 +113,7 @@ func (f *shodanFake) serve(rw http.ResponseWriter, r *http.Request) {
 // shodan installs the fake and the key.
 func (p *pworld) shodan() *shodanFake {
 	p.t.Helper()
-	p.t.Setenv("NYX_KEYS_SHODAN", shodanKey)
+	p.h.setenv("NYX_KEYS_SHODAN", shodanKey)
 	f := &shodanFake{hosts: map[string]string{}}
 	p.handle("api.shodan.io", f.serve)
 	return f
@@ -195,6 +195,7 @@ func regexpLine(s, pattern string) bool { return regexp.MustCompile(pattern).Mat
 // --- The stage ---
 
 func TestShodanHost_NotConfiguredWithoutKey(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	p.app()
 	p.mustPassive()
@@ -209,6 +210,7 @@ func TestShodanHost_NotConfiguredWithoutKey(t *testing.T) {
 // With a key, --passive shows what Shodan holds for each dedicated in-scope
 // address, and nothing is dialled.
 func TestShodanHost_PassiveShowsOpenAndRiskyPorts(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -255,6 +257,7 @@ func TestShodanHost_PassiveShowsOpenAndRiskyPorts(t *testing.T) {
 
 // A run with a key but nothing Shodan knows completes the lookups with nothing.
 func TestShodanHost_UnknownAddressCompletesWithNothing(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	p.shodan()
 	p.app()
@@ -279,6 +282,7 @@ func TestShodanHost_UnknownAddressCompletesWithNothing(t *testing.T) {
 
 // A rejected key stops the stage, like the other keyed sources.
 func TestShodanHost_RejectedKeyAbortsTheStage(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -299,6 +303,7 @@ func TestShodanHost_RejectedKeyAbortsTheStage(t *testing.T) {
 // --- The cap ---
 
 func TestShodanHost_CapDefersInAddressOrder(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	p.shodan()
 	p.names("a.example.com", "b.example.com", "c.example.com")
@@ -346,6 +351,7 @@ func TestShodanHost_CapDefersInAddressOrder(t *testing.T) {
 
 // Shodan's data for an address is refreshed only by --redo shodan-host.
 func TestShodanHost_RefreshedOnlyByRedo(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -368,6 +374,7 @@ func TestShodanHost_RefreshedOnlyByRedo(t *testing.T) {
 // need no lookup. An address inside the block that it did not return needs none
 // either, since the search was complete.
 func TestShodanHost_CompleteNetblockSearchNeedsNoLookups(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.names("b.example.com")
@@ -395,6 +402,7 @@ func TestShodanHost_CompleteNetblockSearchNeedsNoLookups(t *testing.T) {
 // A search that stopped at its page cap leaves out addresses; those that are
 // known and dedicated are looked up one by one, and the summary says so.
 func TestShodanHost_TruncatedSearchLooksUpWhatItMissed(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.names("m.example.com")
@@ -426,6 +434,7 @@ func TestShodanHost_TruncatedSearchLooksUpWhatItMissed(t *testing.T) {
 // An address a truncated search returned is not looked up, even when all it
 // returned for the address was a UDP service (which records no port).
 func TestShodanHost_TruncatedSearchReturnedUDPOnly(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.names("m.example.com")
@@ -446,6 +455,7 @@ func TestShodanHost_TruncatedSearchReturnedUDPOnly(t *testing.T) {
 // --- Shodan never widens what nyx connects to ---
 
 func TestShodanHost_ReportedPortsAreNeverDialledOrProbed(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -488,6 +498,7 @@ func TestShodanHost_ReportedPortsAreNeverDialledOrProbed(t *testing.T) {
 // nyx's own handshake decides: open confirms and raises the finding, a
 // rejection takes the row out, and silence leaves it as Shodan said.
 func TestShodanHost_ActiveRunSettlesWhatShodanReported(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -568,6 +579,7 @@ func TestShodanHost_ActiveRunSettlesWhatShodanReported(t *testing.T) {
 // A closed port only Shodan reports is in neither count and is no current
 // finding, even though it was reported before nyx looked.
 func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -600,6 +612,7 @@ func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
 // A port checked before Shodan reported it, with no open record, is checked once
 // more; one nyx found open, and later runs, are not.
 func TestShodanHost_LateReportCostsOneExtraHandshake(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	p.app()
 	open := p.serve(appHost, 3389, hello)
@@ -643,6 +656,7 @@ func TestShodanHost_LateReportCostsOneExtraHandshake(t *testing.T) {
 // --- What is recorded ---
 
 func TestShodanHost_BannersUDPAndHostnames(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -696,6 +710,7 @@ func TestShodanHost_BannersUDPAndHostnames(t *testing.T) {
 }
 
 func TestShodanHost_ConsoleSummarySplitsOpenPorts(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
@@ -729,6 +744,7 @@ func TestShodanHost_ConsoleSummarySplitsOpenPorts(t *testing.T) {
 // shodan and shodan-host are both passive DNS: a root they alone report has one
 // family and is low, whichever sees it.
 func TestShodanHost_CandidateRootFromBothIsOneFamily(t *testing.T) {
+	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	f.search = func(int) string {
@@ -749,6 +765,7 @@ func TestShodanHost_CandidateRootFromBothIsOneFamily(t *testing.T) {
 // --- The documentation ---
 
 func TestShodanHost_ReadmeSaysWhatItDoes(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)

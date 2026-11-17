@@ -18,6 +18,8 @@ go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matchi
 golangci-lint run ./...         # config in .golangci.yml (v2, std-error-handling exclusions)
 ```
 
+- While iterating, run targeted tests without `-race`: the race detector roughly triples the cost.
+  `make test` and CI keep it.
 - Don't export `CGO_ENABLED=0` globally: `-race` needs cgo on Linux.
 - `go.mod` pins a recent toolchain. With `GOTOOLCHAIN=local` and an older Go, builds fail.
 - The `.claude/hooks/go-check.sh` PostToolUse hook runs `gofmt -w`, `go vet` and golangci-lint
@@ -116,7 +118,8 @@ target-supplied text), `input`. The built-in wordlist and sensitive-path list ar
 `internal/config/builtin/`.
 
 **Config** (`internal/config`): precedence is file < `NYX_*` env < flags, and unknown keys are
-rejected. API keys come only from `keys.<source>` or `NYX_KEYS_<SOURCE>`. They are
+rejected. The environment is read only from the `config.Env` passed in (`Deps.Env`), never with
+`os.Getenv` or viper's `AutomaticEnv`, so tests can each give a run their own. API keys come only from `keys.<source>` or `NYX_KEYS_<SOURCE>`. They are
 `config.Secret` values and get redacted from all output, so never add a key flag or log a key.
 
 **Output** files are written to `.nyx/tmp` and then renamed into place. A file is written only
@@ -129,6 +132,11 @@ when it has rows, and is removed once it has none.
   stages pointed at loopback fakes. `egress.Options.SourceBaseURLs`, `ResolverAddrs` and
   `DialMap` redirect traffic without changing policy logic. The harness has UDP/HTTP/TCP
   "canaries" that detect any unexpected request. The clock is fixed at 2026-11-01 UTC.
+- Every test calls `t.Parallel()` first. A run sees only the harness's environment: set a variable
+  with `h.setenv`, never `t.Setenv` or `os.Setenv` (Go forbids `t.Setenv` in a parallel test). The
+  harness also sets `Deps.NoFsync`, as an fsync on macOS flushes the whole drive cache and
+  serialises the suite. A test that changes the working directory (`emptyDir`, `t.Chdir`) cannot
+  be parallel. Give a slow table test's subtests `t.Parallel()` when each builds its own world.
 - `crash_test.go` re-executes the test binary as a child process (`NYX_TEST_CHILD=1`) and uses
   `internal/fault` crash points (`NYX_FAULT=<point>`, such as `in-check-tx`, `after-commit`,
   `in-flight` or `render-mid-file`) to kill the process at known moments and verify resume and atomic output.

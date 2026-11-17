@@ -61,6 +61,7 @@ type Config struct {
 	Passive             bool
 	AllowLargeNetblocks bool
 	Redo                string
+	NoFsync             bool // write output files without syncing them to disk (see output.Render); for tests
 }
 
 // Runner runs the stages.
@@ -870,7 +871,7 @@ func (r *Runner) render() (output.Snapshot, error) {
 	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.inputs); err != nil {
 		return output.Snapshot{}, err
 	}
-	return snap, output.Render(eng.Dir(), r.cfg.Files, snap)
+	return snap, output.Render(eng.Dir(), r.cfg.Files, snap, !r.cfg.NoFsync)
 }
 
 // deriveFindings derives the findings from the evidence and stores them as

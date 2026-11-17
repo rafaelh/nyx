@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,7 +91,9 @@ func startChild(t *testing.T, out string, o childOpts) *child {
 	}
 	args = append(args, o.args...)
 	c.cmd = exec.Command(os.Args[0], "-test.run=NoSuchTestEver")
-	c.cmd.Env = append(os.Environ(),
+	// The developer's NYX_* settings must not reach the child.
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "NYX_") })
+	c.cmd.Env = append(env,
 		"NYX_TEST_CHILD=1", "NYX_TEST_N="+strconv.Itoa(o.n), "NYX_TEST_DELAY="+o.delay.String(),
 		"NYX_TEST_LOG="+c.log, "NYX_TEST_ARGS="+strings.Join(args, "\x1f"),
 		"XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
@@ -243,6 +246,7 @@ func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 
 // A kill -9 while an output file is mid-write.
 func TestCrashRenderMidFile(t *testing.T) {
+	t.Parallel()
 	out := t.TempDir()
 	c1 := startChild(t, out, childOpts{n: nChecks, args: []string{"a.com"}})
 	if code := c1.wait(); code != 0 {
@@ -275,8 +279,10 @@ func TestCrashRenderMidFile(t *testing.T) {
 
 // A kill -9 at in-check-tx, in-flight and after-commit.
 func TestCrashPoints(t *testing.T) {
+	t.Parallel()
 	for _, point := range []string{"in-check-tx", "in-flight", "after-commit"} {
 		t.Run(point, func(t *testing.T) {
+			t.Parallel()
 			out := t.TempDir()
 			ff := filepath.Join(t.TempDir(), "fault")
 			c1 := startChild(t, out, childOpts{n: nChecks, fault: point, faultFile: ff, args: []string{"a.com"}})
@@ -307,6 +313,7 @@ func TestCrashPoints(t *testing.T) {
 
 // A redo interrupted after a commit is finished by the next plain run.
 func TestCrashDuringRedo(t *testing.T) {
+	t.Parallel()
 	out := t.TempDir()
 	c1 := startChild(t, out, childOpts{n: nChecks, args: []string{"a.com"}})
 	if code := c1.wait(); code != 0 {
@@ -338,12 +345,14 @@ func TestCrashDuringRedo(t *testing.T) {
 // with the completed checks saved and the outputs rendered; a re-run finishes
 // the rest. In human mode stdout is empty.
 func TestSignals(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		sig  syscall.Signal
 		code int
 	}{"SIGINT": {syscall.SIGINT, 130}, "SIGTERM": {syscall.SIGTERM, 143}, "SIGHUP": {syscall.SIGHUP, 129}} {
 		for _, human := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s human=%v", name, human), func(t *testing.T) {
+				t.Parallel()
 				out := t.TempDir()
 				c1 := startChild(t, out, childOpts{n: nChecks, delay: 60 * time.Millisecond, args: []string{"a.com", "--concurrency", "2"}, human: human})
 				waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
@@ -388,6 +397,7 @@ func (c *child) checkInterrupted(jsonMode bool) {
 // A second signal exits at once with the first one's code, and the error is
 // still written once.
 func TestSignals_SecondExitsAtOnce(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		first, second syscall.Signal
 		code          int
@@ -417,6 +427,7 @@ func TestSignals_SecondExitsAtOnce(t *testing.T) {
 
 // A run whose stdin is a pipe that never closes still finishes: nothing reads it.
 func TestStdinIsNotRead(t *testing.T) {
+	t.Parallel()
 	out := t.TempDir()
 	c := startChild(t, out, childOpts{n: 3, args: []string{"a.com"}, openStdin: true, human: true})
 	if code := c.wait(); code != 0 {

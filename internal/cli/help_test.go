@@ -32,6 +32,7 @@ func stageRow(topic, stage string) string {
 // the plain help, and plain when stdout is not a terminal, under NO_COLOR and
 // under --json.
 func TestHelp_Colour(t *testing.T) {
+	t.Parallel()
 	help := func(tty bool, env map[string]string, args ...string) string {
 		t.Helper()
 		h := newHarness(t, noop())
@@ -39,7 +40,7 @@ func TestHelp_Colour(t *testing.T) {
 			colourAt(t, h, palette.TrueColor)
 		}
 		for k, v := range env {
-			t.Setenv(k, v)
+			h.setenv(k, v)
 		}
 		if code := h.execRoot(args...); code != 0 {
 			t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
@@ -100,6 +101,7 @@ func TestHelp_Colour(t *testing.T) {
 // contacts and what it does, marks the stages --skip refuses, and the stage
 // list is not in recon --help.
 func TestHelp_StagesTopic(t *testing.T) {
+	t.Parallel()
 	stages := defaultStageList()
 	h := newHarness(t, stages...)
 	topic := h.stagesHelp()

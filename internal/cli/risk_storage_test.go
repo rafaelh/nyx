@@ -12,6 +12,7 @@ import (
 // records an object count and the first keys; objects are never fetched, only
 // the first listed key and referenced objects are HEADed.
 func TestStorage_AttributedByCNAME(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("static.example.com")
 	x.dns.CNAME("static.example.com", "acme-assets.s3.amazonaws.com")
@@ -57,6 +58,7 @@ func TestStorage_AttributedByCNAME(t *testing.T) {
 
 // A script reference is attributed; a truncated listing says 1000+ and keeps five keys.
 func TestStorage_AttributedByScript(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -80,6 +82,7 @@ func TestStorage_AttributedByScript(t *testing.T) {
 
 // A redirect hop to a storage URL is a reference, and 403 means it exists and is private.
 func TestStorage_AttributedByRedirectAndPrivate(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -97,6 +100,7 @@ func TestStorage_AttributedByRedirectAndPrivate(t *testing.T) {
 
 // The region a bucket lives in is followed from the 301.
 func TestStorage_RegionRedirectFollowed(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("static.example.com")
 	x.dns.CNAME("static.example.com", "acme-eu.s3.amazonaws.com")
@@ -125,6 +129,7 @@ func TestStorage_RegionRedirectFollowed(t *testing.T) {
 // An Azure account is found by DNS, then the fixed container list is tried.
 // The account's host is a candidate (a redirect recorded it) and is still contacted.
 func TestStorage_AzureAccountThenContainers(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -175,6 +180,7 @@ func TestStorage_AzureAccountThenContainers(t *testing.T) {
 // A newly referenced object adds one HEAD check, does not re-list the bucket,
 // and leaves no stale "public".
 func TestStorage_NewObjectReference(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com", "static.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -214,6 +220,7 @@ func TestStorage_NewObjectReference(t *testing.T) {
 // Guessed names are capped per root and per org, in priority order, and checked
 // on all three providers, under --passive.
 func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names()
 	x.mustRun("--passive", "--storage-max-names", "4", "--org", "Acme Corp")
@@ -254,6 +261,7 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 // only public or listable ones are findings, and always low. A guessed name that is also
 // referenced is attributed.
 func TestStorage_Unattributed(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("static.example.com")
 	x.dns.CNAME("static.example.com", "example-backup.s3.amazonaws.com") // also a guess
@@ -305,6 +313,7 @@ func TestStorage_Unattributed(t *testing.T) {
 
 // An unattributed listable bucket is low and never reaches the summary's high/medium list.
 func TestStorage_UnattributedNeverInSummary(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names()
 	x.handle("storage.googleapis.com", bucketHandler(map[string]bucket{"example": {list: 200, keys: []string{"secrets.txt"}, objs: map[string]int{"secrets.txt": 200}}}))
@@ -328,6 +337,7 @@ func TestStorage_UnattributedNeverInSummary(t *testing.T) {
 // A redirect to a path-style provider endpoint records it as a candidate
 // hostname; the storage stage still contacts it, like an Azure account host.
 func TestStorage_PathStyleEndpointCandidateIsContacted(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -349,6 +359,7 @@ func TestStorage_PathStyleEndpointCandidateIsContacted(t *testing.T) {
 // missing) or 409 PublicAccessNotPermitted. Existence is unknown: the check
 // completes, is not retried, and is neither a finding nor a takeover.
 func TestStorage_AzureUnknownContainersComplete(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("www.example.com")
 	x.host("www.example.com", "203.0.113.5")
@@ -386,6 +397,7 @@ func TestStorage_AzureUnknownContainersComplete(t *testing.T) {
 
 // A 307 for a new bucket may name its region only in Location.
 func TestStorage_RegionFromLocation(t *testing.T) {
+	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names("static.example.com")
 	x.dns.CNAME("static.example.com", "acme-new.s3.amazonaws.com")

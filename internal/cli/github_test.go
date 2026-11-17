@@ -119,7 +119,7 @@ func (g *ghFake) serve(rw http.ResponseWriter, r *http.Request) {
 func ghWorld(t *testing.T, g *ghFake) *world {
 	t.Helper()
 	w := newWorld(t)
-	t.Setenv("NYX_KEYS_GITHUB", githubKey)
+	w.h.setenv("NYX_KEYS_GITHUB", githubKey)
 	w.handle("api.github.com", g.serve)
 	return w
 }
@@ -161,6 +161,7 @@ func ghFailed(w *world) int { return lastState(w.h.events(), "github").num("fail
 func ghCheckKey(root string, max int) string { return fmt.Sprintf("%s|max=%d", root, max) }
 
 func TestGitHub_NotConfiguredWithoutKey(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -176,6 +177,7 @@ func TestGitHub_NotConfiguredWithoutKey(t *testing.T) {
 // A match is a row with its location and the in-scope names of its fragment. No
 // fragment text is kept, nothing is inferred from it, and the stage runs passively.
 func TestGitHub_RowsHostnamesAndNoFragmentText(t *testing.T) {
+	t.Parallel()
 	const (
 		secretA = "password=hunter2-SECRETWORD"
 		secretB = "A_FRAGMENT_PHRASE_NEVER_STORED"
@@ -262,6 +264,7 @@ func countOf(w *world, category string) int {
 
 // Repository, path and URL are target-influenced text and are written sanitised.
 func TestGitHub_TextIsSanitised(t *testing.T) {
+	t.Parallel()
 	u := ghURL("evil/repo", "a/b.txt")
 	g := newGH(map[string][]ghFile{"example.com": {
 		{repo: "evil/\x1b[31mrepo\x1b[0m", path: "a/\x1b]0;owned\x07b.txt‮", url: u, fragments: []string{"x"}},
@@ -286,6 +289,7 @@ func TestGitHub_TextIsSanitised(t *testing.T) {
 // The request is the documented code search for the quoted root, with the key as
 // a bearer token and the text-match media type; roots out of scope are not searched.
 func TestGitHub_RequestShape(t *testing.T) {
+	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1), "example.net": ghMany("example.net", 1), "example.org": ghMany("example.org", 1)})
 	w := ghWorld(t, g)
 	if code := w.run("--passive", "--concurrency", "1", "-e", eng, "--exclude", "example.net", "example.org", "example.net", "example.com"); code != 0 {
@@ -314,6 +318,7 @@ func TestGitHub_RequestShape(t *testing.T) {
 // Paging ends at github.max_results, the total or an empty page. The cap is part
 // of the check, so changing it searches again.
 func TestGitHub_CapStopsPaging(t *testing.T) {
+	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 250)})
 	w := ghWorld(t, g)
 	if code := w.run("--passive", "--github-max-results", "150", "example.com"); code != 0 {
@@ -345,6 +350,7 @@ func TestGitHub_CapStopsPaging(t *testing.T) {
 }
 
 func TestGitHub_StopsAtTheTotalOrAnEmptyPage(t *testing.T) {
+	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 130), "example.org": ghMany("example.org", 100)})
 	g.total["example.org"] = 400 // GitHub reports more than it will serve
 	w := ghWorld(t, g)
@@ -361,6 +367,7 @@ func TestGitHub_StopsAtTheTotalOrAnEmptyPage(t *testing.T) {
 // page after them. A short page leaves the cap unreached, so paging also ends at
 // the tenth page, and what was read completes the root.
 func TestGitHub_StopsAtGitHubsLastPage(t *testing.T) {
+	t.Parallel()
 	g := newGH(map[string][]ghFile{})
 	all := ghMany("example.com", 500)
 	g.before = func(rw http.ResponseWriter, root string, page, n int) bool {
@@ -387,6 +394,7 @@ func TestGitHub_StopsAtGitHubsLastPage(t *testing.T) {
 }
 
 func TestGitHub_MaxResultsIsBounded(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		val  string
 		code int
@@ -399,7 +407,7 @@ func TestGitHub_MaxResultsIsBounded(t *testing.T) {
 		})
 	}
 	w := newWorld(t)
-	t.Setenv("NYX_GITHUB_MAX_RESULTS", "2000")
+	w.h.setenv("NYX_GITHUB_MAX_RESULTS", "2000")
 	if code := w.run("--passive", "example.com"); code != 2 {
 		t.Errorf("an environment value above 1000: exit %d, want 2", code)
 	}
@@ -408,6 +416,7 @@ func TestGitHub_MaxResultsIsBounded(t *testing.T) {
 // A root's search completes once: a later run does not ask again, a root added
 // later is searched, and --redo github asks again.
 func TestGitHub_RootsAreSearchedOnce(t *testing.T) {
+	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1), "example.org": ghMany("example.org", 2)})
 	w := ghWorld(t, g)
 	if code := w.run("--passive", "example.com"); code != 0 {
@@ -439,6 +448,7 @@ func TestGitHub_RootsAreSearchedOnce(t *testing.T) {
 // A match that is gone after --redo github is marked not current; its row keeps
 // only the URL, which names the repository and the path.
 func TestGitHub_RedoMarksVanishedMatchesNotCurrent(t *testing.T) {
+	t.Parallel()
 	keep, gone := ghURL("acme/infra", "keep.yml"), ghURL("acme/old", "gone.yml")
 	g := newGH(map[string][]ghFile{"example.com": {
 		{repo: "acme/infra", path: "keep.yml", fragments: []string{"a.example.com"}},
@@ -478,6 +488,7 @@ func TestGitHub_RedoMarksVanishedMatchesNotCurrent(t *testing.T) {
 
 // A mention is shown while its root is in scope.
 func TestGitHub_MentionsAreShownWhileTheRootIsInScope(t *testing.T) {
+	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1), "example.org": ghMany("example.org", 2)})
 	w := ghWorld(t, g)
 	if code := w.run("--passive", "example.com", "example.org"); code != 0 {
@@ -520,6 +531,7 @@ func ghRefuse(g *ghFake, root string, page, status int, hdr map[string]string, t
 
 // A reset within 60 seconds is waited for and the same page is asked again.
 func TestGitHub_WaitsForAShortReset(t *testing.T) {
+	t.Parallel()
 	soon := func() string { return strconv.FormatInt(time.Now().Add(time.Second).Unix(), 10) }
 	for name, tc := range map[string]struct {
 		status int
@@ -535,6 +547,7 @@ func TestGitHub_WaitsForAShortReset(t *testing.T) {
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 150)})
 			ghRefuse(g, "", 2, tc.status, tc.hdr(), nil)
 			w := ghWorld(t, g)
@@ -564,6 +577,7 @@ func TestGitHub_WaitsForAShortReset(t *testing.T) {
 
 // An interrupt during the wait exits 130 at once; the roots completed before it are kept.
 func TestGitHub_InterruptDuringTheWait(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 2), "example.org": ghMany("example.org", 3)})
@@ -601,6 +615,7 @@ func TestGitHub_InterruptDuringTheWait(t *testing.T) {
 // A reset further away, a 401, any other 403 and a 429 without a reset stop the
 // stage for the run: the roots completed before are kept and the rest are not asked.
 func TestGitHub_StopsTheStage(t *testing.T) {
+	t.Parallel()
 	far := func() string { return strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) }
 	for name, tc := range map[string]struct {
 		status int
@@ -622,6 +637,7 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1), "example.net": ghMany("example.net", 1), "example.org": ghMany("example.org", 1)})
 			ghRefuse(g, "example.net", 1, tc.status, tc.hdr(), nil)
 			w := ghWorld(t, g)
@@ -654,6 +670,7 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 // Any other failure is a failed check for that root alone: not completed, retried
 // on a later run, and the other roots are still searched.
 func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
+	t.Parallel()
 	for name, serve := range map[string]func(rw http.ResponseWriter){
 		"server error": func(rw http.ResponseWriter) { http.Error(rw, "oops", 500) },
 		"not json":     func(rw http.ResponseWriter) { _, _ = rw.Write([]byte("<html>")) },
@@ -663,6 +680,7 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1), "example.net": ghMany("example.net", 1)})
 			var bad = true
 			g.before = func(rw http.ResponseWriter, root string, page, n int) bool {
@@ -696,6 +714,7 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 // --- registry, help and README ---
 
 func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
+	t.Parallel()
 	var names []string
 	for _, s := range defaultStageList() {
 		names = append(names, s.Name())
@@ -726,6 +745,7 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 }
 
 func TestGitHub_ReadmeStatesWhatIsAndIsNotRecorded(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)

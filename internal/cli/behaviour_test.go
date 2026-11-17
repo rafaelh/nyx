@@ -55,6 +55,7 @@ outer:
 
 // Every input form is stored; files ignore comments and blanks.
 func TestInputsStored(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	df := writeFile(t, t.TempDir(), "d.txt", "# comment\n\nfile.example.org\n")
 	xf := writeFile(t, t.TempDir(), "x.txt", "# c\n*.dev.example.com\n\n")
@@ -84,6 +85,7 @@ func TestInputsStored(t *testing.T) {
 
 // Engagement naming.
 func TestEngagementDirNaming(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	for _, c := range []struct {
 		args []string
@@ -115,6 +117,7 @@ func TestEngagementDirNaming(t *testing.T) {
 }
 
 func TestNoInputsAndNoEngagement(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec(); code != 2 {
 		t.Errorf("no inputs: exit %d", code)
@@ -123,6 +126,7 @@ func TestNoInputsAndNoEngagement(t *testing.T) {
 
 // Help.
 func TestHelp(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "alpha", Kind: run.ThirdParty}
 	h := newHarness(t, st, &testkit.Stage{StageName: "beta", Kind: run.ThirdParty})
 	if code := h.exec("--help"); code != 0 {
@@ -154,6 +158,7 @@ func TestHelp(t *testing.T) {
 
 // Re-runs add inputs; the engagement name alone resumes; promoted candidates move into scope.
 func TestRerunAddsAndResumes(t *testing.T) {
+	t.Parallel()
 	var gotRoots, gotExcl []string
 	st := &testkit.Stage{StageName: "spy", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
 		in := v.Inputs()
@@ -179,6 +184,7 @@ func TestRerunAddsAndResumes(t *testing.T) {
 }
 
 func TestPromotedCandidate(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "disc", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 1) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -207,6 +213,7 @@ func TestPromotedCandidate(t *testing.T) {
 // A directory that is not an engagement is refused untouched; an empty one, or
 // one whose creation was interrupted, is adopted.
 func TestNonEngagementDirRefused(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	legacy := h.eng("legacy")
 	if err := os.MkdirAll(legacy, 0o755); err != nil {
@@ -241,6 +248,7 @@ func TestNonEngagementDirRefused(t *testing.T) {
 
 // Re-runs perform only checks without a recorded result.
 func TestResumeOnlyNewChecks(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "ports", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
 		var cs []run.Check
 		for _, p := range v.Settings().Ports {
@@ -268,6 +276,7 @@ func TestResumeOnlyNewChecks(t *testing.T) {
 }
 
 func TestKeyEncodedSettingCreatesNewChecks(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "crawl", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
 		return []run.Check{{Key: fmt.Sprintf("https://a.com|depth=%d|pages=%d", v.Settings().Crawl.MaxDepth, v.Settings().Crawl.MaxPages)}}
 	}}
@@ -286,6 +295,7 @@ func TestKeyEncodedSettingCreatesNewChecks(t *testing.T) {
 
 // Transient failures.
 func TestTransientFailure(t *testing.T) {
+	t.Parallel()
 	flaky := &testkit.Stage{StageName: "flaky", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
 			cs := []run.Check{{Key: "X"}, {Key: "Y"}}
@@ -345,6 +355,7 @@ func TestTransientFailure(t *testing.T) {
 }
 
 func TestErrAbortStage(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "abort", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 4) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -369,6 +380,7 @@ func TestErrAbortStage(t *testing.T) {
 // A stage whose check enumeration fails is counted as failed once per
 // run, and the run still terminates.
 func TestEnumerationErrorTerminates(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "enum", Kind: run.ThirdParty,
 		ChecksFn:  func(v run.View) []run.Check { return testkit.Keys("c", 1) },
 		ChecksErr: errors.New("cannot list checks"),
@@ -430,6 +442,7 @@ func currentOf(t *testing.T, h *harness, kind string) map[string]string {
 }
 
 func TestRedo(t *testing.T) {
+	t.Parallel()
 	b := 0
 	src, other := redoStages(&b)
 	h := newHarness(t, src, other)
@@ -459,6 +472,7 @@ func TestRedo(t *testing.T) {
 }
 
 func TestRedoSweepsOrphanedChecks(t *testing.T) {
+	t.Parallel()
 	b := 0
 	src, other := redoStages(&b)
 	h := newHarness(t, src, other)
@@ -475,6 +489,7 @@ func TestRedoSweepsOrphanedChecks(t *testing.T) {
 // A redo whose enumeration fails part-way must not sweep the checks it never
 // listed, and stays pending.
 func TestRedoKeepsUnlistedChecksOnEnumerationError(t *testing.T) {
+	t.Parallel()
 	b := 0
 	src, other := redoStages(&b)
 	h := newHarness(t, src, other)
@@ -495,10 +510,11 @@ func TestRedoKeepsUnlistedChecksOnEnumerationError(t *testing.T) {
 // A check key containing a configured key value is stored redacted, yet still
 // recognised as completed: within the run and on the next one.
 func TestRedactedCheckKeyCompletes(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "asnish", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return []run.Check{{Key: "AS4123"}} }}
 	h := newHarness(t, st)
-	t.Setenv("NYX_KEYS_FAKE", "123")
+	h.setenv("NYX_KEYS_FAKE", "123")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if code := h.execCtx(ctx, "a.com"); code != 0 {
@@ -513,6 +529,7 @@ func TestRedactedCheckKeyCompletes(t *testing.T) {
 }
 
 func TestRedoUnknownStage(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("a.com", "--redo", "nope"); code != 2 || !strings.Contains(h.stderr.String(), "nope") {
 		t.Errorf("exit %d stderr %q", code, h.stderr.String())
@@ -524,6 +541,7 @@ func TestRedoUnknownStage(t *testing.T) {
 
 // Discovery loop across stages and passes.
 func TestDiscoveryLoop(t *testing.T) {
+	t.Parallel()
 	perHost := func(prefix string) func(v run.View) []run.Check {
 		return func(v run.View) []run.Check {
 			var cs []run.Check
@@ -583,6 +601,7 @@ func TestDiscoveryLoop(t *testing.T) {
 
 // Passive mode.
 func TestPassive(t *testing.T) {
+	t.Parallel()
 	target := &testkit.Stage{StageName: "probe", Kind: run.Target, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("p", 3) }}
 	third := &testkit.Stage{StageName: "third", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("t", 2) }}
 	h := newHarness(t, third, target)
@@ -614,6 +633,7 @@ func ackStage() *testkit.Stage {
 }
 
 func TestAckFlag(t *testing.T) {
+	t.Parallel()
 	for _, flag := range []string{"--authorised", "--authorized"} {
 		st := ackStage()
 		h := newHarness(t, st)
@@ -643,6 +663,7 @@ func asnServer(t *testing.T, h *harness, prefix *string) {
 }
 
 func TestNetblockGuard(t *testing.T) {
+	t.Parallel()
 	var prefix = "10.0.0.0/22" // 1024 addresses
 	after := &testkit.Stage{StageName: "after", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("a", 2) }}
 	h := newHarness(t, newASN(), after)
@@ -679,6 +700,7 @@ func TestNetblockGuard(t *testing.T) {
 }
 
 func TestNetblockInputGuard(t *testing.T) {
+	t.Parallel()
 	first := &testkit.Stage{StageName: "first", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("a", 2) }}
 	h := newHarness(t, first)
 	if code := h.exec("--cidr", "10.0.0.0/16", "--netblock-limit", "100"); code != 2 || len(first.Executed()) != 0 {
@@ -688,6 +710,7 @@ func TestNetblockInputGuard(t *testing.T) {
 
 // excluded.csv, end to end through the CLI.
 func TestExcludedCSV(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "disc", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 1) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -717,6 +740,7 @@ func TestExcludedCSV(t *testing.T) {
 
 // States, found lines, counts, summary.
 func TestStageStatesAndFound(t *testing.T) {
+	t.Parallel()
 	prev := &testkit.Stage{StageName: "prev", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("p", 2) }}
 	failing := &testkit.Stage{StageName: "failing", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("f", 2) },
@@ -831,6 +855,7 @@ func TestStageStatesAndFound(t *testing.T) {
 
 // With --json every stdout line is an unstyled JSON event, and an error is the JSON error on stderr.
 func TestJSONMode(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -859,6 +884,7 @@ func TestJSONMode(t *testing.T) {
 }
 
 func TestNonTTYNoANSI(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 1) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("web_service", "https://a.com")}, nil
@@ -884,6 +910,7 @@ func TestNonTTYNoANSI(t *testing.T) {
 
 // Concurrency bound.
 func TestConcurrencyBound(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 24) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -901,6 +928,7 @@ func TestConcurrencyBound(t *testing.T) {
 
 // Invalid input is rejected before any activity.
 func TestInvalidInputsTouchNothing(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "s", Kind: run.Target, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 3) }}
 	badCfg := writeFile(t, t.TempDir(), "bad.yaml", "concurency: 3\n")
 	badList := writeFile(t, t.TempDir(), "d.txt", "ok.example.com\nco.uk\n")
@@ -942,6 +970,7 @@ func TestInvalidInputsTouchNothing(t *testing.T) {
 
 // Exit codes and lock.
 func TestExitCodes(t *testing.T) {
+	t.Parallel()
 	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 2) },
 		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -978,6 +1007,7 @@ func TestExitCodes(t *testing.T) {
 }
 
 func TestInterruptedByContext(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 50) },
@@ -1002,6 +1032,7 @@ func TestInterruptedByContext(t *testing.T) {
 
 // Keys never leak.
 func TestSecretsNeverLeak(t *testing.T) {
+	t.Parallel()
 	const envKey, fileKey = "ENVSENTINEL-7f3a91", "FILESENTINEL-c20b44"
 	var gotEnv, gotFile string
 	mk := func(name, source string, got *string) *testkit.Stage {
@@ -1030,7 +1061,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 		a, b := mk("viaenv", "fake", &gotEnv), mk("viafile", "other", &gotFile)
 		h := newHarness(t, a, b)
 		h.eopts.SourceBaseURLs = map[string]string{"api.example.net": "http://127.0.0.1:1"} // refuses connections; error text includes the URL
-		t.Setenv("NYX_KEYS_FAKE", envKey)
+		h.setenv("NYX_KEYS_FAKE", envKey)
 		args := []string{"a.com", "--debug", "--config", cfg}
 		if jsonMode {
 			args = append(args, "--json")
@@ -1058,6 +1089,5 @@ func TestSecretsNeverLeak(t *testing.T) {
 			}
 			return nil
 		})
-		os.Unsetenv("NYX_KEYS_FAKE")
 	}
 }

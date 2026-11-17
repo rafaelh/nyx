@@ -191,7 +191,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	runner := run.New(run.Config{
 		Engagement: eng, Settings: settings, Stages: d.Stages, Egress: egress.New(eopts), Emitter: em,
 		Files: d.Files, Clock: d.Clock,
-		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo,
+		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync,
 	})
 	runErr := runner.Run(ctx)
 	var nl *run.NetblockLimitError

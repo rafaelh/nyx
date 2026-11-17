@@ -29,6 +29,7 @@ func domains(rows map[string]map[string]string) []string { return slices.Sorted(
 // Every domain the SPF walk follows, and every a:, mx: and exists: argument at
 // any level, is a row; the depth counts from 0; macros are skipped.
 func TestEmailThirdParties_SPFDepthAndMechanisms(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:a.mailer.test a:host.vendor.test mx:mx.vendor2.test/24 exists:chk.vendor3.test include:%{d}.macro.test exists:%{i}.macro2.test a mx -all")
 	w.dns.TXT("a.mailer.test", "v=spf1 include:b.deep.test -all")
@@ -58,6 +59,7 @@ func TestEmailThirdParties_SPFDepthAndMechanisms(t *testing.T) {
 
 // An include that has no SPF record is still listed.
 func TestEmailThirdParties_IncludeWithoutSPFIsListed(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:gone.vendor.test -all")
 	runRoot(t, w)
@@ -71,6 +73,7 @@ func TestEmailThirdParties_IncludeWithoutSPFIsListed(t *testing.T) {
 
 // A redirect that the record's own all makes unreachable is not followed, so it is not listed.
 func TestEmailThirdParties_IgnoredRedirectIsNotListed(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 -all redirect=r.vendor.test")
 	runRoot(t, w)
@@ -89,6 +92,7 @@ func TestEmailThirdParties_IgnoredRedirectIsNotListed(t *testing.T) {
 
 // A SERVFAIL on any include fails the check, so the run records no third parties for the root.
 func TestEmailThirdParties_IncludeServfailRecordsNothing(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:ok.vendor.test include:broken.vendor2.test -all")
 	w.dns.TXT("ok.vendor.test", "v=spf1 -all")
@@ -109,6 +113,7 @@ func TestEmailThirdParties_IncludeServfailRecordsNothing(t *testing.T) {
 
 // A domain that shares the registrable domain of its root is not a third party.
 func TestEmailThirdParties_SameRegistrableDomainDropped(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:_spf.example.com a:mail.example.com include:other.vendor.test -all")
 	w.dns.TXT("_spf.example.com", "v=spf1 -all")
@@ -132,6 +137,7 @@ func TestEmailThirdParties_SameRegistrableDomainDropped(t *testing.T) {
 
 // Several rua and ruf URIs, a size suffix and a non-mailto URI.
 func TestEmailThirdParties_DMARCReportAddresses(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("_dmarc.example.com", "v=DMARC1; p=none; rua=mailto:a@rep.vendor.test!10m,mailto:b@rep2.vendor.test,https://web.vendor3.test/report; ruf=MAILTO:f@forensic.vendor4.test!50k, mailto:g@rep.vendor.test")
 	runRoot(t, w)
@@ -148,6 +154,7 @@ func TestEmailThirdParties_DMARCReportAddresses(t *testing.T) {
 
 // A policy found at the organisational domain belongs to the root that used it.
 func TestEmailThirdParties_DMARCInheritedFromOrganisationalDomain(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("_dmarc.example.com", "v=DMARC1; p=none; rua=mailto:a@rep.vendor.test")
 	runRoot(t, w, "-e", eng, "sub.example.com")
@@ -160,6 +167,7 @@ func TestEmailThirdParties_DMARCInheritedFromOrganisationalDomain(t *testing.T) 
 // An MX row uses the host's registrable domain; one in the scope is not listed,
 // nor is an address an MX record wrongly names.
 func TestEmailThirdParties_MX(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.MX("example.com", 5, "192.0.2.25")
 	w.dns.MX("example.com", 10, "mx1.mailvendor.test")
@@ -182,6 +190,7 @@ func TestEmailThirdParties_MX(t *testing.T) {
 // A domain under another in-scope root is hidden, whether that root was given
 // with the first or added later, and a not-current row is hidden too.
 func TestEmailThirdParties_DomainUnderInScopeRootIsHidden(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:_spf.partner.test include:_spf.vendor.test -all")
 	w.dns.MX("example.com", 10, "mx.partner.test")
@@ -209,6 +218,7 @@ func TestEmailThirdParties_DomainUnderInScopeRootIsHidden(t *testing.T) {
 
 // The cname mechanism lists SaaS chains of in-scope, non-wildcard names only.
 func TestEmailThirdParties_CNAMEMechanism(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.crtsh(map[string][]string{"example.com": {
 		"shop.example.com", "shop2.example.com", "site.example.com", "cdn.example.com", "x.wild.example.com", "excl.example.com", "chain.example.com",
@@ -249,6 +259,7 @@ func TestEmailThirdParties_CNAMEMechanism(t *testing.T) {
 // A cname row whose hostname stops pointing at the platform goes not current
 // on --redo resolve, and still shows its root, mechanism and domain.
 func TestEmailThirdParties_CNAMERowGoesNotCurrent(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.crtsh(map[string][]string{"example.com": {"site.example.com"}}, nil)
 	w.dns.CNAME("site.example.com", "acme.github.io")
@@ -268,6 +279,7 @@ func TestEmailThirdParties_CNAMERowGoesNotCurrent(t *testing.T) {
 
 // One row per root, mechanism and domain, the provider shown beside the domain.
 func TestEmailThirdParties_OneRowAndProvider(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:_spf.google.com include:x.vendor.test a:x.vendor.test mx:x.vendor.test -all")
 	w.dns.TXT("_spf.google.com", "v=spf1 include:x.vendor.test -all")
@@ -296,6 +308,7 @@ func TestEmailThirdParties_OneRowAndProvider(t *testing.T) {
 
 // The new third parties are announced and counted, and the stage runs under --passive.
 func TestEmailThirdParties_FoundLineCountAndPassive(t *testing.T) {
+	t.Parallel()
 	seed := func(w *world) {
 		w.dns.TXT("example.com", "v=spf1 include:_spf.google.com -all")
 		w.dns.TXT("_spf.google.com", "v=spf1 -all")
@@ -336,6 +349,7 @@ func TestEmailThirdParties_FoundLineCountAndPassive(t *testing.T) {
 // --redo email marks a third party the root no longer references as not current,
 // and the row still shows its root, mechanism and domain.
 func TestEmailThirdParties_RedoEmailRetires(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.TXT("example.com", "v=spf1 include:_spf.vendor.test -all")
 	w.dns.TXT("_spf.vendor.test", "v=spf1 -all")
@@ -363,6 +377,7 @@ func postureRow(w *world, root string) map[string]string {
 }
 
 func TestEmailMTASTS_PresentAndAbsent(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		txt  []string
@@ -412,6 +427,7 @@ func TestEmailMTASTS_PresentAndAbsent(t *testing.T) {
 
 // A root without a mail host has no value and no lookup, and no finding.
 func TestEmailMTASTS_EmptyWithoutMX(t *testing.T) {
+	t.Parallel()
 	for name, mx := range map[string][]string{"no MX": nil, "null MX": {"0 ."}} {
 		t.Run(name, func(t *testing.T) {
 			w := emailWorld(t)
@@ -435,6 +451,7 @@ func TestEmailMTASTS_EmptyWithoutMX(t *testing.T) {
 
 // A subdomain root's value is its own: the organisational domain's policy does not count.
 func TestEmailMTASTS_NoFallbackForSubdomainRoot(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	w.dns.MX("sub.example.com", 10, "mail.example.com")
 	w.dns.TXT("sub.example.com", "v=spf1 -all")
@@ -455,6 +472,7 @@ func TestEmailMTASTS_NoFallbackForSubdomainRoot(t *testing.T) {
 
 // A SERVFAIL on the lookup fails the check, which is retried.
 func TestEmailMTASTS_ServfailFailsTheCheck(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	healthy().apply(w.dns, "example.com")
 	w.dns.Rcode("_mta-sts.example.com", mdns.RcodeServerFailure)
@@ -475,6 +493,7 @@ func TestEmailMTASTS_ServfailFailsTheCheck(t *testing.T) {
 // The check key gains a token, so an engagement from before re-runs its email
 // checks once; the policy file over HTTPS is never fetched.
 func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
+	t.Parallel()
 	w := emailWorld(t)
 	healthy().apply(w.dns, "example.com")
 	runRoot(t, w, "--no-permutations") // permutations legitimately try mta-sts.<root>
