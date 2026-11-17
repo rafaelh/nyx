@@ -3,8 +3,7 @@ name: spec-develop
 description: >
   Implement a specification file into code and tests. Use after a plan has been made and the user
   wants to implement it.
-argument-hint: "<spec.md> [--wt] [--writepr]"
-model: sonnet
+argument-hint: "<spec.md> [--wt]"
 metadata:
   version: "1.4"
 ---
