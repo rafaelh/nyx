@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
@@ -160,8 +161,10 @@ func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
 		t.Errorf("current = %s, %s", rows[0]["current"], rows[1]["current"])
 	}
 	wantRow(t, rows[1], "crtsh;otx;wayback", "3", "high")
-	for _, e := range ofType(h.events(), "candidate") {
-		t.Errorf("a candidate that is not current is not listed: %v", e)
+	for _, c := range h.envelope().Data.Candidates {
+		if c.Value == "x.org" {
+			t.Errorf("a candidate that is not current is not listed: %+v", c)
+		}
 	}
 }
 
@@ -386,46 +389,42 @@ func TestCandidates_ConsoleSummary(t *testing.T) {
 	}
 }
 
-// --json emits one candidate event per high candidate before the summary, and
-// the summary carries the same list.
-func TestCandidates_JSONEvents(t *testing.T) {
+// --json lists the first 20 high candidates in the envelope, best first, with their total and each
+// one's sources as a list; the rest are in candidates.csv.
+func TestCandidates_JSONEnvelope(t *testing.T) {
 	t.Parallel()
 	h := highHarness(t)
 	if code := h.exec("a.com", "--org", "Acme", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	evs := h.events()
-	var cands []event
-	summaryAt := -1
-	for i, e := range evs {
-		switch e.str("type") {
-		case "candidate":
-			if summaryAt >= 0 {
-				t.Error("a candidate event came after the summary")
-			}
-			cands = append(cands, e)
-		case "summary":
-			summaryAt = i
+	d := h.envelope().Data
+	if d.CandidatesTotal != 23 || len(d.Candidates) != 20 {
+		t.Fatalf("%d candidates listed of %d, want 20 of 23", len(d.Candidates), d.CandidatesTotal)
+	}
+	var nb *report.CandidateRow
+	for i, c := range d.Candidates {
+		if c.Confidence != "high" {
+			t.Errorf("only high candidates: %+v", c)
+		}
+		if c.Value == "198.51.100.0/24" {
+			nb = &d.Candidates[i]
 		}
 	}
-	if len(cands) != 23 || summaryAt < 0 {
-		t.Fatalf("%d candidate events, summary at %d", len(cands), summaryAt)
+	if nb == nil || nb.Kind != "netblock" || nb.Promote != "--cidr 198.51.100.0/24" ||
+		!slices.Equal(nb.Sources, []string{"org-asn", "otx"}) || nb.EvidenceCount != 2 {
+		t.Errorf("netblock row = %+v", nb)
 	}
-	var nb event
-	for _, e := range cands {
-		if e.str("confidence") != "high" {
-			t.Errorf("only high candidates: %v", e)
+	if got := len(ofType(h.events(), "candidate")); got != 0 {
+		t.Errorf("%d candidate events: the candidates are in the envelope", got)
+	}
+	// The rest are in candidates.csv: 23 high rows in all.
+	high := 0
+	for _, r := range candidateRows(t, h, "a.com") {
+		if r["confidence"] == "high" {
+			high++
 		}
-		if e.str("value") == "198.51.100.0/24" {
-			nb = e
-		}
 	}
-	if nb == nil || nb.str("kind") != "netblock" || nb.str("promote") != "--cidr 198.51.100.0/24" ||
-		nb.str("sources") != "org-asn;otx" || nb.num("evidence_count") != 2 {
-		t.Errorf("netblock event = %v", nb)
-	}
-	listed, _ := evs[summaryAt]["candidates"].([]any)
-	if len(listed) != 23 {
-		t.Errorf("summary candidates = %d, want 23", len(listed))
+	if high != 23 {
+		t.Errorf("candidates.csv has %d high rows, want 23", high)
 	}
 }

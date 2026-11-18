@@ -41,18 +41,26 @@ make test    # vet, race tests, and a cross-target vet for all four platforms
 nyx recon example.com --passive        # third-party sources only; nothing at the target is contacted
 nyx recon example.com --authorised     # all stages; confirms you are authorised to test the scope
 nyx recon -e example-com               # re-run or resume an existing engagement by name
+nyx recon example.com --passive --json --timeout 30m   # one JSON object on stdout; stop by the deadline
 ```
 
 Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and the summary to stdout
-(see [Console and JSON](#console-and-json)).
+(see [Console and JSON](#console-and-json)). A run that a deadline or a failed check left partly done
+exits 7; run the same command again to carry on (see [Deadline](#deadline) and
+[Exit codes](#exit-codes)).
 
 ## Commands
 
 - **`nyx recon [domain...] [flags]`** runs an engagement: everything below. **`nyx recon export`**
   writes what an engagement holds as JSON lines (see [Exporting an engagement](#exporting-an-engagement)).
+- **`--timeout <duration>`** is a recon flag: `nyx recon example.com --json --timeout 30m` stops by
+  that deadline and exits 7, and a re-run carries on (see [Deadline](#deadline)). `export` makes no
+  network calls and takes no `--timeout`.
 - **Help.** `nyx --help`, `nyx help` and a bare `nyx` print the whole reference: examples, every
   command with its everyday flags and one example, the valid values of each fixed-set flag (the
-  stages, the export kinds) and the exit codes. `nyx help <command>` (or `nyx <command> --help`) is
+  stages, the export kinds) and the exit codes. The recon example in `nyx --help` and in
+  `nyx recon --help` passes `--json` and `--timeout`, and the root help lists `--timeout` among
+  recon's everyday flags. `nyx help <command>` (or `nyx <command> --help`) is
   one command's full help; recon's tuning settings are listed only there. `nyx help stages` and
   `nyx help findings` are the two help topics. Help goes to stdout and exits 0.
 - **Shared flags.** Every command takes `--json` (`-J`), `--quiet` (`-q`) and `--debug`, before or
@@ -80,7 +88,9 @@ Results are written to `<output-dir>/<engagement>/`. The log goes to stderr and 
 - **Re-runs:** inputs and exclusions are added to those already stored for the engagement. Nothing
   is removed because you left it out of a later run.
 - **Resume:** a re-run performs only the checks not yet done. Checks that failed (a transient
-  error, not a negative result) are retried on later runs. An interrupted run resumes the same way.
+  error, not a negative result) are retried on later runs, and a run in which any check failed exits 7
+  (see [Exit codes](#exit-codes)). An interrupted run resumes the same way, and so does one that a
+  deadline stopped (see [Deadline](#deadline)).
 - **`--redo <stage>`:** performs every check of one stage again. `nyx help stages` lists the stages
   in run order, with whom each contacts, the key it needs and what it does.
 - **`--skip <stage>`:** turns a stage off (repeatable; the `skip` setting, or `NYX_SKIP` as a
@@ -189,8 +199,8 @@ scope) and excluded hosts are never contacted. Everything else comes from third 
 (crt.sh and Cert Spotter), web archives, passive DNS and search (HackerTarget and urlscan.io),
 GitHub's code search, public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage
 provider endpoints. Only hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
-reports that its free quota is spent, its stage alone stops, and its checks are retried on the next
-run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
+reports that its free quota is spent, its stage alone stops, the checks it did not do are failed (the
+run exits 7, see [Exit codes](#exit-codes)), and they are retried on the next run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
 addresses, for its reverse IP lookup (see [Reverse IP](#reverse-ip)); SecurityTrails also receives
 the hostnames behind a CDN or WAF, for their DNS history (see [Origin exposure](#origin-exposure)); the
 target never does. The
@@ -239,7 +249,8 @@ is no prompt, on a terminal or anywhere else.
   warning right after its header that names them and says that `--authorised` confirms
   authorisation. It names exactly the stages shown that way, so a stage left out by `--skip` is not
   named, and there is no warning under `--passive` or when no stage is left out. It appears on every
-  run until authorisation is confirmed. Under `--json` it is a `warning` event.
+  run until authorisation is confirmed. Under `--json` it is in the envelope's `meta.warnings` and not
+  on stderr.
 
 ## Large netblocks
 
@@ -248,6 +259,46 @@ nyx stops before contacting any address in them, writes the output files and exi
 `INVALID_INPUT` error that gives the total. Its hint is your own call with
 `--allow-large-netblocks` added (and any `--redo` left out), which proceeds. The approval is
 remembered with the engagement.
+
+## Deadline
+
+`--timeout <duration>` gives a recon run a deadline: `--timeout 30m`, `--timeout 2h`, `--timeout
+1m30s`. It is a flag only, with no default and no config key or `NYX_*` variable (`NYX_TIMEOUT` is
+ignored and a `timeout:` key in the config file is an unknown key). A value that is not a positive
+duration (`0`, `-5s`, `abc`, and `30` with no unit) exits 2. `nyx recon export` makes no network
+calls and takes no `--timeout`. Without the flag a run takes as long as it needs.
+
+- **The reserve.** nyx aims to exit by the deadline, so the work stops before it. The reserve is a
+  tenth of the timeout, at least 2 seconds, at most 60 seconds and never more than half the timeout:
+  checks get 27 seconds of a 30-second timeout, 9 minutes of 10, and 1 hour 59 minutes of 2 hours.
+  When the reserve before the deadline is reached, recon stops starting checks and cancels the
+  ones in flight. It then writes the output files and the summary or envelope, in time to exit by
+  the deadline.
+- **The late finish.** If writing takes longer than the reserve, recon finishes writing and exits
+  after the deadline, with current files, rather than stopping part-way. A run that finishes its
+  work before the deadline is unaffected and exits as it would without `--timeout`.
+- **A cancelled check** is neither done nor failed. Nothing is recorded for it, no failure and no
+  completion, so it runs on the next run, and the evidence earlier runs recorded stays current.
+- **Exit 7.** A run the deadline ended prints its summary or envelope and exits 7 with a `PARTIAL`
+  error. Its message says the deadline stopped the run, how many checks completed in this run, how
+  many were cancelled and in which stages (`the deadline (--timeout 30m) stopped the run: 412
+  checks completed, 6 cancelled (permutations 2, crawl 4)`), and then names the stages with failed
+  checks, if any (`; failed checks: crtsh 2, shodan 14`). A check is completed when it ran and
+  finished in this run, whether it succeeded or failed; a check a stage abandoned without running it
+  is failed but not completed. The same counts are `meta.deadline_exceeded`, `meta.checks_completed`
+  and `meta.checks_cancelled` in the envelope, and the human summary ends with `Stopped by the
+  deadline: N checks completed, M cancelled`. The error has one of two hints:
+  - **To carry on.** The hint is your own invocation, shell-quoted, with `--redo` and its value left
+    out and every other argument kept, `--timeout` included. Run it to do the cancelled checks and
+    the rest. The error is marked transient.
+  - **To raise the deadline.** When no check succeeded in this run (the timeout was too small to
+    start one, or every check started was cancelled or failed) the hint says to raise `--timeout`:
+    `raise --timeout: no check succeeded within 30m`. Running the same command again would make no
+    progress, so the error is not marked transient.
+- **Long checks.** A single permutations check (one per root: about 4,900 lookups, at the default
+  50 a second) or crawl check (one per service) can take minutes, and the deadline cancels a check
+  that has not finished. A short `--timeout` may therefore never finish one: a run that stops at one
+  makes no progress past it on the next. Give such a run a longer `--timeout` (or none).
 
 ## Root DNS records and third parties
 
@@ -304,8 +355,9 @@ under each root, even when the wordlist lacks them (see the well-known labels in
 
 The `+` line for a new third party reads `third-party <platform> via <mechanism> on <root>` (the
 platform is the provider, else the domain),
-and its `--json` `found` event carries `platform`, `mechanism` and `root`. The prefix list and the
-name-server provider names are in the embedded `providers.yaml`.
+and the row it announces is in `third-parties.csv` and in `nyx recon export`, with the `provider`,
+`mechanism` and `root`. The prefix list and the name-server provider names are in the embedded
+`providers.yaml`.
 
 ### Mail and SaaS dependencies
 
@@ -606,8 +658,8 @@ new entries are requested on the first run after an upgrade.
 
 A cap that defers work is not a failure: the stage shows `done`, and the summary gives the amount
 deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`, searches for `identifier-pivot`, hostnames for `dnshistory`) under `Deferred to
-the next run`, and as `deferred` in the `--json` `summary` event. Run the same command again to do
-the rest.
+the next run`, and as the envelope's `deferred` list under `--json`. A run that only deferred work
+exits 0. Run the same command again to do the rest.
 
 ## Console and JSON
 
@@ -626,9 +678,11 @@ A run writes two things, to two streams.
 - **The summary is on stdout,** and is all that stdout holds. It lists counts, the checks that
   failed (a check that failed is retried on the next run; `--debug` shows each failure), the work a
   per-run cap deferred, the high and medium findings, and the high-confidence candidates (see
-  [Ranked candidates](#ranked-candidates)). A run that ends without a summary (interrupted, stopped
-  by the netblock limit or ended by an error) writes nothing to stdout. The error that ends a failed
-  run is on stderr, with no time or level (see [Errors](#errors)).
+  [Ranked candidates](#ranked-candidates)). When the deadline ended the run it ends with the line
+  `Stopped by the deadline: N checks completed, M cancelled` (see [Deadline](#deadline)). A run
+  that ends without a summary (interrupted, stopped by the netblock limit or ended by an error)
+  writes nothing to stdout. A run that exits 7 has written its summary: the error that follows it
+  is on stderr, with no time or level (see [Errors](#errors)).
 
 `nyx recon example.com 2> run.log` therefore keeps the log in a file and prints the summary.
 
@@ -642,20 +696,82 @@ A run writes two things, to two streams.
 A finding's `+` line and the summary show its severity as a badge: the severity as recorded (`high`,
 `medium`, `low`) in a fixed-width column.
 
+### The `--json` envelope
 
-`--json` prints one JSON event per line on stdout, with no styling. Warnings are events of type
-`warning` with no flag, and `--quiet` changes nothing. A failed check is not an event. A run that
-succeeds ends with a `run_end` event whose `exit_code` is 0. A run that fails writes no `error` or
-`run_end` event: the event lines it wrote before failing stay on stdout, and the failure is the JSON
-error on stderr.
-stderr is empty unless `--debug` is given, which writes only the `DEBUG` lines there (coloured by
-the rule above) and leaves stdout unchanged. A `candidate` event for each high-confidence candidate
-comes before the `summary` event. It has `kind` (`root`, `hostname` or `netblock`), `value`,
-`sources`, `evidence_count`, `confidence` and `promote`. The `summary` event's `candidates` field
-lists the same candidates. After the `summary` event comes one `change` event for each row of
-`changes.csv` (see [What changed since the last run](#what-changed-since-the-last-run)), with
-`change`, `kind`, `key`, `scope` and, for a finding, `severity`. The `summary` event has a `changes`
-field on a run that has an earlier run to compare with, and none on a first run.
+`--json` replaces the log and the summary with one JSON object, written to stdout when the run
+ends: compact, on one line, with the two keys `data` and `meta`. There are no event lines. The
+files and `nyx recon export` are the detailed record of what a run found; the envelope is its
+outcome.
+
+- **stdout** holds the envelope on exit 0 and on exit 7, and nothing on any other exit. A run
+  that is interrupted, ended by an error or stopped by the netblock limit writes no envelope.
+- **stderr** is empty on exit 0, apart from the `DEBUG` lines that `--debug` writes (coloured by
+  the rule above), which leave stdout unchanged. On a non-zero exit it holds the one error (see
+  [Errors](#errors)).
+- **Warnings** are not written anywhere else: every warning the run raised is in `meta.warnings`,
+  never on stderr. `--quiet` changes nothing.
+- **Every key is on every run.** An empty list is `[]`, and a value that is absent is `null` (said
+  below for each). Figures per stage or per category are lists of objects with fixed keys, never
+  objects keyed by a stage or category name.
+- **Redaction.** Text a target supplied is sanitised and any configured API key is replaced with
+  `****`, in the warnings and the findings' `detail` as everywhere else.
+
+`data` has these keys, in this order:
+
+| Key | Type | Contents |
+|---|---|---|
+| `engagement` | string | The engagement's name |
+| `directory` | string | Its directory, as an absolute path, even when `--output-dir` is relative |
+| `counts` | list of `{category, n}` | The count of each category (`hosts`, `ips`, `web services` and so on), sorted by category, with `n` a number. The categories the log's count lines show |
+| `failed_checks` | list of `{stage, n}` | The checks that failed in this run, per stage, sorted by stage name. `[]` when none did |
+| `deferred` | list of `{stage, n}` | The work a per-run cap deferred, per stage, sorted by stage name; the unit of `n` is the stage's own (see [Built-in lists and per-run limits](#built-in-lists-and-per-run-limits)). `[]` when nothing was deferred |
+| `not_configured` | list of `{stage, reason}` | Each stage that did not run, in registry order, and why: `skipped`, `passive-only`, `no authorisation`, or the stage's own reason such as `no key`. `[]` when every stage ran |
+| `findings` | list of `{severity, category, target, detail}` | Every current high and medium finding, high first and then by target. `detail` is a string, or `null` when the finding has none |
+| `candidates` | list of `{kind, value, sources, evidence_count, confidence, promote}` | The first 20 current high-confidence candidates, best first (see [Ranked candidates](#ranked-candidates)). `kind` is the kind of record the candidate is (`root` or `hostname`, for example), `sources` is a list of strings, `evidence_count` is a number and `promote` is the input that promotes it |
+| `candidates_total` | number | How many current high-confidence candidates there are, whether or not `candidates` lists them |
+| `unconfirmed_risky_ports` | number | How many risky ports only a third party reports (see [Shodan per address](#shodan-per-address)); 0 when none |
+| `notes` | list of strings | The lines the stages add to the summary. `[]` when there are none |
+| `changes` | object or `null` | What changed since the last run (see [What changed since the last run](#what-changed-since-the-last-run)): `null` on a first run, otherwise `{counts, findings}` |
+
+`meta` has these keys, in this order:
+
+| Key | Type | Contents |
+|---|---|---|
+| `count` | number | Always 1: the envelope holds one record, the run's outcome |
+| `deadline_exceeded` | boolean | `true` when `--timeout` ended the run (see [Deadline](#deadline)) |
+| `checks_completed` | number | The checks that ran and finished in this run, whether they succeeded or failed. Present with or without `--timeout` |
+| `checks_cancelled` | number | The checks the deadline cancelled |
+| `warnings` | list of strings | Every warning the run raised, in order. `[]` when there were none |
+
+An example, wrapped here for reading (nyx writes it on one line):
+
+```json
+{"data":{
+  "engagement":"example-com",
+  "directory":"/home/me/engagements/example-com",
+  "counts":[{"category":"findings","n":2},{"category":"hosts","n":212},{"category":"ips","n":96},{"category":"web services","n":41}],
+  "failed_checks":[{"stage":"shodan","n":14}],
+  "deferred":[{"stage":"permutations","n":3}],
+  "not_configured":[{"stage":"censys","reason":"no key"},{"stage":"takeover","reason":"passive-only"}],
+  "findings":[
+    {"severity":"high","category":"takeover","target":"old.example.com","detail":null},
+    {"severity":"medium","category":"certificates","target":"https://vpn.example.com","detail":"expired certificate (vpn.example.com), expires 2026-10-20"}],
+  "candidates":[{"kind":"root","value":"example-corp.net","sources":["crtsh","whoisxml","wayback"],"evidence_count":5,"confidence":"high","promote":"example-corp.net"}],
+  "candidates_total":1,
+  "unconfirmed_risky_ports":0,
+  "notes":[],
+  "changes":{"counts":[{"kind":"finding","change":"new","n":1},{"kind":"hostname","change":"new","n":6}],
+             "findings":[{"severity":"high","category":"takeover","target":"old.example.com","detail":null}]}},
+ "meta":{"count":1,"deadline_exceeded":false,"checks_completed":412,"checks_cancelled":0,
+         "warnings":["quota spent or key rejected; 14 checks will be retried next run"]}}
+```
+
+(That run exits 7: 14 checks failed.)
+
+**What stays stable.** The keys of the envelope, in `data` and `meta`, and the types of their
+values are an interface: a new key may be added, but renaming, removing or retyping one is a
+breaking change. The same holds for the keys of the rows inside a list. The wording of warnings,
+notes and `detail` text may change. A reader should ignore keys it does not know.
 
 ## RDAP netblocks and registrants
 
@@ -724,7 +840,8 @@ after `--redo shodan`, and the summary says when a netblock search was truncated
 - **Counts.** The open-port count is split into `open ports (confirmed)` (nyx completed a
   handshake) and `open ports (third-party reported)` (all others that are shown). The summary has a
   line `N risky ports reported by Shodan, unconfirmed` when N is above zero, and the `--json`
-  `summary` event carries it as `unconfirmed_risky_ports`, with the stages' lines as `notes`.
+  envelope carries it as `data.unconfirmed_risky_ports` (a number, 0 when there are none), with the
+  stages' lines as `data.notes`.
 
 ## Reverse IP
 
@@ -974,8 +1091,8 @@ the state database and the run lock. Don't edit it. Finding severities are liste
 
 ## What changed since the last run
 
-After a re-run, `changes.csv` and the end of the console summary say what is new and what has
-disappeared, so you need not diff the CSV files. A change is a difference between what the output
+After a re-run, `changes.csv`, the end of the console summary and the envelope's `changes` key say
+what is new and what has disappeared, so you need not diff the CSV files. A change is a difference between what the output
 files showed when the run started and what they show when it ends, for the things the files list
 (hostnames, addresses, DNS records, web services, URLs, open ports, email posture, third parties, code
 mentions, findings, candidates, excluded names and netblocks). Evidence and internal records are not
@@ -993,15 +1110,20 @@ listed.
   severity the thing had when it was last shown, and is not current. The file is replaced on each
   run, and removed when a run has no changes.
 - **A first run** (an engagement with no records when the run starts) writes no `changes.csv`,
-  emits no `change` events and prints no block.
+  prints no block and has `null` for `changes` in the envelope.
 - **The console summary** ends with a "Since last run" block: the number of new (including returned)
   hostnames, addresses, web services, open ports, candidates and findings, and of gone findings,
-  then the new high and medium findings as a list. `--json` emits a `change` event for each row of
-  `changes.csv` after the `summary` event, as well as the `found` events of the run.
+  then the new high and medium findings as a list.
+- **The envelope's `changes`** is `null` on a first run, and otherwise an object with two keys.
+  `counts` is a list of `{kind, change, n}`, one for each kind and change (`new`, `returned` or
+  `gone`) whose `n` is above zero, sorted by kind and then change; `kind` is the label above. The
+  summary's block adds `returned` to `new`; the envelope keeps them apart. `findings` is the list of
+  new high and medium findings, in the shape of the envelope's `findings`. Each row of a change is
+  in `changes.csv` and in `nyx recon export`, not in the envelope.
 - **Resuming.** The comparison is with the state when this invocation started, which nyx saved
   each time it wrote the files, so a run that resumes an interrupted one compares against where the
   interrupted run stopped. An interrupted run writes `changes.csv` for the work it completed, then
-  exits 130.
+  exits 130. A run that the deadline ended does the same, and its `changes` count what it completed.
 - **With no contact.** Findings can become new or gone when nothing was contacted: a certificate
   passes its expiry date, a setting such as `--cert-expiry-days` changes, or the binary does. A
   `--passive` run never reports a record gone when every stage that observed it made contact with
@@ -1041,7 +1163,8 @@ nyx recon export -e acme --current --kind hostname --kind web_service --output h
 - **`--current`** keeps only current records. **`--kind`** (repeatable) keeps only the kinds
   named; `nyx recon export --help` lists them, including `input` and `exclusion`. The two combine.
   A missing `-e`, an unknown kind and an `--output` whose directory does not exist exit 2, all
-  reported together.
+  reported together. `--json` changes only the format of an error (see [Errors](#errors)), not one
+  line of the export, and there is no envelope, cap or paging: the lines are the whole export.
 - **`--output <file>`** writes to the file instead, replacing it atomically: the lines go to a
   temporary file beside it, which is renamed into place, so a failed write leaves an existing
   file as it was. A write failure exits 1.
@@ -1049,9 +1172,10 @@ nyx recon export -e acme --current --kind hostname --kind web_service --output h
   exported, and an API key never is: any configured key value in the text is replaced with `****`.
   Text a target supplied (titles, banners) is sanitised as for console output.
 - **Reading only.** `export` takes no lock, so it works while a run is in progress and shows the
-  state as of one moment, writes nothing to the engagement and makes no network requests. It exits 1
-  for an engagement that does not exist (creating nothing) or a directory that is not a nyx
-  engagement.
+  state as of one moment, writes nothing to the engagement and makes no network requests, so it
+  takes no `--timeout`. An engagement that does not exist exits 3 (`NOT_FOUND`, creating nothing),
+  with a hint listing up to ten of the engagements in the output directory. A directory that is not
+  a nyx engagement exits 2, naming it, and a failure to write the export exits 1.
 
 **What stays stable.** The names of the stored attributes (they are what the state database keeps,
 so renaming one would break resuming an engagement) and the export's own field names and kind
@@ -1064,17 +1188,53 @@ Every command uses the same exit codes:
 
 | Code | Meaning | Error codes |
 |---|---|---|
-| 0 | Success, including a run with failed checks or `not-configured` stages | none |
-| 1 | System error: the arguments were fine and something else went wrong | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `UNEXPECTED_ERROR` |
-| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, or the netblock limit. Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
-| 3 | Not found | `NOT_FOUND` |
-| 7 | Partial result | `PARTIAL` |
+| 0 | Success: the run did all its work and no check failed. A `not-configured` stage, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
+| 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` |
+| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit. Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
+| 3 | Not found: an engagement that does not exist | `NOT_FOUND` |
+| 7 | Partial result: a recon run the deadline ended, or in which any check failed | `PARTIAL` |
 | 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |
 
-For now an engagement locked by another run, an output directory that is not a nyx engagement, an
-engagement `export` cannot find and a failure to write are `UNEXPECTED_ERROR` (exit 1). An unexpected
-failure prints its stack trace to stderr only with `--debug`. A panic inside one check is that
-check's failure: the run carries on and the check is retried on the next run.
+**Exit 7 for recon.** A recon run exits 7 when the deadline ended it (see [Deadline](#deadline)) or
+when any check failed in it. Exit 0 no longer covers failed checks. The summary or envelope has been
+written to stdout, and the files are current, before the error that follows it on stderr. A failed
+check is one that returned a transient error, one a stage abandoned when it stopped for the run on
+a 401, 403, 429 or spent quota, and one that panicked (a panic inside one check is that check's
+failure: the run carries on, and the check is retried on the next run).
+
+- **The error** names each stage with failed checks and how many (`16 checks failed: crtsh 2,
+  shodan 14`). Its hint is your own invocation, shell-quoted, with `--redo` and its value left out
+  and every other argument kept: run it to retry the failed checks. The error is marked
+  transient unless every failure was a key the source refused (a 401 or 403 from a keyed source, and
+  a 401 from GitHub, which answers 403 for a rate limit): waiting does not cure those, so fix or
+  remove the key.
+- **Not partial.** These do not make a run partial: a `not-configured` stage, work a per-run cap
+  deferred, a result truncated by a page cap, and failures recorded by earlier runs for stages that
+  did not run this time.
+- **The deadline's error** is the `PARTIAL` of the [Deadline](#deadline) section, with the failed
+  checks of the run named in it as well.
+
+**Several outcomes.** One is reported, the first of these that applies: a signal (130, 143 or 129),
+a fatal error (exit 1), the netblock limit (exit 2), the deadline (exit 7), failed checks (exit 7).
+A signal that arrives while a deadline run is writing its files leaves `INTERRUPTED` and an empty
+stdout; one that arrives after the result is written leaves exit 7 standing.
+
+**Engagement problems** get the code of their kind:
+
+- An engagement locked by another run exits 1 with `LOCKED`, marked transient: wait for the other
+  run to finish, or use another `-e`.
+- An output directory that is not a nyx engagement (one that holds files and no `.nyx`, such as
+  the Python version's) exits 2 naming the directory, with a hint to choose another `-e` or move it
+  away. Nothing is written into it.
+- `nyx recon -e <name>` with no inputs, for an engagement that does not exist, exits 3 with
+  `NOT_FOUND` and creates nothing. The hint lists up to ten engagements in the output directory and
+  says how many more there are, or says there are none and how to start one. When the call has other
+  problems, they are reported alone, as exit 2.
+- `nyx recon export` follows the same rules: an engagement that does not exist exits 3 with that
+  hint, a directory that is not a nyx engagement exits 2, and a failure to write the export exits 1.
+
+Any other failure to open, read or write an engagement is `UNEXPECTED_ERROR` (exit 1), which
+prints its stack trace to stderr only with `--debug`.
 
 A signal ends the command with its own code. recon saves the work completed so far, as it does for
 any interruption; run the same command again to continue. A second signal exits at once with the
@@ -1082,8 +1242,9 @@ first one's code.
 
 ### Errors
 
-Every non-zero exit writes one error to stderr, and stdout is empty (but for a recon `--json` run's
-earlier event lines, above). It is never sent through the log formatter.
+Every non-zero exit writes one error to stderr. stdout is empty on every exit but 0 and 7: a recon
+run that exits 7 has written its summary, or its envelope under `--json`, first. The error is never
+sent through the log formatter.
 
 ```
 error: invalid domain "co.uk": it is a public suffix, not a registrable domain (INVALID_INPUT)
@@ -1092,7 +1253,7 @@ hint: nyx recon --help
 
 A `hint:` line follows when there is a next step, and `retry: may succeed after a wait` when the
 error is transient. A partial result from several targets adds one `error: <input>: <message>
-(<CODE>)` line for each target that failed. Under `--json`, even when the arguments fail to parse,
+(<CODE>)` line for each target that failed. `input` is `null` for the `PARTIAL` error of a recon run. Under `--json`, even when the arguments fail to parse,
 the error is one compact line of JSON with exactly the keys `error`, `code`, `hint`, `input` and
 `transient`, in that order; `hint` and `input` are `null` when there is nothing to say, and `input`
 maps each failing argument to the list of its values as given:
@@ -1104,9 +1265,27 @@ maps each failing argument to the list of its values as given:
 Checks of values and combinations report every problem they find in one error. API keys are masked
 in the error as everywhere else.
 
-**What stays stable.** The exit codes, the error codes and the five keys of the error are an
-interface: a new one may be added, but renaming or removing one is a breaking change. The wording
-of messages and hints may change.
+**What stays stable.** The exit codes, the error codes, the five keys of the error and the keys of
+the recon `--json` envelope (see [The `--json` envelope](#the---json-envelope)) are an interface: a
+new one may be added, but renaming, removing or retyping one is a breaking change. The wording of
+messages and hints may change.
+
+## Departures from `docs/agent-tools`
+
+The guidance in `docs/agent-tools` is followed, except in these eleven ways:
+
+1. recon has no default `--timeout`: a run takes as long as it needs unless you give a deadline.
+2. `nyx recon export` writes JSON lines with no envelope, cap or paging.
+3. API keys may come from the config file (`keys.<source>`), as well as from the environment.
+4. A stage whose key is missing is `not-configured`, not a usage error.
+5. `--authorized` is accepted as an alias of `--authorised`.
+6. `--quiet` with `--debug` is rejected (exit 2).
+7. SIGHUP exits 129.
+8. recon can finish slightly after its deadline, when writing the files takes longer than the
+   reserve (see [Deadline](#deadline)).
+9. Requests are paced by token buckets, not a sliding window.
+10. A failed request is not retried within the run: its check is retried on the next run.
+11. HTTP connections are not reused.
 
 ## Migrating from the Python version
 
@@ -1114,8 +1293,9 @@ of messages and hints may change.
   `nyx recon export`. The old forms exit 2 with the corrected command as the hint, and do nothing
   else. A bare `nyx` prints the help. There is no authorisation prompt any more: pass
   `--authorised`.
-- **Old output directories** are not resumable. nyx refuses them (exit 1, naming the directory)
-  and never writes into them. Use a different `-e` name, or move the old directory away.
+- **Old output directories** are not resumable. nyx refuses them (exit 2, naming the directory,
+  with a hint to choose another `-e`) and never writes into them. Use a different `-e` name, or move
+  the old directory away.
 - **Retired:** the `reconsite` single-site command and XSS and SQL injection testing are gone.
 - **No external tools:** Amass, subfinder, massdns, httprobe, hakrawler, dalfox and the rest are
   no longer needed, and neither is `install.py`.

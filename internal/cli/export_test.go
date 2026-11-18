@@ -697,8 +697,8 @@ func TestExport_NoEngagement(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, &testkit.Stage{StageName: "s", Kind: run.ThirdParty})
 
-	if e := export(h, "-e", "missing"); e.code != 1 {
-		t.Errorf("missing engagement: exit %d, want 1", e.code)
+	if e := export(h, "-e", "missing"); e.code != 3 {
+		t.Errorf("missing engagement: exit %d, want 3", e.code)
 	} else if !strings.Contains(e.stderr, "missing") {
 		t.Errorf("the error does not name the engagement: %q", e.stderr)
 	}
@@ -706,7 +706,8 @@ func TestExport_NoEngagement(t *testing.T) {
 		t.Errorf("export created %v", entries)
 	}
 
-	// A directory that is not an engagement, empty or not.
+	// A directory with something in it and no .nyx is not an engagement: a usage error. An empty
+	// one has nothing in it, so there is no engagement of that name yet.
 	other := filepath.Join(h.out, "other")
 	if err := os.Mkdir(other, 0o755); err != nil {
 		t.Fatal(err)
@@ -718,18 +719,18 @@ func TestExport_NoEngagement(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, "notes.txt"), []byte("mine\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"other", "empty"} {
-		if e := export(h, "-e", name); e.code != 1 || e.stdout != "" {
-			t.Errorf("%s: exit %d, stdout %q, want 1 and nothing", name, e.code, e.stdout)
+	for name, want := range map[string]int{"other": 2, "empty": 3} {
+		if e := export(h, "-e", name); e.code != want || e.stdout != "" {
+			t.Errorf("%s: exit %d, stdout %q, want %d and nothing", name, e.code, e.stdout, want)
 		}
 	}
-	// A .nyx directory without a state database is not an engagement either.
+	// A .nyx directory without a state database is an engagement that was never finished.
 	if err := os.MkdirAll(filepath.Join(h.out, "hollow", ".nyx"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotDir(t, h.out)
-	if e := export(h, "-e", "hollow"); e.code != 1 {
-		t.Errorf("hollow: exit %d, want 1", e.code)
+	if e := export(h, "-e", "hollow"); e.code != 3 {
+		t.Errorf("hollow: exit %d, want 3", e.code)
 	}
 	if after := snapshotDir(t, h.out); !maps.Equal(before, after) {
 		t.Errorf("export changed the directory: %v -> %v", slices.Sorted(maps.Keys(before)), slices.Sorted(maps.Keys(after)))

@@ -507,3 +507,32 @@ func TestSignals_InterruptedRunWritesChanges(t *testing.T) {
 		t.Errorf("new hostnames across both runs\n got %v\nwant %v", all, want)
 	}
 }
+
+// A real process given --timeout exits 7 by the deadline plus a wide margin (the suite runs under
+// -race), leaves its files intact and writes the envelope, and the run after it finishes the rest.
+func TestTimeoutInAChildProcess(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	start := time.Now()
+	// The checks wait for an hour unless cancelled: the deadline is what ends them.
+	c1 := startChild(t, out, childOpts{n: nChecks, delay: time.Hour, args: []string{"a.com", "--timeout", "3s"}})
+	code := c1.wait()
+	if code != 7 {
+		t.Fatalf("first run exit %d, want 7\nstdout %s\nstderr %s", code, c1.stdout.String(), c1.stderr.String())
+	}
+	if took := time.Since(start); took > 30*time.Second {
+		t.Errorf("the run took %v for a 3s deadline", took)
+	}
+	env, ok := tryEnvelope(c1.stdout.String())
+	if !ok || !env.Meta.DeadlineExceeded || env.Meta.ChecksCancelled == 0 {
+		t.Errorf("stdout is not the envelope of a run the deadline ended: %s", c1.stdout.String())
+	}
+	if !strings.Contains(c1.stderr.String(), `"code":"PARTIAL"`) {
+		t.Errorf("stderr: %s", c1.stderr.String())
+	}
+	assertOutputsIntact(t, out)
+	if got := committed(t, out); len(got) != 0 {
+		t.Errorf("%d cancelled checks were recorded as done", len(got))
+	}
+	finishAndCheck(t, out, allKeys(nChecks), childOpts{args: []string{"-e", "a.com"}})
+}

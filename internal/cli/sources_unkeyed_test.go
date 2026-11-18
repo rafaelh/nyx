@@ -58,13 +58,32 @@ var unkeyedSources = []unkeyedSource{
 // serve answers with body. Cert Spotter is paged by after=<id>, so every page
 // after the first is empty.
 func (s unkeyedSource) serve(w *world, body string) {
-	w.handle(s.host, func(rw http.ResponseWriter, r *http.Request) {
+	s.handle(w, func(rw http.ResponseWriter, r *http.Request) {
 		if s.stage == "certspotter" && r.URL.Query().Get("after") != "" {
 			_, _ = rw.Write([]byte("[]"))
 			return
 		}
 		_, _ = rw.Write([]byte(body))
 	})
+}
+
+// handle sets h as the source's handler. The reverseip stage asks HackerTarget's host too, about
+// addresses; those requests are answered with nothing found, so that a test of the source's own
+// stage fails no other.
+func (s unkeyedSource) handle(w *world, h http.HandlerFunc) {
+	w.handle(s.host, func(rw http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/reverseiplookup") {
+			_, _ = rw.Write([]byte("No records found"))
+			return
+		}
+		h(rw, r)
+	})
+}
+
+// hackerTargetHosts answers HackerTarget's host search with body and its reverse lookups with
+// nothing found.
+func hackerTargetHosts(w *world, body string) {
+	unkeyedSources[0].handle(w, jsonBody(body))
 }
 
 // forEachUnkeyed runs fn as a subtest with a fresh world for each source.
@@ -95,7 +114,7 @@ func TestUnkeyed_NamesAreRecorded(t *testing.T) {
 			w.dns.A(n, "203.0.113.5")
 		}
 		if code := w.run("--passive", "example.com"); code != 0 {
-			t.Fatalf("exit %d", code)
+			t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 		}
 		got := w.lines(eng, "subdomains.txt")
 		for _, n := range s.names {
@@ -130,7 +149,7 @@ func TestUnkeyed_ExcludedRootIsNotQueried(t *testing.T) {
 	}
 	w.crtsh(map[string][]string{"example.com": {"a.example.com"}, "example.org": {"b.example.org"}}, nil)
 	if code := w.run("--passive", "-x", "example.org", "example.com", "example.org"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	for _, host := range []string{"api.hackertarget.com", "urlscan.io", "api.certspotter.com", "crt.sh"} {
 		for _, r := range w.requests(host) {
@@ -148,8 +167,8 @@ func TestUnkeyed_ExcludedRootIsNotQueried(t *testing.T) {
 func TestUnkeyed_ScopeDecidesTheFile(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.handle("api.hackertarget.com", jsonBody("junk1.example.com,203.0.113.1\njunk2.example.com,203.0.113.2\n"+
-		"real.example.com,203.0.113.50\nex.example.com,203.0.113.51\n"))
+	hackerTargetHosts(w, "junk1.example.com,203.0.113.1\njunk2.example.com,203.0.113.2\n"+
+		"real.example.com,203.0.113.50\nex.example.com,203.0.113.51\n")
 	w.dns.Wildcard("example.com", "203.0.113.1", "203.0.113.2")
 	w.dns.A("real.example.com", "203.0.113.50")
 	w.dns.A("ex.example.com", "203.0.113.51")
@@ -157,7 +176,7 @@ func TestUnkeyed_ScopeDecidesTheFile(t *testing.T) {
 		w.owner(a, 64500, "ACME-NET")
 	}
 	if code := w.run("--passive", "--no-permutations", "-x", "ex.example.com", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if got := w.lines(eng, "subdomains.txt"); !slices.Contains(got, "real.example.com") || slices.Contains(got, "ex.example.com") || slices.Contains(got, "junk1.example.com") {
 		t.Errorf("subdomains.txt = %v", got)
@@ -176,11 +195,11 @@ func TestUnkeyed_NamesAreNormalised(t *testing.T) {
 	// crt.sh and a new source both give a wildcard; the new source also gives
 	// upper case, a trailing dot, a Unicode name and one that is not a hostname.
 	w.crtsh(map[string][]string{"example.com": {"*.dev.example.com"}}, nil)
-	w.handle("api.hackertarget.com", jsonBody("*.stage.example.com,198.51.100.1\nUP.Example.com.,198.51.100.2\nBücher.example.com,198.51.100.3\n"+
-		"under_score.example.com,198.51.100.4\nsp ace.example.com,198.51.100.5\n"))
+	hackerTargetHosts(w, "*.stage.example.com,198.51.100.1\nUP.Example.com.,198.51.100.2\nBücher.example.com,198.51.100.3\n"+
+		"under_score.example.com,198.51.100.4\nsp ace.example.com,198.51.100.5\n")
 	resolveAll(w, "dev", "stage", "up", "xn--bcher-kva")
 	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	got := w.lines(eng, "subdomains.txt")
 	for _, want := range []string{"dev.example.com", "stage.example.com", "up.example.com", "xn--bcher-kva.example.com"} {
@@ -204,7 +223,7 @@ func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 			w := newWorld(t)
 			w.handle("api.hackertarget.com", jsonBody(body))
 			if code := w.run("--passive", "example.com"); code != 0 {
-				t.Fatalf("exit %d", code)
+				t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 			}
 			if st, _ := stateOf(w, "hackertarget"); st != "done" {
 				t.Errorf("state = %s, want done", st)
@@ -230,9 +249,9 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 		only  string // restrict to one stage
 	}
 	variants := []variant{
-		{name: "HTTP 429", serve: func(w *world, s unkeyedSource) { w.handle(s.host, status(429)) }},
+		{name: "HTTP 429", serve: func(w *world, s unkeyedSource) { s.handle(w, status(429)) }},
 		{name: "API count exceeded", only: "hackertarget", serve: func(w *world, s unkeyedSource) {
-			w.handle(s.host, jsonBody("API count exceeded - Increase Quota with Membership"))
+			s.handle(w, jsonBody("API count exceeded - Increase Quota with Membership"))
 		}},
 	}
 	for _, v := range variants {
@@ -247,8 +266,9 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				w.crtsh(map[string][]string{"example.com": {"c.example.com"}}, nil)
 				w.dns.A("c.example.com", "203.0.113.5")
 				// reverseip also asks HackerTarget, and has its own quota test.
-				if code := w.run("--passive", "--concurrency", "1", "--skip", "reverseip", "example.com", "example.org"); code != 0 {
-					t.Fatalf("exit %d", code)
+				f := w.h.partial(w.run("--passive", "--concurrency", "1", "--skip", "reverseip", "example.com", "example.org"), true)
+				if !f.transient || f.msg != "2 checks failed: "+s.stage+" 2" {
+					t.Errorf("a spent quota is transient and fails both checks: %+v", f)
 				}
 				if st, _ := stateOf(w, s.stage); st != "failed" {
 					t.Errorf("state = %s, want failed", st)
@@ -279,7 +299,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				// The next run retries every check.
 				s.serve(w, s.ok)
 				if code := w.run("--passive", "example.com", "example.org"); code != 0 {
-					t.Fatalf("exit %d", code)
+					t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 				}
 				if done := w.h.completed(eng, s.stage); len(done) != 2 {
 					t.Errorf("both roots should complete on the next run: %v", done)
@@ -307,8 +327,8 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 			return nil, fmt.Errorf("HTTP 429: %w", run.ErrQuota)
 		}}
 	h := newHarness(t, st)
-	if code := h.exec("a.com", "--json", "--concurrency", "1"); code != 0 {
-		t.Fatal(h.stderr.String())
+	if f := h.partial(h.exec("a.com", "--json", "--concurrency", "1"), true); !f.transient || f.msg != "4 checks failed: quota 4" {
+		t.Errorf("%+v", f)
 	}
 	var inside, abort []string
 	for _, e := range ofType(h.events(), "warning") {
@@ -343,7 +363,7 @@ func TestUnkeyed_NotFoundIsEmpty(t *testing.T) {
 	forEachUnkeyed(t, func(t *testing.T, w *world, s unkeyedSource) {
 		w.handle(s.host, status(404))
 		if code := w.run("--passive", "example.com"); code != 0 {
-			t.Fatalf("exit %d", code)
+			t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 		}
 		if st, _ := stateOf(w, s.stage); st != "done" {
 			t.Errorf("state = %s, want done", st)
@@ -375,8 +395,8 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 			serve func(w *world)
 		}{
 			{"wrong shape", func(w *world) { s.serve(w, s.bad) }},
-			{"HTTP 500", func(w *world) { w.handle(s.host, status(500)) }},
-			{"oversized", func(w *world) { w.handle(s.host, oversize(s)) }},
+			{"HTTP 500", func(w *world) { s.handle(w, status(500)) }},
+			{"oversized", func(w *world) { s.handle(w, oversize(s)) }},
 		} {
 			t.Run(s.stage+"/"+v.name, func(t *testing.T) {
 				t.Parallel()
@@ -385,8 +405,8 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 				for _, n := range s.names {
 					w.dns.A(n, "203.0.113.5")
 				}
-				if code := w.run("--passive", "example.com"); code != 0 {
-					t.Fatalf("exit %d", code)
+				if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 checks failed: "+s.stage+" 1" {
+					t.Errorf("%+v", f)
 				}
 				if st, _ := stateOf(w, s.stage); st != "failed" {
 					t.Errorf("state = %s, want failed", st)
@@ -415,8 +435,8 @@ func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
 	w.handle("ip-ranges.amazonaws.com", status(429))
 	w.handle("www.gstatic.com", jsonBody(`{"prefixes":[{"ipv4Prefix":"100.64.0.0/16","service":"Google Cloud","scope":"europe-west1"}]}`))
 	serveNewRanges(w)
-	if code := w.run("--passive", "--concurrency", "1", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+	if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com"), true); !f.transient || f.msg != "1 checks failed: providerranges 1" {
+		t.Errorf("%+v", f)
 	}
 	if got, want := sorted(w.h.completed(eng, "providerranges")), allRangeChecksBut("aws"); !slices.Equal(got, want) {
 		t.Errorf("completed = %v, want every list but the one that answered 429", got)
@@ -437,7 +457,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	w.crtsh(map[string][]string{"example.com": {"old.example.com"}}, nil)
 	w.dns.A("old.example.com", "203.0.113.5")
 	w.dns.A("new.example.com", "203.0.113.6")
-	w.handle("api.hackertarget.com", jsonBody("new.example.com,203.0.113.6\nold.example.com,203.0.113.5\n"))
+	hackerTargetHosts(w, "new.example.com,203.0.113.6\nold.example.com,203.0.113.5\n")
 	// hostsearch counts the requests of the hackertarget stage alone: the
 	// reverseip stage asks the same host for reverse lookups.
 	hostsearch := func() int { return w.src["api.hackertarget.com"].count("GET", "/hostsearch/") }
@@ -446,7 +466,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 		skipNew = append(skipNew, "--skip", s.stage)
 	}
 	if code := w.run(append([]string{"--passive", "--no-permutations"}, append(skipNew, "example.com")...)...); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	crtBefore := len(w.requests("crt.sh"))
 	oldBefore, rootBefore := w.dns.Count("old.example.com", "A"), w.dns.Count("example.com", "A")
@@ -458,7 +478,7 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	}
 
 	if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if n := len(w.requests("crt.sh")); n != crtBefore {
 		t.Errorf("crtsh repeated its check: %d requests, then %d", crtBefore, n)
@@ -497,7 +517,7 @@ func TestUnkeyed_HelpAndRedo(t *testing.T) {
 
 	w.crtsh(map[string][]string{"example.com": {}}, nil) // the default 404 would fail, and so repeat, crtsh
 	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	hackertarget, crt := len(w.requests("api.hackertarget.com")), len(w.requests("crt.sh"))
 	if code := w.run("--passive", "--redo", "hackertarget", "-e", eng); code != 0 {
@@ -549,7 +569,7 @@ func TestCertSpotter_UnkeyedSendsNoCredentials(t *testing.T) {
 	certspotterPages(w, always)
 	resolveAll(w, "p1", "p1b", "p2", "p3")
 	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if st, reason := stateOf(w, "certspotter"); st != "done" {
 		t.Errorf("certspotter = %s (%s): it runs without a key", st, reason)
@@ -580,7 +600,7 @@ func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
 	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if st, _ := stateOf(w, "certspotter"); st != "done" {
 		t.Errorf("state = %s, want done", st)
@@ -602,8 +622,8 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 			w := newWorld(t)
 			w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
-			if c := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); c != 0 {
-				t.Fatalf("exit %d", c)
+			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.org"), true); f.transient || f.msg != "2 checks failed: certspotter 2" {
+				t.Errorf("a refused key is not transient: %+v", f)
 			}
 			if st, _ := stateOf(w, "certspotter"); st != "failed" {
 				t.Errorf("state = %s, want failed", st)
@@ -628,15 +648,15 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 	w := newWorld(t)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
-	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+	if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient {
+		t.Errorf("a refusal without the key is a server error here: %+v", f)
 	}
 	if st, _ := stateOf(w, "certspotter"); st != "failed" {
 		t.Fatalf("without the key the server refuses: state = %s", st)
 	}
 	w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=10"}) {
 		t.Errorf("completed = %v: the key must not change the check's key", done)
@@ -666,7 +686,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 	certspotterPages(w, always)
 	resolveAll(w, "p1", "p1b", "p2", "p3")
 	if code := w.run("--passive", "--no-permutations", "--certspotter-max-pages", "2", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if st, _ := stateOf(w, "certspotter"); st != "done" {
 		t.Errorf("reaching the cap completes the check: state = %s", st)
@@ -687,7 +707,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 
 	// Raising the cap makes a new check, and the longer result is not truncated.
 	if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
 		t.Errorf("completed = %v, want a new check for the new cap", done)
@@ -749,7 +769,7 @@ func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 			w.handle("urlscan.io", jsonBody(c.body))
 			w.dns.A("us.example.com", "203.0.113.5")
 			if code := w.run("--passive", "example.com"); code != 0 {
-				t.Fatalf("exit %d", code)
+				t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 			}
 			if st, _ := stateOf(w, "urlscan"); st != "done" {
 				t.Errorf("state = %s, want done", st)

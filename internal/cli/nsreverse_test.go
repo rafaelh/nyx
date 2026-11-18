@@ -371,7 +371,10 @@ func TestNSReverse_QuotaStopsTheStage(t *testing.T) {
 	t.Parallel()
 	x, st := sharedWorld(t, true)
 	st.setStatus(http.StatusTooManyRequests)
-	x.mustShared("--concurrency", "1")
+	// A keyed 429 is a rate limit, so waiting helps: the error is transient.
+	if f := x.h.partial(x.passive(append(slices.Clone(sharedArgs), "--concurrency", "1")...), true); !f.transient || !strings.Contains(f.msg, "nsreverse 5") {
+		t.Errorf("error = %+v, want a transient failure naming nsreverse 5", f)
+	}
 
 	if s, _ := stateOf(x.world, "nsreverse"); s != "failed" {
 		t.Errorf("nsreverse = %s, want failed", s)

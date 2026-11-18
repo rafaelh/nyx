@@ -139,6 +139,13 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 		w.src[p] = s
 		w.h.eopts.SourceBaseURLs[p] = srv.URL
 	}
+	// A source that answers 404 fails its check, which now makes the run partial (exit 7). So that
+	// a test is about what it names and not about the sources it ignores, each source that fails a
+	// check on a 404 answers with an empty result until the test sets its own handler.
+	w.crtsh(nil, nil)
+	w.waybackURLs()
+	w.commonCrawl("CC-MAIN-2026-01")
+	serveAllRanges(w)
 	return w
 }
 

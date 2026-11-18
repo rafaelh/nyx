@@ -4,7 +4,6 @@
 package run
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/engagement"
@@ -94,7 +92,7 @@ type Runner struct {
 	last    map[string]string // last printed state signature
 	counts  map[string]int    // last emitted category counts
 	lastTot map[string]int    // category counts computed by the last emitCounts
-	aborted map[string]bool
+	aborted map[string]error  // stage -> the error that aborted it this run
 
 	guarded sync.Map // value+"\x00"+reason already sent to the guard pseudo-stage
 	warned  sync.Map // warning texts already emitted this run (see warn)
@@ -123,14 +121,17 @@ type recordsCache struct {
 // stageStats are a stage's counters. spent is the budget the checks sent this
 // run have used (see Budgeted) and deferred the cost of the checks its last
 // pass deferred.
-type stageStats struct{ attempted, failed, spent, deferred int }
+//
+// completed, succeeded, cancelled and rejected feed the Result: the checks Stage.Run returned from
+// (succeeded when without error), the ones the context ended, and the failures a refused key caused.
+type stageStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
 
 // New creates a Runner.
 func New(cfg Config) *Runner {
 	r := &Runner{
 		cfg: cfg, st: cfg.Engagement.Store(),
 		failed: map[string]map[string]bool{}, stats: map[string]*stageStats{},
-		last: map[string]string{}, counts: map[string]int{}, aborted: map[string]bool{},
+		last: map[string]string{}, counts: map[string]int{}, aborted: map[string]error{},
 		recs: map[string]recordsCache{},
 	}
 	r.evidencers = map[string]Evidencer{}
@@ -166,25 +167,26 @@ func (r *Runner) warn(format string, a ...any) {
 
 func (r *Runner) today() string { return r.cfg.Clock().UTC().Format(time.DateOnly) }
 
-// Run executes the engagement. It returns nil when every pass has finished, a
-// *NetblockLimitError when the in-scope netblocks are over the limit, an error
-// that wraps context.Cause(ctx) when the context ended the run, or any other
-// error. The output files are rendered in every case once the run has started.
-func (r *Runner) Run(ctx context.Context) error {
+// Run executes the engagement. It returns a nil error when every pass has finished; the Result
+// then holds the summary. When the context ends the run the error wraps context.Cause(ctx), and
+// the Result is still filled in from what was done: the work is flushed, the scope rebuilt and
+// the files rendered first. A *NetblockLimitError, or any other error, leaves the Result zero;
+// the files are still rendered first. An error from that render or flush replaces them.
+func (r *Runner) Run(ctx context.Context) (Result, error) {
 	eng := r.cfg.Engagement
 	if r.cfg.Redo != "" {
 		if err := r.st.Redo(r.cfg.Redo); err != nil {
-			return err
+			return Result{}, err
 		}
 	}
 	if err := output.Sweep(eng.Dir()); err != nil {
-		return err
+		return Result{}, err
 	}
 	r.st.OnNew(r.onNewRecord)
 
 	var err error
 	if r.inputs, err = eng.Inputs(); err != nil {
-		return err
+		return Result{}, err
 	}
 	r.emit("run_start", map[string]any{
 		"engagement": filepath.Base(eng.Dir()),
@@ -199,16 +201,37 @@ func (r *Runner) Run(ctx context.Context) error {
 	// saved, so that a run that is resumed compares against where the run it
 	// resumes stopped.
 	if r.base, err = r.loadBaseline(); err != nil {
-		return err
+		return Result{}, err
 	}
-	err = r.passes(ctx)
-	if err == nil {
+	if err = r.passes(ctx); err == nil {
 		// The final pass has just rendered and counted; nothing has changed since.
-		r.emitSummary()
-		return nil
+		return r.result(), nil
 	}
-	_, _ = r.render() // the run's own error is the one to report
-	return err
+	return r.wrapUp(ctx, err)
+}
+
+// wrapUp renders what a run that ended in err has done. When the context ended the run, the
+// work of the stage it cut short is flushed, the scope is rebuilt (which can meet the netblock
+// limit, and then that is the error), the files are rendered and the counts emitted, so the
+// summary and the findings include that work.
+func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
+	cut := ctx.Err() != nil && errors.Is(err, context.Cause(ctx))
+	if cut {
+		if ferr := r.st.Flush(); ferr != nil {
+			err, cut = ferr, false
+		} else if berr := r.buildScope(); berr != nil {
+			err, cut = berr, false
+		}
+	}
+	snap, rerr := r.render()
+	if rerr != nil {
+		return Result{}, rerr
+	}
+	if !cut {
+		return Result{}, err
+	}
+	r.emitCounts(snap)
+	return r.result(), err
 }
 
 func (r *Runner) passes(ctx context.Context) error {
@@ -249,11 +272,13 @@ func (r *Runner) passes(ctx context.Context) error {
 			return err
 		}
 		r.emitCounts(rendered)
-		if ctx.Err() != nil {
-			return interrupted(ctx)
-		}
+		// A pass that did no work has nothing left to cut short, so a deadline or a
+		// signal that lands during its render changes nothing.
 		if executed == 0 {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return interrupted(ctx)
 		}
 	}
 }
@@ -460,7 +485,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 		r.setState(name, "not-configured", reason, 0, 0)
 		return 0, nil
 	}
-	if r.isAborted(name) {
+	if r.abortErr(name) != nil {
 		return 0, nil
 	}
 	done, err := r.st.Completed(name)
@@ -487,10 +512,10 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 	var wg sync.WaitGroup
 	var attempted, aborted atomic.Int64 // aborted: checks failed by the stage's abort
 	runCtx := withWarner(ctx, r.warn)
-	// abortFail fails a check because its stage aborted. The stage warns once for
-	// all of them (below), not once per check.
-	abortFail := func(key, msg string) {
-		r.recordFailure(name, key, msg)
+	// abortFail fails a check because its stage aborted with cause. The stage warns
+	// once for all of them (below), not once per check.
+	abortFail := func(key, msg string, cause error) {
+		r.recordFailure(name, key, msg, errors.Is(cause, ErrKeyRejected))
 		aborted.Add(1)
 	}
 	for i := 0; i < workers; i++ {
@@ -501,22 +526,31 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 				if ctx.Err() != nil {
 					continue
 				}
-				if r.isAborted(name) {
-					abortFail(c.Key, "stage aborted earlier in this run")
+				if cause := r.abortErr(name); cause != nil {
+					abortFail(c.Key, "stage aborted earlier in this run", cause)
 					attempted.Add(1)
 					continue
 				}
 				fault.PointDetail("in-flight", c.Key)
 				obs, err := runCheck(runCtx, s, c, clients)
 				if ctx.Err() != nil {
-					continue // in-flight checks are abandoned and redone next run
+					r.count(name, func(s *stageStats) { s.cancelled++ }) // abandoned, and redone next run
+					continue
 				}
+				r.count(name, func(s *stageStats) {
+					s.completed++
+					if err == nil {
+						s.succeeded++
+					}
+				})
 				attempted.Add(1)
 				if errors.Is(err, ErrAbortStage) {
 					r.mu.Lock()
-					r.aborted[name] = true
+					if r.aborted[name] == nil {
+						r.aborted[name] = err
+					}
 					r.mu.Unlock()
-					abortFail(c.Key, err.Error())
+					abortFail(c.Key, err.Error(), err)
 					continue
 				}
 				if err != nil {
@@ -557,8 +591,10 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 		r.mu.Lock()
 		again := failedSet[enumKey]
 		r.mu.Unlock()
-		if !again {
+		// An enumeration the cancel cut short is not a failure: the stage is listed again next run.
+		if !again && ctx.Err() == nil {
 			r.failCheck(name, enumKey, err)
+			r.count(name, func(s *stageStats) { s.completed++ })
 			attempted.Add(1)
 		}
 	}
@@ -573,6 +609,9 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 		}()
 	send:
 		for c, cerr := range s.Checks(ctx, view) {
+			if ctx.Err() != nil {
+				break send // stop producing: the checks that follow would only be cancelled
+			}
 			if cerr != nil {
 				enumFail(cerr)
 				continue
@@ -594,10 +633,10 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 			if skip {
 				continue
 			}
-			if r.isAborted(name) {
+			if cause := r.abortErr(name); cause != nil {
 				running = true
 				attempted.Add(1)
-				abortFail(c.Key, "stage aborted earlier in this run")
+				abortFail(c.Key, "stage aborted earlier in this run", cause)
 				continue
 			}
 			if budget > 0 {
@@ -682,10 +721,18 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 	return n, nil
 }
 
-func (r *Runner) isAborted(stage string) bool {
+// abortErr is the error that aborted the stage in this run, or nil.
+func (r *Runner) abortErr(stage string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.aborted[stage]
+}
+
+// count updates a stage's counters under the lock.
+func (r *Runner) count(stage string, f func(*stageStats)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f(r.stat(stage))
 }
 
 // failCheck records a transient failure and reports it as a debug event: a
@@ -693,7 +740,7 @@ func (r *Runner) isAborted(stage string) bool {
 // line and the summary count it. A panic's stack follows as debug events, one
 // per line.
 func (r *Runner) failCheck(stage, key string, err error) {
-	r.recordFailure(stage, key, err.Error())
+	r.recordFailure(stage, key, err.Error(), false)
 	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, err)})
 	var p *checkPanic
 	if errors.As(err, &p) {
@@ -728,10 +775,15 @@ func runCheck(ctx context.Context, s Stage, c Check, clients egress.Clients) (_ 
 }
 
 // recordFailure records a transient failure: not a completion, not retried this run.
-func (r *Runner) recordFailure(stage, key, msg string) {
+//
+// rejected says a refused key caused it (see Result.KeyRejected).
+func (r *Runner) recordFailure(stage, key, msg string, rejected bool) {
 	r.mu.Lock()
 	r.failedLocked(stage)[key] = true
 	r.stat(stage).failed++
+	if rejected {
+		r.stat(stage).rejected++
+	}
 	r.mu.Unlock()
 	r.st.Fail(stage, key, msg)
 }
@@ -748,32 +800,6 @@ func (r *Runner) emitCounts(snap output.Snapshot) {
 			r.emit("count", map[string]any{"category": k, "n": totals[k]})
 		}
 	}
-}
-
-func (r *Runner) emitSummary() {
-	failed, deferred := map[string]int{}, map[string]int{}
-	r.mu.Lock()
-	for name, s := range r.stats {
-		if s.failed > 0 {
-			failed[name] = s.failed
-		}
-		if s.deferred > 0 {
-			deferred[name] = s.deferred
-		}
-	}
-	r.mu.Unlock()
-	recs, _ := r.records(kinds.Finding.Name())
-	high := r.rankedCandidates()
-	for _, c := range high {
-		r.emit("candidate", c)
-	}
-	summary := map[string]any{"totals": r.lastTot, "failed": failed, "deferred": deferred, "findings": headlineFields(recs), "candidates": high,
-		"unconfirmed_risky_ports": findings.UnconfirmedRisky(recs), "notes": r.notes()}
-	if changes := r.changesSummary(recs); changes != nil {
-		summary["changes"] = changes
-	}
-	r.emit("summary", summary)
-	r.emitChanges()
 }
 
 // notes are the lines the stages that run (see Noter) add to the summary, in
@@ -793,32 +819,6 @@ func (r *Runner) notes() []string {
 		}
 	}
 	return notes
-}
-
-// rankedCandidates are the current candidates of high confidence, best first,
-// each with the input that promotes it. A candidate that is no longer current
-// keeps its rank for candidates.csv but is not listed; the rest of the ranked
-// candidates are in candidates.csv only.
-func (r *Runner) rankedCandidates() []map[string]any {
-	recs, _ := r.currentRecords(kinds.CandidateRank)
-	var ranked []kinds.CandidateRankAttrs
-	for _, rec := range recs {
-		if a := kinds.CandidateRank.Attrs(rec); a.Current && candidates.Confidence(a.Confidence) == candidates.High {
-			ranked = append(ranked, a)
-		}
-	}
-	entry := func(a kinds.CandidateRankAttrs) candidates.Entry {
-		return candidates.Entry{Value: a.Value, Current: true, Confidence: candidates.High, Count: a.EvidenceCount}
-	}
-	slices.SortFunc(ranked, func(a, b kinds.CandidateRankAttrs) int {
-		return cmp.Or(candidates.Compare(entry(a), entry(b)), strings.Compare(a.Type, b.Type))
-	})
-	high := make([]map[string]any, 0, len(ranked))
-	for _, a := range ranked {
-		high = append(high, map[string]any{"kind": a.Type, "value": a.Value, "sources": a.Sources, "evidence_count": a.EvidenceCount,
-			"confidence": a.Confidence, "promote": candidates.Promote(a.Type, a.Value)})
-	}
-	return high
 }
 
 // onNewRecord prints records of Printed kinds the first time the engagement sees them.

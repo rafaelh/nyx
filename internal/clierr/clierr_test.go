@@ -12,7 +12,7 @@ import (
 func TestExitCodes(t *testing.T) {
 	for code, want := range map[clierr.Code]int{
 		clierr.NetworkError: 1, clierr.Timeout: 1, clierr.RateLimited: 1, clierr.UpstreamError: 1,
-		clierr.AuthFailed: 1, clierr.Unexpected: 1,
+		clierr.AuthFailed: 1, clierr.Unexpected: 1, clierr.Locked: 1,
 		clierr.InvalidInput: 2,
 		clierr.NotFound:     3,
 		clierr.Partial:      7,
@@ -28,7 +28,7 @@ func TestExitCodes(t *testing.T) {
 		clierr.NetworkError: "NETWORK_ERROR", clierr.Timeout: "TIMEOUT", clierr.RateLimited: "RATE_LIMITED",
 		clierr.UpstreamError: "UPSTREAM_ERROR", clierr.AuthFailed: "AUTH_FAILED", clierr.Unexpected: "UNEXPECTED_ERROR",
 		clierr.InvalidInput: "INVALID_INPUT", clierr.NotFound: "NOT_FOUND", clierr.Partial: "PARTIAL",
-		clierr.Interrupted: "INTERRUPTED",
+		clierr.Interrupted: "INTERRUPTED", clierr.Locked: "LOCKED",
 	} {
 		if string(code) != name {
 			t.Errorf("%q is spelt %q", name, code)

@@ -139,8 +139,19 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 			probs.Add("output", o.output, "the directory of --output does not exist: "+filepath.Dir(o.output), "")
 		}
 	}
+	// The directory is probed before it is opened, so the error says what is wrong with it: a
+	// directory that is not an engagement is a usage problem, reported with any other, and one
+	// that does not exist is not found once nothing else is wrong.
+	absent, probeErr := probeEngagement(probs, settings.OutputDir, name, o.engagement)
 	if err := probs.Err(); err != nil {
 		return err
+	}
+	// A directory the probe could not read is reported only once every usage problem has been.
+	if probeErr != nil {
+		return probeErr
+	}
+	if absent {
+		return engagementNotFound(settings.OutputDir, name, o.engagement, false)
 	}
 
 	db, err := engagement.OpenReadOnly(filepath.Join(settings.OutputDir, name))

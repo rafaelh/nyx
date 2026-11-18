@@ -99,7 +99,7 @@ func TestEmailThirdParties_IncludeServfailRecordsNothing(t *testing.T) {
 	w.dns.Rcode("broken.vendor2.test", mdns.RcodeServerFailure)
 	w.dns.TXT("_dmarc.example.com", "v=DMARC1; p=none; rua=mailto:r@rep.vendor3.test")
 	w.dns.MX("example.com", 10, "mx.vendor4.test")
-	runRoot(t, w)
+	runRootPartial(t, w, "email", 1)
 	if got := w.file(eng, "third-parties.csv"); got != "" {
 		t.Errorf("a failed check recorded third parties:\n%s", got)
 	}
@@ -476,7 +476,7 @@ func TestEmailMTASTS_ServfailFailsTheCheck(t *testing.T) {
 	w := emailWorld(t)
 	healthy().apply(w.dns, "example.com")
 	w.dns.Rcode("_mta-sts.example.com", mdns.RcodeServerFailure)
-	runRoot(t, w)
+	runRootPartial(t, w, "email", 1)
 	if st := lastState(w.h.events(), "email"); st.str("state") != "failed" || st.num("failed") != 1 {
 		t.Errorf("state = %v", st)
 	}

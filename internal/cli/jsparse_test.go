@@ -153,8 +153,10 @@ func TestJSParse_RedirectsAndFailures(t *testing.T) {
 		"/loop.js": redirectTo(302, "/loop.js"),
 	}))
 	b := x.plain("203.0.113.6", 80, routes(map[string]http.HandlerFunc{"/target.js": js(`x("/api/from-target")`)}))
-	x.mustRun()
-	x.mustRun()
+	// The script that times out fails its check on both runs, and only that one.
+	for range 2 {
+		x.partialRun("jsparse", 1)
+	}
 
 	if a.count("/new.js") != 1 {
 		t.Errorf("a same-host redirect was followed %d times, want once", a.count("/new.js"))

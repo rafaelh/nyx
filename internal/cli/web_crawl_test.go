@@ -212,7 +212,7 @@ func TestCrawl_Errors(t *testing.T) {
 			}
 			page(`<a href="/next">n</a>`)(w, r)
 		})
-		x.mustRun()
+		x.partialRun("crawl", 1)
 		if got := x.completedKeys("crawl"); len(got) != 0 {
 			t.Errorf("a failed root must not complete the check: %v", got)
 		}

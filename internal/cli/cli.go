@@ -63,6 +63,9 @@ type Deps struct {
 	// NoFsync writes output files without syncing them to disk first, which on macOS costs a full
 	// flush of the drive's cache per file. Only tests set it.
 	NoFsync bool
+	// Events, when set, also receives every event of a recon run, as the console would see it
+	// (redacted). Only tests set it, to read the events that --json no longer writes.
+	Events report.Emitter
 }
 
 // DefaultDeps returns the production dependencies, except Signals, which only
@@ -202,7 +205,10 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	if s == nil && errors.Is(ctx.Err(), context.Canceled) {
 		s = os.Interrupt // the caller cancelled: an interrupt, as Ctrl-C would be
 	}
-	if s != nil {
+	// A command returns PARTIAL only after it has written its result, so a signal that lands
+	// after that leaves it standing: INTERRUPTED never comes with a non-empty stdout.
+	var partial *clierr.Error
+	if s != nil && !(errors.As(err, &partial) && partial.Code == clierr.Partial) {
 		inv.fw.write(inv.interruptError(s))
 		return signalCode(s)
 	}
@@ -349,12 +355,11 @@ func stageNames(stages []run.Stage) []string {
 	return names
 }
 
-// newEmitter builds the run's event sink. The console writes the log to stderr and the summary to
-// stdout. Under --json stdout is the JSON event stream, which never carries a debug event so that
-// stdout is the same with or without --debug, and there is no console, except that --debug adds one
-// on stderr which passes only the debug events: a level threshold there would also write the
-// summary.
-func newEmitter(d Deps, sh shared, dp depths) report.Emitter {
+// newEmitter builds the run's event sink. The console writes the log to stderr. Under --json
+// nothing is written while the run goes on: the warnings are kept (the second result) for the
+// envelope, and --debug adds a console on stderr which passes only the debug events, so that
+// stdout is the same with or without --debug. The summary is not an event: recon writes it.
+func newEmitter(d Deps, sh shared, dp depths) (report.Emitter, *report.Warnings) {
 	minLevel := report.Info
 	switch {
 	case sh.debug:
@@ -362,14 +367,14 @@ func newEmitter(d Deps, sh shared, dp depths) report.Emitter {
 	case sh.quiet:
 		minLevel = report.Warn
 	}
-	console := report.ConsoleOptions{Log: d.Stderr, LogDepth: dp.err, Summary: d.Stdout, SummaryDepth: dp.out,
-		Min: minLevel, Clock: d.Clock, Location: d.Location}
+	console := report.NewConsole(report.ConsoleOptions{Log: d.Stderr, LogDepth: dp.err,
+		Min: minLevel, Clock: d.Clock, Location: d.Location})
 	if !sh.json {
-		return report.NewConsole(console)
+		return console, nil
 	}
-	js := report.NewJSON(d.Stdout, d.Clock)
+	warnings := &report.Warnings{}
 	if !sh.debug {
-		return js
+		return warnings, warnings
 	}
-	return report.Tee(js, report.Only("debug", report.NewConsole(console)))
+	return report.Tee(warnings, report.Only("debug", console)), warnings
 }

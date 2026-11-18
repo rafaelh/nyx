@@ -6,8 +6,10 @@ package engagement
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -108,11 +110,85 @@ func OpenReadOnly(dir string) (*store.ReadOnly, error) {
 	return st, err
 }
 
-// Exists reports whether dir holds an engagement's state database, without
-// creating anything.
-func Exists(dir string) bool {
-	_, err := os.Stat(statePath(dir))
-	return err == nil
+// State is what a directory holds, as far as an engagement goes.
+type State int
+
+// The states Probe reports.
+const (
+	// Absent: the directory is missing or empty, or has a .nyx with no state
+	// database, so an engagement can be started in it.
+	Absent State = iota
+	// Exists: the directory holds an engagement's state database.
+	Exists
+	// Foreign: the path is not a directory, or is a directory with entries and
+	// no .nyx, so nyx will not use it.
+	Foreign
+)
+
+func (s State) String() string {
+	switch s {
+	case Exists:
+		return "exists"
+	case Foreign:
+		return "foreign"
+	default:
+		return "absent"
+	}
+}
+
+// Probe classifies dir without creating anything. An error is a failure to
+// read it, other than its being missing.
+func Probe(dir string) (State, error) {
+	fi, err := os.Stat(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return Absent, nil
+	case err != nil:
+		return Absent, err
+	case !fi.IsDir():
+		return Foreign, nil
+	}
+	if _, err := os.Stat(statePath(dir)); err == nil {
+		return Exists, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Absent, err
+	}
+	// A .nyx with no state database is an engagement that never finished
+	// being created, which Open adopts.
+	if _, err := os.Lstat(filepath.Join(dir, ".nyx")); err == nil {
+		return Absent, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Absent, err
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return Absent, err
+	}
+	defer f.Close()
+	if _, err := f.Readdirnames(1); err == nil {
+		return Foreign, nil
+	} else if !errors.Is(err, io.EOF) {
+		return Absent, err
+	}
+	return Absent, nil
+}
+
+// List names the subdirectories of outputDir that hold an engagement's state
+// database (those Probe says exist), sorted. An output directory that cannot be
+// read gives none.
+func List(outputDir string) []string {
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if _, err := os.Stat(statePath(filepath.Join(outputDir, e.Name()))); err == nil {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func statePath(dir string) string { return filepath.Join(dir, ".nyx", "state.db") }

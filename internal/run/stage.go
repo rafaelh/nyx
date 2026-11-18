@@ -60,6 +60,11 @@ var ErrAbortStage = errors.New("abort stage")
 // fail and are retried on the next run.
 var ErrQuota = fmt.Errorf("quota spent: %w", ErrAbortStage)
 
+// ErrKeyRejected, wrapped in a check's error, says the source refused the API key.
+// It aborts the stage like ErrAbortStage, which it wraps, and the run counts the
+// failures it causes apart: waiting does not cure a refused key.
+var ErrKeyRejected = fmt.Errorf("key rejected: %w", ErrAbortStage)
+
 type runStateKey struct{}
 
 // runState is what PerRun keeps for one run.

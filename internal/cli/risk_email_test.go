@@ -203,7 +203,7 @@ func TestEmail_DMARCServfailIsTransient(t *testing.T) {
 	m.dmarc = []string{"v=DMARC1; p=none"}
 	m.apply(x.dns, "example.com")
 	x.dns.Rcode("_dmarc.example.com", mdns.RcodeServerFailure)
-	x.mustRun()
+	x.partialRun("email", 1)
 	if st := x.state("email"); st.str("state") != "failed" || st.num("failed") != 1 {
 		t.Errorf("state = %v", st)
 	}
@@ -230,7 +230,7 @@ func TestEmail_IncludeServfailIsTransient(t *testing.T) {
 	m.spf = []string{"v=spf1 include:broken.t.test -all"}
 	m.apply(x.dns, "example.com")
 	x.dns.Rcode("broken.t.test", mdns.RcodeServerFailure)
-	x.mustRun()
+	x.partialRun("email", 1)
 	if st := x.state("email"); st.str("state") != "failed" || st.num("failed") != 1 {
 		t.Errorf("state = %v", st)
 	}

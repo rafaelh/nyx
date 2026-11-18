@@ -642,8 +642,11 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 			ghRefuse(g, "example.net", 1, tc.status, tc.hdr(), nil)
 			w := ghWorld(t, g)
 			start := time.Now()
-			if code := w.run("--passive", "--concurrency", "1", "example.com", "example.net", "example.org"); code != 0 {
-				t.Fatalf("exit %d", code)
+			f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.net", "example.org"), true)
+			// A 401 is a refused key and waiting does not cure it; GitHub answers 403 and 429 for a
+			// limit that has not lifted, which does.
+			if want := tc.status != 401; f.transient != want || f.msg != "2 checks failed: github 2" {
+				t.Errorf("transient = %v, want %v: %+v", f.transient, want, f)
 			}
 			if took := time.Since(start); took > 8*time.Second {
 				t.Errorf("run took %v: the stage must stop and not wait", took)
@@ -691,8 +694,8 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 				return true
 			}
 			w := ghWorld(t, g)
-			if code := w.run("--passive", "--concurrency", "1", "example.com", "example.net"); code != 0 {
-				t.Fatalf("exit %d", code)
+			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.net"), true); !f.transient || f.msg != "1 checks failed: github 1" {
+				t.Errorf("%+v", f)
 			}
 			if n := ghFailed(w); n != 1 {
 				t.Errorf("%d checks failed, want 1", n)

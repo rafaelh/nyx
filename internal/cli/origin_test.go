@@ -40,7 +40,8 @@ func siteBody(title string) string {
 type histRec struct{ addr, first, last string }
 
 // stHistory is api.securitytrails.com's DNS history: /v1/history/<host>/dns/a and /aaaa. The key is
-// checked and every other path is a 404.
+// checked, the subdomain list of a root is empty (so the subdomain source does not fail the run)
+// and every other path is a 404.
 type stHistory struct {
 	mu      sync.Mutex
 	records map[string][]histRec // "host/a" or "host/aaaa"
@@ -55,6 +56,10 @@ func (f *stHistory) set(host, typ string, recs ...histRec) {
 
 func (f *stHistory) serve(rw http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 4 && parts[0] == "v1" && parts[1] == "domain" && parts[3] == "subdomains" {
+		_, _ = rw.Write([]byte(`{"subdomains":[]}`))
+		return
+	}
 	if len(parts) != 5 || parts[0] != "v1" || parts[1] != "history" || parts[3] != "dns" {
 		http.NotFound(rw, r)
 		return
@@ -135,6 +140,7 @@ func newOriginWorld(t *testing.T, mod ...func(*originOpts)) *oworld {
 		x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
 	}
 	x.handle("api.securitytrails.com", x.hist.serve)
+	serveAWSElsewhere(x.world) // the providers are the ones each case sets
 	x.names("www.example.com", "origin.example.com")
 	if o.byRange {
 		x.cfRanges, x.provider = "104.16.0.0/13\n203.0.113.8/29\n", "cloudflare"
@@ -144,6 +150,10 @@ func newOriginWorld(t *testing.T, mod ...func(*originOpts)) *oworld {
 			defer x.mu.Unlock()
 			if r.URL.Path == "/ips-v4" {
 				_, _ = rw.Write([]byte(x.cfRanges))
+				return
+			}
+			if r.URL.Path == "/ips-v6" {
+				_, _ = rw.Write([]byte(cloudflareV6))
 				return
 			}
 			http.NotFound(rw, r)

@@ -37,8 +37,8 @@ func TestContract_ErrorLayout(t *testing.T) {
 		t.Errorf("JSON error escapes HTML: %s", h.stderr.String())
 	}
 
-	// With nothing to hint and no input at fault, both are null; a locked
-	// engagement is an unexpected failure until it has its own code.
+	// A locked engagement has its own code and is worth retrying; its hint says what to do and
+	// no input is at fault, so the input is null.
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
@@ -48,14 +48,14 @@ func TestContract_ErrorLayout(t *testing.T) {
 	}
 	defer eng.Close()
 	f := h.failed(h.exec("-e", "a.com", "--json"), 1, true)
-	if f.code != "UNEXPECTED_ERROR" || f.transient {
+	if f.code != "LOCKED" || !f.transient {
 		t.Errorf("%+v", f)
 	}
-	if !strings.HasSuffix(h.stderr.String(), `,"code":"UNEXPECTED_ERROR","hint":null,"input":null,"transient":false}`+"\n") {
-		t.Errorf("hint and input are not null: %s", h.stderr.String())
+	if !strings.HasSuffix(h.stderr.String(), `,"code":"LOCKED","hint":"another run holds this engagement; wait for it to finish, or use another -e","input":null,"transient":true}`+"\n") {
+		t.Errorf("hint, input and transient: %s", h.stderr.String())
 	}
 	f = h.failed(h.exec("-e", "a.com"), 1, false)
-	if f.hint != "" || f.code != "UNEXPECTED_ERROR" {
+	if f.hint != "another run holds this engagement; wait for it to finish, or use another -e" || f.code != "LOCKED" || !f.transient {
 		t.Errorf("%+v", f)
 	}
 }
@@ -85,33 +85,24 @@ func TestContract_JSONModeWhenParsingFails(t *testing.T) {
 	}
 }
 
-// A recon --json run that fails once it has started keeps the event lines it
-// wrote, and its failure is the error on stderr, not an event.
-func TestContract_FailedRunKeepsEarlierEventLines(t *testing.T) {
+// A recon --json run that fails once it has started writes nothing to stdout: the failure is the
+// error on stderr, and there are no event lines to keep. A run that ends writes the one envelope.
+func TestContract_FailedRunWritesNothingToStdout(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
-	code := h.exec("--json", "--cidr", "10.0.0.0/16", "--netblock-limit", "1000")
-	if code != 2 {
-		t.Fatalf("exit %d", code)
-	}
-	evs := h.events()
-	if len(ofType(evs, "run_start")) != 1 {
-		t.Errorf("the run_start event is gone: %s", h.stdout.String())
-	}
-	if len(ofType(evs, "error")) != 0 || len(ofType(evs, "run_end")) != 0 {
-		t.Errorf("an error or run_end event on stdout: %s", h.stdout.String())
-	}
+	h.failed(h.exec("--json", "--cidr", "10.0.0.0/16", "--netblock-limit", "1000"), 2, true)
 	if f := h.theError(true); f.code != "INVALID_INPUT" {
 		t.Errorf("%+v", f)
 	}
-	// A successful run still ends with run_end and exit code 0.
+	if len(ofType(h.events(), "run_start")) != 1 {
+		t.Error("the run started, so the tap saw its run_start event")
+	}
+	// A successful run ends with the envelope and exit code 0.
 	h = newHarness(t, noop())
 	if code := h.exec("--json", "a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	if ends := ofType(h.events(), "run_end"); len(ends) != 1 || ends[0].num("exit_code") != 0 {
-		t.Errorf("run_end = %v", ends)
-	}
+	h.envelope()
 }
 
 // An API key never reaches the error, in either mode, from the environment or
@@ -220,19 +211,19 @@ func TestContract_EveryProblemInOneError(t *testing.T) {
 func TestContract_NewEngagementWithoutInputsCreatesNothing(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
-	f := h.failed(h.exec("-e", "fresh"), 2, false)
-	if !strings.Contains(f.msg, "fresh") {
+	f := h.failed(h.exec("-e", "fresh"), 3, false)
+	if !strings.Contains(f.msg, "fresh") || f.code != "NOT_FOUND" {
 		t.Errorf("%+v", f)
 	}
 	h.untouched()
-	if again := h.failed(h.exec("-e", "fresh"), 2, false); again != f {
+	if again := h.failed(h.exec("-e", "fresh"), 3, false); again != f {
 		t.Errorf("the second call differs: %+v", again)
 	}
 
 	if err := os.Mkdir(h.eng("fresh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h.failed(h.exec("-e", "fresh"), 2, false)
+	h.failed(h.exec("-e", "fresh"), 3, false)
 	if entries, _ := os.ReadDir(h.eng("fresh")); len(entries) != 0 {
 		t.Errorf("the call created %d entries in the empty engagement directory", len(entries))
 	}
@@ -243,16 +234,6 @@ func TestContract_NewEngagementWithoutInputsCreatesNothing(t *testing.T) {
 	if code := h.exec("-e", "a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-}
-
-// splitHint turns a hint of safe words into the arguments after nyx.
-func splitHint(t *testing.T, hint string) []string {
-	t.Helper()
-	f := strings.Fields(hint)
-	if len(f) == 0 || f[0] != "nyx" || strings.ContainsAny(hint, `'"\`) {
-		t.Fatalf("hint %q is not a plain nyx call", hint)
-	}
-	return f[1:]
 }
 
 // Over the netblock limit is a usage error: the total, a hint that is the same
@@ -295,7 +276,7 @@ func TestContract_NetblockLimit(t *testing.T) {
 		if len(later.Executed()) != 0 {
 			t.Errorf("%v: a later stage ran", args)
 		}
-		if code := h.execRoot(splitHint(t, f.hint)...); code != 0 || len(later.Executed()) != 1 {
+		if code := h.execRoot(shellSplit(t, f.hint)...); code != 0 || len(later.Executed()) != 1 {
 			t.Errorf("%v: running the hint: exit %d, stderr %q", args, code, h.stderr.String())
 		}
 	}
@@ -431,8 +412,8 @@ func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 			return []run.Observation{obs("hostname", c.Key+".a.com")}, nil
 		}}
 	h := newHarness(t, st)
-	if code := h.exec("a.com", "--concurrency", "1", "--debug"); code != 0 {
-		t.Fatalf("exit %d\n%s", code, h.stderr.String())
+	if code := h.exec("a.com", "--concurrency", "1", "--debug"); code != 7 {
+		t.Fatalf("exit %d, want 7: a panicking check is a failed check\n%s", code, h.stderr.String())
 	}
 	if got := h.completed("a.com", "s"); !slices.Equal(got, []string{"c000", "c002", "c004"}) {
 		t.Errorf("completed = %v", got)
@@ -455,7 +436,7 @@ func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 	enum := &testkit.Stage{StageName: "enum", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { panic("enum boom") }}
 	after := &testkit.Stage{StageName: "after", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("a", 1) }}
 	h = newHarness(t, enum, after)
-	if code := h.exec("a.com", "--json"); code != 0 {
+	if code := h.exec("a.com", "--json"); code != 7 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
 	if len(after.Executed()) != 1 {

@@ -25,6 +25,7 @@ const (
 	UpstreamError Code = "UPSTREAM_ERROR"
 	AuthFailed    Code = "AUTH_FAILED"
 	Unexpected    Code = "UNEXPECTED_ERROR"
+	Locked        Code = "LOCKED"
 	InvalidInput  Code = "INVALID_INPUT"
 	NotFound      Code = "NOT_FOUND"
 	Partial       Code = "PARTIAL"
@@ -34,7 +35,7 @@ const (
 // exitCodes maps each error code to its exit code. INTERRUPTED's is SIGINT's;
 // the caller that knows which signal arrived uses that signal's code instead.
 var exitCodes = map[Code]int{
-	NetworkError: 1, Timeout: 1, RateLimited: 1, UpstreamError: 1, AuthFailed: 1, Unexpected: 1,
+	NetworkError: 1, Timeout: 1, RateLimited: 1, UpstreamError: 1, AuthFailed: 1, Unexpected: 1, Locked: 1,
 	InvalidInput: 2,
 	NotFound:     3,
 	Partial:      7,

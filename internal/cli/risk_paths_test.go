@@ -118,7 +118,7 @@ func TestSensitivePaths_TransientFailureRetried(t *testing.T) {
 		leaky(w, r)
 	})
 	file := x.pathsFile(pathsYAML)
-	x.mustRun("--crawl-pages", "0", "--sensitive-paths", file)
+	x.partialRun("sensitive-paths", 1, "--crawl-pages", "0", "--sensitive-paths", file)
 	if st := x.state("sensitive-paths"); st.str("state") != "done" || st.num("failed") != 1 {
 		t.Errorf("state = %v", st)
 	}

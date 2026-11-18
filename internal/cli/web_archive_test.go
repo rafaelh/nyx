@@ -22,6 +22,13 @@ func (x *web) mustPassive(args ...string) {
 	}
 }
 
+// partialPassive is passive for a run in which a check failed: exit 7 and a PARTIAL error, which it
+// returns.
+func (x *web) partialPassive(args ...string) failure {
+	x.t.Helper()
+	return x.h.partial(x.passive(args...), true)
+}
+
 func (x *web) summaryTotal(category string) int {
 	x.t.Helper()
 	sums := ofType(x.h.events(), "summary")

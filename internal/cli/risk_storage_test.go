@@ -120,7 +120,7 @@ func TestStorage_RegionRedirectFollowed(t *testing.T) {
 	x2.dns.CNAME("static.example.com", "acme-eu.s3.amazonaws.com")
 	x2.host("acme-eu.s3.amazonaws.com", "203.0.113.30")
 	x2.handle("s3.amazonaws.com", bucketHandler(map[string]bucket{"acme-eu": {list: 301, redirect: "evil.example.net/x"}}))
-	x2.mustRun("--storage-max-names", "1")
+	x2.partialRun("storage", 1, "--storage-max-names", "1") // the unusable redirect fails the check
 	if r := find(x2.rows("risk-storage.csv"), "name", "acme-eu"); r != nil {
 		t.Errorf("a malformed region produced a result: %v", r)
 	}
@@ -223,6 +223,7 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names()
+	x.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"categories":[],"prefixes":[]}}`)) // the org-asn stage finds nothing
 	x.mustRun("--passive", "--storage-max-names", "4", "--org", "Acme Corp")
 	want := []string{
 		"azure-account|acmecorp", "azure-account|acmecorpbackup", "azure-account|acmecorpbackups",

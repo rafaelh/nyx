@@ -207,8 +207,13 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 					}
 				}
 				w.handle(s.host, status(code))
-				if c := w.run("--passive", "--concurrency", "1", "example.com", "example.org"); c != 0 {
-					t.Fatalf("exit %d", c)
+				f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.org"), true)
+				// A refused key is not cured by waiting; a rate limit is.
+				if want := code == 429; f.transient != want {
+					t.Errorf("transient = %v, want %v: %+v", f.transient, want, f)
+				}
+				if !strings.Contains(f.msg, s.stage) {
+					t.Errorf("the error does not name %s: %q", s.stage, f.msg)
 				}
 				if st, _ := stateOf(w, s.stage); st != "failed" {
 					t.Errorf("%s state = %s, want failed", s.stage, st)
@@ -236,6 +241,30 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A refused key together with a failure for another reason (here, another keyed source answering
+// 500) is transient: waiting may cure the second.
+func TestKeyed_RejectionWithAnotherFailureIsTransient(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	for _, o := range keyedSources {
+		w.h.setenv(o.env, o.key)
+	}
+	for _, o := range keyedSources {
+		switch o.stage {
+		case "censys":
+			w.handle(o.host, status(500))
+		case "chaos":
+			w.handle(o.host, status(401))
+		default:
+			o.serveOK(w)
+		}
+	}
+	f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com"), true)
+	if !f.transient || !strings.Contains(f.msg, "censys") || !strings.Contains(f.msg, "chaos") {
+		t.Errorf("%+v", f)
 	}
 }
 
@@ -272,8 +301,8 @@ func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 	forEachKeyed(t, func(t *testing.T, w *world, s keyedSource) {
 		w.h.setenv(s.env, s.key)
 		s.serveWith(w, `{"error":"nope"}`)
-		if code := w.run("--passive", "example.com"); code != 0 {
-			t.Fatalf("exit %d", code)
+		if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient {
+			t.Errorf("an unreadable answer may be a passing fault: %+v", f)
 		}
 		if st, _ := stateOf(w, s.stage); st != "failed" {
 			t.Errorf("%s = %s, want failed", s.stage, st)

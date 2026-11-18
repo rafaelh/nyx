@@ -15,13 +15,24 @@ import (
 // runRoot runs a passive engagement for example.com.
 func runRoot(t *testing.T, w *world, extra ...string) {
 	t.Helper()
+	if code := w.run(rootArgs(extra)...); code != 0 {
+		t.Fatalf("exit %d\n%s", code, w.h.stdout.String())
+	}
+}
+
+// runRootPartial is runRoot for a run in which a check is meant to fail: it exits 7 with the result
+// written, and the error it returns names the stage and its count.
+func runRootPartial(t *testing.T, w *world, stage string, n int, extra ...string) failure {
+	t.Helper()
+	return w.h.partialFailed(w.run(rootArgs(extra)...), stage, n)
+}
+
+func rootArgs(extra []string) []string {
 	args := append([]string{"--passive"}, extra...)
 	if !slices.Contains(extra, "-e") { // a run of an existing engagement takes no inputs
 		args = append(args, "example.com")
 	}
-	if code := w.run(args...); code != 0 {
-		t.Fatalf("exit %d\n%s", code, w.h.stdout.String())
-	}
+	return args
 }
 
 func resolutionRow(w *world, name, typ string) map[string]string {
@@ -368,8 +379,8 @@ func TestDNSRoot_Outcomes(t *testing.T) {
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test") // SOA, TXT and CAA are NODATA
 	w.dns.RcodeType("example.com", "TXT", egress.RCodeServFail)
-	if code := w.run("--passive", "example.com", "gone.example.org"); code != 0 {
-		t.Fatalf("exit %d", code)
+	if f := w.h.partial(w.run("--passive", "example.com", "gone.example.org"), true); f.msg != "1 checks failed: dnsroot 1" || !f.transient {
+		t.Errorf("error = %+v, want the one failed TXT check, transient", f)
 	}
 	done := w.h.completed(eng, "dnsroot")
 	for _, k := range []string{"example.com|NS|addrs", "example.com|SOA", "example.com|CAA",

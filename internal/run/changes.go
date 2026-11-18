@@ -226,54 +226,6 @@ func (r *Runner) saveShown(entries []entry, carried []store.ShownRow) error {
 	return nil
 }
 
-// changesSummary is the summary event's changes field: how many of each kind
-// changed, and the findings of high or medium severity that are new. It is nil
-// on a first run, which has no changes to count.
-func (r *Runner) changesSummary(recs []store.Record) map[string]any {
-	if r.base == nil {
-		return nil
-	}
-	counts := map[string]map[string]int{}
-	newKeys := map[string]bool{}
-	for _, c := range r.changes {
-		if counts[c.Kind] == nil {
-			counts[c.Kind] = map[string]int{}
-		}
-		counts[c.Kind][c.Change]++
-		if c.Kind == kinds.LabelFinding && c.Change != output.ChangeGone {
-			newKeys[c.Key] = true
-		}
-	}
-	var fresh []store.Record
-	for _, rec := range recs {
-		if newKeys[rec.Key] {
-			fresh = append(fresh, rec)
-		}
-	}
-	return map[string]any{"counts": counts, "findings": headlineFields(fresh)}
-}
-
-// headlineFields are the findings of high or medium severity among recs, as the
-// summary event lists them.
-func headlineFields(recs []store.Record) []map[string]any {
-	listed := []map[string]any{}
-	for _, f := range findings.Headline(recs) {
-		listed = append(listed, map[string]any{"category": f.Category, "severity": f.Severity, "target": f.Target, "detail": f.Detail})
-	}
-	return listed
-}
-
-// emitChanges emits a change event for each row of changes.csv, in its order.
-func (r *Runner) emitChanges() {
-	for _, c := range r.changes {
-		f := map[string]any{"change": c.Change, "kind": c.Kind, "key": c.Key, "scope": c.Scope}
-		if c.Severity != "" {
-			f["severity"] = c.Severity
-		}
-		r.emit("change", f)
-	}
-}
-
 // targetStages is the set of stages that make contact with the target.
 func targetStages(stages []Stage) map[string]bool {
 	m := map[string]bool{}

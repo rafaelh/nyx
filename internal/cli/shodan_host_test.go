@@ -287,7 +287,10 @@ func TestShodanHost_RejectedKeyAbortsTheStage(t *testing.T) {
 	f := p.shodan()
 	p.app()
 	f.setStatus(401)
-	p.mustPassive("--ports", "3389", "--concurrency", "1")
+	// Both checks fail, and a refused key is not cured by waiting.
+	if e := p.partialPassive("--ports", "3389", "--concurrency", "1"); e.transient || e.msg != "2 checks failed: shodan-host 2" {
+		t.Errorf("%+v", e)
+	}
 
 	if got := p.completedKeys("shodan-host"); len(got) != 0 {
 		t.Errorf("completed = %v, want nothing after a rejected key", got)

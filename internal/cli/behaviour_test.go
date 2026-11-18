@@ -222,7 +222,7 @@ func TestNonEngagementDirRefused(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacy, "subdomains.txt"), []byte("old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code := h.exec("-e", "legacy", "a.com"); code != 1 || !strings.Contains(h.stderr.String(), legacy) {
+	if code := h.exec("-e", "legacy", "a.com"); code != 2 || !strings.Contains(h.stderr.String(), legacy) {
 		t.Errorf("exit %d stderr %q", code, h.stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(legacy, ".nyx")); err == nil {
@@ -317,8 +317,8 @@ func TestTransientFailure(t *testing.T) {
 			return []run.Observation{obs("hostname", "new.a.com")}, nil
 		}}
 	h := newHarness(t, flaky, later)
-	if code := h.exec("a.com", "--json"); code != 0 {
-		t.Fatalf("exit %d (failed checks must not change the exit code): %s", code, h.stderr.String())
+	if code := h.exec("a.com", "--json"); code != 7 {
+		t.Fatalf("exit %d (a failed check makes the run partial): %s", code, h.stderr.String())
 	}
 	count := 0
 	for _, k := range flaky.Executed() {
@@ -362,7 +362,7 @@ func TestErrAbortStage(t *testing.T) {
 			return nil, fmt.Errorf("source says no: %w", run.ErrAbortStage)
 		}}
 	h := newHarness(t, st)
-	if code := h.exec("a.com", "--json", "--concurrency", "1"); code != 0 {
+	if code := h.exec("a.com", "--json", "--concurrency", "1"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	if len(st.Executed()) != 1 {
@@ -388,8 +388,8 @@ func TestEnumerationErrorTerminates(t *testing.T) {
 	h := newHarness(t, st)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if code := h.execCtx(ctx, "a.com", "--json"); code != 0 {
-		t.Fatalf("exit %d (the run must end on its own): %s", code, h.stderr.String())
+	if code := h.execCtx(ctx, "a.com", "--json"); code != 7 {
+		t.Fatalf("exit %d (the run must end on its own, partial for the failed enumeration): %s", code, h.stderr.String())
 	}
 	s := lastState(h.events(), "enum")
 	if s.str("state") != "done" || s.num("failed") != 1 {
@@ -494,9 +494,9 @@ func TestRedoKeepsUnlistedChecksOnEnumerationError(t *testing.T) {
 	src, other := redoStages(&b)
 	h := newHarness(t, src, other)
 	h.exec("a.com")
-	b = 2                                        // k0 is not listed...
-	src.ChecksErr = errors.New("listing failed") // ...because enumeration fails
-	if code := h.exec("-e", "a.com", "--redo", "src"); code != 0 {
+	b = 2                                                          // k0 is not listed...
+	src.ChecksErr = errors.New("listing failed")                   // ...because enumeration fails
+	if code := h.exec("-e", "a.com", "--redo", "src"); code != 7 { // the failed enumeration is a failed check
 		t.Fatal(h.stderr.String())
 	}
 	if cur := currentOf(t, h, "web_service"); cur["u0"] != "1" {
@@ -765,7 +765,7 @@ func TestStageStatesAndFound(t *testing.T) {
 	empty := &testkit.Stage{StageName: "empty", Kind: run.ThirdParty}
 	target := &testkit.Stage{StageName: "probe", Kind: run.Target, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("x", 1) }}
 	h := newHarness(t, prev, failing, partial, nokey, empty, target)
-	if code := h.exec("a.com", "--json"); code != 0 {
+	if code := h.exec("a.com", "--json"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	evs := h.events()
@@ -853,21 +853,25 @@ func TestStageStatesAndFound(t *testing.T) {
 	}
 }
 
-// With --json every stdout line is an unstyled JSON event, and an error is the JSON error on stderr.
+// With --json stdout is one unstyled JSON object when the run ends, and an error is the JSON error on
+// stderr.
 func TestJSONMode(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	h.events() // fails on any non-JSON line
+	h.envelope() // fails unless stdout is exactly one envelope line
 	if strings.Contains(h.stdout.String(), "\x1b") {
 		t.Error("ANSI in JSON mode")
 	}
-	for _, typ := range []string{"run_start", "summary", "run_end"} {
+	for _, typ := range []string{"run_start", "summary"} {
 		if len(ofType(h.events(), typ)) != 1 {
 			t.Errorf("want exactly one %s event", typ)
 		}
+	}
+	if len(ofType(h.events(), "run_end")) != 0 {
+		t.Error("a run_end event: the envelope is the only result")
 	}
 	h.stdoutTTY = true
 	h.exec("b.com", "--json")
@@ -977,8 +981,8 @@ func TestExitCodes(t *testing.T) {
 			return nil, fmt.Errorf("transient")
 		}}
 	h := newHarness(t, st)
-	if code := h.exec("a.com"); code != 0 {
-		t.Errorf("failed checks and not-configured stages still exit 0, got %d", code)
+	if code := h.exec("a.com"); code != 7 {
+		t.Errorf("a failed check makes the run partial: exit %d", code)
 	}
 
 	e, err := engagement.Open(h.eng("a.com"), engagement.Options{})
@@ -990,8 +994,8 @@ func TestExitCodes(t *testing.T) {
 	if code != 1 || !strings.Contains(strings.ToLower(h.stderr.String()), "lock") && !strings.Contains(strings.ToLower(h.stderr.String()), "running") {
 		t.Errorf("held lock: exit %d, stderr %q", code, h.stderr.String())
 	}
-	if code = h.exec("-e", "a.com"); code != 0 {
-		t.Errorf("lock released: exit %d", code)
+	if code = h.exec("-e", "a.com"); code != 7 {
+		t.Errorf("lock released: exit %d, want 7 (the failed checks are retried and fail again)", code)
 	}
 
 	// A corrupt store is a fatal runtime error.
@@ -1066,7 +1070,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 		if jsonMode {
 			args = append(args, "--json")
 		}
-		if code := h.exec(args...); code != 0 {
+		if code := h.exec(args...); code != 7 { // each stage's rejected check is a failed check
 			t.Fatalf("exit %d: %s", code, h.stderr.String())
 		}
 		if gotEnv != envKey || gotFile != fileKey {

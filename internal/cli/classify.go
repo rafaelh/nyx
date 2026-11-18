@@ -251,14 +251,20 @@ func flagFirst(args []string, at int, flags []string) *clierr.Error {
 // netblockHint is the caller's own call with --allow-large-netblocks directly
 // after the recon command and --redo (with its value) left out, so the hint
 // approves the netblocks without repeating a stage.
-func netblockHint(args []string) string {
+func netblockHint(args []string) string { return invocationHint(args, "--allow-large-netblocks") }
+
+// invocationHint is the caller's own call, shell-quoted, with --redo (and its value) left out after
+// the recon command and every other argument kept, and with insert directly after the command. It
+// is the call that carries on where a run stopped, without repeating a stage.
+func invocationHint(args []string, insert ...string) string {
 	var out []string
 	inserted := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case !inserted && a == "recon":
-			out = append(out, a, "--allow-large-netblocks")
+			out = append(out, a)
+			out = append(out, insert...)
 			inserted = true
 			continue
 		case inserted && a == "--redo":

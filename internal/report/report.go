@@ -1,79 +1,29 @@
-// Package report turns run events into console lines or JSON lines.
+// Package report turns run events into console lines, and a finished run into the human summary
+// or the --json envelope.
 package report
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
-	"slices"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Event is one thing that happened in a run. Types: run_start, stage, found,
-// count, warning, debug, error, candidate, summary, change, run_end. A candidate
-// event is one high-confidence candidate, emitted before the summary; the console
-// prints it only as part of the summary. A change event is one row of
-// changes.csv, emitted after the summary; the console prints it not at all (the
-// summary's "since last run" block counts them). A debug event is one failed check; the
-// JSON stream does not carry it.
+// Event is one thing that happened in a run. Types: run_start, stage, found, count, warning and
+// debug. They drive the console log; the result of the run is the Summary, not an event. A debug
+// event is one failed check.
 type Event struct {
 	Type   string
-	Time   string // RFC 3339; filled in by the emitter if empty
 	Fields map[string]any
 }
 
 // Emitter receives events. Implementations are safe for concurrent use.
 type Emitter interface{ Emit(Event) }
-
-func timestamp(ev Event, clock func() time.Time) string {
-	if ev.Time != "" {
-		return ev.Time
-	}
-	if clock == nil {
-		clock = time.Now
-	}
-	return clock().UTC().Format(time.RFC3339)
-}
-
-// JSONEmitter writes one JSON object per line. It drops debug events, so that
-// the stream is the same with or without --debug.
-type JSONEmitter struct {
-	mu    sync.Mutex
-	w     io.Writer
-	clock func() time.Time
-}
-
-// NewJSON returns the JSON renderer.
-func NewJSON(w io.Writer, clock func() time.Time) *JSONEmitter {
-	return &JSONEmitter{w: w, clock: clock}
-}
-
-// Emit writes the event as a JSON line.
-func (j *JSONEmitter) Emit(ev Event) {
-	if ev.Type == "debug" {
-		return
-	}
-	m := make(map[string]any, len(ev.Fields)+2)
-	for k, v := range ev.Fields {
-		m[k] = v
-	}
-	m["type"], m["time"] = ev.Type, timestamp(ev, j.clock)
-	b, err := json.Marshal(m)
-	if err != nil {
-		b, _ = json.Marshal(map[string]any{"type": "warning", "time": m["time"], "message": "cannot encode " + ev.Type + " event"})
-	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	_, _ = j.w.Write(append(b, '\n')) // Emit cannot report a write failure
-}
 
 type redacting struct {
 	next Emitter
@@ -153,19 +103,17 @@ func Line(d palette.Depth, t time.Time, l Level, msg string) string {
 
 // ConsoleOptions are what NewConsole needs.
 type ConsoleOptions struct {
-	Log          io.Writer // the log lines (stderr)
-	LogDepth     palette.Depth
-	Summary      io.Writer // the end-of-run summary (stdout)
-	SummaryDepth palette.Depth
-	Min          Level // the lowest level of log line written
-	Clock        func() time.Time
-	Location     *time.Location // the time zone lines are shown in
+	Log      io.Writer // the log lines (stderr)
+	LogDepth palette.Depth
+	Min      Level // the lowest level of log line written
+	Clock    func() time.Time
+	Location *time.Location // the time zone lines are shown in
 }
 
-// Console renders events as log lines on one stream and the summary on
-// another. Each event has a level (see Emit) and is written only when it
-// reaches Min; the summary is always written. The error that ends a failed
-// command is not an event: cli writes it.
+// Console renders events as log lines. Each event has a level (see Emit) and
+// is written only when it reaches Min. The end-of-run summary is not an event
+// (WriteSummary writes it), nor is the error that ends a failed command (cli
+// writes it).
 type Console struct {
 	mu sync.Mutex
 	o  ConsoleOptions
@@ -196,7 +144,7 @@ func str(f map[string]any, k string) string {
 
 // Emit renders one event. run_start, found and count are INFO; stage is INFO,
 // or ERROR when its state is failed; warning is WARN and debug is DEBUG.
-// candidate, change, run_end and unknown types print nothing.
+// Unknown types print nothing.
 func (c *Console) Emit(ev Event) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -243,11 +191,6 @@ func (c *Console) Emit(ev Event) {
 		level, msg = Warn, str(f, "message")
 	case "debug":
 		level, msg = Debug, str(f, "message")
-	case "summary":
-		var b strings.Builder
-		c.summary(&b, f)
-		fmt.Fprintln(c.o.Summary, b.String())
-		return
 	default:
 		return
 	}
@@ -256,94 +199,3 @@ func (c *Console) Emit(ev Event) {
 	}
 	fmt.Fprintln(c.o.Log, Line(d, c.o.Clock().In(c.o.Location), level, msg))
 }
-
-func (c *Console) summary(b *strings.Builder, f map[string]any) {
-	d := c.o.SummaryDepth
-	b.WriteString(d.Bold("Summary"))
-	counts := func(m map[string]int) {
-		// At least 16 wide, and wide enough for the longest category, so the
-		// counts stay in one column.
-		width := 16
-		for k := range m {
-			width = max(width, utf8.RuneCountInString(sanitize.Text(k)))
-		}
-		for _, k := range sortedKeys(m) {
-			fmt.Fprintf(b, "\n  %-*s %d", width, sanitize.Text(k), m[k])
-		}
-	}
-	if totals, ok := f["totals"].(map[string]int); ok {
-		counts(totals)
-	}
-	if n, _ := f["unconfirmed_risky_ports"].(int); n > 0 {
-		fmt.Fprintf(b, "\n  %d risky ports reported by Shodan, unconfirmed", n)
-	}
-	notes, _ := f["notes"].([]string)
-	for _, n := range notes {
-		b.WriteString("\n  " + sanitize.Text(n))
-	}
-	for _, blk := range []struct{ key, heading string }{
-		{"failed", "Failed checks (retried on the next run; --debug shows each failure)"},
-		{"deferred", "Deferred to the next run"},
-	} {
-		if m, ok := f[blk.key].(map[string]int); ok && len(m) > 0 {
-			b.WriteString("\n" + d.Bold(blk.heading))
-			counts(m)
-		}
-	}
-	findingList(b, d, "Findings (high and medium)", f["findings"])
-	if list, _ := f["candidates"].([]map[string]any); len(list) > 0 {
-		b.WriteString("\n" + d.Bold("Candidates worth promoting (high confidence)"))
-		for _, x := range list[:min(len(list), maxListedCandidates)] {
-			fmt.Fprintf(b, "\n  %s  %s evidence (%s)  promote: %s", str(x, "value"), str(x, "evidence_count"), str(x, "sources"), str(x, "promote"))
-		}
-		if more := len(list) - maxListedCandidates; more > 0 {
-			fmt.Fprintf(b, "\n  and %d more in candidates.csv", more)
-		}
-	}
-	if ch, ok := f["changes"].(map[string]any); ok {
-		sinceLastRun(b, d, ch)
-	}
-}
-
-// sinceLastRun writes the block that ends the summary of a run that has an
-// earlier one to compare with: what is new (including what returned) and the
-// findings that are gone, then the new findings of high and medium severity.
-func sinceLastRun(b *strings.Builder, d palette.Depth, ch map[string]any) {
-	counts, _ := ch["counts"].(map[string]map[string]int)
-	b.WriteString("\n" + d.Bold("Since last run"))
-	for _, l := range []struct {
-		heading, label, change string
-	}{
-		{"new hostnames", "hostname", "new"}, {"new addresses", "address", "new"}, {"new web services", "web service", "new"},
-		{"new open ports", "open port", "new"}, {"new candidates", "candidate", "new"}, {"new findings", "finding", "new"},
-		{"gone findings", "finding", "gone"},
-	} {
-		n := counts[l.label][l.change]
-		if l.change == "new" {
-			n += counts[l.label]["returned"]
-		}
-		fmt.Fprintf(b, "\n  %-16s %d", l.heading, n)
-	}
-	findingList(b, d, "New findings (high and medium)", ch["findings"])
-}
-
-// findingList writes a heading and one line per finding of a summary's findings
-// list, or nothing when the list is empty.
-func findingList(b *strings.Builder, d palette.Depth, heading string, list any) {
-	fs, _ := list.([]map[string]any)
-	if len(fs) == 0 {
-		return
-	}
-	b.WriteString("\n" + d.Bold(heading))
-	for _, x := range fs {
-		fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, str(x, "severity")), str(x, "category"), str(x, "target"))
-		if det := str(x, "detail"); det != "" {
-			b.WriteString(" - " + det)
-		}
-	}
-}
-
-// maxListedCandidates is how many candidates the summary lists.
-const maxListedCandidates = 20
-
-func sortedKeys(m map[string]int) []string { return slices.Sorted(maps.Keys(m)) }

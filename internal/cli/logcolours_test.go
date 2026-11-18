@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -217,7 +216,7 @@ func TestLog_Levels(t *testing.T) {
 			return nil, errors.New("source unavailable")
 		}}
 	h := newHarness(t, warner, quota, failing)
-	if code := h.exec("a.com", "--concurrency", "1"); code != 0 {
+	if code := h.exec("a.com", "--concurrency", "1"); code != 7 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
 	if calls.Load() < 2 {
@@ -265,7 +264,7 @@ func TestLog_Levels(t *testing.T) {
 func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, failingCheck("boom"))
-	if code := h.exec("a.com"); code != 0 {
+	if code := h.exec("a.com"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	if strings.Contains(h.stderr.String(), "m001") || strings.Contains(h.stdout.String(), "m001") {
@@ -281,7 +280,7 @@ func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
 		t.Errorf("the other checks completed: %q", got)
 	}
 
-	if code := h.exec("-e", "a.com", "--debug"); code != 0 {
+	if code := h.exec("-e", "a.com", "--debug"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	if d := h.debugLines(); len(d) != 1 || d[0] != "mixed check m001 failed: boom" {
@@ -442,7 +441,7 @@ func TestLog_Flags(t *testing.T) {
 		{[]string{"--debug"}, "DEBUG,INFO,WARN"},
 	} {
 		h := newHarness(t, stages()...)
-		if code := h.exec(append([]string{"a.com"}, c.args...)...); code != 0 {
+		if code := h.exec(append([]string{"a.com"}, c.args...)...); code != 7 {
 			t.Fatalf("%v: exit %d\n%s", c.args, code, h.stderr.String())
 		}
 		if got := levels(h); got != c.want {
@@ -463,7 +462,7 @@ func TestLog_Flags(t *testing.T) {
 	h = newHarness(t, stages()...)
 	h.setenv("NYX_QUIET", "1")
 	h.setenv("NYX_DEBUG", "1")
-	if code := h.exec("a.com"); code != 0 {
+	if code := h.exec("a.com"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	if got := levels(h); got != "INFO,WARN" {
@@ -563,7 +562,7 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 func TestLog_Summary(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, someFindings(), failingCheck("boom"))
-	if code := h.exec("a.com", "--quiet"); code != 0 {
+	if code := h.exec("a.com", "--quiet"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	summaryOnly(t, h)
@@ -665,8 +664,8 @@ func TestLog_ColourDepth(t *testing.T) {
 	}
 }
 
-// Under --json stdout is the event stream with or without --debug and --quiet,
-// warnings are events with no flag, and stderr carries only DEBUG lines.
+// Under --json stdout is the one envelope with or without --debug and --quiet, warnings are in
+// meta.warnings with no flag, and stderr carries only DEBUG lines and the error.
 func TestLog_JSON(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
@@ -679,53 +678,34 @@ func TestLog_JSON(t *testing.T) {
 			}}
 		return []run.Stage{warns, bad, someFindings()}
 	}
-	shape := func(h *harness) []string {
-		var out []string
-		for _, e := range h.events() {
-			delete(e, "time")
-			b, _ := json.Marshal(e)
-			out = append(out, string(b))
-		}
-		return out
-	}
-	var base []string
-	for i, args := range [][]string{{}, {"--debug"}, {"--quiet"}, {"--debug", "--quiet"}} {
-		if len(args) == 2 {
-			continue // --quiet and --debug are exclusive
-		}
+	var base string
+	for i, args := range [][]string{{}, {"--debug"}, {"--quiet"}} {
 		h := newHarness(t, mk()...)
 		h.setenv("NYX_KEYS_FAKE", key)
-		if code := h.exec(append([]string{"a.com", "--json"}, args...)...); code != 0 {
-			t.Fatalf("%v: exit %d", args, code)
+		f := h.partial(h.exec(append([]string{"a.com", "--json"}, args...)...), true)
+		if f.msg != "1 checks failed: bad 1" {
+			t.Errorf("%v: error = %+v", args, f)
 		}
-		got := shape(h) // fails on a line that is not JSON
-		if d := ofType(h.events(), "debug"); len(d) != 0 {
-			t.Errorf("%v: a check failure is an event on stdout: %v", args, d)
-		}
+		env := h.envelope()
+		got := strings.ReplaceAll(h.stdout.String(), h.out, "OUT")
 		if i == 0 {
 			base = got
-			if w := messages(&world{h: h}, "warning", "careful"); len(w) != 1 {
-				t.Errorf("a warning event with no flag: %v", w)
+			if len(env.Meta.Warnings) != 1 || env.Meta.Warnings[0] != "careful" {
+				t.Errorf("a warning needs no flag to be in meta.warnings: %q", env.Meta.Warnings)
 			}
-			for _, e := range ofType(h.events(), "warning") {
-				if strings.Contains(e.str("message"), "failed") {
-					t.Errorf("a check failure is a warning event: %v", e)
-				}
-			}
-		} else if !slices.Equal(got, base) {
-			t.Errorf("%v: events differ from the default run:\n got %q\nwant %q", args, got, base)
+		} else if got != base {
+			t.Errorf("%v: stdout differs from the default run:\n got %q\nwant %q", args, got, base)
 		}
-		switch {
-		case slices.Contains(args, "--debug"):
+		if slices.Contains(args, "--debug") {
 			if d := h.debugLines(); len(d) != 1 || d[0] != "bad check b000 failed: GET /x?key=**** failed" {
 				t.Errorf("DEBUG lines = %q", d)
 			}
-			if n := len(strings.Split(strings.TrimSpace(h.stderr.String()), "\n")); n != 1 {
-				t.Errorf("stderr has more than the DEBUG line:\n%s", h.stderr.String())
-			}
-		default:
-			if h.stderr.Len() != 0 {
-				t.Errorf("%v: stderr = %q", args, h.stderr.String())
+		} else if len(h.debugLines()) != 0 {
+			t.Errorf("%v: DEBUG lines without --debug: %q", args, h.debugLines())
+		}
+		for _, l := range h.logLines() {
+			if l.level != "DEBUG" {
+				t.Errorf("%v: a %s line on stderr under --json: %q", args, l.level, l.msg)
 			}
 		}
 		if strings.Contains(h.stdout.String()+h.stderr.String(), key) {
@@ -772,7 +752,7 @@ func TestLog_MessageHandling(t *testing.T) {
 		if coloured {
 			colourAt(t, h, palette.TrueColor)
 		}
-		if code := h.exec("a.com", "--debug", "--concurrency", "1"); code != 0 {
+		if code := h.exec("a.com", "--debug", "--concurrency", "1"); code != 7 {
 			t.Fatal(h.stderr.String())
 		}
 		all := h.stdout.String() + h.stderr.String()
@@ -792,7 +772,9 @@ func TestLog_MessageHandling(t *testing.T) {
 			t.Errorf("coloured=%v: the long warning is not on one line", coloured)
 		}
 		for _, l := range strings.Split(strings.TrimSpace(h.stderr.String()), "\n") {
-			if !anyLayout.MatchString(stripSGR(l)) && !strings.HasPrefix(l, "error:") {
+			// After the log, the error and its lines: the failed check makes the run partial.
+			if !anyLayout.MatchString(stripSGR(l)) && !strings.HasPrefix(stripSGR(l), "error:") &&
+				!strings.HasPrefix(l, "hint:") && l != "retry: may succeed after a wait" {
 				t.Errorf("coloured=%v: a line outside the layout (an injected newline?): %q", coloured, l)
 			}
 		}

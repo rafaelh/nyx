@@ -144,7 +144,9 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 			w.dns.NS("example.com", "ns1.dns-host.test")
 			w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 			fail(w)
-			runRoot(t, w)
+			if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 checks failed: dnsroot 1" {
+				t.Errorf("a failed lookup is transient and fails one check: %+v", f)
+			}
 
 			if k := srvChecks(w); len(k) != 0 {
 				t.Errorf("a failed lookup completed the SRV check: %v", k)

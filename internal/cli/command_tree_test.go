@@ -272,14 +272,15 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 		check func(t *testing.T, h *harness)
 	}{
 		{"--json", func(t *testing.T, h *harness) {
-			if len(ofType(h.events(), "run_start")) != 1 || h.stderr.Len() != 0 {
-				t.Errorf("stdout is not the event stream, or stderr is not empty: %q", h.stderr.String())
+			// The failed check makes the run partial: stdout is the one envelope, and stderr is the
+			// error and nothing else.
+			h.envelope()
+			if f := h.theError(true); f.code != "PARTIAL" || len(h.logLines()) != 0 {
+				t.Errorf("stderr is not the one error: %q", h.stderr.String())
 			}
 		}},
 		{"-J", func(t *testing.T, h *harness) {
-			if len(ofType(h.events(), "summary")) != 1 {
-				t.Error("stdout is not the event stream")
-			}
+			h.envelope()
 		}},
 		{"--quiet", func(t *testing.T, h *harness) {
 			if len(h.logMsgs("INFO")) != 0 || !strings.HasPrefix(h.stdout.String(), "Summary\n") {
@@ -305,7 +306,7 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 			} else {
 				code = recon(h, nil, []string{c.flag})
 			}
-			if code != 0 {
+			if code != 7 { // failingCheck's failed check makes the run partial
 				t.Fatalf("%s (before the command: %v): exit %d\n%s", c.flag, before, code, h.stderr.String())
 			}
 			c.check(t, h)
@@ -332,7 +333,7 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 
 	// --json with --debug is allowed: the DEBUG line is on stderr.
 	h := newHarness(t, failingCheck("boom"))
-	if code := recon(h, []string{"--json"}, []string{"--debug"}); code != 0 || len(h.debugLines()) != 1 {
+	if code := recon(h, []string{"--json"}, []string{"--debug"}); code != 7 || len(h.debugLines()) != 1 {
 		t.Errorf("--json --debug: exit %d, DEBUG lines %q", code, h.debugLines())
 	}
 }
@@ -374,7 +375,7 @@ func TestTree_SharedFlagsAreNotSettings(t *testing.T) {
 	h.setenv("NYX_JSON", "1")
 	h.setenv("NYX_QUIET", "1")
 	h.setenv("NYX_DEBUG", "1")
-	if code := h.exec("a.com"); code != 0 {
+	if code := h.exec("a.com"); code != 7 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
 	if !strings.HasPrefix(h.stdout.String(), "Summary\n") || len(h.logMsgs("INFO")) == 0 || len(h.debugLines()) != 0 {

@@ -91,10 +91,9 @@ func (r *resolver) Query(ctx context.Context, name string, qtype uint16) (DNSRes
 	var lastErr error
 	for i := range addrs {
 		addr := addrs[(start+i)%len(addrs)]
-		c := &dns.Client{Timeout: r.e.opts.DNSTimeout}
-		resp, _, err := c.ExchangeContext(ctx, m, addr)
+		resp, err := exchange(ctx, &dns.Client{Timeout: r.e.opts.DNSTimeout}, m, addr)
 		if err == nil && resp.Truncated {
-			resp, _, err = (&dns.Client{Net: "tcp", Timeout: r.e.opts.DNSTimeout}).ExchangeContext(ctx, m, addr)
+			resp, err = exchange(ctx, &dns.Client{Net: "tcp", Timeout: r.e.opts.DNSTimeout}, m, addr)
 		}
 		if err != nil {
 			if ctx.Err() != nil {
@@ -113,6 +112,22 @@ func (r *resolver) Query(ctx context.Context, name string, qtype uint16) (DNSRes
 		return toResult(last, qtype), nil
 	}
 	return DNSResult{}, fmt.Errorf("dns query %s %s: %w", name, dns.TypeToString[qtype], lastErr)
+}
+
+// exchange sends m to addr over c's network and reads the answer. Cancelling
+// ctx closes the connection, which ends a blocked read at once: the library
+// uses the context only to shorten the deadlines it sets, so without this a
+// cancelled lookup would wait out the client's timeout.
+func exchange(ctx context.Context, c *dns.Client, m *dns.Msg, addr string) (*dns.Msg, error) {
+	conn, err := c.DialContext(ctx, addr)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	resp, _, err := c.ExchangeWithConnContext(ctx, m, conn)
+	return resp, err
 }
 
 func toResult(m *dns.Msg, qtype uint16) DNSResult {

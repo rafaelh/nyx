@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
@@ -72,8 +73,8 @@ func certSvc(host, expiry string) run.Observation {
 		"tls_subject", host, "tls_expiry", expiry, "tls_trust", "trusted")
 }
 
-// A first run has nothing to compare with: no changes.csv, no change events, no
-// changes in the summary event and no block in the console summary.
+// A first run has nothing to compare with: no changes.csv, null changes in the envelope and no
+// block in the console summary.
 func TestChanges_FirstRunReportsNothing(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, newSrc("crtsh", finds("k1", list(host("h1.a.com"), webSvc("https://h1.a.com", "h1.a.com")))))
@@ -83,11 +84,11 @@ func TestChanges_FirstRunReportsNothing(t *testing.T) {
 	if body := h.readOut("a.com", "changes.csv"); body != "" {
 		t.Errorf("a first run wrote changes.csv:\n%s", body)
 	}
-	if n := len(ofType(h.events(), "change")); n != 0 {
-		t.Errorf("a first run emitted %d change events", n)
+	if ch := h.envelope().Data.Changes; ch != nil {
+		t.Errorf("the envelope of a first run has changes: %+v", ch)
 	}
-	if _, ok := h.summaryEvent()["changes"]; ok {
-		t.Error("the summary event of a first run has changes")
+	if !strings.Contains(h.stdout.String(), `"changes":null`) {
+		t.Errorf("changes is not null: %s", h.stdout.String())
 	}
 
 	h2 := newHarness(t, newSrc("crtsh", finds("k1", list(host("h1.a.com")))))
@@ -166,11 +167,12 @@ func TestChanges_NoChangesRemovesTheFile(t *testing.T) {
 	if code := h.exec("-e", "a.com", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	if n := len(ofType(h.events(), "change")); n != 0 {
-		t.Errorf("%d change events with no changes", n)
+	ch := h.envelope().Data.Changes
+	if ch == nil {
+		t.Fatal("a run after a first run has null changes")
 	}
-	if _, ok := h.summaryEvent()["changes"]; !ok {
-		t.Error("a run after a first run has no changes field in its summary")
+	if len(ch.Counts) != 0 || ch.Findings == nil || len(ch.Findings) != 0 {
+		t.Errorf("a run with no changes has changes %+v, want empty lists", ch)
 	}
 }
 
@@ -202,18 +204,20 @@ func TestChanges_CertificateCrossesItsExpiryWithNoContact(t *testing.T) {
 	if r := changeRow(t, h, "gone finding certificates|expiring|https://old.a.com"); r["severity"] != "low" || r["current"] != "false" {
 		t.Errorf("gone finding = %v", r)
 	}
-	ch, _ := h.summaryEvent()["changes"].(map[string]any)
-	counts, _ := ch["counts"].(map[string]any)
-	fc, _ := counts["finding"].(map[string]any)
-	if fc["new"] != float64(1) || fc["gone"] != float64(1) {
-		t.Errorf("summary finding counts = %v", fc)
+	ch := h.envelope().Data.Changes
+	if ch == nil {
+		t.Fatal("changes is null")
 	}
-	listed, _ := ch["findings"].([]any)
-	if len(listed) != 1 {
-		t.Fatalf("summary changes.findings = %v", ch["findings"])
+	for _, want := range []report.ChangeCount{{Kind: "finding", Change: "gone", N: 1}, {Kind: "finding", Change: "new", N: 1}} {
+		if !slices.Contains(ch.Counts, want) {
+			t.Errorf("changes.counts = %+v, want %+v among them", ch.Counts, want)
+		}
 	}
-	if f, _ := listed[0].(map[string]any); f["severity"] != "medium" || f["category"] != "certificates" || f["target"] != "https://old.a.com" {
-		t.Errorf("listed finding = %v", listed[0])
+	if len(ch.Findings) != 1 {
+		t.Fatalf("changes.findings = %+v", ch.Findings)
+	}
+	if f := ch.Findings[0]; f.Severity != "medium" || f.Category != "certificates" || f.Target != "https://old.a.com" {
+		t.Errorf("listed finding = %+v", f)
 	}
 
 	// The same comparison on the console: a third day, a fresh baseline.
@@ -349,9 +353,9 @@ func TestChanges_BaselineFromStoredRecords(t *testing.T) {
 	wantChanges(t, h, "new hostname h3.a.com", "gone hostname h2.a.com")
 }
 
-// The change events follow the summary event, one for each row of changes.csv,
-// after the found events of the run.
-func TestChanges_EventsFollowTheSummary(t *testing.T) {
+// The changes of a run are the rows of changes.csv: the envelope counts them by kind and change, and
+// there are no change events, only the found events of the run.
+func TestChanges_EnvelopeCountsTheRowsOfTheFile(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"), host("h2.a.com"))))
 	h := newHarness(t, crtsh)
@@ -362,35 +366,18 @@ func TestChanges_EventsFollowTheSummary(t *testing.T) {
 	if code := h.exec("-e", "a.com", "--redo", "crtsh", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
+	wantChanges(t, h, "new hostname h3.a.com", "gone hostname h2.a.com")
+	ch := h.envelope().Data.Changes
+	if ch == nil {
+		t.Fatal("changes is null")
+	}
+	want := []report.ChangeCount{{Kind: "hostname", Change: "gone", N: 1}, {Kind: "hostname", Change: "new", N: 1}}
+	if !slices.Equal(ch.Counts, want) {
+		t.Errorf("changes.counts = %+v, want %+v", ch.Counts, want)
+	}
 	evs := h.events()
-	sum := -1
-	var changes []event
-	for i, e := range evs {
-		switch e.str("type") {
-		case "summary":
-			sum = i
-		case "change":
-			changes = append(changes, e)
-			if sum < 0 || i < sum {
-				t.Errorf("change event %d comes before the summary (%d)", i, sum)
-			}
-		}
-	}
-	if len(changes) != 2 {
-		t.Fatalf("%d change events", len(changes))
-	}
-	if evs[len(evs)-1].str("type") != "run_end" {
-		t.Errorf("the last event is %v, want run_end", evs[len(evs)-1])
-	}
-	got := map[string]event{}
-	for _, c := range changes {
-		got[c.str("change")+" "+c.str("kind")+" "+c.str("key")] = c
-	}
-	if c, ok := got["new hostname h3.a.com"]; !ok || c.str("scope") != "in-scope" {
-		t.Errorf("events = %v", got)
-	}
-	if _, ok := got["gone hostname h2.a.com"]; !ok {
-		t.Errorf("events = %v", got)
+	if len(ofType(evs, "change")) != 0 {
+		t.Error("a change event: the rows are in changes.csv and in nyx recon export")
 	}
 	// The found events of the run are still emitted, as before.
 	found := false

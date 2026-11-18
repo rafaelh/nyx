@@ -30,6 +30,14 @@ func (x *web) mustRun(args ...string) {
 	}
 }
 
+// partialRun runs nyx as mustRun does, for a run in which n checks of one stage are meant to fail:
+// it exits 7 with the result written, and the transient error naming the stage and the count is
+// returned.
+func (x *web) partialRun(stage string, n int, args ...string) failure {
+	x.t.Helper()
+	return x.h.partialFailed(x.run(args...), stage, n)
+}
+
 func (x *web) completedKeys(stage string) []string { return x.h.completed(eng, stage) }
 
 // --- Which hostnames and ports are probed ---

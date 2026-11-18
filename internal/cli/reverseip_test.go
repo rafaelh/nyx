@@ -89,8 +89,8 @@ func (q stQuery) server() string {
 }
 
 // stReverse is api.securitytrails.com's domain search by address, name server or
-// mail host. The key is checked, and every request that is not a domain search is
-// a 404.
+// mail host. The key is checked. A root's subdomain list is empty, and every other request that is
+// not a domain search is a 404.
 type stReverse struct {
 	mu                 sync.Mutex
 	byAddr, byNS, byMX map[string][]string
@@ -100,6 +100,12 @@ type stReverse struct {
 }
 
 func (f *stReverse) serve(rw http.ResponseWriter, r *http.Request) {
+	// The subdomain source asks for a root's subdomains; it finds none, so that a failure of the
+	// stage a test is about is the only one in the run.
+	if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/domain/") && strings.HasSuffix(r.URL.Path, "/subdomains") {
+		_, _ = rw.Write([]byte(`{"subdomains":[]}`))
+		return
+	}
 	if r.URL.Path != "/v1/domains/list" || r.Method != "POST" {
 		http.NotFound(rw, r)
 		return
@@ -216,7 +222,10 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 		ht.set(a, "No records found")
 	}
 
-	x.mustPassive("--cidr", "198.51.100.0/30", "-x", "203.0.113.64/28")
+	// The owner source is down for one address, which fails the owner check and nothing else.
+	if f := x.h.partial(x.passive("--cidr", "198.51.100.0/30", "-x", "203.0.113.64/28"), true); f.msg != "1 checks failed: ipowner 1" {
+		t.Errorf("error = %+v, want the one failed ipowner check", f)
+	}
 
 	// The netblock's other addresses, though in scope, were never recorded.
 	want := []string{"198.51.100.1", "203.0.113.250", "203.0.113.7"}
@@ -343,7 +352,9 @@ func TestReverseIP_UnreadableReplyIsAFailedCheck(t *testing.T) {
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	ht.answerAll(func(rw http.ResponseWriter) { _, _ = rw.Write([]byte("<html>Service unavailable, try later</html>")) })
-	x.mustPassive()
+	if f := x.h.partial(x.passive(), true); f.msg != "1 checks failed: reverseip 1" || !f.transient {
+		t.Errorf("error = %+v, want one transient reverseip failure", f)
+	}
 	if done := x.completedKeys("reverseip"); len(done) != 0 {
 		t.Errorf("an unreadable reply completed %v", done)
 	}
@@ -432,7 +443,10 @@ func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 			x.owner("203.0.113.7", 64500, "ACME-NET")
 			ht.answerAll(spent)
 
-			x.mustPassive("--concurrency", "1")
+			// A spent quota clears with time: the error is transient.
+			if f := x.h.partial(x.passive("--concurrency", "1"), true); !f.transient || !strings.Contains(f.msg, "reverseip 2") {
+				t.Errorf("error = %+v, want a transient failure naming reverseip 2", f)
+			}
 			if st, _ := stateOf(x.world, "reverseip"); st != "failed" {
 				t.Errorf("state = %s, want failed", st)
 			}
@@ -517,7 +531,10 @@ func TestReverseIP_RejectedSecurityTrailsKeyStopsTheStage(t *testing.T) {
 	f := x.securityTrails(nil)
 	f.status = 401
 
-	x.mustPassive("--concurrency", "1")
+	// A refused key is not cured by waiting: the error is not transient.
+	if f := x.h.partial(x.passive("--concurrency", "1"), true); f.transient || !strings.Contains(f.msg, "reverseip 2") {
+		t.Errorf("error = %+v, want a failure of reverseip 2 that is not transient", f)
+	}
 
 	if st, _ := stateOf(x.world, "reverseip"); st != "failed" {
 		t.Errorf("reverseip = %s, want failed", st)

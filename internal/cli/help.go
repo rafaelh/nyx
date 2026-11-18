@@ -46,7 +46,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	}
 	pf := root.PersistentFlags()
 	pf.SortFlags = false
-	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Machine output: JSON on stdout, with no styling, and any error as one JSON line on stderr")
+	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Print one JSON object with the run's outcome on stdout when the run ends (recon), and any error as one JSON line on stderr")
 	pf.BoolVarP(&inv.sh.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; the summary is still printed")
 	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write each failed check, and the stack of an unexpected failure, to stderr")
 	f := root.Flags()

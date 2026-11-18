@@ -70,8 +70,10 @@ func get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest, sp
 		return nil, err
 	}
 	switch {
-	case req.KeySource != "" && (resp.Status == 401 || resp.Status == 403 || resp.Status == 429):
-		return nil, fmt.Errorf("HTTP %d (key rejected or quota exhausted): %w", resp.Status, run.ErrAbortStage)
+	case req.KeySource != "" && (resp.Status == 401 || resp.Status == 403):
+		return nil, fmt.Errorf("HTTP %d (key rejected or not entitled to this endpoint): %w", resp.Status, run.ErrKeyRejected)
+	case req.KeySource != "" && resp.Status == 429:
+		return nil, fmt.Errorf("HTTP %d (rate limited or quota exhausted): %w", resp.Status, run.ErrAbortStage)
 	case spent != 0 && resp.Status == spent:
 		return nil, fmt.Errorf("HTTP %d: %w", resp.Status, run.ErrQuota)
 	case resp.Status == 404:

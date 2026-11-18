@@ -620,7 +620,10 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
 	f.failAll(403)
-	x.mustRun("--concurrency", "1")
+	// A key that is refused (or not entitled to the search) is not cured by waiting.
+	if e := x.h.partial(x.run("--concurrency", "1"), true); e.transient || !strings.Contains(e.msg, "identifier-pivot") {
+		t.Errorf("error = %+v, want a failure of identifier-pivot that is not transient", e)
+	}
 	if got := x.queries(); len(got) != 1 {
 		t.Errorf("searches after a 403 = %v, want the stage aborted after the first", got)
 	}
@@ -647,7 +650,10 @@ func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
 	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
 	f.fail(qPixel, 402)
-	x.mustRun("--concurrency", "1")
+	// Spent credits come back with time: the error is transient.
+	if e := x.h.partial(x.run("--concurrency", "1"), true); !e.transient || !strings.Contains(e.msg, "identifier-pivot") {
+		t.Errorf("error = %+v, want a transient failure of identifier-pivot", e)
+	}
 	if got := x.queries(); !slices.Equal(got, []string{qFavicon, qPixel}) {
 		t.Fatalf("searches = %v, want the stage stopped at the refused one", got)
 	}

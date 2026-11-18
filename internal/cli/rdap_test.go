@@ -169,6 +169,7 @@ func newRDAP(t *testing.T, hosts ...string) *rdapWorld {
 		w.handle(h, f.serve)
 	}
 	x.bootstrap("203.0.0.0/8", hostARIN, "104.0.0.0/8", hostARIN, "198.0.0.0/8", hostRIPE, "100.0.0.0/8", hostAPNIC)
+	serveAWSElsewhere(w)
 	x.hosts(hosts...)
 	// RIPEstat is the asn stage's source; an input ASN has no prefixes here.
 	w.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"prefixes":[]}}`))
@@ -684,8 +685,8 @@ func TestRDAP_RanksAndPromotionHints(t *testing.T) {
 	}
 	wantRow(t, org, "rdap;virustotal;wayback", "5", "high") // three ranges, and one from each fake
 	var promote []string
-	for _, e := range ofType(x.h.events(), "candidate") {
-		promote = append(promote, e.str("promote"))
+	for _, c := range x.h.envelope().Data.Candidates {
+		promote = append(promote, c.Promote)
 	}
 	slices.Sort(promote)
 	if want := []string{"--asn AS64501", "--org 'Globex Holdings Ltd'"}; !slices.Equal(promote, want) {
@@ -723,7 +724,10 @@ func TestRDAP_QuotaStopsTheStageAndTheChecksRunNextTime(t *testing.T) {
 	x.net(hostARIN, r1)
 	x.net(hostARIN, r3)
 	x.fake(hostARIN).status = http.StatusTooManyRequests
-	x.mustScan()
+	// A spent allowance fails the checks and clears with time: the error is transient.
+	if f := x.h.partial(x.scan(), true); !f.transient || !strings.Contains(f.msg, "rdap") {
+		t.Errorf("error = %+v, want a transient failure naming rdap", f)
+	}
 	if got := len(x.h.completed(eng, "rdap")); got != 0 {
 		t.Errorf("completed checks = %v, want none", x.h.completed(eng, "rdap"))
 	}
@@ -759,7 +763,10 @@ func TestRDAP_LookupsOnceAndRefreshedByRedo(t *testing.T) {
 	if got := x.lookups(); got != first {
 		t.Errorf("a second run made %d lookups in all, want %d", got, first)
 	}
-	x.mustScan("-e", eng, "--redo", "rdap")
+	// Another root gives the run other work to do before the stage's turn: a redo of this stage
+	// alone, with everything else done, finds the addresses' registrations still current and
+	// asks nothing.
+	x.mustScan("-e", eng, "--redo", "rdap", "other.test")
 	if got := len(x.lookupsAt(hostARIN)); got != first+1 {
 		t.Errorf("--redo rdap: %d lookups in all, want %d (the range fetched again once)", got, first+1)
 	}
@@ -811,7 +818,10 @@ func TestRDAP_BootstrapOncePerRun(t *testing.T) {
 	if n := x.bootstrapFetches(); n != 1 {
 		t.Errorf("ipv4.json fetched %d times in a run, want 1", n)
 	}
-	x.mustScan("-e", eng, "--redo", "rdap")
+	// Another root gives the run other work to do before the stage's turn: a redo of this stage
+	// alone, with everything else done, finds the addresses' registrations still current and
+	// asks nothing.
+	x.mustScan("-e", eng, "--redo", "rdap", "other.test")
 	if n := x.bootstrapFetches(); n != 2 {
 		t.Errorf("ipv4.json fetched %d times in two runs, want 2", n)
 	}

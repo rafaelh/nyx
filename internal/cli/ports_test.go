@@ -169,12 +169,23 @@ func (p *pworld) sequence() []string {
 // sweep runs nyx with the given port list and requires success.
 func (p *pworld) sweep(ports []int, args ...string) {
 	p.t.Helper()
+	p.mustRun(p.sweepArgs(ports, args)...)
+}
+
+// sweepPartial is sweep for a run in which n checks of one stage are meant to fail (see partialRun).
+func (p *pworld) sweepPartial(stage string, n int, ports []int, args ...string) failure {
+	p.t.Helper()
+	return p.partialRun(stage, n, p.sweepArgs(ports, args)...)
+}
+
+// sweepArgs marks the ports open-able and puts them in a --ports list before args.
+func (p *pworld) sweepArgs(ports []int, args []string) []string {
 	var list []string
 	for _, port := range ports {
 		p.ports[port] = true
 		list = append(list, strconv.Itoa(port))
 	}
-	p.mustRun(append([]string{"--ports", strings.Join(list, ",")}, args...)...)
+	return append([]string{"--ports", strings.Join(list, ",")}, args...)
 }
 
 // keys are the check keys (and open_port keys) for each address on each port.
@@ -358,7 +369,8 @@ func TestPorts_UnknownOwnerSkippedThenChecked(t *testing.T) {
 	p.dns.Rcode(origin, int(mdns.RcodeServerFailure)) // the owner source is down
 	srv := p.serve("192.0.2.77", 8080, hello)
 
-	p.sweep([]int{8080})
+	// The failed owner lookup is the run's one failed check; the held-back address is not.
+	p.sweepPartial("ipowner", 1, []int{8080})
 	if srv.conns.Load() != 0 {
 		t.Fatal("an address of unknown owner was contacted")
 	}
@@ -606,7 +618,7 @@ func TestPorts_RefusedIsAFailedCheckRetried(t *testing.T) {
 			p.h.stages[i] = refusingPorts{s, &refuse}
 		}
 	}
-	p.sweep([]int{7001})
+	p.sweepPartial("ports", 1, []int{7001})
 	if s := lastState(p.h.events(), "ports"); s == nil || s.str("state") != "failed" || s.num("checks") != 1 || s.num("failed") != 1 {
 		t.Errorf("refused run: %v, want a failed check", s)
 	}

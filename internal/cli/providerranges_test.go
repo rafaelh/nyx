@@ -64,6 +64,13 @@ func serveOldRanges(w *world) {
 	w.handle("www.gstatic.com", jsonBody(gcpList))
 }
 
+// serveAWSElsewhere answers the AWS list with one range no other test uses, for a test whose
+// servers sit in 203.0.113.0/24, which the default list names: an address there would be AWS's
+// shared infrastructure, and the test is about something else.
+func serveAWSElsewhere(w *world) {
+	w.handle("ip-ranges.amazonaws.com", jsonBody(`{"prefixes":[{"ip_prefix":"100.66.0.0/24","region":"eu-west-1","service":"EC2"}],"ipv6_prefixes":[]}`))
+}
+
 func serveAllRanges(w *world) { serveOldRanges(w); serveNewRanges(w) }
 
 func requestCount(w *world, hosts ...string) int {
@@ -129,8 +136,13 @@ func TestProviderRanges_EachListIsItsOwnCheckFetchedOnce(t *testing.T) {
 func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	serveOldRanges(w) // the new publishers answer 404 until they are served
-	w.run("--passive", "example.com")
+	serveOldRanges(w)
+	for _, h := range newRangeHosts { // the new publishers answer 404 until they are served
+		w.handle(h, status(404))
+	}
+	if code := w.run("--passive", "example.com"); code != 7 {
+		t.Fatalf("before the upgrade: exit %d, want 7 (six lists failed)", code)
+	}
 	if got := sorted(w.h.completed(eng, "providerranges")); !slices.Equal(got, []string{"aws", "gcp"}) {
 		t.Fatalf("before the upgrade: completed = %v", got)
 	}
@@ -179,8 +191,9 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 			}
 
 			w.handle("www.digitalocean.com", c.serve)
-			if code := w.run("--passive", "--debug", "--redo", "providerranges", "example.com"); code != 0 {
-				t.Fatalf("exit %d", code)
+			f := w.h.partial(w.run("--passive", "--json", "--debug", "--redo", "providerranges", "example.com"), true)
+			if f.msg != "1 checks failed: providerranges 1" || !f.transient {
+				t.Errorf("error = %+v, want one failed providerranges check, transient", f)
 			}
 			done := sorted(w.h.completed(eng, "providerranges"))
 			if want := allRangeChecksBut("digitalocean"); !slices.Equal(done, want) {
@@ -203,8 +216,8 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 					t.Errorf("%s was written after a list failed", f)
 				}
 			}
-			for _, e := range ofType(w.h.events(), "finding") {
-				t.Errorf("a missing list produced a finding: %v", e)
+			for _, f := range w.h.envelope().Data.Findings {
+				t.Errorf("a missing list produced a finding: %+v", f)
 			}
 		})
 	}
@@ -253,13 +266,14 @@ func TestProviderRanges_DedicatedRangesArePortCheckedAndCDNsAreNot(t *testing.T)
 func TestProviderRanges_DigitalOceanWithoutItsListStaysShared(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
-	serveOldRanges(p.world)
+	p.handle("www.digitalocean.com", status(404))
 	p.names("do.example.com")
 	p.host("do.example.com", "100.67.0.9")
 	p.owner("100.67.0.9", 14061, "DIGITALOCEAN-ASN")
 	do := p.canary("100.67.0.9", []int{8080})
 
-	p.sweep([]int{8080})
+	p.ports[8080] = true
+	p.h.partial(p.run("--ports", "8080"), true)
 
 	if do.conns.Load() != 0 {
 		t.Error("a DigitalOcean address was handshaken without the list that makes it dedicated")
@@ -269,7 +283,7 @@ func TestProviderRanges_DigitalOceanWithoutItsListStaysShared(t *testing.T) {
 		t.Errorf("ips.csv: %v, want digitalocean by ASN and not port-eligible", r)
 	}
 	if st, _ := p.stageState("providerranges"); st != "done" {
-		t.Errorf("providerranges = %s: its failed lists must not fail the run", st)
+		t.Errorf("providerranges = %s: a failed list must not stop the stage", st)
 	}
 }
 
@@ -290,8 +304,8 @@ func TestProviderRanges_IPsCSVNamesProviderAndRegionWithoutAnOwner(t *testing.T)
 	}
 	w.crtsh(map[string][]string{"example.com": names}, nil)
 	w.dns.RcodeSuffix("asn.cymru.com", int(mdns.RcodeServerFailure))
-	if code := w.run("--passive", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+	if f := w.h.partial(w.run("--passive", "example.com"), true); !strings.Contains(f.msg, "ipowner") {
+		t.Errorf("error = %+v, want it to name ipowner", f)
 	}
 	if st, _ := stateOf(w, "ipowner"); st != "failed" {
 		t.Fatalf("ipowner = %s, want failed", st)

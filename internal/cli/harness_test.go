@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/output"
+	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
 )
 
@@ -41,6 +44,7 @@ type harness struct {
 	env       map[string]string // the environment cli.Execute sees; see setenv
 
 	stdout, stderr bytes.Buffer
+	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
 
 	// Network canaries: anything reaching them means a request was made.
 	udpHits, httpHits, tcpHits atomic.Int32
@@ -108,6 +112,7 @@ func (h *harness) deps() cli.Deps {
 		Signals:     h.signals,
 		Env:         h.environ(),
 		NoFsync:     true,
+		Events:      &h.rec,
 	}
 }
 
@@ -144,6 +149,7 @@ func (h *harness) execRootCtx(ctx context.Context, args ...string) int {
 	h.t.Helper()
 	h.stdout.Reset()
 	h.stderr.Reset()
+	h.rec.reset()
 	return cli.Execute(ctx, args, h.deps())
 }
 
@@ -290,10 +296,104 @@ type event map[string]any
 func (e event) str(k string) string { s, _ := e[k].(string); return s }
 func (e event) num(k string) int    { f, _ := e[k].(float64); return int(f) }
 
-// events parses stdout as JSON lines, failing on anything else.
+// recorder is the tap cli.Deps.Events gives a test. It writes each event as the JSON line the
+// event once was on stdout, so a reader sees what a JSON consumer would: a number is a float64.
+// A recorder that kept the maps would let every comparison of a count against zero pass.
+type recorder struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (r *recorder) Emit(ev report.Event) {
+	m := map[string]any{"type": ev.Type}
+	maps.Copy(m, ev.Fields)
+	b, err := json.Marshal(m)
+	if err != nil {
+		b, _ = json.Marshal(map[string]any{"type": "warning", "message": "cannot encode " + ev.Type + " event"})
+	}
+	r.mu.Lock()
+	r.lines = append(r.lines, string(b))
+	r.mu.Unlock()
+}
+
+func (r *recorder) reset() {
+	r.mu.Lock()
+	r.lines = nil
+	r.mu.Unlock()
+}
+
+// events are the events of the last call, parsed from the tap's JSON lines, then the summary event
+// that the envelope on stdout makes (see summaryOf), when stdout holds one.
 func (h *harness) events() []event {
 	h.t.Helper()
-	return jsonLines(h.t, h.stdout.String())
+	h.rec.mu.Lock()
+	evs := jsonLines(h.t, strings.Join(h.rec.lines, "\n"))
+	h.rec.mu.Unlock()
+	if env, ok := tryEnvelope(h.stdout.String()); ok {
+		evs = append(evs, summaryOf(env))
+	}
+	return evs
+}
+
+// tryEnvelope parses s as the one-line envelope of a recon --json run.
+func tryEnvelope(s string) (report.Envelope, bool) {
+	var env report.Envelope
+	if !strings.HasPrefix(s, `{"data":`) || strings.Count(s, "\n") != 1 || json.Unmarshal([]byte(s), &env) != nil {
+		return env, false
+	}
+	return env, true
+}
+
+// summaryOf is the summary of an envelope as a map, in the shape the summary event had: counts,
+// failed and deferred as objects keyed by name, a candidate's sources joined with ";", a finding's
+// missing detail as "", and the changes as counts keyed by kind then change.
+func summaryOf(env report.Envelope) event {
+	d := env.Data
+	totals, failed, deferred := map[string]any{}, map[string]any{}, map[string]any{}
+	for _, c := range d.Counts {
+		totals[c.Category] = float64(c.N)
+	}
+	for _, c := range d.FailedChecks {
+		failed[c.Stage] = float64(c.N)
+	}
+	for _, c := range d.Deferred {
+		deferred[c.Stage] = float64(c.N)
+	}
+	rows := func(fs []report.FindingRow) []any {
+		out := []any{}
+		for _, f := range fs {
+			detail := ""
+			if f.Detail != nil {
+				detail = *f.Detail
+			}
+			out = append(out, map[string]any{"category": f.Category, "severity": f.Severity, "target": f.Target, "detail": detail})
+		}
+		return out
+	}
+	cands := []any{}
+	for _, c := range d.Candidates {
+		cands = append(cands, map[string]any{"kind": c.Kind, "value": c.Value, "sources": strings.Join(c.Sources, ";"),
+			"evidence_count": float64(c.EvidenceCount), "confidence": c.Confidence, "promote": c.Promote})
+	}
+	notes := []any{}
+	for _, n := range d.Notes {
+		notes = append(notes, n)
+	}
+	sum := event{"type": "summary", "totals": totals, "failed": failed, "deferred": deferred, "findings": rows(d.Findings),
+		"candidates": cands, "unconfirmed_risky_ports": float64(d.UnconfirmedRiskyPorts), "notes": notes}
+	if ch := d.Changes; ch != nil {
+		counts := map[string]any{}
+		for _, c := range ch.Counts {
+			byChange, _ := counts[c.Kind].(map[string]any)
+			if byChange == nil {
+				byChange = map[string]any{}
+				counts[c.Kind] = byChange
+			}
+			byChange[c.Change] = float64(c.N)
+		}
+		sum["changes"] = map[string]any{"counts": counts, "findings": rows(ch.Findings)}
+	}
+	return sum
 }
 
 // jsonLines parses s as JSON lines, failing on anything else.

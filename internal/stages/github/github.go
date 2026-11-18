@@ -170,7 +170,7 @@ func search(ctx context.Context, e egress.Clients, root string, page int) (searc
 		}
 		switch {
 		case resp.Status == 401:
-			return searchResult{}, fmt.Errorf("HTTP 401 (key rejected): %w", run.ErrAbortStage)
+			return searchResult{}, fmt.Errorf("HTTP 401 (key rejected): %w", run.ErrKeyRejected)
 		case resp.Status == 403 || resp.Status == 429:
 			wait, ok := resetWait(resp, time.Now())
 			if !ok || wait > maxWait || waits == maxWaits {

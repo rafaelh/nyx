@@ -119,6 +119,10 @@ func TestSources_KeyedSources(t *testing.T) {
 			http.Error(rw, "bad key", http.StatusForbidden)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/v1/domains/list") { // reverseip's search by address
+			_, _ = rw.Write([]byte(`{"records":[],"record_count":0}`))
+			return
+		}
 		_, _ = rw.Write([]byte(`{"subdomains":["st","mail"]}`))
 	})
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
@@ -126,8 +130,15 @@ func TestSources_KeyedSources(t *testing.T) {
 			http.Error(rw, "bad key", http.StatusUnauthorized)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/dns/domain/") { // shodan-dns
+			_, _ = rw.Write([]byte(`{"domain":"example.com","subdomains":[],"data":[],"more":false}`))
+			return
+		}
 		_, _ = rw.Write([]byte(`{"matches":[],"total":0}`))
 	})
+	// The sources this test does not exercise answer with nothing, so no check fails.
+	w.handle("api.hackertarget.com", func(rw http.ResponseWriter, _ *http.Request) { _, _ = rw.Write([]byte("No records found")) })
+	w.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"categories":[],"prefixes":[]}}`))
 	w.handle("reverse-whois.whoisxmlapi.com", func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = rw.Write([]byte(`{"domainsCount":0,"domainsList":[]}`))
 	})
@@ -135,7 +146,7 @@ func TestSources_KeyedSources(t *testing.T) {
 		w.dns.A(n+".example.com", "203.0.113.5")
 	}
 	if code := w.run("--passive", "example.com", "--cidr", "198.51.100.0/30", "--org", "Acme Corp"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	got := w.lines(eng, "subdomains.txt")
 	for _, want := range []string{"vt.example.com", "st.example.com", "mail.example.com"} {
@@ -167,8 +178,9 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 			w := newWorld(t)
 			w.h.setenv("NYX_KEYS_VIRUSTOTAL", "vt-key")
 			w.handle("www.virustotal.com", status(code))
-			if c := w.run("--concurrency", "1", "--passive", "example.com", "example.org"); c != 0 {
-				t.Fatalf("exit %d", c)
+			f := w.h.partial(w.run("--concurrency", "1", "--passive", "example.com", "example.org"), true)
+			if want := code == 429; f.transient != want || !strings.Contains(f.msg, "virustotal") {
+				t.Errorf("transient = %v, want %v: %+v", f.transient, want, f)
 			}
 			if st, _ := stateOf(w, "virustotal"); st != "failed" {
 				t.Errorf("state = %s, want failed", st)
@@ -724,7 +736,18 @@ func TestOwnerLookupFailureFailsClosed(t *testing.T) {
 	w.crtsh(map[string][]string{"example.com": {"cdn.example.com"}}, nil)
 	w.dns.A("cdn.example.com", "104.16.0.5")
 	w.dns.RcodeSuffix("asn.cymru.com", int(mdns.RcodeServerFailure))
-	w.run("--passive", "example.com")
+	// The default Cloudflare list names this address, so a range would say who owns it. Here only the
+	// owner source could, and it fails.
+	w.handle("www.cloudflare.com", func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ips-v4" {
+			_, _ = rw.Write([]byte("100.70.0.0/24\n"))
+			return
+		}
+		_, _ = rw.Write([]byte(cloudflareV6))
+	})
+	if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || !strings.Contains(f.msg, "ipowner") {
+		t.Errorf("a failed owner lookup is transient: %+v", f)
+	}
 	if st, _ := stateOf(w, "ipowner"); st != "failed" {
 		t.Errorf("ipowner = %s, want failed", st)
 	}
@@ -811,6 +834,10 @@ func TestReverseDNSAndShodan(t *testing.T) {
 	w.crtsh(map[string][]string{"example.com": {"elsewhere.example.com"}}, nil)
 	w.owner("203.0.113.99", 64500, "ACME-NET")
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/dns/domain/") { // shodan-dns, which this test is not about
+			_, _ = rw.Write([]byte(`{"domain":"example.com","subdomains":[],"data":[],"more":false}`))
+			return
+		}
 		if r.URL.Query().Get("page") != "" && r.URL.Query().Get("page") != "1" {
 			_, _ = rw.Write([]byte(`{"matches":[],"total":1}`))
 			return
@@ -818,7 +845,7 @@ func TestReverseDNSAndShodan(t *testing.T) {
 		_, _ = rw.Write([]byte(`{"matches":[{"ip_str":"198.51.100.3","hostnames":["shodan.other.org"]}],"total":1}`))
 	})
 	if code := w.run("--passive", "--cidr", "198.51.100.0/30", "example.com"); code != 0 {
-		t.Fatalf("exit %d", code)
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	ptrs := w.dns.Queried("PTR")
 	if len(ptrs) != 4 {

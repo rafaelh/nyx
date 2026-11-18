@@ -221,3 +221,164 @@ func TestOpenReadOnlyCreatesNothing(t *testing.T) {
 		t.Errorf(".nyx had %d entries, now %d", len(before), len(after))
 	}
 }
+
+func mkdir(t *testing.T, parts ...string) string {
+	t.Helper()
+	p := filepath.Join(parts...)
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func writeFile(t *testing.T, parts ...string) string {
+	t.Helper()
+	p := filepath.Join(parts...)
+	if err := os.WriteFile(p, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestProbe(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+
+	empty := mkdir(t, base, "empty")
+	stray := mkdir(t, base, "stray")
+	writeFile(t, stray, "subdomains.txt")
+	regular := writeFile(t, base, "plain.txt")
+	hollow := mkdir(t, base, "hollow", ".nyx")
+	hollow = filepath.Dir(hollow)
+	writeFile(t, hollow, ".nyx", "lock")
+	done := filepath.Join(base, "done")
+	e, err := open(t, done)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Close()
+
+	for _, tc := range []struct {
+		name string
+		dir  string
+		want engagement.State
+	}{
+		{"missing directory", filepath.Join(base, "missing"), engagement.Absent},
+		{"empty directory", empty, engagement.Absent},
+		{"stray file and no .nyx", stray, engagement.Foreign},
+		{"regular file", regular, engagement.Foreign},
+		{".nyx without a state database", hollow, engagement.Absent},
+		{"closed engagement", done, engagement.Exists},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := engagement.Probe(tc.dir)
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("Probe = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A path under a regular file cannot be read as a directory entry: that is a
+// failure to read, not a missing engagement.
+func TestProbeReadFailure(t *testing.T) {
+	t.Parallel()
+	file := writeFile(t, t.TempDir(), "plain.txt")
+	if got, err := engagement.Probe(filepath.Join(file, "eng")); err == nil {
+		t.Errorf("Probe through a regular file = %v, nil; want an error", got)
+	}
+}
+
+// An engagement a run holds is still an engagement.
+func TestProbeWhileLocked(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "eng")
+	e, err := open(t, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if got, err := engagement.Probe(dir); err != nil || got != engagement.Exists {
+		t.Errorf("Probe = %v, %v; want exists", got, err)
+	}
+}
+
+func TestProbeCreatesNothing(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	missing := filepath.Join(base, "missing")
+	empty := mkdir(t, base, "empty")
+	hollow := mkdir(t, base, "hollow")
+	mkdir(t, hollow, ".nyx")
+	for _, d := range []string{missing, empty, hollow} {
+		if _, err := engagement.Probe(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("a missing directory was created")
+	}
+	if es, _ := os.ReadDir(empty); len(es) != 0 {
+		t.Errorf("an empty directory gained %d entries", len(es))
+	}
+	if es, _ := os.ReadDir(filepath.Join(hollow, ".nyx")); len(es) != 0 {
+		t.Errorf(".nyx gained %d entries", len(es))
+	}
+}
+
+func TestStateString(t *testing.T) {
+	t.Parallel()
+	for s, want := range map[engagement.State]string{
+		engagement.Exists: "exists", engagement.Foreign: "foreign", engagement.Absent: "absent",
+	} {
+		if got := s.String(); got != want {
+			t.Errorf("State(%d).String() = %q, want %q", int(s), got, want)
+		}
+	}
+}
+
+func TestList(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	for _, name := range []string{"zeta", "acme", "mid"} {
+		e, err := open(t, filepath.Join(out, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.Close()
+	}
+	mkdir(t, out, "empty")
+	foreign := mkdir(t, out, "foreign")
+	writeFile(t, foreign, "subdomains.txt")
+	mkdir(t, out, "hollow", ".nyx")
+	writeFile(t, out, "plain.txt")
+
+	got := engagement.List(out)
+	want := []string{"acme", "mid", "zeta"}
+	if len(got) != len(want) {
+		t.Fatalf("List = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("List = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestListUnreadable(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	if got := engagement.List(filepath.Join(base, "missing")); got != nil {
+		t.Errorf("List of a missing directory = %v, want none", got)
+	}
+	if got := engagement.List(writeFile(t, base, "plain.txt")); got != nil {
+		t.Errorf("List of a regular file = %v, want none", got)
+	}
+	if got := engagement.List(mkdir(t, base, "empty")); len(got) != 0 {
+		t.Errorf("List of an empty directory = %v, want none", got)
+	}
+}
