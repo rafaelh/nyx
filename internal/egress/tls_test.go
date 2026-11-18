@@ -46,7 +46,7 @@ func getTLS(t *testing.T, host string, port int) egress.HTTPResult {
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: rs}),
 		Ack:   true, Ports: []int{port}, Resolutions: rs,
 	})
-	r, err := eg.Clients("t", true, nil).HTTP.Get(context.Background(), egress.Root(host, "https", port))
+	r, err := eg.Clients(true, nil).HTTP.Get(context.Background(), egress.Root(host, "https", port))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +55,7 @@ func getTLS(t *testing.T, host string, port int) egress.HTTPResult {
 
 // A service whose best version is 1.0 or 1.1 answers, and the version it negotiated is reported.
 func TestTargetHTTPAcceptsTLS10And11(t *testing.T) {
+	t.Parallel()
 	for want, v := range map[string]uint16{"TLS 1.0": tls.VersionTLS10, "TLS 1.1": tls.VersionTLS11} {
 		port := tlsServer(t, &tls.Config{MinVersion: v, MaxVersion: v,
 			CipherSuites: []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA}})
@@ -70,6 +71,7 @@ func TestTargetHTTPAcceptsTLS10And11(t *testing.T) {
 
 // A server that offers TLS 1.3 negotiates it: the wider offer does not downgrade.
 func TestTargetHTTPReportsModernVersionAndCipher(t *testing.T) {
+	t.Parallel()
 	port := tlsServer(t, &tls.Config{})
 	resp, ok := getTLS(t, "example.com", port).(egress.Response)
 	if !ok || resp.TLSVersion != "TLS 1.3" || !strings.HasPrefix(resp.TLSCipher, "TLS_") {
@@ -84,6 +86,7 @@ func TestTargetHTTPReportsModernVersionAndCipher(t *testing.T) {
 
 // A server with only an RSA key-exchange CBC suite is reachable.
 func TestTargetHTTPAcceptsRSAKeyExchangeCBC(t *testing.T) {
+	t.Parallel()
 	port := tlsServer(t, &tls.Config{MaxVersion: tls.VersionTLS12, CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_128_CBC_SHA}})
 	resp, ok := getTLS(t, "example.com", port).(egress.Response)
 	if !ok || resp.TLSCipher != "TLS_RSA_WITH_AES_128_CBC_SHA" || resp.TLSVersion != "TLS 1.2" {
@@ -93,6 +96,7 @@ func TestTargetHTTPAcceptsRSAKeyExchangeCBC(t *testing.T) {
 
 // RC4 and 3DES are not offered, so a server that has only those fails the handshake.
 func TestTargetHTTPDoesNotOfferRC4Or3DES(t *testing.T) {
+	t.Parallel()
 	for name, suite := range map[string]uint16{
 		"rc4":  tls.TLS_ECDHE_RSA_WITH_RC4_128_SHA,
 		"3des": tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
@@ -107,10 +111,11 @@ func TestTargetHTTPDoesNotOfferRC4Or3DES(t *testing.T) {
 // Third-party requests keep the default minimum version: a TLS 1.1 server is refused on the version,
 // not on its certificate.
 func TestThirdPartyStillRefusesTLS11(t *testing.T) {
+	t.Parallel()
 	port := tlsServer(t, &tls.Config{MinVersion: tls.VersionTLS11, MaxVersion: tls.VersionTLS11,
 		CipherSuites: []uint16{tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA}})
 	base := "https://127.0.0.1:" + strconv.Itoa(port)
-	_, err := thirdPartyEgress(t, map[string]string{"src.example.net": base}).Clients("s", false, []string{"src.example.net"}).ThirdParty.Do(context.Background(),
+	_, err := thirdPartyEgress(t, map[string]string{"src.example.net": base}, egress.Options{}).Clients(false, []string{"src.example.net"}).ThirdParty.Do(context.Background(),
 		egress.ThirdPartyRequest{Method: "GET", URL: "https://src.example.net/"})
 	if err == nil || !strings.Contains(err.Error(), "protocol version") {
 		t.Errorf("a TLS 1.1 source must be refused on its version: %v", err)
@@ -162,6 +167,7 @@ func leafTemplate(cn string, s certSpec, serial int64) *x509.Certificate {
 
 // Each trust value comes from a crafted chain checked at the fixed clock, and the first that applies wins.
 func TestCertTrustValues(t *testing.T) {
+	t.Parallel()
 	caKey := trustKey(t)
 	caTpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Test CA"}, NotBefore: tlsNow.AddDate(-5, 0, 0), NotAfter: tlsNow.AddDate(5, 0, 0),
@@ -213,6 +219,7 @@ func TestCertTrustValues(t *testing.T) {
 
 // Through a real handshake: a response reports its trust, and plain HTTP reports none.
 func TestResponseCertTrustAndSelfSigned(t *testing.T) {
+	t.Parallel()
 	port := tlsServer(t, &tls.Config{}) // httptest's certificate: self-signed, names example.com, *.example.com and 127.0.0.1
 	byName := getTLS(t, "example.com", port).(egress.Response)
 	if byName.CertTrust() != "self-signed" || !byName.SelfSigned() {
@@ -223,7 +230,7 @@ func TestResponseCertTrustAndSelfSigned(t *testing.T) {
 		t.Errorf("a.b.example.com: %q selfSigned=%v", other.CertTrust(), other.SelfSigned())
 	}
 
-	f := newHTTPFixture(t, func(http.ResponseWriter, *http.Request) {})
+	f := newHTTPFixture(t, egress.Options{}, func(http.ResponseWriter, *http.Request) {})
 	r, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port))
 	resp, ok := r.(egress.Response)
 	if err != nil || !ok || resp.CertTrust() != "" || resp.TLSVersion != "" || resp.TLSCipher != "" || resp.SelfSigned() {

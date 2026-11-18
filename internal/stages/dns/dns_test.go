@@ -20,7 +20,7 @@ func clients(t *testing.T, d *egresstest.DNS) egress.Clients {
 	t.Helper()
 	eg := egress.New(egress.Options{ResolverAddrs: []string{d.Addr}, DNSTimeout: 300 * time.Millisecond, RateDNS: 100000})
 	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
-	return eg.Clients("t", false, nil)
+	return eg.Clients(false, nil)
 }
 
 // The probe labels come from an injectable source; there are always two, and they differ.

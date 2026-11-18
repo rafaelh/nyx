@@ -18,14 +18,14 @@ func scriptURL(host string, port int, path string) string {
 
 // Script requests only a URL the policy lists, and the request goes out as a plain GET.
 func TestScript_AllowedOnlyForAListedURL(t *testing.T) {
+	t.Parallel()
 	var methods, uris []string
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {
 		methods, uris = append(methods, r.Method), append(uris, r.URL.RequestURI())
 		_, _ = w.Write([]byte("var a=1"))
 	})
 	listed := scriptURL("www.example.com", f.port, "/static/app.js?v=3")
 	f.pol.Scripts = map[string]bool{listed: true}
-	f.eg.SetPolicy(f.pol)
 
 	res, err := f.client().Get(context.Background(), egress.Script(listed))
 	if r, ok := res.(egress.Response); err != nil || !ok || r.Status != 200 || string(r.Body) != "var a=1" {
@@ -53,7 +53,6 @@ func TestScript_AllowedOnlyForAListedURL(t *testing.T) {
 	}
 	// Without a Scripts set no script may be requested at all.
 	f.pol.Scripts = nil
-	f.eg.SetPolicy(f.pol)
 	if res, _ := f.client().Get(context.Background(), egress.Script(listed)); !isRefused(res) {
 		t.Errorf("no script set: %#v", res)
 	}
@@ -61,7 +60,8 @@ func TestScript_AllowedOnlyForAListedURL(t *testing.T) {
 
 // Host scope, exclusion and passive mode apply to a listed script as to any target request.
 func TestScript_StillSubjectToHostPolicy(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("x")) })
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("x")) })
 	res := map[string][]netip.Addr{
 		"www.example.com":  {addr("127.0.0.1")},
 		"cand.example.org": {addr("127.0.0.1")},
@@ -114,14 +114,14 @@ func TestScript_StillSubjectToHostPolicy(t *testing.T) {
 // A script body is read up to 4 MiB, and Truncated says when the cap cut it. The
 // ordinary 1 MiB cap is unchanged.
 func TestScript_BodyCapAndTruncated(t *testing.T) {
+	t.Parallel()
 	const mib = 1 << 20
 	size := 0
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(strings.Repeat("a", size)))
 	})
 	u := scriptURL("www.example.com", f.port, "/bundle.js")
 	f.pol.Scripts = map[string]bool{u: true}
-	f.eg.SetPolicy(f.pol)
 	get := func(req egress.Request) egress.Response {
 		t.Helper()
 		res, err := f.client().Get(context.Background(), req)
@@ -165,7 +165,8 @@ func TestScript_BodyCapAndTruncated(t *testing.T) {
 // A redirect from a script is requested with egress.Redirect, keeps the script cap,
 // and is still checked against the host policy.
 func TestScript_RedirectKeepsTheCap(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/old.js" {
 			http.Redirect(w, r, "/new.js", http.StatusMovedPermanently)
 			return
@@ -174,7 +175,6 @@ func TestScript_RedirectKeepsTheCap(t *testing.T) {
 	})
 	u := scriptURL("www.example.com", f.port, "/old.js")
 	f.pol.Scripts = map[string]bool{u: true}
-	f.eg.SetPolicy(f.pol)
 	res, _ := f.client().Get(context.Background(), egress.Script(u))
 	r, ok := res.(egress.Response)
 	if !ok {

@@ -22,7 +22,7 @@ func clients(t *testing.T, h http.HandlerFunc) (egress.Clients, *string) {
 	eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"stat.ripe.net": srv.URL}, RatePerSource: 1000})
 	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
 	s := asn.New()
-	return eg.Clients(s.Name(), false, s.Sources()), &uri
+	return eg.Clients(false, s.Sources()), &uri
 }
 
 func TestContract(t *testing.T) {

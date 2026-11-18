@@ -19,6 +19,7 @@ func dialError(e syscall.Errno) error {
 
 // What a dial error means.
 func TestClassifyDial(t *testing.T) {
+	t.Parallel()
 	a := netip.MustParseAddr("203.0.113.5")
 	noRoute := func(netip.Addr) error { return dialError(syscall.ENETUNREACH) }
 	unreachableRoute := func(netip.Addr) error { return dialError(syscall.EHOSTUNREACH) }
@@ -67,6 +68,7 @@ func TestClassifyDial(t *testing.T) {
 
 // The route lookup is made to the address that was dialled.
 func TestClassifyDialLooksUpTheSameAddress(t *testing.T) {
+	t.Parallel()
 	a := netip.MustParseAddr("2001:db8::5")
 	var got netip.Addr
 	_, _ = egress.ClassifyDial(dialError(syscall.ENETUNREACH), a, func(x netip.Addr) error { got = x; return nil })
@@ -77,6 +79,7 @@ func TestClassifyDialLooksUpTheSameAddress(t *testing.T) {
 
 // The default route lookup is a local routing-table query: it succeeds for loopback.
 func TestUDPRouteLoopback(t *testing.T) {
+	t.Parallel()
 	if err := egress.UDPRoute(netip.MustParseAddr("127.0.0.1")); err != nil {
 		t.Errorf("route to loopback: %v", err)
 	}

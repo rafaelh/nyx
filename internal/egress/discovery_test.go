@@ -2,6 +2,7 @@ package egress_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,8 +15,6 @@ import (
 	"testing"
 	"time"
 
-	mdns "github.com/miekg/dns"
-
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
@@ -25,13 +24,13 @@ import (
 // CNAME links keep their owner names, in answer order, and survive
 // NXDOMAIN and NODATA so a dangling chain can be seen.
 func TestResolverCNAMEsOnEveryRcode(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	d.CNAME("a.example.com", "b.example.com")
 	d.CNAME("b.example.com", "c.example.net") // c.example.net does not exist: NXDOMAIN
 	d.CNAME("nodata.example.com", "t.example.net")
 	d.A("t.example.net", "2001:db8::1") // exists, but has no A record: NODATA for A
-	eg := egress.New(egress.Options{ResolverAddrs: []string{d.Addr}, DNSTimeout: 300 * time.Millisecond, RateDNS: 1000})
-	dnsc := eg.Clients("t", false, nil).DNS
+	dnsc := resolver(d.Addr, 300*time.Millisecond)
 
 	res, err := dnsc.Query(context.Background(), "a.example.com", egress.TypeA)
 	want := []egress.CNAME{{Name: "a.example.com", Target: "b.example.com"}, {Name: "b.example.com", Target: "c.example.net"}}
@@ -48,33 +47,43 @@ func TestResolverCNAMEsOnEveryRcode(t *testing.T) {
 	}
 }
 
-func TestRecordTypeConstants(t *testing.T) {
-	for got, want := range map[uint16]uint16{egress.TypeA: mdns.TypeA, egress.TypeAAAA: mdns.TypeAAAA,
-		egress.TypeCNAME: mdns.TypeCNAME, egress.TypePTR: mdns.TypePTR, egress.TypeTXT: mdns.TypeTXT} {
-		if got != want {
-			t.Errorf("constant %d != %d", got, want)
-		}
-	}
-}
-
-func thirdPartyServer(t *testing.T, h http.HandlerFunc, opts egress.Options) egress.ThirdPartyHTTP {
+// thirdPartyEgress is an Egress that sends each source in base to its base URL,
+// under a policy with example.com in scope, two hosts excluded and two candidates.
+// Zero RatePerSource and Keys in opts get test defaults.
+func thirdPartyEgress(t *testing.T, base map[string]string, opts egress.Options) *egress.Egress {
 	t.Helper()
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-	opts.SourceBaseURLs = map[string]string{"api.example.net": srv.URL}
-	if opts.RatePerSource == 0 {
-		opts.RatePerSource = 1000
-	}
+	opts.SourceBaseURLs = base
+	opts.RatePerSource = cmp.Or(opts.RatePerSource, 1000)
 	if opts.Keys == nil {
 		opts.Keys = map[string]config.Secret{"whoisxml": "sekrit-key"}
 	}
 	eg := egress.New(opts)
-	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
-	return eg.Clients("s", false, []string{"api.example.net"}).ThirdParty
+	eg.SetPolicy(&egress.Policy{
+		Scope:      scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "bad.example.net", "bad.blob.core.windows.net")}),
+		Candidates: map[string]bool{"cand.example.org": true, "cand.blob.core.windows.net": true},
+	})
+	return eg
+}
+
+// thirdPartyServer serves h as each of sources (api.example.net if none is
+// given) and returns the client of a stage with those sources.
+func thirdPartyServer(t *testing.T, h http.HandlerFunc, opts egress.Options, sources ...string) egress.ThirdPartyHTTP {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	if len(sources) == 0 {
+		sources = []string{"api.example.net"}
+	}
+	base := map[string]string{}
+	for _, s := range sources {
+		base[s] = srv.URL
+	}
+	return thirdPartyEgress(t, base, opts).Clients(false, sources).ThirdParty
 }
 
 // A body over the 10 MiB cap is cut and flagged, never silently complete.
 func TestThirdPartyTruncated(t *testing.T) {
+	t.Parallel()
 	big := bytes.Repeat([]byte("x"), 10<<20+500)
 	c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/small" {
@@ -95,10 +104,14 @@ func TestThirdPartyTruncated(t *testing.T) {
 
 // A request may ask for a longer timeout than the default, capped at 120 s.
 func TestThirdPartyTimeout(t *testing.T) {
+	t.Parallel()
 	c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(300 * time.Millisecond)
+		select {
+		case <-r.Context().Done(): // the client gave up
+		case <-time.After(150 * time.Millisecond):
+		}
 		_, _ = w.Write([]byte("slow"))
-	}, egress.Options{HTTPTimeout: 100 * time.Millisecond})
+	}, egress.Options{HTTPTimeout: 30 * time.Millisecond})
 	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/"}); err == nil {
 		t.Error("the default timeout should apply")
 	}
@@ -110,6 +123,7 @@ func TestThirdPartyTimeout(t *testing.T) {
 
 // The client puts the key into the JSON body; the stage never sees it.
 func TestThirdPartyKeyBodyField(t *testing.T) {
+	t.Parallel()
 	var got map[string]any
 	c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -135,6 +149,7 @@ func TestThirdPartyKeyBodyField(t *testing.T) {
 
 // KeyPrefix goes before the key in the key header, and Accept sets the Accept header.
 func TestThirdPartyKeyPrefixAndAccept(t *testing.T) {
+	t.Parallel()
 	var auth, accept string
 	c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		auth, accept = r.Header.Get("Authorization"), r.Header.Get("Accept")
@@ -164,24 +179,10 @@ type tcpEnv struct {
 // listener that every address is dialled to.
 func newTCPEnv(t *testing.T, cfg scope.Config, mutate func(*egress.Policy), dialled ...string) *tcpEnv {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			c.Close()
-		}
-	}()
-	port := portOf(t, ln.Addr().String())
+	port := serveTCP(t, nil)
 	dm := map[string]string{}
 	for _, a := range dialled {
-		dm[net.JoinHostPort(a, strconv.Itoa(port))] = ln.Addr().String()
+		dm[net.JoinHostPort(a, strconv.Itoa(port))] = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	}
 	if cfg.Resolutions == nil {
 		cfg.Resolutions = map[string][]netip.Addr{}
@@ -192,7 +193,7 @@ func newTCPEnv(t *testing.T, cfg scope.Config, mutate func(*egress.Policy), dial
 	}
 	eg := egress.New(egress.Options{ConnectTimeout: 200 * time.Millisecond, BannerWait: 20 * time.Millisecond, RatePerHost: 1000, DialMap: dm})
 	eg.SetPolicy(p)
-	return &tcpEnv{t: t, port: port, tcp: eg.Clients("t", true, nil).TCP}
+	return &tcpEnv{t: t, port: port, tcp: eg.Clients(true, nil).TCP}
 }
 
 func (e *tcpEnv) refused(a string) bool {
@@ -208,6 +209,7 @@ func (e *tcpEnv) refused(a string) bool {
 // A hostname-resolved address is port-checked unless it is shared;
 // wildcard-only names do not count; an unknown owner fails closed.
 func TestTCPEligibility(t *testing.T) {
+	t.Parallel()
 	res := map[string][]netip.Addr{
 		"www.example.com":     {addr("203.0.113.5")},
 		"cdn.example.com":     {addr("203.0.113.9")},
@@ -245,6 +247,7 @@ func TestTCPEligibility(t *testing.T) {
 // An excluded host's address is allowed only when it is shared and
 // otherwise eligible (an in-scope IP); an excluded CIDR always refuses.
 func TestTCPExcludedHostOnSharedInfra(t *testing.T) {
+	t.Parallel()
 	res := map[string][]netip.Addr{"admin.example.com": {addr("198.51.100.7"), addr("198.51.100.8")}}
 	shared := map[netip.Addr]bool{addr("198.51.100.7"): true}
 	env := newTCPEnv(t, scope.Config{
@@ -268,7 +271,8 @@ func TestTCPExcludedHostOnSharedInfra(t *testing.T) {
 // Fail-closed owner status must not widen HTTP: only true shared infrastructure
 // lets an excluded host's address through.
 func TestHTTPUnknownOwnerIsNotShared(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	res := map[string][]netip.Addr{"www.example.com": {addr("127.0.0.1")}, "admin.example.com": {addr("127.0.0.1")}}
 	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "admin.example.com"), Resolutions: res})
 	f.pol.Resolutions = res

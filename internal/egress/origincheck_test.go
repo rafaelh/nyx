@@ -23,7 +23,8 @@ type originFixture struct {
 	mu            sync.Mutex
 	hosts, snis   []string
 	methods, uris []string
-	plainAddr     string // host:port of the plain HTTP server
+	plainAddr     string            // host:port of the plain HTTP server
+	dial          map[string]string // the Egress's DialMap: address:port -> the server dialled
 	handler       http.HandlerFunc
 	pol           *egress.Policy
 	eg            *egress.Egress
@@ -69,11 +70,11 @@ func newOriginFixture(t *testing.T) *originFixture {
 		"unk.example.com":    {addr(unknownAddr)},
 		"admin.example.com":  {addr(exclHostAddr)},
 	}
-	dial := map[string]string{}
+	f.dial = map[string]string{}
 	f.plainAddr = strings.TrimPrefix(plain.URL, "http://")
 	secureAt := strings.TrimPrefix(secure.URL, "https://")
 	for _, a := range []string{netblockAddr, hostAddr, strangerAddr, sharedAddr, unknownAddr, excludedAddr, exclHostAddr} {
-		dial[a+":443"], dial[a+":80"] = secureAt, f.plainAddr
+		f.dial[a+":443"], f.dial[a+":80"] = secureAt, f.plainAddr
 	}
 	f.pol = &egress.Policy{
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res,
@@ -84,13 +85,13 @@ func newOriginFixture(t *testing.T) *originFixture {
 		Shared:       func(a netip.Addr) bool { return a == addr(sharedAddr) },
 		OwnerUnknown: func(a netip.Addr) bool { return a == addr(unknownAddr) },
 	}
-	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, DialMap: dial})
+	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, DialMap: f.dial})
 	f.eg.SetPolicy(f.pol)
 	return f
 }
 
 func (f *originFixture) get(host, scheme, a string) (egress.HTTPResult, error) {
-	return f.eg.Clients("origincheck", true, nil).HTTP.Get(context.Background(), egress.OriginCheck(host, scheme, addr(a)))
+	return f.eg.Clients(true, nil).HTTP.Get(context.Background(), egress.OriginCheck(host, scheme, addr(a)))
 }
 
 // requests is how many requests reached either server.
@@ -109,6 +110,7 @@ func (f *originFixture) seen() (hosts, snis, methods, uris []string) {
 // The request is one GET of "/" to the address, on 443 for https and 80 for http, with the host as
 // both the TLS server name and the Host header, whichever address it is sent to.
 func TestOriginCheck_RequestShape(t *testing.T) {
+	t.Parallel()
 	f := newOriginFixture(t)
 	for _, a := range []string{netblockAddr, hostAddr} {
 		for _, scheme := range []string{"https", "http"} {
@@ -136,6 +138,7 @@ func TestOriginCheck_RequestShape(t *testing.T) {
 
 // A 3xx is returned as it is: the redirect is not followed, and only one request is sent.
 func TestOriginCheck_NeverFollowsARedirect(t *testing.T) {
+	t.Parallel()
 	f := newOriginFixture(t)
 	f.handler = func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/elsewhere", http.StatusFound) }
 	for _, scheme := range []string{"https", "http"} {
@@ -152,6 +155,7 @@ func TestOriginCheck_NeverFollowsARedirect(t *testing.T) {
 // What the policy refuses is refused without a connection: an address nothing allows, an excluded
 // one, a host that is a candidate or excluded, a scheme or a run that may not contact the target.
 func TestOriginCheck_Refusals(t *testing.T) {
+	t.Parallel()
 	f := newOriginFixture(t)
 	var reported []string
 	f.pol.Excluded = func(v, why string) { reported = append(reported, v) }
@@ -194,6 +198,7 @@ func TestOriginCheck_Refusals(t *testing.T) {
 // request from RootAt. A host's address that is dedicated and known, or any address in an in-scope
 // netblock, is enough; the host is still the one the policy knows.
 func TestOriginCheck_AddressNeedNotBeTheHosts(t *testing.T) {
+	t.Parallel()
 	f := newOriginFixture(t)
 	// shared.example.com resolves to the shared address, so www's address is not its own.
 	res, err := f.get("shared.example.com", "https", hostAddr)
@@ -208,10 +213,9 @@ func TestOriginCheck_AddressNeedNotBeTheHosts(t *testing.T) {
 
 // Nothing answering is NoService, with the reason the caller uses to decide whether to try http.
 func TestOriginCheck_NoServiceReasons(t *testing.T) {
+	t.Parallel()
 	f := newOriginFixture(t)
-	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: time.Second, ConnectTimeout: time.Second,
-		DialMap: map[string]string{netblockAddr + ":443": f.plainAddr, hostAddr + ":443": closedAddr(t)}})
-	f.eg.SetPolicy(f.pol)
+	f.dial[netblockAddr+":443"], f.dial[hostAddr+":443"] = f.plainAddr, closedAddr(t)
 	res, _ := f.get("www.example.com", "https", netblockAddr) // a plain server answering a TLS hello
 	if ns, ok := res.(egress.NoService); !ok || ns.Reason != egress.NoServiceTLSFailed {
 		t.Errorf("TLS to a plain server = %#v, want tls-failed", res)

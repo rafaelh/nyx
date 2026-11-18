@@ -1,8 +1,6 @@
 package config_test
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -10,83 +8,10 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 )
 
-func pathsFile(t *testing.T, body string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "paths.yaml")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// storage.max_names (default 50, > 0) and cert_expiry_days (default 30, >= 0).
-func TestStorageAndCertificateSettings(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.Storage.MaxNames != 50 || s.CertExpiryDays != 30 {
-		t.Errorf("defaults: max_names %d, cert_expiry_days %d", s.Storage.MaxNames, s.CertExpiryDays)
-	}
-	if s, err = load(t, "", "--storage-max-names", "9", "--cert-expiry-days", "0"); err != nil || s.Storage.MaxNames != 9 || s.CertExpiryDays != 0 {
-		t.Errorf("flags: %+v %v", s, err)
-	}
-	if s, err = load(t, writeFile(t, "storage:\n  max_names: 12\ncert_expiry_days: 90\n")); err != nil || s.Storage.MaxNames != 12 || s.CertExpiryDays != 90 {
-		t.Errorf("file: %+v %v", s, err)
-	}
-	t.Setenv("NYX_STORAGE_MAX_NAMES", "4")
-	if s, err = load(t, ""); err != nil || s.Storage.MaxNames != 4 {
-		t.Errorf("env: %+v %v", s, err)
-	}
-	os.Unsetenv("NYX_STORAGE_MAX_NAMES")
-	for _, args := range [][]string{{"--storage-max-names", "0"}, {"--cert-expiry-days", "-1"}} {
-		if _, err := load(t, "", args...); err == nil {
-			t.Errorf("%v accepted", args)
-		}
-	}
-	fs := newFlagSetForHelp()
-	for _, name := range []string{"storage-max-names", "cert-expiry-days"} {
-		if fs.Lookup(name) == nil {
-			t.Errorf("flag --%s missing", name)
-		}
-	}
-}
-
-// The built-in list has at least 150 entries, each with a signature or magic.
-func TestBuiltinSensitivePaths(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(s.SensitivePathEntries); n < 150 {
-		t.Errorf("built-in entries = %d, want at least 150", n)
-	}
-	paths := map[string]bool{}
-	for _, e := range s.SensitivePathEntries {
-		if e.Signature == "" && len(e.Magic) == 0 {
-			t.Errorf("%s has neither signature nor magic", e.Path)
-		}
-		if e.Status == 0 || e.Severity == "" {
-			t.Errorf("%s: defaults not applied: %+v", e.Path, e)
-		}
-		paths[e.Path] = true
-	}
-	for _, want := range []string{"/.git/config", "/.env", "/.DS_Store", "/server-status", "/phpinfo.php", "/actuator/env", "/.aws/credentials", "/wp-config.php.bak", "/.svn/entries", "/.htpasswd"} {
-		if !paths[want] {
-			t.Errorf("built-in list lacks %s", want)
-		}
-	}
-	if label := config.BuiltinSensitivePathsLabel(); !strings.Contains(label, "built-in (") || strings.Contains(label, "(0 ") {
-		t.Errorf("label = %q", label)
-	}
-}
-
 // Entry format, defaults and matching.
 func TestSensitivePathEntries(t *testing.T) {
-	clearEnv(t)
-	file := pathsFile(t, `
+	t.Parallel()
+	file := writeFile(t, `
 - path: /.git/config
   signature: '\[core\]'
   severity: high
@@ -97,7 +22,7 @@ func TestSensitivePathEntries(t *testing.T) {
   signature: 'world'
   magic: '68656c'
 `)
-	s, err := load(t, "", "--sensitive-paths", file)
+	s, err := load(t, nil, "", "--sensitive-paths", file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +68,7 @@ func TestSensitivePathEntries(t *testing.T) {
 
 // Invalid entries fail validation (exit 2 in the CLI).
 func TestSensitivePathValidation(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	cases := map[string]string{
 		"plain string":      "- /admin\n",
 		"no signature":      "- path: /admin\n",
@@ -158,7 +83,7 @@ func TestSensitivePathValidation(t *testing.T) {
 		"empty magic bytes": "- path: /a\n  magic: ''\n",
 	}
 	for name, body := range cases {
-		_, err := load(t, "", "--sensitive-paths", pathsFile(t, body))
+		_, err := load(t, nil, "", "--sensitive-paths", writeFile(t, body))
 		if err == nil || !strings.Contains(err.Error(), "sensitive_paths") {
 			t.Errorf("%s: err = %v", name, err)
 		}
@@ -166,6 +91,7 @@ func TestSensitivePathValidation(t *testing.T) {
 }
 
 func TestDKIMSelectors(t *testing.T) {
+	t.Parallel()
 	sel := config.DKIMSelectors()
 	for _, want := range []string{"google", "selector1", "selector2", "k1", "k2", "default", "dkim", "mail", "s1", "s2", "smtp", "mandrill"} {
 		if !slices.Contains(sel, want) {
@@ -174,35 +100,5 @@ func TestDKIMSelectors(t *testing.T) {
 	}
 	if config.DKIMSelectorHash() == "" || len(config.DKIMSelectorHash()) != 8 {
 		t.Errorf("hash = %q", config.DKIMSelectorHash())
-	}
-}
-
-// eol_warn_days (default 90, >= 0, where 0 turns the approaching finding off) is set by flag,
-// environment and file.
-func TestEOLWarnDaysSetting(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
-	if err != nil || s.EOLWarnDays != 90 {
-		t.Errorf("default: %d %v", s.EOLWarnDays, err)
-	}
-	if s, err = load(t, "", "--eol-warn-days", "0"); err != nil || s.EOLWarnDays != 0 {
-		t.Errorf("flag 0: %d %v", s.EOLWarnDays, err)
-	}
-	if s, err = load(t, "", "--eol-warn-days", "30"); err != nil || s.EOLWarnDays != 30 {
-		t.Errorf("flag 30: %d %v", s.EOLWarnDays, err)
-	}
-	if s, err = load(t, writeFile(t, "eol_warn_days: 45\n")); err != nil || s.EOLWarnDays != 45 {
-		t.Errorf("file: %d %v", s.EOLWarnDays, err)
-	}
-	t.Setenv("NYX_EOL_WARN_DAYS", "7")
-	if s, err = load(t, ""); err != nil || s.EOLWarnDays != 7 {
-		t.Errorf("env: %d %v", s.EOLWarnDays, err)
-	}
-	os.Unsetenv("NYX_EOL_WARN_DAYS")
-	if _, err := load(t, "", "--eol-warn-days", "-1"); err == nil {
-		t.Error("--eol-warn-days -1 accepted")
-	}
-	if newFlagSetForHelp().Lookup("eol-warn-days") == nil {
-		t.Error("flag --eol-warn-days missing")
 	}
 }

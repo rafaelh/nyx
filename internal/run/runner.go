@@ -504,7 +504,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	if ce, ok := s.(CandidateExempt); ok {
 		exempt = ce.CandidateExemptSources()
 	}
-	clients := r.cfg.Egress.ClientsWith(name, s.Contact() == Target, s.Sources(), exempt)
+	clients := r.cfg.Egress.ClientsWith(s.Contact() == Target, s.Sources(), exempt)
 	view := View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
 
 	workers := r.cfg.Settings.Concurrency

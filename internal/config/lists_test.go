@@ -16,8 +16,8 @@ import (
 // The built-in wordlist is big enough to use without a list of one's own, and
 // every entry is something a permutation can use.
 func TestBuiltinWordlist(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
+	t.Parallel()
+	s, err := load(t, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +51,7 @@ func TestBuiltinWordlist(t *testing.T) {
 
 // The wordlist's source and licence are credited in the file itself.
 func TestBuiltinWordlistAttribution(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("builtin/wordlist.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -71,13 +72,13 @@ func TestBuiltinWordlistAttribution(t *testing.T) {
 // The README credits SecLists, says what a run costs, and gives the request
 // formula for the sensitive paths.
 func TestREADMEStatesListsAndVolume(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	readme := string(b)
-	clearEnv(t)
-	s, err := load(t, "")
+	s, err := load(t, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +119,8 @@ func sample(t *testing.T, name string) []byte {
 // Every built-in path is explicit about its severity, matches a sample of the
 // real file, and does not match a catch-all 200 page or a soft 404.
 func TestBuiltinSensitivePathsSamples(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
+	t.Parallel()
+	s, err := load(t, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,8 +179,8 @@ func TestBuiltinSensitivePathsSamples(t *testing.T) {
 
 // Every sample belongs to an entry, so a removed entry leaves nothing behind.
 func TestSensitiveSamplesHaveEntries(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
+	t.Parallel()
+	s, err := load(t, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,8 +229,8 @@ var goldenEntries = []string{
 }
 
 func TestBuiltinSensitivePathsKeepExistingEntries(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
+	t.Parallel()
+	s, err := load(t, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,90 +245,28 @@ func TestBuiltinSensitivePathsKeepExistingEntries(t *testing.T) {
 	}
 }
 
-// The per-run caps default as designed, take a flag, the environment and the
-// config file in that order of precedence, and must be at least 1.
-func TestPerRunCapSettings(t *testing.T) {
-	for _, c := range []struct {
-		name, flag, env, key string
-		yaml                 func(n int) string
-		def                  int
-		get                  func(config.Settings) int
-	}{
-		{"permutations.max_names", "--permutations-max-names", "NYX_PERMUTATIONS_MAX_NAMES", "permutations.max_names",
-			func(n int) string { return fmt.Sprintf("permutations:\n  max_names: %d\n", n) }, 200000,
-			func(s config.Settings) int { return s.Permutations.MaxNames }},
-		{"sensitive_path_max_requests", "--sensitive-path-max-requests", "NYX_SENSITIVE_PATH_MAX_REQUESTS", "sensitive_path_max_requests",
-			func(n int) string { return fmt.Sprintf("sensitive_path_max_requests: %d\n", n) }, 50000,
-			func(s config.Settings) int { return s.SensitivePathMaxRequests }},
-		{"shodan.max_hosts", "--shodan-max-hosts", "NYX_SHODAN_MAX_HOSTS", "shodan.max_hosts",
-			func(n int) string { return fmt.Sprintf("shodan:\n  max_hosts: %d\n", n) }, 500,
-			func(s config.Settings) int { return s.Shodan.MaxHosts }},
-		{"reverseip.max_domains", "--reverseip-max-domains", "NYX_REVERSEIP_MAX_DOMAINS", "reverseip.max_domains",
-			func(n int) string { return fmt.Sprintf("reverseip:\n  max_domains: %d\n", n) }, 100,
-			func(s config.Settings) int { return s.ReverseIP.MaxDomains }},
-		{"nsreverse.max_domains", "--nsreverse-max-domains", "NYX_NSREVERSE_MAX_DOMAINS", "nsreverse.max_domains",
-			func(n int) string { return fmt.Sprintf("nsreverse:\n  max_domains: %d\n", n) }, 1000,
-			func(s config.Settings) int { return s.NSReverse.MaxDomains }},
-		{"jsparse.max_scripts", "--jsparse-max-scripts", "NYX_JSPARSE_MAX_SCRIPTS", "jsparse.max_scripts",
-			func(n int) string { return fmt.Sprintf("jsparse:\n  max_scripts: %d\n", n) }, 50,
-			func(s config.Settings) int { return s.JSParse.MaxScripts }},
-		{"identifier_pivot.max_queries", "--identifier-pivot-max-queries", "NYX_IDENTIFIER_PIVOT_MAX_QUERIES", "identifier_pivot.max_queries",
-			func(n int) string { return fmt.Sprintf("identifier_pivot:\n  max_queries: %d\n", n) }, 50,
-			func(s config.Settings) int { return s.IdentifierPivot.MaxQueries }},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			clearEnv(t)
-			if s, err := load(t, ""); err != nil || c.get(s) != c.def {
-				t.Fatalf("default = %d, %v; want %d", c.get(s), err, c.def)
-			}
-			if s, err := load(t, writeFile(t, c.yaml(70))); err != nil || c.get(s) != 70 {
-				t.Errorf("file: %d %v", c.get(s), err)
-			}
-			t.Setenv(c.env, "80")
-			if s, err := load(t, writeFile(t, c.yaml(70))); err != nil || c.get(s) != 80 {
-				t.Errorf("env over file: %d %v", c.get(s), err)
-			}
-			if s, err := load(t, "", c.flag, "90"); err != nil || c.get(s) != 90 {
-				t.Errorf("flag over env: %d %v", c.get(s), err)
-			}
-			clearEnv(t)
-			for _, bad := range []string{"0", "-1"} {
-				if _, err := load(t, "", c.flag, bad); err == nil || !strings.Contains(err.Error(), c.key) {
-					t.Errorf("%s %s: error %v should name %s", c.flag, bad, err, c.key)
-				}
-			}
-			if _, err := load(t, writeFile(t, c.yaml(0))); err == nil {
-				t.Error("a zero cap in the file must be invalid")
-			}
-		})
-	}
-}
-
 // sensitive_path_max_requests is a top-level key, not part of the sensitive_paths file setting.
 func TestSensitivePathMaxRequestsIsNotNested(t *testing.T) {
-	clearEnv(t)
-	if _, err := load(t, writeFile(t, "sensitive_paths:\n  max_requests: 5\n")); err == nil {
+	t.Parallel()
+	if _, err := load(t, nil, writeFile(t, "sensitive_paths:\n  max_requests: 5\n")); err == nil {
 		t.Error("max_requests must not be accepted nested under sensitive_paths")
 	}
 }
 
 // --permutations-max stays the per-seed cap and does not touch the per-run one.
 func TestPermutationsMaxIsStillPerSeed(t *testing.T) {
-	clearEnv(t)
-	if s, err := load(t, "", "--permutations-max", "11"); err != nil || s.Permutations.MaxPerSeed != 11 || s.Permutations.MaxNames != 200000 {
+	t.Parallel()
+	if s, err := load(t, nil, "", "--permutations-max", "11"); err != nil || s.Permutations.MaxPerSeed != 11 || s.Permutations.MaxNames != 200000 {
 		t.Errorf("%+v %v", s.Permutations, err)
 	}
 }
 
 // A custom wordlist or sensitive-path file replaces the built-in list outright.
 func TestCustomListsReplaceBuiltin(t *testing.T) {
-	clearEnv(t)
-	wl := filepath.Join(t.TempDir(), "w.txt")
-	if err := os.WriteFile(wl, []byte("alpha\nbeta\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sp := pathsFile(t, "- path: /x\n  signature: 'x'\n")
-	s, err := load(t, "", "--wordlist", wl, "--sensitive-paths", sp)
+	t.Parallel()
+	wl := writeFile(t, "alpha\nbeta\n")
+	sp := writeFile(t, "- path: /x\n  signature: 'x'\n")
+	s, err := load(t, nil, "", "--wordlist", wl, "--sensitive-paths", sp)
 	if err != nil {
 		t.Fatal(err)
 	}

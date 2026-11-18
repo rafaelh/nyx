@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,14 +17,16 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 )
 
-func load(t *testing.T, cfgPath string, args ...string) (config.Settings, error) {
+// load parses args as flags and loads the settings with only env as the environment, so a test
+// never sees the process's and can run in parallel.
+func load(t *testing.T, env config.Env, cfgPath string, args ...string) (config.Settings, error) {
 	t.Helper()
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		t.Fatal(err)
 	}
-	return config.Load(fs, cfgPath, os.Environ())
+	return config.Load(fs, cfgPath, env)
 }
 
 func writeFile(t *testing.T, body string) string {
@@ -35,20 +38,10 @@ func writeFile(t *testing.T, body string) string {
 	return p
 }
 
-func clearEnv(t *testing.T) {
-	t.Helper()
-	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "NYX_") {
-			t.Setenv(strings.SplitN(kv, "=", 2)[0], "")
-			os.Unsetenv(strings.SplitN(kv, "=", 2)[0])
-		}
-	}
-}
-
 // Defaults.
 func TestDefaults(t *testing.T) {
-	clearEnv(t)
-	s, err := load(t, "")
+	t.Parallel()
+	s, err := load(t, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,10 +67,10 @@ func TestDefaults(t *testing.T) {
 
 // File < env < flag for a scalar and a list.
 func TestPrecedence(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	cfg := writeFile(t, "concurrency: 2\nports: [80, 443]\n")
 
-	s, err := load(t, cfg)
+	s, err := load(t, nil, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +78,8 @@ func TestPrecedence(t *testing.T) {
 		t.Fatalf("file: %d %v", s.Concurrency, s.Ports)
 	}
 
-	t.Setenv("NYX_CONCURRENCY", "3")
-	t.Setenv("NYX_PORTS", "8080,8081")
-	s, err = load(t, cfg)
+	env := config.Env{"NYX_CONCURRENCY=3", "NYX_PORTS=8080,8081"}
+	s, err = load(t, env, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +87,7 @@ func TestPrecedence(t *testing.T) {
 		t.Fatalf("env: %d %v", s.Concurrency, s.Ports)
 	}
 
-	s, err = load(t, cfg, "--concurrency", "7", "--ports", "9000,9001-9003")
+	s, err = load(t, env, cfg, "--concurrency", "7", "--ports", "9000,9001-9003")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,9 +97,8 @@ func TestPrecedence(t *testing.T) {
 }
 
 // Load reads the environment it is given, never the process's, so that callers (and parallel
-// tests) each decide what a run sees.
+// tests) each decide what a run sees. It sets the process environment, so it cannot be parallel.
 func TestLoadReadsOnlyTheGivenEnv(t *testing.T) {
-	clearEnv(t)
 	home := t.TempDir()
 	t.Setenv("NYX_CONCURRENCY", "3")
 	t.Setenv("NYX_KEYS_SHODAN", "process-key")
@@ -131,10 +122,9 @@ func TestLoadReadsOnlyTheGivenEnv(t *testing.T) {
 }
 
 func TestNestedSettings(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	cfg := writeFile(t, "rate:\n  per_host: 2\ncrawl:\n  max_depth: 4\n")
-	t.Setenv("NYX_RATE_DNS", "10")
-	s, err := load(t, cfg, "--crawl-pages", "7")
+	s, err := load(t, config.Env{"NYX_RATE_DNS=10"}, cfg, "--crawl-pages", "7")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,10 +135,9 @@ func TestNestedSettings(t *testing.T) {
 
 // Keys from file and env only; never a flag; never formatted.
 func TestKeys(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	cfg := writeFile(t, "keys:\n  shodan: filesecret123\n")
-	t.Setenv("NYX_KEYS_CENSYS", "envsecret456")
-	s, err := load(t, cfg)
+	s, err := load(t, config.Env{"NYX_KEYS_CENSYS=envsecret456"}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,15 +172,12 @@ func TestKeys(t *testing.T) {
 
 // Invalid config values name the key and the value.
 func TestValidation(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	dir := t.TempDir()
-	relPaths := filepath.Join(dir, "rel.yaml")
-	if err := os.WriteFile(relPaths, []byte("- path: /ok\n  signature: x\n- path: admin/.env\n  signature: x\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	relPaths := writeFile(t, "- path: /ok\n  signature: x\n- path: admin/.env\n  signature: x\n")
 	cases := []struct {
 		name, file string
-		env        map[string]string
+		env        config.Env
 		args       []string
 		wantKey    string
 		wantVal    string
@@ -201,7 +187,7 @@ func TestValidation(t *testing.T) {
 		{"port range reversed", "", nil, []string{"--ports", "90-80"}, "ports", "90-80"},
 		{"risky port", "", nil, []string{"--risky-ports", "99999"}, "risky_ports", "99999"},
 		{"concurrency zero", "concurrency: 0\n", nil, nil, "concurrency", "0"},
-		{"concurrency env text", "", map[string]string{"NYX_CONCURRENCY": "lots"}, nil, "concurrency", "lots"},
+		{"concurrency env text", "", config.Env{"NYX_CONCURRENCY=lots"}, nil, "concurrency", "lots"},
 		{"rate negative", "", nil, []string{"--rate-per-host", "-1"}, "rate.per_host", "-1"},
 		{"rate dns zero", "rate:\n  dns: 0\n", nil, nil, "rate.dns", "0"},
 		{"unknown key", "concurency: 3\n", nil, nil, "concurency", "concurency"},
@@ -214,15 +200,12 @@ func TestValidation(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			clearEnv(t)
-			for k, v := range c.env {
-				t.Setenv(k, v)
-			}
+			t.Parallel()
 			cfg := ""
 			if c.file != "" {
 				cfg = writeFile(t, c.file)
 			}
-			_, err := load(t, cfg, c.args...)
+			_, err := load(t, c.env, cfg, c.args...)
 			if err == nil {
 				t.Fatal("want error")
 			}
@@ -234,36 +217,31 @@ func TestValidation(t *testing.T) {
 }
 
 func TestExplicitConfigMissing(t *testing.T) {
-	clearEnv(t)
-	if _, err := load(t, filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
+	t.Parallel()
+	if _, err := load(t, nil, filepath.Join(t.TempDir(), "absent.yaml")); err == nil {
 		t.Fatal("explicit missing config file should be an error")
 	}
 }
 
 func TestDefaultConfigPath(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/xdg")
-	if got := config.DefaultConfigPath(os.Environ()); got != "/xdg/nyx/config.yaml" {
+	t.Parallel()
+	if got := config.DefaultConfigPath(config.Env{"XDG_CONFIG_HOME=/xdg", "HOME=/home/u"}); got != "/xdg/nyx/config.yaml" {
 		t.Errorf("got %s", got)
 	}
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", "/home/u")
-	if got := config.DefaultConfigPath(os.Environ()); got != "/home/u/.config/nyx/config.yaml" {
+	if got := config.DefaultConfigPath(config.Env{"XDG_CONFIG_HOME=", "HOME=/home/u"}); got != "/home/u/.config/nyx/config.yaml" {
 		t.Errorf("got %s", got)
 	}
 }
 
 func TestDefaultConfigPathWithoutHome(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", "")
-	if got := config.DefaultConfigPath(os.Environ()); got != "" {
+	t.Parallel()
+	if got := config.DefaultConfigPath(config.Env{"XDG_CONFIG_HOME=", "HOME="}); got != "" {
 		t.Errorf("got %q, want empty", got)
 	}
 }
 
+// It changes the working directory, so it cannot be parallel.
 func TestLoadWithoutHomeIgnoresWorkingDirectoryConfig(t *testing.T) {
-	clearEnv(t)
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", "")
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".config", "nyx"), 0o755); err != nil {
 		t.Fatal(err)
@@ -272,12 +250,13 @@ func TestLoadWithoutHomeIgnoresWorkingDirectoryConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
-	if _, err := load(t, ""); err != nil {
+	if _, err := load(t, config.Env{"XDG_CONFIG_HOME=", "HOME="}, ""); err != nil {
 		t.Fatalf("config under the working directory should not be read: %v", err)
 	}
 }
 
 func TestPortsRoundTrip(t *testing.T) {
+	t.Parallel()
 	p, err := config.ParsePorts("443, 21-23,80,22")
 	if err != nil {
 		t.Fatal(err)
@@ -288,6 +267,7 @@ func TestPortsRoundTrip(t *testing.T) {
 }
 
 func TestRedactor(t *testing.T) {
+	t.Parallel()
 	r := config.NewRedactor("s3cr3t", "")
 	if got := r.Redact("url?key=s3cr3t&x=s3cr3t"); got != "url?key=****&x=****" {
 		t.Errorf("got %q", got)
@@ -315,11 +295,11 @@ func newFlagSetForHelp() *pflag.FlagSet {
 
 // A leading ~ in a path setting is the home directory, not a directory named "~".
 func TestHomeExpansion(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	env := config.Env{"HOME=" + home}
 	cfg := writeFile(t, "output_dir: ~/engagements\n")
-	s, err := load(t, cfg)
+	s, err := load(t, env, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +309,7 @@ func TestHomeExpansion(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"~", home}, {"./~/x", "./~/x"}, {"~other/x", "~other/x"},
 	} {
-		s, err := load(t, "", "--output-dir="+c.in)
+		s, err := load(t, env, "", "--output-dir="+c.in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -342,7 +322,7 @@ func TestHomeExpansion(t *testing.T) {
 // A numeric setting's flag takes any text, which Load checks with the rest, so
 // a bad number is reported by its key and value; help shows integer or float.
 func TestNumericFlagsTakeAnyText(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
 	config.RegisterFlags(fs)
 	for name, typ := range map[string]string{"concurrency": "integer", "netblock-limit": "integer", "rate-per-host": "float", "rate-dns": "float"} {
@@ -353,7 +333,7 @@ func TestNumericFlagsTakeAnyText(t *testing.T) {
 	if !strings.Contains(fs.FlagUsages(), "--concurrency integer") || !strings.Contains(fs.FlagUsages(), "(default 10)") {
 		t.Errorf("help:\n%s", fs.FlagUsages())
 	}
-	_, err := load(t, "", "--concurrency", "abc", "--rate-dns", "lots", "--netblock-limit", "1e3")
+	_, err := load(t, nil, "", "--concurrency", "abc", "--rate-dns", "lots", "--netblock-limit", "1e3")
 	var probs clierr.Problems
 	if !errors.As(err, &probs) || len(probs) != 3 {
 		t.Fatalf("err = %v, want three problems", err)
@@ -368,7 +348,7 @@ func TestNumericFlagsTakeAnyText(t *testing.T) {
 		}
 	}
 	// A good value still parses.
-	if s, err := load(t, "", "--concurrency", "7", "--rate-dns", "2.5"); err != nil || s.Concurrency != 7 || s.Rate.DNS != 2.5 {
+	if s, err := load(t, nil, "", "--concurrency", "7", "--rate-dns", "2.5"); err != nil || s.Concurrency != 7 || s.Rate.DNS != 2.5 {
 		t.Errorf("%v %d %v", err, s.Concurrency, s.Rate.DNS)
 	}
 }
@@ -377,22 +357,94 @@ func TestNumericFlagsTakeAnyText(t *testing.T) {
 // with every other problem, and the keys that did load are still returned so
 // they can be masked.
 func TestLoadReportsFileProblemsWithTheRest(t *testing.T) {
-	clearEnv(t)
+	t.Parallel()
 	cfg := writeFile(t, "concurency: 3\nkeys:\n  shodan: filekey\n")
-	s, err := load(t, cfg, "--rate-dns", "-1")
+	s, err := load(t, nil, cfg, "--rate-dns", "-1")
 	if err == nil || !strings.Contains(err.Error(), "concurency") || !strings.Contains(err.Error(), "rate.dns") {
 		t.Errorf("unknown key and a bad flag: %v", err)
 	}
 	if s.Keys["shodan"].Reveal() != "filekey" {
 		t.Error("the keys of a config file with problems are not returned")
 	}
-	_, err = load(t, filepath.Join(t.TempDir(), "absent.yaml"), "--rate-dns", "-1")
+	_, err = load(t, nil, filepath.Join(t.TempDir(), "absent.yaml"), "--rate-dns", "-1")
 	var probs clierr.Problems
 	if !errors.As(err, &probs) || len(probs) != 2 || probs[0].Name != "config" || !strings.Contains(err.Error(), "rate.dns") {
 		t.Errorf("unreadable file and a bad flag: %v", err)
 	}
-	t.Setenv("NYX_KEYS_SOURCE", "envkey")
-	if got := config.EnvKeyValues(os.Environ()); !slices.Equal(got, []string{"envkey"}) {
+	if got := config.EnvKeyValues(config.Env{"NYX_KEYS_SOURCE=envkey"}); !slices.Equal(got, []string{"envkey"}) {
 		t.Errorf("EnvKeyValues = %v", got)
+	}
+}
+
+// envName is the variable that sets a key: rate.per_host is NYX_RATE_PER_HOST.
+func envName(key string) string {
+	return "NYX_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+}
+
+// yamlFor is a config file that sets a key, dotted or not, to val.
+func yamlFor(key, val string) string {
+	if section, name, ok := strings.Cut(key, "."); ok {
+		return section + ":\n  " + name + ": " + val + "\n"
+	}
+	return key + ": " + val + "\n"
+}
+
+// Each whole-number setting has its default (shown in its flag's help), takes the config file,
+// the environment and a flag in rising order of precedence, and accepts its least value. A value
+// below that, or not a whole number, is an error naming the key from any of the three.
+func TestIntSettings(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		key, flag string
+		def, min  int
+		get       func(config.Settings) int
+	}{
+		{"port_concurrency", "--port-concurrency", 100, 1, func(s config.Settings) int { return s.PortConcurrency }},
+		{"storage.max_names", "--storage-max-names", 50, 1, func(s config.Settings) int { return s.Storage.MaxNames }},
+		{"cert_expiry_days", "--cert-expiry-days", 30, 0, func(s config.Settings) int { return s.CertExpiryDays }},
+		{"eol_warn_days", "--eol-warn-days", 90, 0, func(s config.Settings) int { return s.EOLWarnDays }},
+		{"permutations.max_per_seed", "--permutations-max", 200, 1, func(s config.Settings) int { return s.Permutations.MaxPerSeed }},
+		{"permutations.max_names", "--permutations-max-names", 200000, 1, func(s config.Settings) int { return s.Permutations.MaxNames }},
+		{"sensitive_path_max_requests", "--sensitive-path-max-requests", 50000, 1, func(s config.Settings) int { return s.SensitivePathMaxRequests }},
+		{"shodan.max_hosts", "--shodan-max-hosts", 500, 1, func(s config.Settings) int { return s.Shodan.MaxHosts }},
+		{"reverseip.max_domains", "--reverseip-max-domains", 100, 1, func(s config.Settings) int { return s.ReverseIP.MaxDomains }},
+		{"nsreverse.max_domains", "--nsreverse-max-domains", 1000, 1, func(s config.Settings) int { return s.NSReverse.MaxDomains }},
+		{"jsparse.max_scripts", "--jsparse-max-scripts", 50, 1, func(s config.Settings) int { return s.JSParse.MaxScripts }},
+		{"identifier_pivot.max_queries", "--identifier-pivot-max-queries", 50, 1, func(s config.Settings) int { return s.IdentifierPivot.MaxQueries }},
+	} {
+		t.Run(c.key, func(t *testing.T) {
+			t.Parallel()
+			if s, err := load(t, nil, ""); err != nil || c.get(s) != c.def {
+				t.Fatalf("default = %d, %v; want %d", c.get(s), err, c.def)
+			}
+			if f := newFlagSetForHelp().Lookup(strings.TrimPrefix(c.flag, "--")); f == nil || f.DefValue != strconv.Itoa(c.def) {
+				t.Errorf("%s in help = %+v, want default %d", c.flag, f, c.def)
+			}
+			file := writeFile(t, yamlFor(c.key, "70"))
+			env := config.Env{envName(c.key) + "=80"}
+			if s, err := load(t, nil, file); err != nil || c.get(s) != 70 {
+				t.Errorf("file: %d %v", c.get(s), err)
+			}
+			if s, err := load(t, env, file); err != nil || c.get(s) != 80 {
+				t.Errorf("env over file: %d %v", c.get(s), err)
+			}
+			if s, err := load(t, env, file, c.flag, "90"); err != nil || c.get(s) != 90 {
+				t.Errorf("flag over env: %d %v", c.get(s), err)
+			}
+			if s, err := load(t, nil, "", c.flag, strconv.Itoa(c.min)); err != nil || c.get(s) != c.min {
+				t.Errorf("least value %d: %d %v", c.min, c.get(s), err)
+			}
+			for _, bad := range []string{strconv.Itoa(c.min - 1), "many"} {
+				for from, run := range map[string]func() (config.Settings, error){
+					"flag": func() (config.Settings, error) { return load(t, nil, "", c.flag, bad) },
+					"env":  func() (config.Settings, error) { return load(t, config.Env{envName(c.key) + "=" + bad}, "") },
+					"file": func() (config.Settings, error) { return load(t, nil, writeFile(t, yamlFor(c.key, bad))) },
+				} {
+					if _, err := run(); err == nil || !strings.Contains(err.Error(), c.key) {
+						t.Errorf("%s %s: error %v should name %s", from, bad, err, c.key)
+					}
+				}
+			}
+		})
 	}
 }

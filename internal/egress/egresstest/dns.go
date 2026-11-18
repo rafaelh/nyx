@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	mdns "github.com/miekg/dns"
+
+	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
 // DNS is a scriptable authoritative-for-everything DNS server on loopback.
@@ -80,14 +82,12 @@ func NewDNS(t testing.TB) *DNS {
 	return d
 }
 
-func norm(s string) string { return strings.ToLower(strings.TrimSuffix(s, ".")) }
-
 // A makes name resolve to the addresses (IPv4 answer A queries, IPv6 answer AAAA).
 func (d *DNS) A(name string, addrs ...string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, a := range addrs {
-		d.addrs[norm(name)] = append(d.addrs[norm(name)], netip.MustParseAddr(a))
+		d.addrs[dnsname.Normalise(name)] = append(d.addrs[dnsname.Normalise(name)], netip.MustParseAddr(a))
 	}
 }
 
@@ -95,42 +95,42 @@ func (d *DNS) A(name string, addrs ...string) {
 func (d *DNS) CNAME(name, target string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.cnames[norm(name)] = norm(target)
+	d.cnames[dnsname.Normalise(name)] = dnsname.Normalise(target)
 }
 
 // Rcode forces a response code for every query for name.
 func (d *DNS) Rcode(name string, rcode int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.rcodes[norm(name)] = rcode
+	d.rcodes[dnsname.Normalise(name)] = rcode
 }
 
 // ClearRcode removes the response code forced for name by Rcode.
 func (d *DNS) ClearRcode(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.rcodes, norm(name))
+	delete(d.rcodes, dnsname.Normalise(name))
 }
 
 // RcodeSuffix forces a response code for every name under suffix.
 func (d *DNS) RcodeSuffix(suffix string, rcode int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sufRcode[norm(suffix)] = rcode
+	d.sufRcode[dnsname.Normalise(suffix)] = rcode
 }
 
 // Drop makes the server not answer queries for name (a client timeout).
 func (d *DNS) Drop(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.drop[norm(name)] = true
+	d.drop[dnsname.Normalise(name)] = true
 }
 
 // Undrop makes the server answer queries for name again.
 func (d *DNS) Undrop(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.drop, norm(name))
+	delete(d.drop, dnsname.Normalise(name))
 }
 
 // Wildcard makes every otherwise-unknown direct child of zone resolve to the addresses.
@@ -141,14 +141,14 @@ func (d *DNS) Wildcard(zone string, addrs ...string) {
 	for _, a := range addrs {
 		w.addrs = append(w.addrs, netip.MustParseAddr(a))
 	}
-	d.wild[norm(zone)] = w
+	d.wild[dnsname.Normalise(zone)] = w
 }
 
 // WildcardCNAME makes every otherwise-unknown direct child of zone an alias of target.
 func (d *DNS) WildcardCNAME(zone, target string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.wild[norm(zone)] = wildcard{cname: norm(target)}
+	d.wild[dnsname.Normalise(zone)] = wildcard{cname: dnsname.Normalise(target)}
 }
 
 // PTR makes the reverse name of addr answer with hostname.
@@ -156,28 +156,28 @@ func (d *DNS) PTR(addr, hostname string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	rev, _ := mdns.ReverseAddr(addr)
-	d.ptr[norm(rev)] = append(d.ptr[norm(rev)], norm(hostname))
+	d.ptr[dnsname.Normalise(rev)] = append(d.ptr[dnsname.Normalise(rev)], dnsname.Normalise(hostname))
 }
 
 // TXT makes name answer TXT queries with text.
 func (d *DNS) TXT(name, text string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.txt[norm(name)] = append(d.txt[norm(name)], text)
+	d.txt[dnsname.Normalise(name)] = append(d.txt[dnsname.Normalise(name)], text)
 }
 
 // MX makes name answer MX queries with a mail exchanger. host "." is a null MX.
 func (d *DNS) MX(name string, pref int, host string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.mx[norm(name)] = append(d.mx[norm(name)], mxRecord{uint16(pref), host})
+	d.mx[dnsname.Normalise(name)] = append(d.mx[dnsname.Normalise(name)], mxRecord{uint16(pref), host})
 }
 
 // NS makes name answer NS queries with a name server.
 func (d *DNS) NS(name, host string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.ns[norm(name)] = append(d.ns[norm(name)], norm(host))
+	d.ns[dnsname.Normalise(name)] = append(d.ns[dnsname.Normalise(name)], dnsname.Normalise(host))
 }
 
 // SOA makes name answer SOA queries. rname is in DNS form, so an escaped dot in
@@ -185,14 +185,14 @@ func (d *DNS) NS(name, host string) {
 func (d *DNS) SOA(name, mname, rname string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.soa[norm(name)] = soaRecord{norm(mname), rname}
+	d.soa[dnsname.Normalise(name)] = soaRecord{dnsname.Normalise(mname), rname}
 }
 
 // CAA makes name answer CAA queries with a record.
 func (d *DNS) CAA(name string, flags int, tag, value string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.caa[norm(name)] = append(d.caa[norm(name)], caaRecord{uint8(flags), tag, value})
+	d.caa[dnsname.Normalise(name)] = append(d.caa[dnsname.Normalise(name)], caaRecord{uint8(flags), tag, value})
 }
 
 // SRV makes name answer SRV queries with a service record. target "." is the
@@ -200,7 +200,7 @@ func (d *DNS) CAA(name string, flags int, tag, value string) {
 func (d *DNS) SRV(name string, priority, weight, port int, target string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.srv[norm(name)] = append(d.srv[norm(name)], srvRecord{uint16(priority), uint16(weight), uint16(port), target})
+	d.srv[dnsname.Normalise(name)] = append(d.srv[dnsname.Normalise(name)], srvRecord{uint16(priority), uint16(weight), uint16(port), target})
 }
 
 // RcodeType forces a response code for queries of one type ("TXT", "NS", ...)
@@ -208,21 +208,21 @@ func (d *DNS) SRV(name string, priority, weight, port int, target string) {
 func (d *DNS) RcodeType(name, qtype string, rcode int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.typeRC[norm(name)+"|"+qtype] = rcode
+	d.typeRC[dnsname.Normalise(name)+"|"+qtype] = rcode
 }
 
 // ClearRcodeType removes the response code forced by RcodeType.
 func (d *DNS) ClearRcodeType(name, qtype string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.typeRC, norm(name)+"|"+qtype)
+	delete(d.typeRC, dnsname.Normalise(name)+"|"+qtype)
 }
 
 // ClearRoot removes the NS, SOA, TXT and CAA records of name.
 func (d *DNS) ClearRoot(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	n := norm(name)
+	n := dnsname.Normalise(name)
 	delete(d.ns, n)
 	delete(d.soa, n)
 	delete(d.txt, n)
@@ -233,7 +233,7 @@ func (d *DNS) ClearRoot(name string) {
 func (d *DNS) Count(name, qtype string) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.queries[norm(name)+"|"+qtype]
+	return d.queries[dnsname.Normalise(name)+"|"+qtype]
 }
 
 // Queried lists the names queried with the type, sorted.
@@ -276,7 +276,7 @@ func (d *DNS) known(name string) bool {
 
 func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	q := r.Question[0]
-	name := norm(q.Name)
+	name := dnsname.Normalise(q.Name)
 	ty := mdns.TypeToString[q.Qtype]
 
 	d.mu.Lock()
@@ -284,11 +284,8 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	dropped := d.drop[name]
 	m := new(mdns.Msg)
 	m.SetReply(r)
-	hdr := func(t uint16) mdns.RR_Header {
-		return mdns.RR_Header{Name: q.Name, Rrtype: t, Class: mdns.ClassINET, Ttl: 60}
-	}
 	if !dropped {
-		d.answer(m, name, q.Qtype, hdr)
+		d.answer(m, name, q.Qtype)
 	}
 	d.mu.Unlock()
 	if dropped {
@@ -297,8 +294,13 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	_ = w.WriteMsg(m)
 }
 
+// rrHeader is the header of an answer record for name.
+func rrHeader(name string, t uint16) mdns.RR_Header {
+	return mdns.RR_Header{Name: mdns.Fqdn(name), Rrtype: t, Class: mdns.ClassINET, Ttl: 60}
+}
+
 // answer fills m. The caller holds d.mu.
-func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16, hdr func(uint16) mdns.RR_Header) {
+func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16) {
 	if rc, ok := d.rcodes[name]; ok {
 		m.Rcode = rc
 		return
@@ -308,7 +310,7 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16, hdr func(uint16) md
 		return
 	}
 	for suf, rc := range d.sufRcode {
-		if name == suf || strings.HasSuffix(name, "."+suf) {
+		if dnsname.Under(name, suf) {
 			m.Rcode = rc
 			return
 		}
@@ -324,9 +326,7 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16, hdr func(uint16) md
 		if !ok {
 			break
 		}
-		h := hdr(mdns.TypeCNAME)
-		h.Name = mdns.Fqdn(cur)
-		m.Answer = append(m.Answer, &mdns.CNAME{Hdr: h, Target: mdns.Fqdn(target)})
+		m.Answer = append(m.Answer, &mdns.CNAME{Hdr: rrHeader(cur, mdns.TypeCNAME), Target: mdns.Fqdn(target)})
 		cur = target
 	}
 	known := d.known(cur)
@@ -340,8 +340,7 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16, hdr func(uint16) md
 		m.Rcode = mdns.RcodeNameError // no such name, or a dangling chain
 		return
 	}
-	h := hdr(qtype)
-	h.Name = mdns.Fqdn(cur)
+	h := rrHeader(cur, qtype)
 	switch qtype {
 	case mdns.TypeA, mdns.TypeAAAA:
 		addrs := d.addrs[cur]

@@ -8,28 +8,25 @@ import (
 	"testing"
 	"time"
 
-	mdns "github.com/miekg/dns"
-
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // recorder is an HTTP server that logs "METHOD host path" for each request.
 type recorder struct {
-	mu   sync.Mutex
-	log  []string
-	srv  *httptest.Server
-	code int
+	mu  sync.Mutex
+	log []string
+	srv *httptest.Server
 }
 
-func newRecorder(t *testing.T, code int) *recorder {
+func newRecorder(t *testing.T) *recorder {
 	t.Helper()
-	r := &recorder{code: code}
+	r := &recorder{}
 	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.mu.Lock()
 		r.log = append(r.log, req.Method+" "+req.URL.RequestURI())
 		r.mu.Unlock()
-		w.WriteHeader(r.code)
 	}))
 	t.Cleanup(r.srv.Close)
 	return r
@@ -41,21 +38,12 @@ func (r *recorder) requests() []string {
 	return append([]string(nil), r.log...)
 }
 
-func thirdPartyEgress(t *testing.T, base map[string]string) *egress.Egress {
-	t.Helper()
-	eg := egress.New(egress.Options{SourceBaseURLs: base, RatePerSource: 1000})
-	eg.SetPolicy(&egress.Policy{
-		Scope:      scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "bad.blob.core.windows.net")}),
-		Candidates: map[string]bool{"cand.blob.core.windows.net": true, "cand.example.org": true},
-	})
-	return eg
-}
-
 // ThirdPartyHTTP allows HEAD, and still nothing but GET, HEAD and POST.
 func TestThirdPartyAllowsHead(t *testing.T) {
-	rec := newRecorder(t, 200)
-	eg := thirdPartyEgress(t, map[string]string{"storage.googleapis.com": rec.srv.URL})
-	c := eg.Clients("storage", false, []string{"storage.googleapis.com"}).ThirdParty
+	t.Parallel()
+	rec := newRecorder(t)
+	eg := thirdPartyEgress(t, map[string]string{"storage.googleapis.com": rec.srv.URL}, egress.Options{})
+	c := eg.Clients(false, []string{"storage.googleapis.com"}).ThirdParty
 	resp, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "HEAD", URL: "https://storage.googleapis.com/b/k"})
 	if err != nil || resp.Status != 200 || len(resp.Body) != 0 {
 		t.Fatalf("HEAD: %+v %v", resp, err)
@@ -72,9 +60,10 @@ func TestThirdPartyAllowsHead(t *testing.T) {
 
 // A source pattern may have one wildcard label in the middle.
 func TestSourceMiddleWildcard(t *testing.T) {
-	rec := newRecorder(t, 200)
-	eg := thirdPartyEgress(t, map[string]string{"s3.*.amazonaws.com": rec.srv.URL, "s3.amazonaws.com": rec.srv.URL})
-	c := eg.Clients("storage", false, []string{"s3.amazonaws.com", "s3.*.amazonaws.com"}).ThirdParty
+	t.Parallel()
+	rec := newRecorder(t)
+	eg := thirdPartyEgress(t, map[string]string{"s3.*.amazonaws.com": rec.srv.URL, "s3.amazonaws.com": rec.srv.URL}, egress.Options{})
+	c := eg.Clients(false, []string{"s3.amazonaws.com", "s3.*.amazonaws.com"}).ThirdParty
 	for _, ok := range []string{"https://s3.eu-west-1.amazonaws.com/b", "https://s3.us-gov-west-1.amazonaws.com/b", "https://s3.amazonaws.com/b"} {
 		if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: ok}); err != nil {
 			t.Errorf("%s: %v", ok, err)
@@ -100,16 +89,17 @@ func TestSourceMiddleWildcard(t *testing.T) {
 
 // Exempt sources skip only the candidate refusal.
 func TestCandidateExemption(t *testing.T) {
-	rec := newRecorder(t, 200)
-	eg := thirdPartyEgress(t, map[string]string{"*.blob.core.windows.net": rec.srv.URL, "*.example.org": rec.srv.URL})
+	t.Parallel()
+	rec := newRecorder(t)
+	eg := thirdPartyEgress(t, map[string]string{"*.blob.core.windows.net": rec.srv.URL, "*.example.org": rec.srv.URL}, egress.Options{})
 	sources := []string{"*.blob.core.windows.net", "*.example.org"}
 
-	plain := eg.Clients("storage", false, sources).ThirdParty
+	plain := eg.Clients(false, sources).ThirdParty
 	if _, err := plain.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://cand.blob.core.windows.net/c"}); err == nil {
 		t.Fatal("without the exemption a candidate host is refused")
 	}
 
-	c := eg.ClientsWith("storage", false, sources, []string{"*.blob.core.windows.net"}).ThirdParty
+	c := eg.ClientsWith(false, sources, []string{"*.blob.core.windows.net"}).ThirdParty
 	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://cand.blob.core.windows.net/c"}); err != nil {
 		t.Errorf("exempt candidate: %v", err)
 	}
@@ -128,9 +118,10 @@ func TestCandidateExemption(t *testing.T) {
 
 // SourceBaseURLs accepts exact hosts, checked before patterns.
 func TestSourceBaseURLExactHost(t *testing.T) {
-	one, two := newRecorder(t, 200), newRecorder(t, 200)
-	eg := thirdPartyEgress(t, map[string]string{"*.blob.core.windows.net": one.srv.URL, "acct2.blob.core.windows.net": two.srv.URL})
-	c := eg.Clients("storage", false, []string{"*.blob.core.windows.net"}).ThirdParty
+	t.Parallel()
+	one, two := newRecorder(t), newRecorder(t)
+	eg := thirdPartyEgress(t, map[string]string{"*.blob.core.windows.net": one.srv.URL, "acct2.blob.core.windows.net": two.srv.URL}, egress.Options{})
+	c := eg.Clients(false, []string{"*.blob.core.windows.net"}).ThirdParty
 	for _, h := range []string{"acct1", "acct2"} {
 		if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://" + h + ".blob.core.windows.net/x"}); err != nil {
 			t.Fatal(err)
@@ -143,23 +134,12 @@ func TestSourceBaseURLExactHost(t *testing.T) {
 
 // MX queries and rdata.
 func TestResolverMX(t *testing.T) {
-	srv := fakeDNS(t, func(w mdns.ResponseWriter, r *mdns.Msg) {
-		m := new(mdns.Msg)
-		m.SetReply(r)
-		q := r.Question[0]
-		hdr := mdns.RR_Header{Name: q.Name, Rrtype: mdns.TypeMX, Class: mdns.ClassINET, Ttl: 60}
-		switch q.Name {
-		case "example.com.":
-			m.Answer = append(m.Answer,
-				&mdns.MX{Hdr: hdr, Preference: 10, Mx: "Mail.Example.com."},
-				&mdns.MX{Hdr: hdr, Preference: 20, Mx: "mail2.example.com."})
-		case "null.example.com.":
-			m.Answer = append(m.Answer, &mdns.MX{Hdr: hdr, Preference: 0, Mx: "."})
-		}
-		_ = w.WriteMsg(m)
-	})
-	eg := egress.New(egress.Options{ResolverAddrs: []string{srv}, DNSTimeout: 300 * time.Millisecond, RateDNS: 1000})
-	dnsc := eg.Clients("email", false, nil).DNS
+	t.Parallel()
+	d := egresstest.NewDNS(t)
+	d.MX("example.com", 10, "Mail.Example.com")
+	d.MX("example.com", 20, "mail2.example.com")
+	d.MX("null.example.com", 0, ".")
+	dnsc := resolver(d.Addr, 300*time.Millisecond)
 	res, err := dnsc.Query(context.Background(), "example.com", egress.TypeMX)
 	if err != nil || len(res.Answers) != 2 || res.Answers[0].Type != "MX" || res.Answers[0].Value != "10 mail.example.com" || res.Answers[1].Value != "20 mail2.example.com" {
 		t.Errorf("MX = %+v %v", res, err)

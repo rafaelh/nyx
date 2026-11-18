@@ -82,7 +82,7 @@ func newIPFixture(t *testing.T, tlsServer bool, blocks []string, excl []string, 
 
 func (f *ipFixture) get(t *testing.T, r egress.Request) egress.HTTPResult {
 	t.Helper()
-	res, err := f.eg.Clients("t", true, nil).HTTP.Get(context.Background(), r)
+	res, err := f.eg.Clients(true, nil).HTTP.Get(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,11 +92,12 @@ func (f *ipFixture) get(t *testing.T, r egress.Request) egress.HTTPResult {
 // response is get, failing the test unless the result is a Response.
 func (f *ipFixture) response(t *testing.T, r egress.Request) egress.Response {
 	t.Helper()
-	res, ok := f.get(t, r).(egress.Response)
+	res := f.get(t, r)
+	resp, ok := res.(egress.Response)
 	if !ok {
-		t.Fatalf("not a Response: %#v", f.get(t, r))
+		t.Fatalf("not a Response: %#v", res)
 	}
-	return res
+	return resp
 }
 
 func (f *ipFixture) lastHost() string {
@@ -109,6 +110,7 @@ func (f *ipFixture) lastHost() string {
 }
 
 func TestIPLiteralInScopeIPv4(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, false, []string{"198.51.100.0/24"}, nil, []int{8080}, "198.51.100.7:8080")
 	r, ok := f.get(t, egress.Root("198.51.100.7", "http", 8080)).(egress.Response)
 	if !ok || r.Status != 200 || string(r.Body) != "ok" {
@@ -120,6 +122,7 @@ func TestIPLiteralInScopeIPv4(t *testing.T) {
 }
 
 func TestIPLiteralIPv6HostHeaderIsBracketedOnDefaultPort(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, false, []string{"2001:db8:1::/64"}, nil, []int{8080}, "[2001:db8:1::5]:80", "[2001:db8:1::5]:8080")
 	r, ok := f.get(t, egress.Root("2001:db8:1::5", "http", 80)).(egress.Response)
 	if !ok || r.Status != 200 {
@@ -137,6 +140,7 @@ func TestIPLiteralIPv6HostHeaderIsBracketedOnDefaultPort(t *testing.T) {
 }
 
 func TestIPLiteralLinkStaysOnTheIP(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, false, []string{"2001:db8:1::/64"}, nil, []int{8080}, "[2001:db8:1::5]:8080")
 	r := f.response(t, egress.Root("2001:db8:1::5", "http", 8080))
 	req, err := egress.Link(r, "/next?x=1")
@@ -156,6 +160,7 @@ func TestIPLiteralLinkStaysOnTheIP(t *testing.T) {
 }
 
 func TestIPLiteralSendsNoSNI(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, true, []string{"198.51.100.0/24"}, nil, []int{8443}, "198.51.100.7:8443")
 	if _, ok := f.get(t, egress.Root("198.51.100.7", "https", 8443)).(egress.Response); !ok {
 		t.Fatal("https to an IP literal failed")
@@ -167,6 +172,7 @@ func TestIPLiteralSendsNoSNI(t *testing.T) {
 
 // Control for the test above: the fixture does capture an SNI for a hostname.
 func TestHostnameStillSendsSNI(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, true, nil, nil, []int{8443}, "203.0.113.5:8443")
 	f.eg.SetPolicy(&egress.Policy{
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}}), Ack: true, Ports: []int{8443},
@@ -181,6 +187,7 @@ func TestHostnameStillSendsSNI(t *testing.T) {
 }
 
 func TestIPLiteralPolicyRefusals(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, false, []string{"198.51.100.0/24", "2001:db8:1::/64"}, []string{"198.51.100.128/25"}, []int{8080},
 		"198.51.100.7:8080", "198.51.100.200:8080", "203.0.113.9:8080", "[2001:db8:2::1]:8080")
 	for _, c := range []struct{ name, host string }{
@@ -206,6 +213,7 @@ func TestIPLiteralPolicyRefusals(t *testing.T) {
 }
 
 func TestIPLiteralGateStillApplies(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, false, []string{"198.51.100.0/24"}, nil, []int{8080}, "198.51.100.7:8080")
 	for name, mod := range map[string]func(*egress.Policy){
 		"passive":        func(p *egress.Policy) { p.Passive = true },
@@ -228,6 +236,7 @@ func TestIPLiteralGateStillApplies(t *testing.T) {
 }
 
 func TestIPLiteralRedirectFollowsTheSameRule(t *testing.T) {
+	t.Parallel()
 	f := newIPFixture(t, false, []string{"198.51.100.0/24"}, nil, []int{8080},
 		"198.51.100.7:8080", "198.51.100.8:8080", "203.0.113.9:8080")
 

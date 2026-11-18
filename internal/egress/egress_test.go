@@ -1,7 +1,9 @@
 package egress_test
 
 import (
+	"cmp"
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/scope"
 )
@@ -48,44 +51,20 @@ func portOf(t *testing.T, hostport string) int {
 
 // --- DNS ---
 
-func fakeDNS(t *testing.T, h mdns.HandlerFunc) string {
-	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &mdns.Server{PacketConn: pc, Handler: h}
-	started := make(chan struct{})
-	srv.NotifyStartedFunc = func() { close(started) }
-	go func() { _ = srv.ActivateAndServe() }()
-	<-started
-	t.Cleanup(func() { _ = srv.Shutdown() })
-	return pc.LocalAddr().String()
+// resolver is the DNS client of an Egress that sends every query to server.
+func resolver(server string, timeout time.Duration) egress.Resolver {
+	return egress.New(egress.Options{ResolverAddrs: []string{server}, DNSTimeout: timeout, RateDNS: 1000}).Clients(false, nil).DNS
 }
 
 func TestResolverResults(t *testing.T) {
-	var queries atomic.Int32
-	srv := fakeDNS(t, func(w mdns.ResponseWriter, r *mdns.Msg) {
-		queries.Add(1)
-		m := new(mdns.Msg)
-		m.SetReply(r)
-		q := r.Question[0]
-		switch q.Name {
-		case "nx.example.com.":
-			m.Rcode = mdns.RcodeNameError
-		case "nodata.example.com.":
-			// NOERROR, no answers
-		case "fail.example.com.":
-			m.Rcode = mdns.RcodeServerFailure
-		case "alias.example.com.":
-			m.Answer = append(m.Answer,
-				&mdns.CNAME{Hdr: mdns.RR_Header{Name: q.Name, Rrtype: mdns.TypeCNAME, Class: mdns.ClassINET, Ttl: 60}, Target: "real.example.com."},
-				&mdns.A{Hdr: mdns.RR_Header{Name: "real.example.com.", Rrtype: mdns.TypeA, Class: mdns.ClassINET, Ttl: 60}, A: net.ParseIP("192.0.2.1")})
-		}
-		_ = w.WriteMsg(m)
-	})
-	eg := egress.New(egress.Options{ResolverAddrs: []string{srv}, DNSTimeout: 300 * time.Millisecond, RateDNS: 1000})
-	dnsc := eg.Clients("t", false, nil).DNS
+	t.Parallel()
+	d := egresstest.NewDNS(t)
+	d.Rcode("nx.example.com", mdns.RcodeNameError)
+	d.Rcode("nodata.example.com", mdns.RcodeSuccess) // NOERROR, no answers
+	d.Rcode("fail.example.com", mdns.RcodeServerFailure)
+	d.CNAME("alias.example.com", "real.example.com")
+	d.A("real.example.com", "192.0.2.1")
+	dnsc := resolver(d.Addr, 300*time.Millisecond)
 
 	res, err := dnsc.Query(context.Background(), "nx.example.com", mdns.TypeA)
 	if err != nil || res.RCode != egress.RCodeNXDomain {
@@ -106,34 +85,38 @@ func TestResolverResults(t *testing.T) {
 }
 
 func TestResolverTimeoutIsError(t *testing.T) {
+	t.Parallel()
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pc.Close()
-	eg := egress.New(egress.Options{ResolverAddrs: []string{pc.LocalAddr().String()}, DNSTimeout: 100 * time.Millisecond, RateDNS: 1000})
-	_, err = eg.Clients("t", false, nil).DNS.Query(context.Background(), "x.example.com", mdns.TypeA)
+	_, err = resolver(pc.LocalAddr().String(), 100*time.Millisecond).Query(context.Background(), "x.example.com", mdns.TypeA)
 	if err == nil {
 		t.Fatal("timeout must be an error, not a result")
 	}
 }
 
 func TestResolverHasNoZoneTransfer(t *testing.T) {
+	t.Parallel()
 	tt := reflect.TypeOf((*egress.Resolver)(nil)).Elem()
 	if tt.NumMethod() != 1 || tt.Method(0).Name != "Query" {
 		t.Errorf("Resolver has methods beyond Query")
 	}
 	// A transfer query type must be refused rather than sent.
-	srv := fakeDNS(t, func(w mdns.ResponseWriter, r *mdns.Msg) { _ = w.WriteMsg(new(mdns.Msg).SetReply(r)) })
-	eg := egress.New(egress.Options{ResolverAddrs: []string{srv}, DNSTimeout: 200 * time.Millisecond, RateDNS: 1000})
-	if _, err := eg.Clients("t", false, nil).DNS.Query(context.Background(), "example.com", mdns.TypeAXFR); err == nil {
+	d := egresstest.NewDNS(t)
+	dnsc := resolver(d.Addr, 200*time.Millisecond)
+	if _, err := dnsc.Query(context.Background(), "example.com", mdns.TypeAXFR); err == nil {
 		t.Error("AXFR must be refused")
 	}
-	if _, err := eg.Clients("t", false, nil).DNS.Query(context.Background(), "example.com", mdns.TypeIXFR); err == nil {
+	if _, err := dnsc.Query(context.Background(), "example.com", mdns.TypeIXFR); err == nil {
 		t.Error("IXFR must be refused")
 	}
+	if n := d.Total(); n != 0 {
+		t.Errorf("a refused transfer query reached the server (%d queries)", n)
+	}
 	for _, qt := range []uint16{egress.TypeNS, egress.TypeSOA, egress.TypeCAA} {
-		if _, err := eg.Clients("t", false, nil).DNS.Query(context.Background(), "example.com", qt); err != nil {
+		if _, err := dnsc.Query(context.Background(), "example.com", qt); err != nil {
 			t.Errorf("query type %d: %v", qt, err)
 		}
 	}
@@ -141,7 +124,7 @@ func TestResolverHasNoZoneTransfer(t *testing.T) {
 
 // --- TCP ---
 
-func tcpPolicy(t *testing.T, ports ...int) *egress.Policy {
+func tcpPolicy(ports ...int) *egress.Policy {
 	return &egress.Policy{
 		Scope: scope.New(scope.Config{Netblocks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("192.0.2.0/24")}}),
 		Ack:   true,
@@ -150,33 +133,18 @@ func tcpPolicy(t *testing.T, ports ...int) *egress.Policy {
 }
 
 func TestTCPOutcomes(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			_, _ = c.Write([]byte("SSH-2.0-test\r\n"))
-			c.Close()
-		}
-	}()
-	openPort := portOf(t, ln.Addr().String())
-	closed, _ := net.Listen("tcp", "127.0.0.1:0")
-	closedPort := portOf(t, closed.Addr().String())
-	closed.Close()
+	t.Parallel()
+	openPort := serveTCP(t, sshBanner)
+	closedPort := portOf(t, closedAddr(t))
 
-	eg := egress.New(egress.Options{ConnectTimeout: 300 * time.Millisecond, BannerWait: 500 * time.Millisecond, RatePerHost: 1000,
+	const connectTimeout = 300 * time.Millisecond
+	eg := egress.New(egress.Options{ConnectTimeout: connectTimeout, BannerWait: 500 * time.Millisecond, RatePerHost: 1000,
 		DialMap: map[string]string{
 			"192.0.2.1:" + strconv.Itoa(closedPort): "10.255.255.1:81",
 			"192.0.2.2:" + strconv.Itoa(closedPort): "127.0.0.1:99999",
 		}})
-	eg.SetPolicy(tcpPolicy(t, openPort, closedPort))
-	tcp := eg.Clients("t", true, nil).TCP
+	eg.SetPolicy(tcpPolicy(openPort, closedPort))
+	tcp := eg.Clients(true, nil).TCP
 
 	res, err := tcp.Connect(context.Background(), addr("127.0.0.1"), openPort)
 	if o, ok := res.(egress.Open); err != nil || !ok || !strings.HasPrefix(string(o.Banner), "SSH-2.0") {
@@ -192,27 +160,28 @@ func TestTCPOutcomes(t *testing.T) {
 	if _, ok := res.(egress.Filtered); err != nil || !ok {
 		t.Errorf("filtered (dial failure): %#v %v", res, err)
 	}
-	// A genuinely blackholed address times out; skipped where the network answers instead.
-	if c, derr := net.DialTimeout("tcp", "10.255.255.1:81", 300*time.Millisecond); derr == nil {
-		c.Close()
-	} else if ne, ok := derr.(net.Error); ok && ne.Timeout() {
-		start := time.Now()
-		res, err = tcp.Connect(context.Background(), addr("192.0.2.1"), closedPort)
-		if _, ok := res.(egress.Filtered); err != nil || !ok {
-			t.Errorf("filtered (timeout): %#v %v", res, err)
-		}
-		if time.Since(start) > 3*time.Second {
-			t.Error("filtered took too long")
-		}
+	// A genuinely blackholed address times out as Filtered. Where the network
+	// answers before the connect timeout instead, there is no timeout to check.
+	start := time.Now()
+	res, err = tcp.Connect(context.Background(), addr("192.0.2.1"), closedPort)
+	_, filtered := res.(egress.Filtered)
+	switch el := time.Since(start); {
+	case el < connectTimeout:
+		t.Logf("10.255.255.1 is not blackholed here (%#v %v after %v)", res, err, el)
+	case err != nil || !filtered:
+		t.Errorf("filtered (timeout): %#v %v", res, err)
+	case el > 3*time.Second:
+		t.Error("filtered took too long")
 	}
 }
 
 // Port list, scope, passive and ack are enforced.
 func TestTCPPolicyRefusals(t *testing.T) {
-	p := tcpPolicy(t, 8080)
+	t.Parallel()
+	p := tcpPolicy(8080)
 	eg := egress.New(egress.Options{ConnectTimeout: 100 * time.Millisecond, RatePerHost: 1000})
 	eg.SetPolicy(p)
-	tcp := eg.Clients("t", true, nil).TCP
+	tcp := eg.Clients(true, nil).TCP
 	check := func(name string, res egress.TCPResult, err error) {
 		t.Helper()
 		if _, ok := res.(egress.Refused); err != nil || !ok {
@@ -224,13 +193,13 @@ func TestTCPPolicyRefusals(t *testing.T) {
 	res, err = tcp.Connect(context.Background(), addr("8.8.8.8"), 8080)
 	check("address out of scope", res, err)
 
-	p2 := tcpPolicy(t, 8080)
+	p2 := tcpPolicy(8080)
 	p2.Passive = true
 	eg.SetPolicy(p2)
 	res, err = tcp.Connect(context.Background(), addr("127.0.0.1"), 8080)
 	check("passive", res, err)
 
-	p3 := tcpPolicy(t, 8080)
+	p3 := tcpPolicy(8080)
 	p3.Ack = false
 	eg.SetPolicy(p3)
 	res, err = tcp.Connect(context.Background(), addr("127.0.0.1"), 8080)
@@ -239,6 +208,7 @@ func TestTCPPolicyRefusals(t *testing.T) {
 
 // Addresses of excluded hosts and excluded CIDRs are refused; the guard reports it.
 func TestTCPExclusions(t *testing.T) {
+	t.Parallel()
 	var reported []string
 	p := &egress.Policy{
 		Scope: scope.New(scope.Config{
@@ -254,7 +224,7 @@ func TestTCPExclusions(t *testing.T) {
 	}
 	eg := egress.New(egress.Options{ConnectTimeout: 100 * time.Millisecond, RatePerHost: 1000})
 	eg.SetPolicy(p)
-	tcp := eg.Clients("t", true, nil).TCP
+	tcp := eg.Clients(true, nil).TCP
 	for _, a := range []string{"127.0.0.5", "127.0.0.9"} {
 		res, err := tcp.Connect(context.Background(), addr(a), 8080)
 		if _, ok := res.(egress.Refused); err != nil || !ok {
@@ -280,7 +250,9 @@ type httpFixture struct {
 	pol  *egress.Policy
 }
 
-func newHTTPFixture(t *testing.T, h http.HandlerFunc) *httpFixture {
+// newHTTPFixture serves h on loopback, where www, a and b.example.com resolve.
+// Zero RatePerHost, HTTPTimeout and ConnectTimeout in opts get test defaults.
+func newHTTPFixture(t *testing.T, opts egress.Options, h http.HandlerFunc) *httpFixture {
 	t.Helper()
 	f := &httpFixture{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -301,16 +273,20 @@ func newHTTPFixture(t *testing.T, h http.HandlerFunc) *httpFixture {
 		SensitivePaths: []string{"/.git/HEAD", "/server-status"},
 		Resolutions:    res,
 	}
-	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second})
+	opts.RatePerHost = cmp.Or(opts.RatePerHost, 1000)
+	opts.HTTPTimeout = cmp.Or(opts.HTTPTimeout, 2*time.Second)
+	opts.ConnectTimeout = cmp.Or(opts.ConnectTimeout, time.Second)
+	f.eg = egress.New(opts)
 	f.eg.SetPolicy(f.pol)
 	return f
 }
 
-func (f *httpFixture) client() egress.TargetHTTP { return f.eg.Clients("t", true, nil).HTTP }
+func (f *httpFixture) client() egress.TargetHTTP { return f.eg.Clients(true, nil).HTTP }
 
 func TestHTTPRootAndHeaders(t *testing.T) {
+	t.Parallel()
 	var gotUA, gotAuth, gotCookie, gotMethod, gotHost string
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {
 		gotUA, gotAuth, gotCookie, gotMethod, gotHost = r.UserAgent(), r.Header.Get("Authorization"), r.Header.Get("Cookie"), r.Method, r.Host
 		http.SetCookie(w, &http.Cookie{Name: "s", Value: "1"})
 		w.Header().Set("X-Test", "yes")
@@ -337,7 +313,8 @@ func TestHTTPRootAndHeaders(t *testing.T) {
 
 // RootAt dials only the given address, and only if the name may be reached there.
 func TestHTTPRootAtPinsTheAddress(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	if res, err := f.client().Get(context.Background(), egress.RootAt("www.example.com", "http", f.port, addr("127.0.0.1"))); err != nil {
 		t.Fatal(err)
 	} else if r, ok := res.(egress.Response); !ok || r.Status != 200 {
@@ -354,8 +331,9 @@ func TestHTTPRootAtPinsTheAddress(t *testing.T) {
 }
 
 func TestHTTPSensitivePathAndLink(t *testing.T) {
+	t.Parallel()
 	var paths []string
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.RequestURI())
 		_, _ = w.Write([]byte(`<a href="/next">x</a>`))
 	})
@@ -394,7 +372,8 @@ func TestHTTPSensitivePathAndLink(t *testing.T) {
 func isRefused(res egress.HTTPResult) bool { _, ok := res.(egress.Refused); return ok }
 
 func TestHTTPRedirectNotFollowed(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.Redirect(w, r, "/landing", http.StatusFound)
 			return
@@ -420,7 +399,8 @@ func TestHTTPRedirectNotFollowed(t *testing.T) {
 }
 
 func TestHTTPPolicyRefusals(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {})
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {})
 	cases := map[string]egress.Request{
 		"out of scope host": egress.Root("www.example.org", "http", f.port),
 		"port not in list":  egress.Root("www.example.com", "http", 9),
@@ -448,10 +428,9 @@ func TestHTTPPolicyRefusals(t *testing.T) {
 }
 
 func TestHTTPNoService(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {})
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	dead := portOf(t, ln.Addr().String())
-	ln.Close()
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {})
+	dead := portOf(t, closedAddr(t))
 	f.pol.Ports = append(f.pol.Ports, dead)
 	res, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", dead))
 	ns, ok := res.(egress.NoService)
@@ -462,8 +441,9 @@ func TestHTTPNoService(t *testing.T) {
 
 // Excluded host's address is refused unless labelled shared.
 func TestHTTPExclusionAndSharedInfra(t *testing.T) {
+	t.Parallel()
 	var reported []string
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(r.Host)) })
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(r.Host)) })
 	res := map[string][]netip.Addr{"www.example.com": {addr("127.0.0.1")}, "admin.example.com": {addr("127.0.0.1")}}
 	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "admin.example.com"), Resolutions: res})
 	f.pol.Resolutions = res
@@ -494,13 +474,16 @@ func TestHTTPExclusionAndSharedInfra(t *testing.T) {
 
 // Dial map test hook: policy logic sees the real address, the dial goes elsewhere.
 func TestHTTPDialMap(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	t.Parallel()
+	// The fixture's port is known only once it is serving, so the map is filled
+	// after the Egress holding it is built.
+	dial := map[string]string{}
+	f := newHTTPFixture(t, egress.Options{DialMap: dial}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	dial["203.0.113.5:"+strconv.Itoa(f.port)] = "127.0.0.1:" + strconv.Itoa(f.port)
 	res := map[string][]netip.Addr{"www.example.com": {addr("203.0.113.5")}}
 	f.pol.Resolutions = res
 	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res})
-	eg := egress.New(egress.Options{RatePerHost: 1000, DialMap: map[string]string{"203.0.113.5:" + strconv.Itoa(f.port): "127.0.0.1:" + strconv.Itoa(f.port)}})
-	eg.SetPolicy(f.pol)
-	r, err := eg.Clients("t", true, nil).HTTP.Get(context.Background(), egress.Root("www.example.com", "http", f.port))
+	r, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port))
 	if resp, ok := r.(egress.Response); err != nil || !ok || string(resp.Body) != "ok" {
 		t.Errorf("%#v %v", r, err)
 	}
@@ -508,6 +491,7 @@ func TestHTTPDialMap(t *testing.T) {
 
 // API shape. No method other than Get/Head, no raw URLs, no connections.
 func TestTargetAPIShape(t *testing.T) {
+	t.Parallel()
 	ht := reflect.TypeOf((*egress.TargetHTTP)(nil)).Elem()
 	var names []string
 	for i := 0; i < ht.NumMethod(); i++ {
@@ -557,15 +541,16 @@ func TestTargetAPIShape(t *testing.T) {
 
 // Target clients are only given to Target stages.
 func TestClientsForThirdPartyStageHaveNoTargetClients(t *testing.T) {
+	t.Parallel()
 	eg := egress.New(egress.Options{})
-	c := eg.Clients("s", false, []string{"stat.ripe.net"})
+	c := eg.Clients(false, []string{"stat.ripe.net"})
 	if c.HTTP != nil || c.TCP != nil {
 		t.Error("ThirdParty stage must not get Target clients")
 	}
 	if c.ThirdParty == nil || c.DNS == nil {
 		t.Error("ThirdParty and DNS clients expected")
 	}
-	c = eg.Clients("s", true, nil)
+	c = eg.Clients(true, nil)
 	if c.HTTP == nil || c.TCP == nil {
 		t.Error("Target stage gets Target clients")
 	}
@@ -574,18 +559,12 @@ func TestClientsForThirdPartyStageHaveNoTargetClients(t *testing.T) {
 // --- ThirdPartyHTTP ---
 
 func TestThirdParty(t *testing.T) {
+	t.Parallel()
 	var gotPath, gotMethod string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath, gotMethod = r.URL.RequestURI(), r.Method
 		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
-	eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"stat.ripe.net": srv.URL, "*.s3.amazonaws.com": srv.URL}, RatePerSource: 1000})
-	eg.SetPolicy(&egress.Policy{
-		Scope:      scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "bad.example.net")}),
-		Candidates: map[string]bool{"cand.example.org": true},
-	})
-	c := eg.Clients("asn", false, []string{"stat.ripe.net", "*.s3.amazonaws.com"}).ThirdParty
+	}, egress.Options{}, "stat.ripe.net", "*.s3.amazonaws.com")
 
 	resp, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://stat.ripe.net/data/x.json?resource=AS1"})
 	if err != nil || resp.Status != 200 || string(resp.Body) != `{"ok":true}` || gotPath != "/data/x.json?resource=AS1" {
@@ -614,73 +593,56 @@ func TestThirdParty(t *testing.T) {
 		t.Error("refused requests were sent")
 	}
 	// A source that is itself in scope is refused too.
-	c2 := eg.Clients("x", false, []string{"www.example.com"}).ThirdParty
+	c2 := thirdPartyEgress(t, nil, egress.Options{}).Clients(false, []string{"www.example.com"}).ThirdParty
 	if _, err := c2.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://www.example.com/"}); err == nil {
 		t.Error("in-scope host must be refused even if listed in Sources()")
 	}
 }
 
 func TestThirdPartyDoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
 	var other atomic.Int32
 	o := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { other.Add(1) }))
 	defer o.Close()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, o.URL, http.StatusFound) }))
-	defer srv.Close()
-	eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"src.example.net": srv.URL}, RatePerSource: 1000})
-	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
-	resp, err := eg.Clients("s", false, []string{"src.example.net"}).ThirdParty.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://src.example.net/"})
+	c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, o.URL, http.StatusFound) }, egress.Options{}, "src.example.net")
+	resp, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://src.example.net/"})
 	if err != nil || resp.Status != 302 || other.Load() != 0 {
 		t.Errorf("%+v %v other=%d", resp, err, other.Load())
 	}
 }
 
+// A key never appears in a transport error, which includes the URL: neither a
+// key in the URL the stage gives nor one egress adds as a (percent-encoded)
+// query parameter.
 func TestThirdPartyKeyScrubbedFromErrors(t *testing.T) {
-	// Server closed: the transport error includes the URL, which includes the key.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	base := srv.URL
-	srv.Close()
-	eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"api.example.net": base}, RatePerSource: 1000, Redactor: newRedactor("KEY-12345")})
-	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
-	_, err := eg.Clients("s", false, []string{"api.example.net"}).ThirdParty.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/x?key=KEY-12345"})
-	if err == nil || strings.Contains(err.Error(), "KEY-12345") {
-		t.Errorf("error must be scrubbed: %v", err)
-	}
-}
-
-func TestThirdPartyEncodedKeyScrubbedFromErrors(t *testing.T) {
-	// A key sent as a query parameter appears percent-encoded in the transport error.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	base := srv.URL
-	srv.Close()
-	const key = "abc+def/ghi="
-	eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"api.example.net": base}, RatePerSource: 1000,
-		Keys: map[string]config.Secret{"src": key}, Redactor: newRedactor(key)})
-	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
-	_, err := eg.Clients("s", false, []string{"api.example.net"}).ThirdParty.Do(context.Background(),
-		egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/x", KeySource: "src", KeyParam: "key"})
-	if err == nil || strings.Contains(err.Error(), "abc") {
-		t.Errorf("error must be scrubbed: %v", err)
+	t.Parallel()
+	base := "http://" + closedAddr(t) // nothing answers, so the request fails in the transport
+	for name, tc := range map[string]struct {
+		key, leak string
+		req       egress.ThirdPartyRequest
+	}{
+		"in the URL": {"KEY-12345", "KEY-12345",
+			egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/x?key=KEY-12345"}},
+		"added as a query parameter": {"abc+def/ghi=", "abc",
+			egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/x", KeySource: "src", KeyParam: "key"}},
+	} {
+		eg := thirdPartyEgress(t, map[string]string{"api.example.net": base}, egress.Options{
+			Keys: map[string]config.Secret{"src": config.Secret(tc.key)}, Redactor: config.NewRedactor(tc.key)})
+		_, err := eg.Clients(false, []string{"api.example.net"}).ThirdParty.Do(context.Background(), tc.req)
+		if err == nil || strings.Contains(err.Error(), tc.leak) {
+			t.Errorf("%s: error must be scrubbed: %v", name, err)
+		}
 	}
 }
 
 // --- Rate limits ---
 
 func TestPerIPRateLimit(t *testing.T) {
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer ln.Close()
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			c.Close()
-		}
-	}()
-	port := portOf(t, ln.Addr().String())
+	t.Parallel()
+	port := serveTCP(t, nil)
 	eg := egress.New(egress.Options{RatePerHost: 20, ConnectTimeout: time.Second, BannerWait: 20 * time.Millisecond})
-	eg.SetPolicy(tcpPolicy(t, port))
-	tcp := eg.Clients("t", true, nil).TCP
+	eg.SetPolicy(tcpPolicy(port))
+	tcp := eg.Clients(true, nil).TCP
 	start := time.Now()
 	for i := 0; i < 5; i++ {
 		_, _ = tcp.Connect(context.Background(), addr("127.0.0.1"), port)
@@ -691,9 +653,8 @@ func TestPerIPRateLimit(t *testing.T) {
 }
 
 func TestVhostsShareALimiter(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {})
-	f.eg = egress.New(egress.Options{RatePerHost: 20, HTTPTimeout: 2 * time.Second})
-	f.eg.SetPolicy(f.pol)
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{RatePerHost: 20}, func(w http.ResponseWriter, r *http.Request) {})
 	c := f.client()
 	start := time.Now()
 	for i := 0; i < 3; i++ {
@@ -707,9 +668,9 @@ func TestVhostsShareALimiter(t *testing.T) {
 
 // Waiting for a rate-limit token does not count against HTTPTimeout.
 func TestRateLimitWaitOutsideHTTPTimeout(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
-	f.eg = egress.New(egress.Options{RatePerHost: 4, HTTPTimeout: 150 * time.Millisecond})
-	f.eg.SetPolicy(f.pol)
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{RatePerHost: 4, HTTPTimeout: 150 * time.Millisecond},
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	c := f.client()
 	for i := 0; i < 2; i++ { // the second request waits ~250ms for its token
 		res, err := c.Get(context.Background(), egress.Root("www.example.com", "http", f.port))
@@ -721,14 +682,13 @@ func TestRateLimitWaitOutsideHTTPTimeout(t *testing.T) {
 
 // A body cut short is a transient error, not a (truncated) Response.
 func TestHTTPTruncatedBodyIsError(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{HTTPTimeout: 200 * time.Millisecond}, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "100")
 		_, _ = w.Write([]byte("partial"))
 		w.(http.Flusher).Flush()
-		time.Sleep(time.Second)
+		<-r.Context().Done() // hold the body open until the client gives up
 	})
-	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 200 * time.Millisecond})
-	f.eg.SetPolicy(f.pol)
 	res, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port))
 	if err == nil {
 		t.Errorf("want error, got %#v", res)
@@ -737,9 +697,9 @@ func TestHTTPTruncatedBodyIsError(t *testing.T) {
 
 // A sensitive path that is not absolute could change the request's host.
 func TestRelativeSensitivePathRefused(t *testing.T) {
-	f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {})
+	t.Parallel()
+	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) {})
 	f.pol.SensitivePaths = []string{"admin/.env", "@other.com/x"}
-	f.eg.SetPolicy(f.pol)
 	for i := range f.pol.SensitivePaths {
 		svc := egress.Service{Host: "www.example.com", Scheme: "http", Port: f.port}
 		res, err := f.client().Get(context.Background(), egress.SensitivePath(svc, i))
@@ -754,32 +714,18 @@ func TestRelativeSensitivePathRefused(t *testing.T) {
 
 // HTTPS: verification is skipped for the connection but the chain is checked separately.
 func TestHTTPSCertTrustReported(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("secure")) }))
-	defer srv.Close()
-	port := portOf(t, strings.TrimPrefix(srv.URL, "https://"))
-	res := map[string][]netip.Addr{"www.example.com": {addr("127.0.0.1")}}
-	eg := egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second})
-	eg.SetPolicy(&egress.Policy{
-		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res}),
-		Ack:   true, Ports: []int{port}, Resolutions: res,
-	})
-	r, err := eg.Clients("t", true, nil).HTTP.Get(context.Background(), egress.Root("www.example.com", "https", port))
+	t.Parallel()
+	r := getTLS(t, "www.example.com", tlsServer(t, &tls.Config{}))
 	resp, ok := r.(egress.Response)
-	if err != nil || !ok || string(resp.Body) != "secure" {
-		t.Fatalf("%#v %v", r, err)
+	if !ok || string(resp.Body) != "secure" {
+		t.Fatalf("%#v", r)
 	}
 	if len(resp.PeerCerts) == 0 || resp.CertTrust() == "" || resp.CertTrust() == "trusted" {
 		t.Errorf("self-signed certificate must be fetched and flagged: certs=%d trust=%q", len(resp.PeerCerts), resp.CertTrust())
 	}
 	// A non-TLS port spoken to as https is NoService, not an error.
-	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer plain.Close()
-	pp := portOf(t, strings.TrimPrefix(plain.URL, "http://"))
-	eg.SetPolicy(&egress.Policy{
-		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res}),
-		Ack:   true, Ports: []int{pp}, Resolutions: res,
-	})
-	r, err = eg.Clients("t", true, nil).HTTP.Get(context.Background(), egress.Root("www.example.com", "https", pp))
+	f := newHTTPFixture(t, egress.Options{}, func(http.ResponseWriter, *http.Request) {})
+	r, err := f.client().Get(context.Background(), egress.Root("www.example.com", "https", f.port))
 	if ns, ok := r.(egress.NoService); err != nil || !ok || ns.Reason != egress.NoServiceTLSFailed {
 		t.Errorf("tls failure: %#v %v", r, err)
 	}
@@ -788,23 +734,19 @@ func TestHTTPSCertTrustReported(t *testing.T) {
 // Every request carries Options.UserAgent, nyx/devel when it is not set, to a
 // third-party source and to a target alike.
 func TestUserAgentOption(t *testing.T) {
+	t.Parallel()
 	for set, want := range map[string]string{"nyx/v9.9.9": "nyx/v9.9.9", "": "nyx/devel"} {
 		var gotSource string
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gotSource = r.UserAgent() }))
-		eg := egress.New(egress.Options{SourceBaseURLs: map[string]string{"src.example.net": srv.URL}, RatePerSource: 1000, UserAgent: set})
-		eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{})})
-		if _, err := eg.Clients("s", false, []string{"src.example.net"}).ThirdParty.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://src.example.net/"}); err != nil {
+		c := thirdPartyServer(t, func(w http.ResponseWriter, r *http.Request) { gotSource = r.UserAgent() }, egress.Options{UserAgent: set}, "src.example.net")
+		if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://src.example.net/"}); err != nil {
 			t.Fatal(err)
 		}
-		srv.Close()
 		if gotSource != want {
 			t.Errorf("UserAgent %q: the source saw %q, want %q", set, gotSource, want)
 		}
 
 		var gotTarget string
-		f := newHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) { gotTarget = r.UserAgent() })
-		f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, UserAgent: set})
-		f.eg.SetPolicy(f.pol)
+		f := newHTTPFixture(t, egress.Options{UserAgent: set}, func(w http.ResponseWriter, r *http.Request) { gotTarget = r.UserAgent() })
 		if _, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port)); err != nil {
 			t.Fatal(err)
 		}

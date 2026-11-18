@@ -53,16 +53,12 @@ func Open(dir string, o Options) (*Engagement, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	marker := filepath.Join(dir, ".nyx")
-	if _, err := os.Stat(marker); errors.Is(err, os.ErrNotExist) {
-		entries, rerr := os.ReadDir(dir)
-		if rerr != nil {
-			return nil, rerr
-		}
-		if len(entries) > 0 {
-			return nil, &NotEngagementError{Dir: dir}
-		}
+	if state, err := Probe(dir); err != nil {
+		return nil, err
+	} else if state == Foreign {
+		return nil, &NotEngagementError{Dir: dir}
 	}
+	marker := filepath.Join(dir, ".nyx")
 	if err := os.MkdirAll(marker, 0o755); err != nil {
 		return nil, err
 	}
@@ -208,10 +204,15 @@ func (e *Engagement) Close() error {
 	return err
 }
 
+// inputFields pairs each stored input kind with the field of p that holds it.
+func inputFields(p *input.Parsed) map[string]*[]string {
+	return map[string]*[]string{"root": &p.Roots, "org": &p.Orgs, "asn": &p.ASNs, "cidr": &p.CIDRs, InputExclusion: &p.Exclusions}
+}
+
 // MergeInputs adds inputs and exclusions to the stored scope (a union; nothing is removed).
 func (e *Engagement) MergeInputs(p input.Parsed) error {
-	for kind, vals := range map[string][]string{"root": p.Roots, "org": p.Orgs, "asn": p.ASNs, "cidr": p.CIDRs, InputExclusion: p.Exclusions} {
-		for _, v := range vals {
+	for kind, vals := range inputFields(&p) {
+		for _, v := range *vals {
 			if _, err := e.st.AddInput(kind, v); err != nil {
 				return err
 			}
@@ -235,18 +236,10 @@ const InputExclusion = "exclude"
 // ParseInputs groups stored inputs by kind, in their stored order.
 func ParseInputs(rows []store.Input) input.Parsed {
 	var p input.Parsed
+	fields := inputFields(&p)
 	for _, r := range rows {
-		switch r.Kind {
-		case "root":
-			p.Roots = append(p.Roots, r.Value)
-		case "org":
-			p.Orgs = append(p.Orgs, r.Value)
-		case "asn":
-			p.ASNs = append(p.ASNs, r.Value)
-		case "cidr":
-			p.CIDRs = append(p.CIDRs, r.Value)
-		case InputExclusion:
-			p.Exclusions = append(p.Exclusions, r.Value)
+		if f, ok := fields[r.Kind]; ok {
+			*f = append(*f, r.Value)
 		}
 	}
 	return p
@@ -262,10 +255,7 @@ func (e *Engagement) SetAck() error {
 
 // NetblockApproved is the IPv4 address count the operator approved (0 if none).
 func (e *Engagement) NetblockApproved() int {
-	v, ok := e.st.Meta("netblock_approved")
-	if !ok {
-		return 0
-	}
+	v, _ := e.st.Meta("netblock_approved")
 	n, _ := strconv.Atoi(v)
 	return n
 }

@@ -77,11 +77,10 @@ func TestDNSCancelEndsSilentUDPRead(t *testing.T) {
 		}
 	}()
 
-	eg := egress.New(egress.Options{ResolverAddrs: []string{pc.LocalAddr().String()}, DNSTimeout: 5 * time.Second, RateDNS: 1000})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	at := cancelAfterSignal(t, got.ch, cancel)
-	_, err = eg.Clients("t", false, nil).DNS.Query(ctx, "x.example.com", mdns.TypeA)
+	_, err = resolver(pc.LocalAddr().String(), 5*time.Second).Query(ctx, "x.example.com", mdns.TypeA)
 	assertPromptCancel(t, err, at)
 }
 
@@ -152,34 +151,47 @@ func truncatingServer(t *testing.T) (string, *signal) {
 func TestDNSCancelEndsSilentTCPRetry(t *testing.T) {
 	t.Parallel()
 	addr, tcpSeen := truncatingServer(t)
-	eg := egress.New(egress.Options{ResolverAddrs: []string{addr}, DNSTimeout: 5 * time.Second, RateDNS: 1000})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	at := cancelAfterSignal(t, tcpSeen.ch, cancel)
-	_, err := eg.Clients("t", false, nil).DNS.Query(ctx, "x.example.com", mdns.TypeA)
+	_, err := resolver(addr, 5*time.Second).Query(ctx, "x.example.com", mdns.TypeA)
 	assertPromptCancel(t, err, at)
 }
 
-// silentListener accepts connections and sends nothing until the client leaves.
-func silentListener(t *testing.T) (int, *signal) {
+// serveTCP accepts connections on a loopback port until the test ends, and
+// returns the port. Each connection is handed to handle (if any) and then closed.
+func serveTCP(t *testing.T, handle func(net.Conn)) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	seen := newSignal()
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			seen.fire()
-			go func() { _, _ = c.Read(make([]byte, 1)); _ = c.Close() }()
+			go func() {
+				if handle != nil {
+					handle(c)
+				}
+				_ = c.Close()
+			}()
 		}
 	}()
-	return portOf(t, ln.Addr().String()), seen
+	return portOf(t, ln.Addr().String())
+}
+
+// sshBanner sends an SSH banner unprompted.
+func sshBanner(c net.Conn) { _, _ = c.Write([]byte("SSH-2.0-test\r\n")) }
+
+// silentListener accepts connections and sends nothing until the client leaves.
+func silentListener(t *testing.T) (int, *signal) {
+	t.Helper()
+	seen := newSignal()
+	return serveTCP(t, func(c net.Conn) { seen.fire(); _, _ = c.Read(make([]byte, 1)) }), seen
 }
 
 // A banner read against a listener that sends nothing ends when the context is
@@ -188,11 +200,11 @@ func TestTCPCancelEndsSilentBannerRead(t *testing.T) {
 	t.Parallel()
 	port, seen := silentListener(t)
 	eg := egress.New(egress.Options{ConnectTimeout: time.Second, BannerWait: 5 * time.Second, RatePerHost: 1000})
-	eg.SetPolicy(tcpPolicy(t, port))
+	eg.SetPolicy(tcpPolicy(port))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	at := cancelAfterSignal(t, seen.ch, cancel)
-	res, err := eg.Clients("t", true, nil).TCP.Connect(ctx, addr("127.0.0.1"), port)
+	res, err := eg.Clients(true, nil).TCP.Connect(ctx, addr("127.0.0.1"), port)
 	assertPromptCancel(t, err, at)
 	if res != nil {
 		t.Errorf("result = %#v, want none for a cancelled check", res)
@@ -203,27 +215,12 @@ func TestTCPCancelEndsSilentBannerRead(t *testing.T) {
 // nothing gives an open port with an empty banner once BannerWait runs out.
 func TestTCPBannerUnchangedWithoutCancel(t *testing.T) {
 	t.Parallel()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			_, _ = c.Write([]byte("SSH-2.0-test\r\n"))
-			_ = c.Close()
-		}
-	}()
-	bannerPort := portOf(t, ln.Addr().String())
+	bannerPort := serveTCP(t, sshBanner)
 	quietPort, _ := silentListener(t)
 
 	eg := egress.New(egress.Options{ConnectTimeout: time.Second, BannerWait: 300 * time.Millisecond, RatePerHost: 1000})
-	eg.SetPolicy(tcpPolicy(t, bannerPort, quietPort))
-	tcp := eg.Clients("t", true, nil).TCP
+	eg.SetPolicy(tcpPolicy(bannerPort, quietPort))
+	tcp := eg.Clients(true, nil).TCP
 
 	res, err := tcp.Connect(context.Background(), addr("127.0.0.1"), bannerPort)
 	if o, ok := res.(egress.Open); err != nil || !ok || !strings.HasPrefix(string(o.Banner), "SSH-2.0") {

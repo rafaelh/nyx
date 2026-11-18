@@ -130,10 +130,8 @@ type Settings struct {
 	SensitivePaths       string // file path; empty means the built-in list
 	SensitivePathEntries []SensitivePath
 	Wordlist             string // file path; empty means the built-in list
-	// WordlistWords is the parsed list from Wordlist (or the built-in list) and
-	// WordlistHash identifies its content, so a changed list creates new checks.
+	// WordlistWords is the parsed list from Wordlist (or the built-in list).
 	WordlistWords []string
-	WordlistHash  string
 	Permutations  Permutations
 	Concurrency   int
 	// PortConcurrency is the number of workers of the ports stage, which is
@@ -214,26 +212,31 @@ func (s Settings) KeyValues() []string {
 	return out
 }
 
-func builtinWordlist() []string {
-	b, _ := builtin.ReadFile("builtin/wordlist.txt")
-	list, _ := input.ParseList(bytes.NewReader(b))
-	return list
-}
-
-// The labels name the built-in lists in the flags' help, which every call builds, so each list is
-// parsed for its label only once.
+// The built-in lists are parsed once: the flags' help names them on every call, and every Load
+// that does not replace them uses them. Callers get a copy.
 var (
-	builtinWordlistLabel       = sync.OnceValue(func() string { return builtinLabel(len(builtinWordlist())) })
-	builtinSensitivePathsLabel = sync.OnceValue(func() string { return builtinLabel(len(builtinSensitivePaths())) })
+	builtinWordlist = sync.OnceValue(func() []string {
+		b, _ := builtin.ReadFile("builtin/wordlist.txt")
+		list, _ := input.ParseList(bytes.NewReader(b))
+		return list
+	})
+	builtinSensitivePaths = sync.OnceValue(func() []SensitivePath {
+		b, _ := builtin.ReadFile("builtin/sensitive_paths.yaml")
+		list, err := parseSensitivePaths(b)
+		if err != nil {
+			panic("config: built-in sensitive_paths.yaml: " + err.Error())
+		}
+		return list
+	})
 )
 
 func builtinLabel(n int) string { return fmt.Sprintf("built-in (%d entries)", n) }
 
 // BuiltinWordlistLabel is "built-in (N entries)".
-func BuiltinWordlistLabel() string { return builtinWordlistLabel() }
+func BuiltinWordlistLabel() string { return builtinLabel(len(builtinWordlist())) }
 
 // BuiltinSensitivePathsLabel is "built-in (N entries)".
-func BuiltinSensitivePathsLabel() string { return builtinSensitivePathsLabel() }
+func BuiltinSensitivePathsLabel() string { return builtinLabel(len(builtinSensitivePaths())) }
 
 // dkimSelectors are the DKIM selectors looked up for every root.
 var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3", "default", "dkim", "mail", "s1", "s2", "smtp", "mandrill", "mxvault", "everlytickey1", "everlytickey2", "zendesk1", "zendesk2", "cm", "sig1", "scph1", "mte1"}
@@ -241,7 +244,6 @@ var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3
 // DKIMSelectors are the selectors the email stage looks up.
 func DKIMSelectors() []string { return slices.Clone(dkimSelectors) }
 
-// DKIMSelectorHash identifies the selector list, so a changed list creates new email checks.
 // ListHash is a short hash of a list, for a check key that must change when
 // the list is edited.
 func ListHash(list []string) string {
@@ -249,18 +251,11 @@ func ListHash(list []string) string {
 	return hex.EncodeToString(sum[:6])
 }
 
+// DKIMSelectorHash identifies the selector list, so a changed list creates new email checks. It
+// predates ListHash and is kept as it is because email check keys carry it.
 func DKIMSelectorHash() string {
 	sum := sha256.Sum256([]byte(strings.Join(dkimSelectors, ",")))
 	return hex.EncodeToString(sum[:4])
-}
-
-func builtinSensitivePaths() []SensitivePath {
-	b, _ := builtin.ReadFile("builtin/sensitive_paths.yaml")
-	list, err := parseSensitivePaths(b)
-	if err != nil {
-		panic("config: built-in sensitive_paths.yaml: " + err.Error())
-	}
-	return list
 }
 
 // Env is the process environment in the "NAME=value" form os.Environ returns. Settings are read
@@ -630,27 +625,19 @@ func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 		bad("output_dir", "", "must not be empty")
 	}
 	s.Wordlist, s.SensitivePaths = expandHome(raw.Wordlist, home), expandHome(raw.SensitivePaths, home)
-	if s.Wordlist != "" {
-		if f, err := os.Open(s.Wordlist); err != nil {
-			bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
-		} else {
-			if s.WordlistWords, err = input.ParseList(f); err != nil {
-				bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
-			}
-			f.Close()
-		}
-	} else {
-		s.WordlistWords = builtinWordlist()
+	if s.Wordlist == "" {
+		s.WordlistWords = slices.Clone(builtinWordlist())
+	} else if b, err := os.ReadFile(s.Wordlist); err != nil {
+		bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
+	} else if s.WordlistWords, err = input.ParseList(bytes.NewReader(b)); err != nil {
+		bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
 	}
-	s.WordlistHash = ListHash(s.WordlistWords)
-	s.SensitivePathEntries = builtinSensitivePaths()
-	if s.SensitivePaths != "" {
-		b, err := os.ReadFile(s.SensitivePaths)
-		if err != nil {
-			bad("sensitive_paths", s.SensitivePaths, "cannot read file: "+errText(err))
-		} else if s.SensitivePathEntries, err = parseSensitivePaths(b); err != nil {
-			bad("sensitive_paths", s.SensitivePaths, err.Error())
-		}
+	if s.SensitivePaths == "" {
+		s.SensitivePathEntries = slices.Clone(builtinSensitivePaths())
+	} else if b, err := os.ReadFile(s.SensitivePaths); err != nil {
+		bad("sensitive_paths", s.SensitivePaths, "cannot read file: "+errText(err))
+	} else if s.SensitivePathEntries, err = parseSensitivePaths(b); err != nil {
+		bad("sensitive_paths", s.SensitivePaths, err.Error())
 	}
 	return s, probs.Err()
 }

@@ -10,12 +10,19 @@
   If a domain has been reconned recently, should it resolve from those files?
 
 
+# internal/cloudstorage, internal/config, internal/dnsname, internal/egress, and internal/engagement
+One table driving all settings in config: the biggest maintenance win, since each integer setting is listed in five places, but it's a redesign of `Load`. Flag help order is fixed, so the table would need to cover every flag, not just the integers.
 
+Altitude items that are design changes reaching well outside these packages:
+- the script allowlist versus the crawler's anchor workaround;
+- giving each request kind its own check in targetHTTP.do;
+- bucket URLs worked out in both cloudstorage and the storage stage;
+- CandidateExempt plumbing that serves one stage;
+- API-key placement repeated at every call site instead of once per source;
+- a shared redaction walker with cli/export;
+- keeping the SRV/MX writer next to its parser in dnsname;
+- exporting ErrHTTPTimeout.
 
-
-
-
-Would change behaviour:
 
 
 

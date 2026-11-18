@@ -54,7 +54,7 @@ func (*Permutations) Budget(s config.Settings) int { return s.Permutations.MaxNa
 func (p *Permutations) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		s := v.Settings()
-		hash := s.WordlistHash
+		hash := config.ListHash(s.WordlistWords)
 		words := make([]string, len(s.WordlistWords))
 		for i, w := range s.WordlistWords {
 			words[i] = strings.ToLower(w)

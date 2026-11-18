@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,7 +64,6 @@ type ThirdPartyHTTP interface {
 
 type thirdParty struct {
 	e       *Egress
-	stage   string
 	sources []string
 	// exempt are the source patterns whose hosts skip the candidate refusal.
 	exempt []string
@@ -108,16 +108,11 @@ func (t *thirdParty) Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyRes
 		return ThirdPartyResponse{}, errors.New("third-party requests must be https without userinfo")
 	}
 	host := input.NormaliseHost(u.Hostname())
-	pattern := ""
-	for _, s := range t.sources {
-		if matchSource(s, host) {
-			pattern = s
-			break
-		}
-	}
-	if pattern == "" {
+	i := slices.IndexFunc(t.sources, func(s string) bool { return matchSource(s, host) })
+	if i < 0 {
 		return ThirdPartyResponse{}, fmt.Errorf("host %s is not one of this stage's sources", host)
 	}
+	pattern := t.sources[i]
 	if p := e.policy(); p != nil {
 		if p.Scope != nil {
 			if c := p.Scope.ClassifyHost(host); c.Class == scope.InScope || c.Class == scope.Excluded {
@@ -191,26 +186,17 @@ func (t *thirdParty) Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyRes
 		return ThirdPartyResponse{}, t.scrub(err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxThirdPartyBody+1))
+	data, truncated, err := readCapped(resp.Body, maxThirdPartyBody)
 	if err != nil {
 		return ThirdPartyResponse{}, t.scrub(err)
 	}
-	truncated := len(data) > maxThirdPartyBody
-	if truncated {
-		data = data[:maxThirdPartyBody]
-	}
-	return ThirdPartyResponse{Status: resp.StatusCode, Header: map[string][]string(resp.Header.Clone()), Body: data, Truncated: truncated}, nil
+	return ThirdPartyResponse{Status: resp.StatusCode, Header: resp.Header, Body: data, Truncated: truncated}, nil
 }
 
 // candidateExempt reports whether host matches a pattern the stage declared as
 // a provider endpoint rather than a target system.
 func (t *thirdParty) candidateExempt(host string) bool {
-	for _, p := range t.exempt {
-		if matchSource(p, host) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(t.exempt, func(p string) bool { return matchSource(p, host) })
 }
 
 // scrub removes key values from an error, including the URL net/http embeds.

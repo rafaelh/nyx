@@ -22,6 +22,7 @@ func open(t *testing.T, dir string) (*engagement.Engagement, error) {
 
 // Empty dir adopted; non-nyx dir refused naming it.
 func TestOpenCreatesAndAdopts(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "eng")
 	e, err := open(t, dir)
 	if err != nil {
@@ -41,10 +42,9 @@ func TestOpenCreatesAndAdopts(t *testing.T) {
 }
 
 func TestRefusesNonEngagement(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "subdomains.txt"), []byte("a.example.com\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, dir, "subdomains.txt")
 	_, err := open(t, dir)
 	var ne *engagement.NotEngagementError
 	if !errors.As(err, &ne) || ne.Dir != dir {
@@ -57,13 +57,9 @@ func TestRefusesNonEngagement(t *testing.T) {
 
 // .nyx with a lock but no DB (crash during creation) is adopted.
 func TestAdoptsInterruptedCreation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".nyx"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".nyx", "lock"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, mkdir(t, dir, ".nyx"), "lock")
 	e, err := open(t, dir)
 	if err != nil {
 		t.Fatalf("should adopt: %v", err)
@@ -73,6 +69,7 @@ func TestAdoptsInterruptedCreation(t *testing.T) {
 
 // Live lock refuses; a released (crashed) lock does not block.
 func TestLock(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	e, err := open(t, dir)
 	if err != nil {
@@ -103,6 +100,7 @@ func TestLock(t *testing.T) {
 
 // Inputs and exclusions are merged as a union and persisted.
 func TestMergeInputs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	e, _ := open(t, dir)
 	if err := e.MergeInputs(input.Parsed{Roots: []string{"a.com"}, ASNs: []string{"AS1"}, Exclusions: []string{"x.a.com"}}); err != nil {
@@ -126,6 +124,7 @@ func TestMergeInputs(t *testing.T) {
 }
 
 func TestAckAndApproval(t *testing.T) {
+	t.Parallel()
 	e, _ := open(t, t.TempDir())
 	defer e.Close()
 	if e.Acked() || e.NetblockApproved() != 0 {
@@ -144,6 +143,7 @@ func TestAckAndApproval(t *testing.T) {
 
 // A read-only open takes no lock and creates nothing, so it works beside a run.
 func TestOpenReadOnly(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "eng")
 	e, err := open(t, dir) // holds the lock
 	if err != nil {
@@ -180,6 +180,7 @@ func TestOpenReadOnly(t *testing.T) {
 }
 
 func TestOpenReadOnlyCreatesNothing(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	if _, err := engagement.OpenReadOnly(filepath.Join(base, "missing")); err == nil {
 		t.Error("a missing directory was opened")

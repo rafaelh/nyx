@@ -117,12 +117,7 @@ func ParseCNAME(alias, target string) (Ref, bool) {
 // with dots as dashes, and the root itself.
 func RootBases(root string) []string {
 	root = dnsname.Normalise(root)
-	var label string
-	if reg, ok := dnsname.ETLDPlusOne(root); ok {
-		label, _, _ = strings.Cut(reg, ".")
-	} else {
-		label, _, _ = strings.Cut(root, ".")
-	}
+	label, _, _ := strings.Cut(dnsname.Registrable(root), ".")
 	return dedupe([]string{label, strings.ReplaceAll(root, ".", "-"), root})
 }
 

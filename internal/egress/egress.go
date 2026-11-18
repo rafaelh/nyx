@@ -5,6 +5,7 @@
 package egress
 
 import (
+	"cmp"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -147,20 +148,13 @@ type Egress struct {
 
 // New creates an Egress.
 func New(o Options) *Egress {
-	def := func(v *time.Duration, d time.Duration) {
-		if *v == 0 {
-			*v = d
-		}
-	}
-	def(&o.DNSTimeout, 3*time.Second)
-	def(&o.ConnectTimeout, 5*time.Second)
-	def(&o.BannerWait, 3*time.Second)
-	def(&o.HTTPTimeout, 15*time.Second)
+	o.DNSTimeout = cmp.Or(o.DNSTimeout, 3*time.Second)
+	o.ConnectTimeout = cmp.Or(o.ConnectTimeout, 5*time.Second)
+	o.BannerWait = cmp.Or(o.BannerWait, 3*time.Second)
+	o.HTTPTimeout = cmp.Or(o.HTTPTimeout, 15*time.Second)
+	o.UserAgent = cmp.Or(o.UserAgent, DefaultUserAgent)
 	if o.Now == nil {
 		o.Now = time.Now
-	}
-	if o.UserAgent == "" {
-		o.UserAgent = DefaultUserAgent
 	}
 	defr := func(v *float64, d float64) {
 		if *v <= 0 {
@@ -174,11 +168,7 @@ func New(o Options) *Egress {
 		o.ResolverAddrs = []string{"1.1.1.1:53", "8.8.8.8:53", "9.9.9.9:53"}
 	}
 	if o.Redactor == nil {
-		var vals []string
-		for _, k := range o.Keys {
-			vals = append(vals, k.Reveal())
-		}
-		o.Redactor = config.NewRedactor(vals...)
+		o.Redactor = config.NewRedactor(config.Settings{Keys: o.Keys}.KeyValues()...)
 	}
 	e := &Egress{
 		opts: o, hostLim: map[netip.Addr]*rate.Limiter{}, srcLim: map[string]*rate.Limiter{},
@@ -197,41 +187,39 @@ func (e *Egress) SetPolicy(p *Policy) { e.pol.Store(p) }
 func (e *Egress) policy() *Policy { return e.pol.Load() }
 
 func (e *Egress) hostLimiter(a netip.Addr) *rate.Limiter {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	l, ok := e.hostLim[a]
-	if !ok {
-		l = rate.NewLimiter(rate.Limit(e.opts.RatePerHost), 1)
-		e.hostLim[a] = l
-	}
-	return l
+	return limiterFor(&e.mu, e.hostLim, a, e.opts.RatePerHost)
 }
 
 func (e *Egress) sourceLimiter(pattern string) *rate.Limiter {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	l, ok := e.srcLim[pattern]
+	return limiterFor(&e.mu, e.srcLim, pattern, e.opts.RatePerSource)
+}
+
+// limiterFor returns m's limiter for k, creating one at rate r on first use.
+func limiterFor[K comparable](mu *sync.Mutex, m map[K]*rate.Limiter, k K, r float64) *rate.Limiter {
+	mu.Lock()
+	defer mu.Unlock()
+	l, ok := m[k]
 	if !ok {
-		l = rate.NewLimiter(rate.Limit(e.opts.RatePerSource), 1)
-		e.srcLim[pattern] = l
+		l = rate.NewLimiter(rate.Limit(r), 1)
+		m[k] = l
 	}
 	return l
 }
 
 // Clients returns the clients for a stage. Target clients are only given to
 // stages that contact target-owned systems.
-func (e *Egress) Clients(stage string, target bool, sources []string) Clients {
-	return e.ClientsWith(stage, target, sources, nil)
+func (e *Egress) Clients(target bool, sources []string) Clients {
+	return e.ClientsWith(target, sources, nil)
 }
 
 // ClientsWith is Clients for a stage with candidate-exempt sources: hosts
 // matching one of the exempt patterns skip the refusal of candidate hostnames
 // (they are provider endpoints that a redirect may have recorded as candidates).
 // An in-scope or excluded host is still refused.
-func (e *Egress) ClientsWith(stage string, target bool, sources, exempt []string) Clients {
+func (e *Egress) ClientsWith(target bool, sources, exempt []string) Clients {
 	c := Clients{
 		DNS:        &resolver{e: e},
-		ThirdParty: &thirdParty{e: e, stage: stage, sources: sources, exempt: exempt},
+		ThirdParty: &thirdParty{e: e, sources: sources, exempt: exempt},
 	}
 	if target {
 		c.HTTP = &targetHTTP{e: e}

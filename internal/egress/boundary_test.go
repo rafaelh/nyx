@@ -21,6 +21,7 @@ import (
 // golang.org/x/sys/unix. No first-party package, internal/egress included,
 // may import os/exec.
 func TestPassiveBoundaryImports(t *testing.T) {
+	t.Parallel()
 	root, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +41,7 @@ func TestPassiveBoundaryImports(t *testing.T) {
 	// too. Keep in step with TARGETS in the Makefile.
 	for _, target := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"} {
 		t.Run(strings.ReplaceAll(target, "/", "-"), func(t *testing.T) {
+			t.Parallel()
 			goos, goarch, _ := strings.Cut(target, "/")
 			checkBoundary(t, root, goos, goarch)
 		})
@@ -57,7 +59,7 @@ var unixAllowed = map[string]map[string]bool{
 }
 
 func checkBoundary(t *testing.T, root, goos, goarch string) {
-	cmd := exec.Command("go", "list", "-json", "./...")
+	cmd := exec.Command("go", "list", "-json=ImportPath,Dir,GoFiles,Imports", "./...")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
 	var out, errb bytes.Buffer

@@ -288,7 +288,7 @@ func TestIPRowsMatchEgress(t *testing.T) {
 		t.Fatalf("expected 8 IP rows, got %d", len(rows))
 	}
 	for _, r := range rows {
-		res, err := eg.Clients("t", true, nil).TCP.Connect(context.Background(), r.IP, port)
+		res, err := eg.Clients(true, nil).TCP.Connect(context.Background(), r.IP, port)
 		if err != nil {
 			t.Fatal(err)
 		}

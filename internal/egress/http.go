@@ -23,20 +23,16 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-const (
-	maxTargetBody = 1 << 20
-	maxScriptBody = 4 << 20
-)
-
 // DefaultUserAgent is the User-Agent of a build with no version.
 const DefaultUserAgent = "nyx/devel"
 
-// MaxTargetBody is the cap on Response.Body; Response.Truncated says whether it cut the body.
-const MaxTargetBody = maxTargetBody
-
-// MaxScriptBody is the cap on the body of a Script request (and of a redirect
-// from one). It is larger than MaxTargetBody because bundles are large.
-const MaxScriptBody = maxScriptBody
+const (
+	// MaxTargetBody is the cap on Response.Body; Response.Truncated says whether it cut the body.
+	MaxTargetBody = 1 << 20
+	// MaxScriptBody is the cap on the body of a Script request (and of a redirect
+	// from one). It is larger than MaxTargetBody because bundles are large.
+	MaxScriptBody = 4 << 20
+)
 
 // Reasons carried by NoService.
 const (
@@ -98,10 +94,18 @@ func HostPort(scheme, host, port string) string {
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	if port == "" || (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+	if port == "" || port == strconv.Itoa(defaultPort(scheme)) {
 		return host
 	}
 	return host + ":" + port
+}
+
+// defaultPort is the port a URL with scheme and no port names: 443 for https, otherwise 80.
+func defaultPort(scheme string) int {
+	if scheme == "https" {
+		return 443
+	}
+	return 80
 }
 
 // URL is the absolute URL of the request that produced the response: the
@@ -143,10 +147,7 @@ func ParseService(origin string) (Service, bool) {
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return Service{}, false
 	}
-	port := 80
-	if u.Scheme == "https" {
-		port = 443
-	}
+	port := defaultPort(u.Scheme)
 	if p := u.Port(); p != "" {
 		if port, err = strconv.Atoi(p); err != nil {
 			return Service{}, false
@@ -163,18 +164,18 @@ type Request interface{ target() target }
 type target struct {
 	scheme, host string
 	port         int
-	sensitiveIdx int // >=0: index into the sensitive-path list
+	sensitive    int // 1 + the index into the sensitive-path list; 0 for none
 	requestURI   string
 	pin          netip.Addr // if valid, the only address dialled
 	origin       bool       // set by OriginCheck: pin need not be an address of host (see OriginCheck)
 	script       string     // set by Script: the URL, which Policy.Scripts must list
-	maxBody      int        // 0 means maxTargetBody
+	maxBody      int        // 0 means MaxTargetBody
 }
 
 // bodyCap is how much of the response body is read.
 func (t target) bodyCap() int {
 	if t.maxBody == 0 {
-		return maxTargetBody
+		return MaxTargetBody
 	}
 	return t.maxBody
 }
@@ -185,14 +186,14 @@ func (r req) target() target { return r.t }
 
 // Root requests "/" of a service.
 func Root(host, scheme string, port int) Request {
-	return req{target{scheme: scheme, host: host, port: port, sensitiveIdx: -1, requestURI: "/"}}
+	return req{target{scheme: scheme, host: host, port: port, requestURI: "/"}}
 }
 
 // RootAt requests "/" of a service by name, dialling only addr, so the answer
 // is known to come from that address. addr must be one of the name's permitted
 // addresses. Redirects and links from the response are not pinned.
 func RootAt(host, scheme string, port int, addr netip.Addr) Request {
-	return req{target{scheme: scheme, host: host, port: port, sensitiveIdx: -1, requestURI: "/", pin: addr.Unmap()}}
+	return req{target{scheme: scheme, host: host, port: port, requestURI: "/", pin: addr.Unmap()}}
 }
 
 // OriginCheck requests "/" of a candidate origin: it dials addr on port 443 (https) or 80 (http),
@@ -201,29 +202,25 @@ func RootAt(host, scheme string, port int, addr netip.Addr) Request {
 // inside an in-scope netblock or be port-eligible. Unlike RootAt it does not require addr to be one
 // of host's resolved addresses. Redirects are not followed.
 func OriginCheck(host, scheme string, addr netip.Addr) Request {
-	port := 80
-	if scheme == "https" {
-		port = 443
-	}
-	return req{target{scheme: scheme, host: host, port: port, sensitiveIdx: -1, requestURI: "/", pin: addr.Unmap(), origin: true}}
+	return req{target{scheme: scheme, host: host, port: defaultPort(scheme), requestURI: "/", pin: addr.Unmap(), origin: true}}
 }
 
 // SensitivePath requests entry index of the configured sensitive-path list.
 func SensitivePath(svc Service, index int) Request {
-	return req{target{scheme: svc.Scheme, host: svc.Host, port: svc.Port, sensitiveIdx: index}}
+	return req{target{scheme: svc.Scheme, host: svc.Host, port: svc.Port, sensitive: index + 1}}
 }
 
 // Script requests a script file by its URL, which must be one of Policy.Scripts
 // (the URLs the crawl recorded from <script src> elements). Any other URL is
 // refused, as is one the host policy refuses. The body is read up to MaxScriptBody.
 func Script(rawURL string) Request {
-	t := target{sensitiveIdx: -1}
+	var t target
 	if u, err := url.Parse(rawURL); err == nil {
 		if ut, err := targetOf(u); err == nil {
 			t = ut
 		}
 	} // otherwise the empty scheme is refused
-	t.script, t.maxBody = rawURL, maxScriptBody
+	t.script, t.maxBody = rawURL, MaxScriptBody
 	return req{t}
 }
 
@@ -232,15 +229,11 @@ func targetOf(u *url.URL) (target, error) {
 	if u.User != nil {
 		return target{}, errors.New("userinfo is not permitted")
 	}
-	port := 0
+	port := defaultPort(u.Scheme)
 	if ps := u.Port(); ps != "" {
 		port, _ = strconv.Atoi(ps)
-	} else if u.Scheme == "https" {
-		port = 443
-	} else {
-		port = 80
 	}
-	return target{scheme: u.Scheme, host: u.Hostname(), port: port, sensitiveIdx: -1, requestURI: u.RequestURI()}, nil
+	return target{scheme: u.Scheme, host: u.Hostname(), port: port, requestURI: u.RequestURI()}, nil
 }
 
 func resolveFrom(resp Response, ref string) (target, error) {
@@ -342,11 +335,12 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		return Refused{"port " + strconv.Itoa(tg.port) + " not allowed"}, nil
 	}
 	uri := tg.requestURI
-	if tg.sensitiveIdx >= 0 {
-		if tg.sensitiveIdx >= len(p.SensitivePaths) {
+	if tg.sensitive != 0 {
+		i := tg.sensitive - 1
+		if i < 0 || i >= len(p.SensitivePaths) {
 			return Refused{"sensitive path index out of range"}, nil
 		}
-		uri = p.SensitivePaths[tg.sensitiveIdx]
+		uri = p.SensitivePaths[i]
 	}
 	if !strings.HasPrefix(uri, "/") {
 		return Refused{"request path " + strconv.Quote(uri) + " does not start with /"}, nil
@@ -429,9 +423,7 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		return NoService{classify(err)}, nil
 	}
 	defer resp.Body.Close()
-	bodyCap := tg.bodyCap()
-	// Read one byte past the cap, to tell a cut body from one that fits.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(bodyCap)+1))
+	body, truncated, err := readCapped(resp.Body, tg.bodyCap())
 	if err != nil { // a body that fails mid-read is not a result; retry it next run
 		if perr := parent.Err(); perr != nil {
 			return nil, perr
@@ -441,15 +433,11 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		}
 		return nil, fmt.Errorf("reading response body from %s: %w", host, err)
 	}
-	truncated := len(body) > bodyCap
-	if truncated {
-		body = body[:bodyCap]
-	}
 	if method == http.MethodHead {
 		body, truncated = nil, false
 	}
 	out := Response{
-		Status: resp.StatusCode, Header: map[string][]string(resp.Header.Clone()), Body: body, Truncated: truncated,
+		Status: resp.StatusCode, Header: resp.Header, Body: body, Truncated: truncated,
 		Location: resp.Header.Get("Location"),
 		origin:   &origin{scheme: tg.scheme, host: host, port: tg.port, uri: uri, maxBody: tg.maxBody},
 	}
@@ -458,6 +446,16 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		out.TLSVersion, out.TLSCipher = tls.VersionName(resp.TLS.Version), tls.CipherSuiteName(resp.TLS.CipherSuite)
 	}
 	return out, nil
+}
+
+// readCapped reads r up to n bytes. It reads one byte past the cap, to tell a
+// cut body from one that fits.
+func readCapped(r io.Reader, n int) (body []byte, truncated bool, err error) {
+	body, err = io.ReadAll(io.LimitReader(r, int64(n)+1))
+	if len(body) > n {
+		return body[:n], true, err
+	}
+	return body, false, err
 }
 
 // vetted returns the addresses a request for host may be sent to: never an
