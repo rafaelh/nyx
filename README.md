@@ -208,6 +208,13 @@ target never does. The
 more. An engagement that already holds their results keeps them, and a `skip` setting
 that names either is rejected as an unknown stage.
 
+Common Crawl's index is often overloaded, and its gateway gives up on a slow query with a 502, 503
+or 504. The `commoncrawl` stage sends such a request again, up to three times, after the wait a
+`Retry-After` of at most 60 seconds asks for, or else after 1, 2 and then 4 seconds; an interrupt
+during a wait ends the run promptly. A fourth such answer fails the root's check, which is retried
+on the next run. Pages of the index are read in turn until it answers that a page is past the last,
+up to 30 pages per root.
+
 The `rdap` stage contacts only IANA (`data.iana.org`, for the bootstrap file) and the five regional
 registries' RDAP servers; see [RDAP](#rdap-netblocks-and-registrants).
 
@@ -1284,7 +1291,9 @@ The guidance in `docs/agent-tools` is followed, except in these eleven ways:
 8. recon can finish slightly after its deadline, when writing the files takes longer than the
    reserve (see [Deadline](#deadline)).
 9. Requests are paced by token buckets, not a sliding window.
-10. A failed request is not retried within the run: its check is retried on the next run.
+10. A failed request is not retried within the run: its check is retried on the next run. The
+    exceptions are GitHub's rate limit (see [GitHub code search](#github-code-search)) and an overloaded
+    Common Crawl index (see [Passive boundary](#passive-boundary)).
 11. HTTP connections are not reused.
 
 ## Migrating from the Python version

@@ -69,6 +69,16 @@ func get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest, sp
 	if err != nil {
 		return nil, err
 	}
+	return body(req, resp, spent)
+}
+
+// Body is Get's mapping of a response to req, for a stage that sends the
+// request itself in order to act on some statuses first.
+func Body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse) ([]byte, error) {
+	return body(req, resp, 0)
+}
+
+func body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse, spent int) ([]byte, error) {
 	switch {
 	case req.KeySource != "" && (resp.Status == 401 || resp.Status == 403):
 		return nil, fmt.Errorf("HTTP %d (key rejected or not entitled to this endpoint): %w", resp.Status, run.ErrKeyRejected)

@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
@@ -264,6 +265,20 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 
 // --- Common Crawl ---
 
+// Common Crawl's index server is often overloaded: a query can take ten seconds
+// and its gateway gives up at about eleven, answering 502, 503 or 504. Such an
+// answer is waited out and the request sent again, up to ccRetries times, so an
+// overloaded but working index still completes the check. A Retry-After of at most
+// ccMaxWait is honoured; otherwise the waits are ccBackoff, doubling each time.
+const (
+	ccRetries = 3
+	ccBackoff = time.Second
+	ccMaxWait = 60 * time.Second
+)
+
+// errPastLastPage is the index's answer to a page beyond the last.
+var errPastLastPage = errors.New("past the last page")
+
 // collection is the latest Common Crawl collection, fetched once per run: the
 // list is the same for every root. A failure fails every root's check for the run.
 type collection struct {
@@ -277,7 +292,7 @@ type collectionKey struct{}
 func latestCollection(ctx context.Context, c egress.Clients) (string, error) {
 	col := run.PerRun(ctx, collectionKey{}, func() *collection { return &collection{} })
 	col.once.Do(func() {
-		body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: "https://index.commoncrawl.org/collinfo.json"})
+		body, err := ccGet(ctx, c, "https://index.commoncrawl.org/collinfo.json")
 		if err != nil {
 			col.err = err
 			return
@@ -294,6 +309,10 @@ func latestCollection(ctx context.Context, c egress.Clients) (string, error) {
 	return col.id, col.err
 }
 
+// commoncrawl reads the root's captures from the latest collection one page at a
+// time, until the index answers that the page is past the last (which it does
+// even for a root with no captures) or maxPages are read. The page count is not
+// asked for first: it is one more slow query that can fail.
 func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
 	root := in.root
 	id, err := latestCollection(ctx, c)
@@ -301,22 +320,14 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 		return result{}, err
 	}
 	endpoint := "https://index.commoncrawl.org/" + id + "-index?"
-	count := url.Values{"url": {"*." + root}, "output": {"json"}, "showNumPages": {"true"}}
-	body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: endpoint + count.Encode()})
-	if err != nil {
-		return result{}, err
-	}
-	var np struct {
-		Pages int `json:"pages"`
-	}
-	if err := json.Unmarshal(body, &np); err != nil {
-		return result{}, fmt.Errorf("unreadable Common Crawl page count: %v", err)
-	}
 	var names, urls []string
-	for p := 0; p < min(np.Pages, maxPages); p++ {
+	for p := range maxPages {
 		q := url.Values{"url": {"*." + root}, "output": {"json"}, "fl": {"url"}, "page": {strconv.Itoa(p)}}
-		body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: endpoint + q.Encode()})
-		// The page count is of index blocks, not matches: a page with no
+		body, err := ccGet(ctx, c, endpoint+q.Encode())
+		if errors.Is(err, errPastLastPage) {
+			break
+		}
+		// A page is a run of index blocks, not of matches: a page with no
 		// captures answers 404 "No Captures found".
 		if errors.Is(err, httpsrc.ErrNotFound) {
 			continue
@@ -336,6 +347,55 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 		}
 	}
 	return result{names: names, urls: urls, attrs: kinds.HostnameAttrs{Index: id}}, nil
+}
+
+// ccGet GETs u from Common Crawl, sending it again after an overloaded answer
+// (see ccRetries). A 400 whose message is "Page N invalid: ..." is errPastLastPage;
+// every other answer is mapped as by httpsrc.Get.
+func ccGet(ctx context.Context, c egress.Clients, u string) ([]byte, error) {
+	req := egress.ThirdPartyRequest{Method: "GET", URL: u}
+	wait := ccBackoff
+	for retry := 0; ; retry++ {
+		resp, err := c.ThirdParty.Do(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		switch resp.Status {
+		case 502, 503, 504:
+			if retry == ccRetries {
+				return nil, fmt.Errorf("HTTP %d (index overloaded; gave up after %d retries)", resp.Status, ccRetries)
+			}
+			d := wait
+			if secs, err := strconv.Atoi(resp.HeaderValue("Retry-After")); err == nil && secs >= 0 && secs <= int(ccMaxWait/time.Second) {
+				d = time.Duration(secs) * time.Second
+			}
+			if err := sleep(ctx, d); err != nil {
+				return nil, err
+			}
+			wait *= 2
+			continue
+		case 400:
+			var m struct {
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(resp.Body, &m) == nil && strings.HasPrefix(m.Message, "Page ") && strings.Contains(m.Message, " invalid") {
+				return nil, errPastLastPage
+			}
+		}
+		return httpsrc.Body(req, resp)
+	}
+}
+
+// sleep waits for d or the context, whichever ends first.
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // --- VirusTotal ---

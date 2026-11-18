@@ -208,8 +208,8 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 }
 
 // A 404 that means "no data" completes the check: VirusTotal for an unknown
-// domain, and a Common Crawl page with no captures (the page count is of index
-// blocks, not matches).
+// domain, and a Common Crawl page with no captures (a page is a run of index
+// blocks, not of matches).
 func TestSources_NotFoundIsNoData(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -220,12 +220,12 @@ func TestSources_NotFoundIsNoData(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "collinfo.json"):
 			_, _ = rw.Write([]byte(`[{"id":"CC-MAIN-2026-01"}]`))
-		case q.Get("showNumPages") == "true":
-			_, _ = rw.Write([]byte(`{"pages":2}`))
 		case q.Get("page") == "0":
 			http.Error(rw, "No Captures found for: *.example.com", 404)
-		default:
+		case q.Get("page") == "1":
 			_, _ = rw.Write([]byte(`{"url":"https://cc.example.com/"}` + "\n"))
+		default:
+			ccPastLastPage(rw, r, 1)
 		}
 	})
 	w.dns.A("cc.example.com", "203.0.113.5")

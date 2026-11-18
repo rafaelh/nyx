@@ -284,14 +284,20 @@ func (w *world) commonCrawl(id string, urls ...string) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "collinfo.json"):
 			fmt.Fprintf(rw, `[{"id":%q,"cdx-api":"https://index.commoncrawl.org/%s-index"}]`, id, id)
-		case r.URL.Query().Get("showNumPages") == "true":
-			_, _ = rw.Write([]byte(`{"pages":1,"pageSize":5,"blocks":1}`))
+		case r.URL.Query().Get("page") != "0":
+			ccPastLastPage(rw, r, 0)
 		default:
 			for _, u := range urls {
 				fmt.Fprintf(rw, "{\"url\":%q}\n", u)
 			}
 		}
 	})
+}
+
+// ccPastLastPage is the Common Crawl index's answer to a page beyond last.
+func ccPastLastPage(rw http.ResponseWriter, r *http.Request, last int) {
+	rw.WriteHeader(400)
+	fmt.Fprintf(rw, `{"message": "Page %s invalid: First Page is 0, Last Page is %d"}`, r.URL.Query().Get("page"), last)
 }
 
 // --- reading results ---
