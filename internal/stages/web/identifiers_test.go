@@ -7,6 +7,7 @@ import (
 )
 
 func TestExtractIdentifiers_Contexts(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name      string
 		body      string
@@ -38,6 +39,7 @@ func TestExtractIdentifiers_Contexts(t *testing.T) {
 // Text that looks like an identifier but is not in one of the contexts, or is
 // not shaped like one, is not recorded.
 func TestExtractIdentifiers_NearMisses(t *testing.T) {
+	t.Parallel()
 	for name, body := range map[string]string{
 		"bare analytics id in text":      `<p>Our tracking code is UA-12345678-1 and G-ABC123DEF4.</p>`,
 		"bare gtm id":                    `<p>GTM-ABCD123</p>`,
@@ -75,6 +77,7 @@ func copyrightOf(t *testing.T, body string) string {
 }
 
 func TestCopyright_FirstMatchingLineOfVisibleText(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct{ body, want string }{
 		"symbol and year":                    {`<body><footer>© 2026 Acme Pty Ltd</footer></body>`, "© 2026 Acme Pty Ltd"},
 		"copyright word":                     {`<body><p>Copyright © 2019-2026 Acme Pty Ltd. All rights reserved.</p></body>`, "Copyright © 2019-2026 Acme Pty Ltd. All rights reserved."},
@@ -98,6 +101,7 @@ func TestCopyright_FirstMatchingLineOfVisibleText(t *testing.T) {
 }
 
 func TestCopyright_NotTheseLines(t *testing.T) {
+	t.Parallel()
 	for name, body := range map[string]string{
 		"symbol without a year":     `<body><p>© Acme Pty Ltd</p></body>`,
 		"year without a symbol":     `<body><p>Founded in 2019 by Acme</p></body>`,
@@ -123,6 +127,7 @@ func TestCopyright_NotTheseLines(t *testing.T) {
 
 // The line is cut to 120 characters (not bytes), and terminal-acting characters are removed.
 func TestCopyright_CutAndSanitised(t *testing.T) {
+	t.Parallel()
 	long := "© 2026 " + strings.Repeat("é", 200)
 	got := copyrightOf(t, "<body><p>"+long+"</p></body>")
 	if n := len([]rune(got)); n != 120 || !strings.HasPrefix(got, "© 2026 éé") {
@@ -140,6 +145,7 @@ func TestCopyright_CutAndSanitised(t *testing.T) {
 
 // MurmurHash3 (x86, 32 bit, seed 0) against published test vectors.
 func TestMurmur3_PublishedVectors(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		in   string
 		want uint32
@@ -163,6 +169,7 @@ func TestMurmur3_PublishedVectors(t *testing.T) {
 // 32-bit integer. The values were computed with Python's base64.encodebytes and
 // a separate MurmurHash3 implementation that matches the vectors above.
 func TestFaviconHash_KnownValues(t *testing.T) {
+	t.Parallel()
 	body100 := make([]byte, 100) // base64 is longer than 76 characters, so it has an inner line break
 	for i := range body100 {
 		body100[i] = byte(i)

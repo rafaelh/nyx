@@ -443,10 +443,8 @@ func lookup(ctx context.Context, e egress.Clients, addr netip.Addr) ([]run.Obser
 		return nil, err
 	}
 	var ans struct {
-		Handle       string   `json:"handle"`
-		StartAddress string   `json:"startAddress"`
-		EndAddress   string   `json:"endAddress"`
-		Entities     []entity `json:"entities"`
+		network
+		Entities []entity `json:"entities"`
 	}
 	if err := json.Unmarshal(raw, &ans); err != nil {
 		return nil, fmt.Errorf("unreadable response: %v", err)
@@ -523,10 +521,7 @@ func follow(ctx context.Context, e egress.Clients, addr netip.Addr, u string) ([
 			run.Warnf(ctx, "rdap: the lookup of %s was referred more than %d times; no registration is recorded", addr, maxHops)
 			return nil, reg, nil
 		}
-		loc := ""
-		if l := resp.Header["Location"]; len(l) > 0 {
-			loc = l[0]
-		}
+		loc := resp.HeaderValue("Location")
 		next, err := parsed.Parse(loc)
 		if err != nil || loc == "" || next.Scheme != "https" {
 			run.Warnf(ctx, "rdap: %s referred the lookup of %s to %q, which cannot be followed; no registration is recorded", reg.host, addr, loc)

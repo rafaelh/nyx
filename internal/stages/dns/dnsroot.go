@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -57,7 +58,7 @@ var srvServices = []string{
 }
 
 // srvKeyToken identifies the service list, so a changed list creates a new check.
-var srvKeyToken = listToken(srvServices)
+var srvKeyToken = config.ListHash(srvServices)
 
 // srvType is the type of a root's SRV check, which asks every name of
 // srvServices rather than the root itself.
@@ -69,10 +70,7 @@ var srvType = rootType{"SRV", egress.TypeSRV}
 // per service name.
 func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
-		for _, root := range v.Inputs().Roots { // canonical and unique
-			if v.Scope().ClassifyHost(root).Class != scope.InScope {
-				continue
-			}
+		for _, root := range v.InScopeRoots() {
 			for _, t := range rootTypes {
 				key := root + "|" + t.name
 				if t.name == "NS" {
@@ -118,16 +116,12 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		obs = append(obs, kinds.Resolution.Obs(in.root+"|"+in.t.name+"|"+a.Value,
 			kinds.ResolutionAttrs{Name: in.root, Type: in.t.name, Value: a.Value}))
 		switch in.t.name {
-		case "NS", "SOA":
-			target, _, _ := strings.Cut(a.Value, " ") // an SOA value starts with its primary
-			if in.t.name == "NS" {
-				servers = append(servers, target)
-			}
-			mechanism := kinds.MechanismNS
-			if in.t.name == "SOA" {
-				mechanism = "" // an SOA primary outside the scope adds nothing
-			}
-			obs = append(obs, dependency(in, mechanism, target)...)
+		case "NS":
+			servers = append(servers, a.Value)
+			obs = append(obs, dependency(in, kinds.MechanismNS, a.Value)...)
+		case "SOA":
+			primary, _, _ := strings.Cut(a.Value, " ")
+			obs = append(obs, dependency(in, "", primary)...) // an SOA primary outside the scope adds nothing
 		case "TXT":
 			if platform, ok := provider.Default().Verification(a.Value); ok {
 				obs = append(obs, kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, kinds.MechanismTXTVerification, platform),

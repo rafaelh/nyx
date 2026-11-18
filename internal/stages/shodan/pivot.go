@@ -52,17 +52,12 @@ var defaultFavicons = map[string]string{
 // scope in it would spend one per identifier on every change). The stage is
 // budgeted by identifier_pivot.max_queries. It is third-party contact, so it runs
 // under --passive, over the identifiers earlier runs recorded.
-type Pivot struct{}
+type Pivot struct{ shodanAPI }
 
 // NewPivot returns the identifier-pivot stage.
 func NewPivot() *Pivot { return &Pivot{} }
 
-func (*Pivot) Name() string         { return "identifier-pivot" }
-func (*Pivot) Contact() run.Contact { return run.ThirdParty }
-func (*Pivot) Sources() []string    { return []string{"api.shodan.io"} }
-
-// Configured: it uses the key of the shodan stage.
-func (*Pivot) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, "shodan", true) }
+func (*Pivot) Name() string { return "identifier-pivot" }
 
 // Budget is identifier_pivot.max_queries: each check is one search.
 func (*Pivot) Budget(s config.Settings) int { return s.IdentifierPivot.MaxQueries }
@@ -148,7 +143,7 @@ func (*Pivot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			seen["ip|"+a.String()] = true
 			obs = append(obs, kinds.IP.Obs(a.String()))
 		}
-		obs = append(obs, nameObs(in.sc, seen, m.Hostnames, nil)...)
+		obs = append(obs, nameObs(in.sc, seen, m.Hostnames, "")...)
 	}
 	return obs, nil
 }

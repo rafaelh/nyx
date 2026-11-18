@@ -17,6 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/orgname"
 	"github.com/rafaelh/nyx/internal/run"
+	asnstage "github.com/rafaelh/nyx/internal/stages/asn"
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
@@ -175,24 +176,12 @@ func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Ob
 	}
 	var obs []run.Observation
 	for _, asn := range asns {
-		pq := url.Values{"resource": {asn}, "sourceapp": {"nyx"}}
-		body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: "https://stat.ripe.net/data/announced-prefixes/data.json?" + pq.Encode()})
+		prefixes, err := asnstage.Announced(ctx, e, asn)
 		if err != nil {
 			return nil, fmt.Errorf("org-asn %s %s: %w", c.Key, asn, err)
 		}
-		var ap struct {
-			Status string `json:"status"`
-			Data   struct {
-				Prefixes []struct{ Prefix string } `json:"prefixes"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(body, &ap); err != nil || ap.Status != "ok" {
-			return nil, fmt.Errorf("org-asn %s %s: unreadable RIPEstat response", c.Key, asn)
-		}
-		for _, p := range ap.Data.Prefixes {
-			if p.Prefix = strings.TrimSpace(p.Prefix); p.Prefix != "" {
-				obs = append(obs, kinds.Netblock.Obs(p.Prefix, kinds.NetblockAttrs{ASN: asn, Org: c.Key}))
-			}
+		for _, p := range prefixes {
+			obs = append(obs, kinds.Netblock.Obs(p, kinds.NetblockAttrs{ASN: asn, Org: c.Key}))
 		}
 	}
 	return obs, nil

@@ -25,6 +25,7 @@ func clients(t *testing.T, d *egresstest.DNS) egress.Clients {
 
 // The probe labels come from an injectable source; there are always two, and they differ.
 func TestWildcardProbeLabels(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	labels := []string{"aaaa", "aaaa", "bbbb"} // the second draw repeats the first
 	i := 0
@@ -39,6 +40,7 @@ func TestWildcardProbeLabels(t *testing.T) {
 }
 
 func TestDefaultWildcardLabelsAreRandom16(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	d.Wildcard("example.com", "203.0.113.1")
 	obs, err := dns.NewWildcard(nil).Run(context.Background(), run.Check{Key: "example.com"}, clients(t, d))
@@ -58,6 +60,7 @@ func TestDefaultWildcardLabelsAreRandom16(t *testing.T) {
 
 // A SERVFAIL on a probe is a transient failure, never "not a wildcard".
 func TestWildcardServFailIsAnError(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	d.RcodeSuffix("example.com", 2) // SERVFAIL
 	if obs, err := dns.NewWildcard(nil).Run(context.Background(), run.Check{Key: "example.com"}, clients(t, d)); err == nil {
@@ -67,6 +70,7 @@ func TestWildcardServFailIsAnError(t *testing.T) {
 
 // A probe that answered proves the wildcard even if another probe SERVFAILs.
 func TestWildcardAnswerWinsOverServFail(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	d.Wildcard("example.com", "203.0.113.1")
 	d.Rcode("bbbb.example.com", 2) // SERVFAIL
@@ -82,6 +86,7 @@ func TestWildcardAnswerWinsOverServFail(t *testing.T) {
 // A wildcard CNAME that dangles (NXDOMAIN) is still a wildcard, so the
 // permutations it makes "exist" come out wildcard-only.
 func TestWildcardDanglingCNAME(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	d.WildcardCNAME("example.com", "gone.herokuapp.com")
 	obs, err := dns.NewWildcard(nil).Run(context.Background(), run.Check{Key: "example.com"}, clients(t, d))
@@ -92,6 +97,7 @@ func TestWildcardDanglingCNAME(t *testing.T) {
 
 // A resolver failure is transient; an address Cymru does not know is a result.
 func TestIPOwnerFailureModes(t *testing.T) {
+	t.Parallel()
 	d := egresstest.NewDNS(t)
 	st := dns.NewIPOwner()
 	chk := run.Check{Key: "203.0.113.5", Input: mustAddr("203.0.113.5")}

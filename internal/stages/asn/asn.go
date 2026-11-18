@@ -38,38 +38,50 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 	}
 }
 
-type announced struct {
-	Status string `json:"status"`
-	Data   struct {
-		Prefixes []struct {
-			Prefix string `json:"prefix"`
-		} `json:"prefixes"`
-	} `json:"data"`
+// Announced returns the prefixes RIPEstat says asn announces. Anything but a
+// well-formed "ok" answer is an error.
+func Announced(ctx context.Context, e egress.Clients, asn string) ([]string, error) {
+	q := url.Values{"resource": {asn}, "sourceapp": {"nyx"}}
+	raw, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
+		Method: "GET", URL: "https://stat.ripe.net/data/announced-prefixes/data.json?" + q.Encode(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("RIPEstat: %w", err)
+	}
+	var body struct {
+		Status string `json:"status"`
+		Data   struct {
+			Prefixes []struct {
+				Prefix string `json:"prefix"`
+			} `json:"prefixes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf("unreadable RIPEstat response: %v", err)
+	}
+	if body.Status != "ok" {
+		return nil, fmt.Errorf("RIPEstat status %q", body.Status)
+	}
+	var out []string
+	for _, p := range body.Data.Prefixes {
+		if p := strings.TrimSpace(p.Prefix); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // Run fetches the prefixes announced by the ASN. Anything but a well-formed
 // "ok" answer is a transient failure.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	asn := c.Key
-	q := url.Values{"resource": {asn}, "sourceapp": {"nyx"}}
-	raw, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
-		Method: "GET", URL: "https://stat.ripe.net/data/announced-prefixes/data.json?" + q.Encode(),
-	})
+	prefixes, err := Announced(ctx, e, asn)
 	if err != nil {
-		return nil, fmt.Errorf("asn %s: RIPEstat: %w", asn, err)
+		return nil, fmt.Errorf("asn %s: %w", asn, err)
 	}
-	var body announced
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return nil, fmt.Errorf("asn %s: unreadable RIPEstat response: %v", asn, err)
-	}
-	if body.Status != "ok" {
-		return nil, fmt.Errorf("asn %s: RIPEstat status %q", asn, body.Status)
-	}
-	var obs []run.Observation
-	for _, p := range body.Data.Prefixes {
-		if p.Prefix = strings.TrimSpace(p.Prefix); p.Prefix != "" {
-			obs = append(obs, kinds.Netblock.Obs(p.Prefix, kinds.NetblockAttrs{ASN: asn}))
-		}
+	obs := make([]run.Observation, 0, len(prefixes))
+	for _, p := range prefixes {
+		obs = append(obs, kinds.Netblock.Obs(p, kinds.NetblockAttrs{ASN: asn}))
 	}
 	return obs, nil
 }

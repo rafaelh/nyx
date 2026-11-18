@@ -17,13 +17,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 	"github.com/rafaelh/nyx/internal/stages/web"
 )
@@ -104,10 +104,7 @@ func (s *Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 		if s.optionalKey {
 			_, in.keyed = run.Env{Settings: set}.Key(s.name)
 		}
-		for _, r := range v.Inputs().Roots {
-			if v.Scope().ClassifyHost(r).Class != scope.InScope {
-				continue
-			}
+		for _, r := range v.InScopeRoots() {
 			key := r
 			switch {
 			case s.archive:
@@ -267,22 +264,45 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 
 // --- Common Crawl ---
 
+// collection is the latest Common Crawl collection, fetched once per run: the
+// list is the same for every root. A failure fails every root's check for the run.
+type collection struct {
+	once sync.Once
+	id   string
+	err  error
+}
+
+type collectionKey struct{}
+
+func latestCollection(ctx context.Context, c egress.Clients) (string, error) {
+	col := run.PerRun(ctx, collectionKey{}, func() *collection { return &collection{} })
+	col.once.Do(func() {
+		body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: "https://index.commoncrawl.org/collinfo.json"})
+		if err != nil {
+			col.err = err
+			return
+		}
+		var colls []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &colls); err != nil || len(colls) == 0 {
+			col.err = errors.New("unreadable Common Crawl collection list")
+			return
+		}
+		col.id = colls[0].ID
+	})
+	return col.id, col.err
+}
+
 func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
 	root := in.root
-	body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: "https://index.commoncrawl.org/collinfo.json"})
+	id, err := latestCollection(ctx, c)
 	if err != nil {
 		return result{}, err
 	}
-	var colls []struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &colls); err != nil || len(colls) == 0 {
-		return result{}, errors.New("unreadable Common Crawl collection list")
-	}
-	id := colls[0].ID
 	endpoint := "https://index.commoncrawl.org/" + id + "-index?"
 	count := url.Values{"url": {"*." + root}, "output": {"json"}, "showNumPages": {"true"}}
-	body, err = httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: endpoint + count.Encode()})
+	body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: endpoint + count.Encode()})
 	if err != nil {
 		return result{}, err
 	}

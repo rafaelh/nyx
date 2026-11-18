@@ -236,6 +236,13 @@ var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3
 func DKIMSelectors() []string { return slices.Clone(dkimSelectors) }
 
 // DKIMSelectorHash identifies the selector list, so a changed list creates new email checks.
+// ListHash is a short hash of a list, for a check key that must change when
+// the list is edited.
+func ListHash(list []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(list, "\n")))
+	return hex.EncodeToString(sum[:6])
+}
+
 func DKIMSelectorHash() string {
 	sum := sha256.Sum256([]byte(strings.Join(dkimSelectors, ",")))
 	return hex.EncodeToString(sum[:4])
@@ -629,8 +636,7 @@ func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	} else {
 		s.WordlistWords = builtinWordlist()
 	}
-	sum := sha256.Sum256([]byte(strings.Join(s.WordlistWords, "\n")))
-	s.WordlistHash = hex.EncodeToString(sum[:6])
+	s.WordlistHash = ListHash(s.WordlistWords)
 	s.SensitivePathEntries = builtinSensitivePaths()
 	if s.SensitivePaths != "" {
 		b, err := os.ReadFile(s.SensitivePaths)

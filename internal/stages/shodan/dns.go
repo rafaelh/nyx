@@ -25,17 +25,12 @@ import (
 // records themselves are stored as dns_claim, never as resolution and with no ip
 // record: what a third party says a name points at is shown, but nothing reads
 // it to decide what to resolve, contact, port-check or probe.
-type DNS struct{}
+type DNS struct{ shodanAPI }
 
 // NewDNS returns the shodan-dns stage.
 func NewDNS() *DNS { return &DNS{} }
 
-func (*DNS) Name() string         { return "shodan-dns" }
-func (*DNS) Contact() run.Contact { return run.ThirdParty }
-func (*DNS) Sources() []string    { return []string{"api.shodan.io"} }
-
-// Configured: it uses the key of the shodan stage.
-func (*DNS) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, "shodan", true) }
+func (*DNS) Name() string { return "shodan-dns" }
 
 // dnsInput is the Check.Input. The scope travels in it so that Run can tell an
 // in-scope CNAME target from one that is not.
@@ -50,10 +45,7 @@ type dnsInput struct {
 func (*DNS) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		pages := v.Settings().ShodanDNS.MaxPages
-		for _, r := range v.Inputs().Roots {
-			if v.Scope().ClassifyHost(r).Class != scope.InScope {
-				continue
-			}
+		for _, r := range v.InScopeRoots() {
 			if !yield(run.Check{Key: fmt.Sprintf("%s|pages=%d", r, pages), Input: dnsInput{root: r, pages: pages, sc: v.Scope()}}, nil) {
 				return
 			}

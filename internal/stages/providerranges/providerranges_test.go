@@ -19,16 +19,17 @@ var wantKeys = []string{"aws", "gcp", "cloudflare-v4", "cloudflare-v6", "fastly"
 
 func listFor(t *testing.T, key string) list {
 	t.Helper()
-	l, ok := listByKey(key)
-	if !ok {
+	i := slices.IndexFunc(lists, func(l list) bool { return l.key == key })
+	if i < 0 {
 		t.Fatalf("no list with key %q", key)
 	}
-	return l
+	return lists[i]
 }
 
 // Every list's provider has a classification rule, or its ranges would be
 // fetched and stored and then ignored.
 func TestLists_EveryProviderHasARule(t *testing.T) {
+	t.Parallel()
 	for _, l := range lists {
 		if !provider.HasRangeRule(l.provider) {
 			t.Errorf("list %s: provider %q has no classification rule", l.key, l.provider)
@@ -62,6 +63,7 @@ func got(t *testing.T, obs []run.Observation) []rng {
 }
 
 func TestParsers_RecordedSamples(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		key, file string
 		n         int
@@ -109,6 +111,7 @@ func TestParsers_RecordedSamples(t *testing.T) {
 }
 
 func TestParsers_OracleTagsBecomeServices(t *testing.T) {
+	t.Parallel()
 	obs, err := listFor(t, "oracle").observations(fixture(t, "oracle.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +129,7 @@ func TestParsers_OracleTagsBecomeServices(t *testing.T) {
 }
 
 func TestParsers_AWSAndGCPUnchanged(t *testing.T) {
+	t.Parallel()
 	aws, err := listFor(t, "aws").observations([]byte(`{"prefixes":[{"ip_prefix":"203.0.113.0/24","region":"eu-west-1","service":"EC2"}],
 		"ipv6_prefixes":[{"ipv6_prefix":"2001:db8::/32","region":"us-east-1","service":"AMAZON"}]}`))
 	if err != nil || !slices.Equal(got(t, aws), []rng{{"aws", "203.0.113.0/24", "EC2", "eu-west-1"}, {"aws", "2001:db8::/32", "AMAZON", "us-east-1"}}) {
@@ -140,6 +144,7 @@ func TestParsers_AWSAndGCPUnchanged(t *testing.T) {
 // A body with no usable range is an error, not an empty success: an empty check
 // would be recorded as done and the list would never be fetched again.
 func TestParsers_EmptyAndMalformedBodiesFail(t *testing.T) {
+	t.Parallel()
 	bodies := map[string][]string{
 		"aws":           {``, `not json`, `{"prefixes":[]}`, `{"prefixes":[{"ip_prefix":"nope","service":"EC2"}]}`, `{"prefixes":[`},
 		"gcp":           {``, `not json`, `{"prefixes":[]}`, `{"prefixes":[{"scope":"x"}]}`},
@@ -170,6 +175,7 @@ func TestParsers_EmptyAndMalformedBodiesFail(t *testing.T) {
 
 // A malformed line among good ones is skipped; the rest of the list applies.
 func TestParsers_SkipsUnparseableLines(t *testing.T) {
+	t.Parallel()
 	obs, err := listFor(t, "cloudflare-v4").observations([]byte("173.245.48.0/20\nnonsense\n\n104.16.0.0/13\n"))
 	if err != nil || len(obs) != 2 {
 		t.Errorf("got %d observations, %v; want 2 and no error", len(obs), err)
@@ -177,13 +183,14 @@ func TestParsers_SkipsUnparseableLines(t *testing.T) {
 }
 
 func TestStage_OneCheckPerList(t *testing.T) {
+	t.Parallel()
 	var keys []string
 	for c, err := range New().Checks(context.Background(), run.View{}) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.Key != c.Input {
-			t.Errorf("check %q has input %q; the key is the stable name", c.Key, c.Input)
+		if l, ok := c.Input.(list); !ok || l.key != c.Key {
+			t.Errorf("check %q has input %v; the key is the list's stable name", c.Key, c.Input)
 		}
 		keys = append(keys, c.Key)
 	}
@@ -195,6 +202,7 @@ func TestStage_OneCheckPerList(t *testing.T) {
 // The URLs are the published ones, each an https URL on a host the stage declares,
 // and nothing is fetched for Azure, whose published list moves.
 func TestSources_NamesEveryPublisherAndNoAzure(t *testing.T) {
+	t.Parallel()
 	declared := New().Sources()
 	for _, key := range wantKeys {
 		u, err := url.Parse(listFor(t, key).url)

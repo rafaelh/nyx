@@ -53,10 +53,7 @@ type input struct {
 // Checks yields one check per in-scope input root; a changed selector list creates new checks.
 func (*Email) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
-		for _, root := range slices.Sorted(slices.Values(v.Inputs().Roots)) {
-			if v.Scope().ClassifyHost(root).Class != scope.InScope {
-				continue
-			}
+		for _, root := range v.InScopeRoots() {
 			if !yield(run.Check{Key: root + "|dkim=" + config.DKIMSelectorHash() + mtaSTSToken + serveraddr.KeyToken, Input: input{root, v.Scope()}}, nil) {
 				return
 			}

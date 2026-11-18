@@ -178,34 +178,36 @@ func escapePath(parts ...string) string {
 	return "/" + strings.Join(segs, "/")
 }
 
+// storageURL is the URL of a bucket or container, or of an object in it when
+// object is given. An S3 bucket is addressed path-style at its region's endpoint.
+func storageURL(in storageInput, region string, object ...string) string {
+	host, base := "s3.amazonaws.com", in.name
+	switch in.provider {
+	case cloudstorage.GCS:
+		host = "storage.googleapis.com"
+	case cloudstorage.Azure:
+		host, base = in.name+".blob.core.windows.net", in.container
+	default:
+		if region != "" {
+			host = "s3." + region + ".amazonaws.com"
+		}
+	}
+	return "https://" + host + escapePath(append([]string{base}, object...)...)
+}
+
 // listURL is where a bucket or container is listed anonymously.
 func listURL(in storageInput, region string) string {
 	switch in.provider {
 	case cloudstorage.GCS:
-		return "https://storage.googleapis.com" + escapePath(in.name) + "?max-keys=1000"
+		return storageURL(in, region) + "?max-keys=1000"
 	case cloudstorage.Azure:
-		return "https://" + in.name + ".blob.core.windows.net" + escapePath(in.container) + "?restype=container&comp=list&maxresults=1000"
+		return storageURL(in, region) + "?restype=container&comp=list&maxresults=1000"
 	}
-	return "https://" + s3Host(region) + escapePath(in.name) + "?list-type=2&max-keys=1000"
-}
-
-func s3Host(region string) string {
-	if region == "" {
-		return "s3.amazonaws.com"
-	}
-	return "s3." + region + ".amazonaws.com"
+	return storageURL(in, region) + "?list-type=2&max-keys=1000"
 }
 
 // objectURL is the URL of an object, for a HEAD.
-func objectURL(in storageInput, region string) string {
-	switch in.provider {
-	case cloudstorage.GCS:
-		return "https://storage.googleapis.com" + escapePath(in.name, in.object)
-	case cloudstorage.Azure:
-		return "https://" + in.name + ".blob.core.windows.net" + escapePath(in.container, in.object)
-	}
-	return "https://" + s3Host(region) + escapePath(in.name, in.object)
-}
+func objectURL(in storageInput, region string) string { return storageURL(in, region, in.object) }
 
 // request sends one request and, for S3, follows a 301 to the bucket's region once.
 func request(ctx context.Context, e egress.Clients, method string, in storageInput, build func(region string) string) (egress.ThirdPartyResponse, string, error) {
@@ -233,12 +235,12 @@ var s3RegionHost = regexp.MustCompile(`(?:^|\.)s3[.-](?:dualstack\.)?([a-z]{2}(?
 // x-amz-bucket-region header, else the host of the Location header (a 307 for
 // a new bucket may carry only that), else the <Endpoint> of the error body.
 func redirectRegion(resp egress.ThirdPartyResponse) string {
-	if vals := resp.Header["X-Amz-Bucket-Region"]; len(vals) > 0 && vals[0] != "" {
-		return vals[0]
+	if r := resp.HeaderValue("X-Amz-Bucket-Region"); r != "" {
+		return r
 	}
 	var hosts []string
-	if vals := resp.Header["Location"]; len(vals) > 0 {
-		if u, err := url.Parse(vals[0]); err == nil {
+	if loc := resp.HeaderValue("Location"); loc != "" {
+		if u, err := url.Parse(loc); err == nil {
 			hosts = append(hosts, u.Hostname())
 		}
 	}

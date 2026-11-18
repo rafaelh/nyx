@@ -5,6 +5,7 @@ import "testing"
 // The crawl's check key carries its limits; the evidence it gives for a
 // candidate is the service alone, so changing a limit never counts twice.
 func TestCrawlEvidenceDropsTheLimits(t *testing.T) {
+	t.Parallel()
 	var s *Crawl
 	for _, key := range []string{"https://a.example.com|depth=2|pages=100", "https://a.example.com|depth=3|pages=50"} {
 		if src, item := s.Evidence(key); src != "crawl" || item != "https://a.example.com" {
@@ -14,6 +15,7 @@ func TestCrawlEvidenceDropsTheLimits(t *testing.T) {
 }
 
 func TestNormaliseURLCanonicalisesIPLiteralsAndPorts(t *testing.T) {
+	t.Parallel()
 	for raw, want := range map[string]string{
 		"http://[2001:db8:0:0::1]:8080/x": "http://[2001:db8::1]:8080/x",
 		"http://[2001:DB8::1]/":           "http://[2001:db8::1]/",
@@ -38,6 +40,7 @@ func TestNormaliseURLCanonicalisesIPLiteralsAndPorts(t *testing.T) {
 }
 
 func TestLinksReadsTheFirstBaseHref(t *testing.T) {
+	t.Parallel()
 	pg, ok := parsePage([]byte(`<html><head><base href="/static/app/"><base href="/other/"></head><body><a href="login">x</a></body></html>`))
 	if !ok {
 		t.Fatal("unparsable page")
@@ -50,6 +53,7 @@ func TestLinksReadsTheFirstBaseHref(t *testing.T) {
 // The fingerprints are embedded; a dependency upgrade that breaks them must
 // fail here rather than silently empty the technologies column.
 func TestFingerprintsLoad(t *testing.T) {
+	t.Parallel()
 	if _, err := fingerprints(); err != nil {
 		t.Fatal(err)
 	}

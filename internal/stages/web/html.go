@@ -28,34 +28,21 @@ func attr(n *html.Node, key string) string {
 	return ""
 }
 
-func text(n *html.Node, b *strings.Builder) {
-	if n.Type == html.TextNode {
-		b.WriteString(n.Data)
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		text(c, b)
-	}
-}
-
 // firstText is the text of the first element match accepts, in document order,
 // with whitespace collapsed and invalid UTF-8 replaced; "" if there is none.
 func (p page) firstText(match func(*html.Node) bool) string {
-	var find func(*html.Node) (string, bool)
-	find = func(n *html.Node) (string, bool) {
+	for n := range p.doc.Descendants() {
 		if n.Type == html.ElementNode && match(n) {
 			var b strings.Builder
-			text(n, &b)
-			return b.String(), true
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if t, ok := find(c); ok {
-				return t, true
+			for t := range n.Descendants() {
+				if t.Type == html.TextNode {
+					b.WriteString(t.Data)
+				}
 			}
+			return collapse(b.String())
 		}
-		return "", false
 	}
-	raw, _ := find(p.doc)
-	return collapse(raw)
+	return ""
 }
 
 // collapse collapses the whitespace of text and replaces invalid UTF-8.
@@ -106,47 +93,39 @@ type linkRef struct{ tag, url string }
 
 func (p page) links() links {
 	var l links
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode {
-			add := func(dst *[]string, key string) {
-				if v := attr(n, key); v != "" {
-					*dst = append(*dst, v)
-				}
-			}
-			ref := func(key string) {
-				if v := attr(n, key); v != "" {
-					l.refs = append(l.refs, linkRef{tag: n.Data, url: v})
-				}
-			}
-			switch n.Data {
-			case "base":
-				if l.base == "" {
-					l.base = attr(n, "href")
-				}
-			case "a", "area":
-				add(&l.follow, "href")
-				ref("href")
-			case "iframe":
-				add(&l.follow, "src")
-				ref("src")
-			case "link":
-				add(&l.record, "href")
-				ref("href")
-			case "script":
-				add(&l.record, "src")
-				ref("src")
-			case "form":
-				add(&l.record, "action")
-				ref("action")
-			case "img", "source":
-				ref("src")
-			}
+	for n := range p.doc.Descendants() {
+		if n.Type != html.ElementNode {
+			continue
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
+		var dst *[]string
+		var key string
+		switch n.Data {
+		case "base":
+			if l.base == "" {
+				l.base = attr(n, "href")
+			}
+			continue
+		case "a", "area":
+			dst, key = &l.follow, "href"
+		case "iframe":
+			dst, key = &l.follow, "src"
+		case "link":
+			dst, key = &l.record, "href"
+		case "script":
+			dst, key = &l.record, "src"
+		case "form":
+			dst, key = &l.record, "action"
+		case "img", "source":
+			key = "src"
+		default:
+			continue
+		}
+		if v := attr(n, key); v != "" {
+			if dst != nil {
+				*dst = append(*dst, v)
+			}
+			l.refs = append(l.refs, linkRef{tag: n.Data, url: v})
 		}
 	}
-	walk(p.doc)
 	return l
 }

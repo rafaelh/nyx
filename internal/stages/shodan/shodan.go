@@ -50,17 +50,22 @@ func reportedPort(ip string, port int, transport, banner, timestamp string) (run
 		IP: addr.String(), Port: port, Banner: kinds.ShodanBanner(banner), LastSeen: seen}), true
 }
 
+// shodanAPI is embedded by every stage that queries the Shodan API with the
+// key of the shodan stage.
+type shodanAPI struct{}
+
+func (shodanAPI) Contact() run.Contact { return run.ThirdParty }
+func (shodanAPI) Sources() []string    { return []string{"api.shodan.io"} }
+
+func (shodanAPI) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, "shodan", true) }
+
 // Stage is the shodan stage.
-type Stage struct{}
+type Stage struct{ shodanAPI }
 
 // New returns the shodan stage.
 func New() *Stage { return &Stage{} }
 
-func (*Stage) Name() string         { return "shodan" }
-func (*Stage) Contact() run.Contact { return run.ThirdParty }
-func (*Stage) Sources() []string    { return []string{"api.shodan.io"} }
-
-func (*Stage) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, "shodan", true) }
+func (*Stage) Name() string { return "shodan" }
 
 // Notes says which netblock searches stopped at the page cap with matches
 // unread, so that the addresses they missed are not mistaken for ones Shodan

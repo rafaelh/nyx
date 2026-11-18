@@ -103,10 +103,8 @@ func bodySize(r egress.Response) kinds.Size {
 	if len(r.Body) < egress.MaxTargetBody {
 		return kinds.SizeOf(int64(len(r.Body)))
 	}
-	if vals := r.Header["Content-Length"]; len(vals) > 0 {
-		if n, err := strconv.ParseInt(vals[0], 10, 64); err == nil && n >= int64(len(r.Body)) {
-			return kinds.SizeOf(n)
-		}
+	if n, err := strconv.ParseInt(r.HeaderValue("Content-Length"), 10, 64); err == nil && n >= int64(len(r.Body)) {
+		return kinds.SizeOf(n)
 	}
 	return kinds.Size(fmt.Sprintf("%d+", len(r.Body)))
 }

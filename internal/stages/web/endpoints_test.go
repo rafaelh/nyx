@@ -10,6 +10,7 @@ import (
 const scriptOrigin = "https://a.example.com"
 
 func TestExtractEndpoints(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		body string
 		want []string
@@ -76,6 +77,7 @@ func TestExtractEndpoints(t *testing.T) {
 
 // Every example the specification gives for what is and is not recorded.
 func TestExtractEndpoints_SpecificationExamples(t *testing.T) {
+	t.Parallel()
 	body := `a("/api/v1/users"); b("//api.example.com/v2"); c("/.js"); d(s.match(/\d+/g)); e("/ "); f("//comment")`
 	want := []string{"https://a.example.com/api/v1/users", "https://api.example.com/v2"}
 	if got := ExtractEndpoints([]byte(body), scriptOrigin); !slices.Equal(got, want) {
@@ -86,6 +88,7 @@ func TestExtractEndpoints_SpecificationExamples(t *testing.T) {
 // The extractor returns everything it finds; the 500 cap belongs to the stage.
 // A large body is read in one pass.
 func TestExtractEndpoints_ManyURLs(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	for i := range 2000 {
 		fmt.Fprintf(&b, "x(\"/api/%d\");", i)
@@ -98,6 +101,7 @@ func TestExtractEndpoints_ManyURLs(t *testing.T) {
 
 // A port in the origin is kept for a path, and the default port is not added.
 func TestExtractEndpoints_OriginPort(t *testing.T) {
+	t.Parallel()
 	got := ExtractEndpoints([]byte(`"/api/a" "//api.example.com/b"`), "http://a.example.com:8080")
 	want := []string{"http://a.example.com:8080/api/a", "http://api.example.com/b"}
 	if !slices.Equal(got, want) {

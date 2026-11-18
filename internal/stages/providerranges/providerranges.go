@@ -44,14 +44,6 @@ var lists = []list{
 	{"linode", "linode", "https://geoip.linode.com/", parseLines},
 }
 
-func listByKey(key string) (list, bool) {
-	i := slices.IndexFunc(lists, func(l list) bool { return l.key == key })
-	if i < 0 {
-		return list{}, false
-	}
-	return lists[i], true
-}
-
 // Stage is the providerranges stage: one check per list, refreshed by --redo providerranges.
 type Stage struct{}
 
@@ -76,7 +68,7 @@ func (*Stage) Sources() []string {
 func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, l := range lists {
-			if !yield(run.Check{Key: l.key, Input: l.key}, nil) {
+			if !yield(run.Check{Key: l.key, Input: l}, nil) {
 				return
 			}
 		}
@@ -87,10 +79,7 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 // that yields no ranges, is an error: the check is retried on a later run, and
 // the ranges of the last successful fetch keep applying meanwhile.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
-	l, ok := listByKey(c.Key)
-	if !ok {
-		return nil, fmt.Errorf("unknown provider list %q", c.Key)
-	}
+	l := c.Input.(list)
 	body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: l.url})
 	if err != nil {
 		return nil, fmt.Errorf("%s ranges: %w", l.provider, err)

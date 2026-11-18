@@ -15,6 +15,7 @@ func htmlPage(url, body string) *hop { return hopAt(url, "text/html", nil, []byt
 func chainOf(hops ...*hop) []*hop { return hops }
 
 func TestPosture_HSTSIsReadFromTheFirstResponseOnly(t *testing.T) {
+	t.Parallel()
 	const sts = "max-age=31536000"
 	for name, tc := range map[string]struct {
 		chain []*hop
@@ -47,6 +48,7 @@ func TestPosture_HSTSIsReadFromTheFirstResponseOnly(t *testing.T) {
 }
 
 func TestPosture_CookieFlags(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		url                  string
 		cookies              []string
@@ -77,6 +79,7 @@ func TestPosture_CookieFlags(t *testing.T) {
 // A cookie set by any response in the redirect chain counts, and Secure is
 // judged against the scheme the response arrived over.
 func TestPosture_CookiesFromEveryResponseInTheChain(t *testing.T) {
+	t.Parallel()
 	a := posture("a.example.com", chainOf(
 		resp("https://a.example.com/", hdr{"Set-Cookie": {"tracker=1; HttpOnly"}}, ""),
 		resp("https://a.example.com/login", hdr{"Set-Cookie": {"csrf=1; Secure"}}, ""),
@@ -99,6 +102,7 @@ func TestPosture_CookiesFromEveryResponseInTheChain(t *testing.T) {
 
 // Only the sanitised name is kept; exact equality rules out any value or control character.
 func TestPosture_CookieNamesAreSanitisedAndValuesNeverKept(t *testing.T) {
+	t.Parallel()
 	a := posture("a.example.com", chainOf(resp("https://a.example.com/", hdr{"Set-Cookie": {
 		"s\x1b[31mid\x07=TOPSECRETVALUE; Path=/",
 		"tok=ANOTHERSECRET; Secure; HttpOnly",
@@ -109,12 +113,14 @@ func TestPosture_CookieNamesAreSanitisedAndValuesNeverKept(t *testing.T) {
 }
 
 func TestPosture_HostIsTheServices(t *testing.T) {
+	t.Parallel()
 	if h := posture("a.example.com", chainOf(resp("http://a.example.com/", hdr{}, ""))).Host; h != "a.example.com" {
 		t.Errorf("Host = %q", h)
 	}
 }
 
 func TestPosture_DirectoryListing(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		body string
 		want bool
@@ -145,6 +151,7 @@ func TestPosture_DirectoryListing(t *testing.T) {
 // The page that counts is the last one of the chain served by the service's
 // own origin; a listing on another origin it redirects to is not this service's.
 func TestPosture_DirectoryListingFromTheLastSameOriginPage(t *testing.T) {
+	t.Parallel()
 	const listing = `<title>Index of /</title>`
 	for name, chain := range map[string][]*hop{
 		"listing at the end": chainOf(
@@ -187,6 +194,7 @@ func TestPosture_DirectoryListingFromTheLastSameOriginPage(t *testing.T) {
 }
 
 func TestPosture_VersionDisclosure(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		header hdr
 		want   string
@@ -220,6 +228,7 @@ func TestPosture_VersionDisclosure(t *testing.T) {
 
 // A page is parsed once, however many readers ask.
 func TestHopParsesItsPageOnce(t *testing.T) {
+	t.Parallel()
 	h := htmlPage("https://a.example.com/", "<title>Index of /</title>")
 	p1, ok1 := h.page()
 	h.body = []byte("<title>changed</title>") // a second parse would see this

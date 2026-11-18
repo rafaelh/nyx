@@ -97,7 +97,7 @@ func (o *IPOwner) holder(ctx context.Context, asn int, e egress.Clients) (string
 	for _, a := range res.Answers {
 		// "13335 | US | arin | 2010-07-14 | CLOUDFLARENET, US"
 		if f := fields(a.Value); a.Type == "TXT" && len(f) >= 5 {
-			h = trimCountry(strings.TrimSpace(f[4]))
+			h = trimCountry(f[4])
 			break
 		}
 	}

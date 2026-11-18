@@ -26,6 +26,7 @@ func clients(t *testing.T, h http.HandlerFunc) (egress.Clients, *string) {
 }
 
 func TestContract(t *testing.T) {
+	t.Parallel()
 	s := asn.New()
 	if s.Name() != "asn" || s.Contact() != run.ThirdParty || len(s.Sources()) != 1 || s.Sources()[0] != "stat.ripe.net" {
 		t.Errorf("%s %v %v", s.Name(), s.Contact(), s.Sources())
@@ -36,6 +37,7 @@ func TestContract(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+	t.Parallel()
 	c, uri := clients(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":{"prefixes":[{"prefix":"1.1.1.0/24"},{"prefix":"2606:4700::/32"}]}}`))
 	})
@@ -56,6 +58,7 @@ func TestRun(t *testing.T) {
 // A non-ok body status or HTTP status is a transient failure (an error), not
 // an empty result. A 429 does not abort the stage: the source is keyless.
 func TestRunErrors(t *testing.T) {
+	t.Parallel()
 	for name, h := range map[string]http.HandlerFunc{
 		"status":   func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"status":"error","data":{}}`)) },
 		"http 500": func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", 500) },
@@ -74,6 +77,7 @@ func TestRunErrors(t *testing.T) {
 }
 
 func TestZeroPrefixesIsAResult(t *testing.T) {
+	t.Parallel()
 	c, _ := clients(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"ok","data":{"prefixes":[]}}`))
 	})

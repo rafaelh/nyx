@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"iter"
 	"net/netip"
-	"net/url"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/cloudstorage"
@@ -96,13 +95,13 @@ func (*Probe) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 		reps := map[string]bool{}
 		ports := v.Records(kinds.HTTPPort)
 		for _, rec := range ports {
-			if ap, err := netip.ParseAddrPort(rec.Key); err == nil {
+			if ap, ok := kinds.ParsePortKey(rec.Key); ok {
 				reps[fmt.Sprintf("%s:%d", kinds.HTTPPort.Attrs(rec).Host, ap.Port())] = true
 			}
 		}
 		for _, rec := range ports {
-			ap, err := netip.ParseAddrPort(rec.Key)
-			if err != nil {
+			ap, ok := kinds.ParsePortKey(rec.Key)
+			if !ok {
 				continue
 			}
 			for _, h := range v.HostsFor(ap.Addr()) {
@@ -180,17 +179,7 @@ func isRedirect(status int) bool {
 }
 
 // redirectTarget is the normalised absolute URL a redirect response points to.
-func redirectTarget(r egress.Response) (string, bool) {
-	base, err := url.Parse(r.URL())
-	if err != nil {
-		return "", false
-	}
-	t, err := base.Parse(r.Location)
-	if err != nil {
-		return "", false
-	}
-	return NormaliseURL(t.String())
-}
+func redirectTarget(r egress.Response) (string, bool) { return resolve(r.URL(), r.Location) }
 
 // otherHost is host as a hostname observation, if it is a domain other than
 // self. The probed host itself would turn a permutation-only name into a seed,
@@ -285,7 +274,9 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 		attrs.TLSTrust = first.CertTrust()
 		attrs.TLSSelfSigned = &isSelfSigned
 		for _, name := range leaf.DNSNames {
-			if d, ok := sanHost(name); ok && d != strings.ToLower(in.host) {
+			// A wildcard contributes its base name; malformed names, IP literals
+			// and public suffixes are skipped.
+			if d := httpsrc.CleanName(name); d != "" && d != strings.ToLower(in.host) {
 				obs.add(kinds.Hostname.Obs(d, kinds.HostnameAttrs{}))
 			}
 		}
@@ -298,11 +289,4 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 	}
 	ids.add(kinds.IdentifierFavicon, hash)
 	return append([]run.Observation{kinds.WebService.Obs(attrs.URL, attrs), kinds.WebPosture.Obs(attrs.URL, posture(in.host, chain))}, obs.list...), nil
-}
-
-// sanHost turns a certificate DNS name into a hostname: a wildcard contributes
-// its base name; malformed names, IP literals and public suffixes are skipped.
-func sanHost(name string) (string, bool) {
-	d := httpsrc.CleanName(name)
-	return d, d != ""
 }

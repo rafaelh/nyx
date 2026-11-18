@@ -21,7 +21,7 @@ var wellKnownLabels = []string{"autodiscover", "lyncdiscover", "enterpriseenroll
 
 // wellKnownToken identifies wellKnownLabels in the root key, so a changed list
 // repeats the root checks.
-var wellKnownToken = listToken(wellKnownLabels)
+var wellKnownToken = config.ListHash(wellKnownLabels)
 
 // Permutations resolves permutations of the labels found by other stages plus a
 // wordlist. Only names that exist are emitted; resolve then does A/AAAA.
@@ -70,18 +70,25 @@ func (p *Permutations) Checks(ctx context.Context, v run.View) iter.Seq2[run.Che
 			if v.WildcardZone(dnsname.Normalise(root)) {
 				continue
 			}
-			names := rootNames(root, valid)
-			if !yield(run.Check{Key: fmt.Sprintf("root|%s|wl=%s|wk=%s", root, hash, wellKnownToken), Input: names, Cost: len(names)}, nil) {
+			c := run.Check{Key: fmt.Sprintf("root|%s|wl=%s|wk=%s", root, hash, wellKnownToken)}
+			if !v.Done(c.Key) { // the runner skips a done check before reading its names
+				names := rootNames(root, valid)
+				c.Input, c.Cost = names, len(names)
+			}
+			if !yield(c, nil) {
 				return
 			}
 		}
 		// Seeds are never directly under a wildcard zone: the view leaves them out.
 		for _, seed := range v.Seeds(p.Name()) {
-			names := slices.DeleteFunc(seedNames(seed, words, s.Permutations.MaxPerSeed), func(n string) bool {
-				_, parent, _ := strings.Cut(n, ".")
-				return v.WildcardZone(parent)
-			})
-			c := run.Check{Key: fmt.Sprintf("seed|%s|wl=%s|max=%d", seed, hash, s.Permutations.MaxPerSeed), Input: names, Cost: len(names)}
+			c := run.Check{Key: fmt.Sprintf("seed|%s|wl=%s|max=%d", seed, hash, s.Permutations.MaxPerSeed)}
+			if !v.Done(c.Key) {
+				names := slices.DeleteFunc(seedNames(seed, words, s.Permutations.MaxPerSeed), func(n string) bool {
+					_, parent, _ := strings.Cut(n, ".")
+					return v.WildcardZone(parent)
+				})
+				c.Input, c.Cost = names, len(names)
+			}
 			if !yield(c, nil) {
 				return
 			}

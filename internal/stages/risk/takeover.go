@@ -44,9 +44,6 @@ func (*Takeover) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 				byHost[ph.Hostname] = append(byHost[ph.Hostname], ph)
 			}
 		}
-		if len(byHost) == 0 {
-			return
-		}
 		for _, ws := range v.WebServices() {
 			for _, ph := range byHost[ws.Svc.Host] {
 				in := takeoverInput{service: ws.Key, svc: ws.Svc, ph: ph}

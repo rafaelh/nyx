@@ -28,17 +28,12 @@ import (
 // promoted later was recorded only as a candidate root until the redo. The stage
 // is budgeted by shodan.max_hosts; an address past the budget waits for the next
 // run, in address order.
-type Host struct{}
+type Host struct{ shodanAPI }
 
 // NewHost returns the shodan-host stage.
 func NewHost() *Host { return &Host{} }
 
-func (*Host) Name() string         { return "shodan-host" }
-func (*Host) Contact() run.Contact { return run.ThirdParty }
-func (*Host) Sources() []string    { return []string{"api.shodan.io"} }
-
-// Configured: it uses the key of the shodan stage.
-func (*Host) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, "shodan", true) }
+func (*Host) Name() string { return "shodan-host" }
 
 // Budget is shodan.max_hosts: each check is one address.
 func (*Host) Budget(s config.Settings) int { return s.Shodan.MaxHosts }
@@ -129,18 +124,16 @@ func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 			names = append(names, d.Hostnames...)
 		}
 	}
-	obs = append(obs, nameObs(in.sc, seen, names, func(n string) []run.Observation {
-		return []run.Observation{kinds.IPHostname.Obs(in.addr.String()+"|"+n, kinds.IPHostnameAttrs{IP: in.addr.String(), Hostname: n, Source: "shodan"})}
-	})...)
+	obs = append(obs, nameObs(in.sc, seen, names, in.addr.String())...)
 	return obs, nil
 }
 
 // nameObs are the observations of hostnames Shodan reported, each cleaned and
 // taken once (seen holds them as "name|<name>", and their roots as
 // "root|<root>"): a name under an in-scope root is a hostname, followed by
-// whatever inScope, if not nil, adds for it, and any other name gives its
-// registrable domain as a candidate root.
-func nameObs(sc *scope.Scope, seen map[string]bool, names []string, inScope func(n string) []run.Observation) []run.Observation {
+// its ip_hostname pairing with addr if addr is not "", and any other name gives
+// its registrable domain as a candidate root.
+func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string) []run.Observation {
 	var obs []run.Observation
 	for _, n := range names {
 		if n = httpsrc.CleanName(n); n == "" || seen["name|"+n] {
@@ -149,8 +142,8 @@ func nameObs(sc *scope.Scope, seen map[string]bool, names []string, inScope func
 		seen["name|"+n] = true
 		if sc.ClassifyHost(n).Class == scope.InScope {
 			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
-			if inScope != nil {
-				obs = append(obs, inScope(n)...)
+			if addr != "" {
+				obs = append(obs, kinds.IPHostname.Obs(addr+"|"+n, kinds.IPHostnameAttrs{IP: addr, Hostname: n, Source: "shodan"}))
 			}
 		} else if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] {
 			seen["root|"+root] = true
