@@ -208,7 +208,8 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	// A command returns PARTIAL only after it has written its result, so a signal that lands
 	// after that leaves it standing: INTERRUPTED never comes with a non-empty stdout.
 	var partial *clierr.Error
-	if s != nil && !(errors.As(err, &partial) && partial.Code == clierr.Partial) {
+	isPartial := errors.As(err, &partial) && partial.Code == clierr.Partial
+	if s != nil && !isPartial {
 		inv.fw.write(inv.interruptError(s))
 		return signalOf(s).code
 	}

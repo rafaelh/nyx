@@ -429,7 +429,7 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 	t.Parallel()
 	variants := map[string]func(rw http.ResponseWriter){
-		"HTTP 429": func(rw http.ResponseWriter) { http.Error(rw, "slow down", 429) },
+		"HTTP 429": func(rw http.ResponseWriter) { http.Error(rw, "slow down", http.StatusTooManyRequests) },
 		"API count exceeded": func(rw http.ResponseWriter) {
 			_, _ = rw.Write([]byte("API count exceeded - Increase Quota with Membership"))
 		},

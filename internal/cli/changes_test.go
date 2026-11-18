@@ -276,7 +276,7 @@ func TestChanges_PassiveRunDoesNotReportTargetRecordsGone(t *testing.T) {
 	for _, passive := range []bool{true, false} {
 		crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"))))
 		probe := newSrc("httpprobe", finds("p1", list(webSvc("https://h1.a.com", "h1.a.com"))))
-		probe.Stage.Kind = run.Target
+		probe.Kind = run.Target
 		h := newHarness(t, crtsh, probe)
 		if code := h.exec("a.com", "--authorised"); code != 0 {
 			t.Fatal(h.stderr.String())

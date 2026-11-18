@@ -179,7 +179,7 @@ func TestPartial_KeyedSourceStatuses(t *testing.T) {
 	}
 	// A rejected key and a failure for another reason: transient.
 	h := newHarness(t, keyedGet("keyed"), erring("flaky", 1, errors.New("boom")))
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", 401) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", http.StatusUnauthorized) }))
 	t.Cleanup(srv.Close)
 	h.eopts.SourceBaseURLs = map[string]string{"api.example-source.test": srv.URL}
 	h.setenv("NYX_KEYS_SHODAN", "sekret-key-123")

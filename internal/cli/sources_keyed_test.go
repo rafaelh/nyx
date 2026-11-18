@@ -69,7 +69,7 @@ func (s keyedSource) serveOK(w *world) { s.serveWith(w, s.ok) }
 func (s keyedSource) serveWith(w *world, body string) {
 	w.handle(s.host, func(rw http.ResponseWriter, r *http.Request) {
 		if !s.auth(r) {
-			http.Error(rw, "bad key", 401)
+			http.Error(rw, "bad key", http.StatusUnauthorized)
 			return
 		}
 		_, _ = rw.Write([]byte(body))
@@ -661,8 +661,9 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 		names = append(names, s.Name())
 	}
 	idx := func(n string) int { return slices.Index(names, n) }
-	if !(idx("certspotter") < idx("censys") && idx("censys") < idx("chaos") && idx("chaos") < idx("shodan") &&
-		idx("shodan") < idx("shodan-dns") && idx("shodan-dns") < idx("resolve")) || idx("censys") < 0 {
+	inOrder := idx("certspotter") < idx("censys") && idx("censys") < idx("chaos") && idx("chaos") < idx("shodan") &&
+		idx("shodan") < idx("shodan-dns") && idx("shodan-dns") < idx("resolve")
+	if !inOrder || idx("censys") < 0 {
 		t.Errorf("stage order = %v", names)
 	}
 	h := newHarness(t, defaultStageList()...)

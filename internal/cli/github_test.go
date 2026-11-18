@@ -90,7 +90,7 @@ func (g *ghFake) set(root string, files []ghFile) {
 
 func (g *ghFake) serve(rw http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/search/code" || r.Method != "GET" || r.Header.Get("Authorization") != "Bearer "+githubKey {
-		http.Error(rw, "bad credentials", 401)
+		http.Error(rw, "bad credentials", http.StatusUnauthorized)
 		return
 	}
 	q := r.URL.Query()
@@ -261,7 +261,7 @@ func TestGitHub_TextIsSanitised(t *testing.T) {
 	t.Parallel()
 	u := ghURL("evil/repo", "a/b.txt")
 	g := newGH(map[string][]ghFile{"example.com": {
-		{repo: "evil/\x1b[31mrepo\x1b[0m", path: "a/\x1b]0;owned\x07b.txt‮", url: u, fragments: []string{"x"}},
+		{repo: "evil/\x1b[31mrepo\x1b[0m", path: "a/\x1b]0;owned\x07b.txt\u202e", url: u, fragments: []string{"x"}},
 	}})
 	w := ghWorld(t, g)
 	if code := w.run("--passive", "example.com"); code != 0 {
@@ -273,7 +273,7 @@ func TestGitHub_TextIsSanitised(t *testing.T) {
 	}
 	// The database is binary and holds the odd 0x1b or 0x07 as structure, so the
 	// escape sequences are looked for by their text.
-	for _, s := range []string{"[31m", ";owned", "‮"} {
+	for _, s := range []string{"[31m", ";owned", "\u202e"} {
 		if hits := w.anywhere(eng, s); len(hits) > 0 {
 			t.Errorf("unsanitised %q written to %v", s, hits)
 		}
@@ -366,7 +366,7 @@ func TestGitHub_StopsAtGitHubsLastPage(t *testing.T) {
 	all := ghMany("example.com", 500)
 	g.before = func(rw http.ResponseWriter, root string, page, n int) bool {
 		if page > 10 {
-			http.Error(rw, `{"message":"Cannot access beyond the first 1000 results"}`, 422)
+			http.Error(rw, `{"message":"Cannot access beyond the first 1000 results"}`, http.StatusUnprocessableEntity)
 			return true
 		}
 		_, _ = rw.Write(ghPage(5000, all[(page-1)*50:page*50])) // short pages
@@ -718,7 +718,8 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 		names = append(names, s.Name())
 	}
 	idx := func(n string) int { return slices.Index(names, n) }
-	if !(idx("chaos") >= 0 && idx("chaos") < idx("github") && idx("github") < idx("shodan")) {
+	inOrder := idx("chaos") >= 0 && idx("chaos") < idx("github") && idx("github") < idx("shodan")
+	if !inOrder {
 		t.Errorf("stage order = %v, want github after the subdomain sources and before shodan", names)
 	}
 	h := newHarness(t, defaultStageList()...)

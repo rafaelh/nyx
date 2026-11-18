@@ -287,10 +287,5 @@ func hexRun(tok string, from, n int) bool {
 	if len(tok) < from+n {
 		return false
 	}
-	for _, c := range []byte(tok[from : from+n]) {
-		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F') {
-			return false
-		}
-	}
-	return true
+	return strings.Trim(tok[from:from+n], "0123456789abcdefABCDEF") == ""
 }
