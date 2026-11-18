@@ -15,7 +15,7 @@ make build                      # ./nyx (CGO_ENABLED=0, -trimpath)
 make test                       # go vet for all 4 GOOS/GOARCH targets, then go test -race ./...
 make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
-golangci-lint run ./...         # config in .golangci.yml (v2, std-error-handling exclusions)
+make lint                       # golangci-lint pinned in tools/go.mod; config in .golangci.yml
 ```
 
 - While iterating, run targeted tests without `-race`: the race detector roughly triples the cost.

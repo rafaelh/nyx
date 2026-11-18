@@ -2,7 +2,7 @@
 # so it must not be exported for the whole Makefile.
 TARGETS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build dist test clean eol-data
+.PHONY: build dist test lint clean eol-data
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o nyx ./cmd/nyx
@@ -25,6 +25,13 @@ test:
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go vet ./... || exit 1; \
 	done
 	go test -race ./...
+
+# golangci-lint is pinned in tools/go.mod, a module of its own so its dependencies stay out of
+# nyx's. go tool builds it with the project's toolchain on first use and caches it, so nothing needs
+# installing. Upgrade with:
+#   go get -tool -modfile=tools/go.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint@vX.Y.Z
+lint:
+	go tool -modfile=tools/go.mod golangci-lint run ./...
 
 clean:
 	rm -rf nyx dist
