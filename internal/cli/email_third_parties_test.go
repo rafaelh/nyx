@@ -332,10 +332,8 @@ func TestEmailThirdParties_FoundLineCountAndPassive(t *testing.T) {
 	if st, reason := stateOf(w2, "email"); st != "done" {
 		t.Errorf("email under --passive = %s (%s)", st, reason)
 	}
-	evs := ofType(w2.h.events(), "summary")
-	totals, _ := evs[len(evs)-1]["totals"].(map[string]any)
-	if n, _ := totals["third parties"].(float64); n != 2 {
-		t.Errorf("totals = %v, want 2 third parties", totals)
+	if n := w2.h.total("third parties"); n != 2 {
+		t.Errorf("third parties = %d, want 2", n)
 	}
 	// Re-running announces nothing new.
 	runRoot(t, w2, "-e", eng)
@@ -390,6 +388,7 @@ func TestEmailMTASTS_PresentAndAbsent(t *testing.T) {
 		{"one policy among others", []string{"google-site-verification=x", "v=STSv1; id=3"}, "present"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := emailWorld(t)
 			m := healthy()
 			m.mtasts = c.txt
@@ -430,6 +429,7 @@ func TestEmailMTASTS_EmptyWithoutMX(t *testing.T) {
 	t.Parallel()
 	for name, mx := range map[string][]string{"no MX": nil, "null MX": {"0 ."}} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			w := emailWorld(t)
 			m := healthy()
 			m.mx, m.spf, m.mtasts = mx, []string{"v=spf1 -all"}, nil

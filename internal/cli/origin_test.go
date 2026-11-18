@@ -366,6 +366,7 @@ func TestOrigin_ProbeRecordsBodyLength(t *testing.T) {
 func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
 	t.Parallel()
 	t.Run("by certificate, confirmed by status, size and certificate", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t)
 		x.set(func() { x.originWWW = "" }) // no title: only the body rule can confirm
 		x.mustRun()
@@ -375,18 +376,21 @@ func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
 		}
 	})
 	t.Run("by certificate and title", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t)
 		x.set(func() { x.ownTitle = acmeTitle })
 		x.mustRun()
 		x.wantRow(siblingAddr, "medium", "sibling-certificate;sibling-title", "title", "yes", "true")
 	})
 	t.Run("by title alone", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t, func(o *originOpts) { o.siblingCert = false })
 		x.set(func() { x.ownTitle = acmeTitle })
 		x.mustRun()
 		x.wantRow(siblingAddr, "medium", "sibling-title", "title", "yes", "true")
 	})
 	t.Run("a certificate alone leaves a possible origin", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t)
 		x.set(func() { x.originRaw = originBadRaw })
 		x.mustRun()
@@ -396,6 +400,7 @@ func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
 		}
 	})
 	t.Run("neither a certificate nor a title is no candidate and no request", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t, func(o *originOpts) { o.siblingCert = false })
 		x.mustRun()
 		if r := x.rows(); len(r) != 0 {
@@ -559,6 +564,7 @@ func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
 	t.Parallel()
 	t.Run("the hostname is no longer behind a CDN or WAF", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t, func(o *originOpts) { o.byRange = true })
 		x.mustRun()
 		x.wantRow(siblingAddr, "medium", "sibling-certificate", "title", "yes", "true")
@@ -569,6 +575,7 @@ func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
 		}
 	})
 	t.Run("the address becomes provider infrastructure", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t, func(o *originOpts) { o.byRange = true })
 		x.mustRun()
 		x.wantRow(siblingAddr, "medium", "sibling-certificate", "title", "yes", "true")
@@ -579,6 +586,7 @@ func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
 		}
 	})
 	t.Run("the sibling no longer matches", func(t *testing.T) {
+		t.Parallel()
 		x := newOriginWorld(t)
 		x.mustRun()
 		x.wantRow(siblingAddr, "medium", "sibling-certificate", "title", "yes", "true")

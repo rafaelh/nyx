@@ -90,15 +90,18 @@ func hackerTargetHosts(w *world, body string) {
 func forEachUnkeyed(t *testing.T, fn func(t *testing.T, w *world, s unkeyedSource)) {
 	t.Helper()
 	for _, s := range unkeyedSources {
-		t.Run(s.stage, func(t *testing.T) { fn(t, newWorld(t), s) })
+		t.Run(s.stage, func(t *testing.T) {
+			t.Parallel()
+			fn(t, newWorld(t), s)
+		})
 	}
 }
 
 // messages returns the message of each event of type typ, from the last run,
 // that contains containing.
-func messages(w *world, typ, containing string) []string {
+func (h *harness) messages(typ, containing string) []string {
 	var out []string
-	for _, e := range ofType(w.h.events(), typ) {
+	for _, e := range ofType(h.events(), typ) {
 		if m := e.str("message"); strings.Contains(m, containing) {
 			out = append(out, m)
 		}
@@ -220,6 +223,7 @@ func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 	t.Parallel()
 	for _, body := range []string{"No records found", "error check your search parameter", ""} {
 		t.Run(body, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.handle("api.hackertarget.com", jsonBody(body))
 			if code := w.run("--passive", "example.com"); code != 0 {
@@ -279,7 +283,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				if n := len(w.requests(s.host)); n != 1 {
 					t.Errorf("the stage should stop after the first answer, saw %d requests", n)
 				}
-				warns := messages(w, "warning", s.stage)
+				warns := w.h.messages("warning", s.stage)
 				if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
 					t.Errorf("want one quota warning naming %s, got %q", s.stage, warns)
 				}
@@ -292,7 +296,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 
 				// The warning needs no flag: a repeat run warns again.
 				w.run("--passive", "--concurrency", "1", "--redo", s.stage, "example.com", "example.org")
-				if warns := messages(w, "warning", s.stage); len(warns) != 1 {
+				if warns := w.h.messages("warning", s.stage); len(warns) != 1 {
 					t.Errorf("want the quota warning again on a repeat run, got %q", warns)
 				}
 
@@ -438,7 +442,7 @@ func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
 	if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com"), true); !f.transient || f.msg != "1 checks failed: providerranges 1" {
 		t.Errorf("%+v", f)
 	}
-	if got, want := sorted(w.h.completed(eng, "providerranges")), allRangeChecksBut("aws"); !slices.Equal(got, want) {
+	if got, want := w.h.completed(eng, "providerranges"), allRangeChecksBut("aws"); !slices.Equal(got, want) {
 		t.Errorf("completed = %v, want every list but the one that answered 429", got)
 	}
 	if n := len(w.requests("www.gstatic.com")); n != 1 {
@@ -619,6 +623,7 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 	t.Parallel()
 	for _, code := range []int{401, 403} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
@@ -631,7 +636,7 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 			if n := len(w.requests("api.certspotter.com")); n != 1 {
 				t.Errorf("the stage should stop after the rejection, saw %d requests", n)
 			}
-			if warns := messages(w, "warning", "certspotter"); len(warns) != 1 {
+			if warns := w.h.messages("warning", "certspotter"); len(warns) != 1 {
 				t.Errorf("want one warning, got %q", warns)
 			}
 			if hits := w.anywhere(eng, certspotterKey); len(hits) > 0 {
@@ -701,7 +706,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 	if !slices.Contains(got, "p2.example.com") || slices.Contains(got, "p3.example.com") {
 		t.Errorf("subdomains.txt = %v, want the first two pages only", got)
 	}
-	if warns := messages(w, "warning", "certspotter"); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
+	if warns := w.h.messages("warning", "certspotter"); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
 		t.Errorf("want one truncation warning, got %q", warns)
 	}
 
@@ -715,7 +720,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "p3.example.com") {
 		t.Errorf("subdomains.txt = %v", w.lines(eng, "subdomains.txt"))
 	}
-	if warns := messages(w, "warning", "truncated"); len(warns) != 0 {
+	if warns := w.h.messages("warning", "truncated"); len(warns) != 0 {
 		t.Errorf("an untruncated result must not warn: %q", warns)
 	}
 }
@@ -765,6 +770,7 @@ func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.handle("urlscan.io", jsonBody(c.body))
 			w.dns.A("us.example.com", "203.0.113.5")
@@ -774,7 +780,7 @@ func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 			if st, _ := stateOf(w, "urlscan"); st != "done" {
 				t.Errorf("state = %s, want done", st)
 			}
-			if warns := messages(w, "warning", "urlscan"); (len(warns) == 1) != c.warns || len(warns) > 1 {
+			if warns := w.h.messages("warning", "urlscan"); (len(warns) == 1) != c.warns || len(warns) > 1 {
 				t.Errorf("warnings = %q, want warning: %v", warns, c.warns)
 			}
 		})

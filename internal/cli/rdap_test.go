@@ -232,8 +232,7 @@ func (x *rdapWorld) fake(host string) *rdapFake { return x.reg[host] }
 func (x *rdapWorld) lookupsAt(host string) []string {
 	var out []string
 	for _, r := range x.requests(host) {
-		path := strings.SplitN(r.URI, "?", 2)[0]
-		if rest, ok := strings.CutPrefix(path, rdapBase[host]+"ip/"); ok {
+		if rest, ok := strings.CutPrefix(r.path(), rdapBase[host]+"ip/"); ok {
 			out = append(out, rest)
 		}
 	}
@@ -258,15 +257,11 @@ func (x *rdapWorld) searches(host string) int {
 	return x.src[host].count("GET", rdapBase[host]+"entities")
 }
 
-// scan runs a passive engagement for example.com. A run of an existing engagement
-// is scan("-e", eng, ...).
+// scan runs a passive engagement for example.com without permutations. A run of
+// an existing engagement is scan("-e", eng, ...).
 func (x *rdapWorld) scan(args ...string) int {
 	x.t.Helper()
-	full := append([]string{"--passive", "--no-permutations"}, args...)
-	if !slices.Contains(args, "-e") {
-		full = append(full, "example.com")
-	}
-	return x.run(full...)
+	return x.run(rootArgs(append([]string{"--no-permutations"}, args...))...)
 }
 
 func (x *rdapWorld) mustScan(args ...string) {
@@ -275,9 +270,6 @@ func (x *rdapWorld) mustScan(args ...string) {
 		x.t.Fatalf("exit %d\n%s\n%s", code, x.h.stdout.String(), x.h.stderr.String())
 	}
 }
-
-// warns are the messages of the warning events of the last run, joined.
-func (x *rdapWorld) warns() string { return strings.Join(messages(x.world, "warning", ""), "\n") }
 
 func (x *rdapWorld) ipRow(addr string) map[string]string {
 	return find(x.table(eng, "ips.csv"), "ip", addr)
@@ -430,7 +422,7 @@ func TestRDAP_ReferralOutsideTheSixCompletesWithAWarning(t *testing.T) {
 	if !slices.Contains(x.h.completed(eng, "rdap"), "ip|203.0.113.7") {
 		t.Errorf("the lookup is not completed: %v", x.h.completed(eng, "rdap"))
 	}
-	if w := x.warns(); !strings.Contains(w, "203.0.113.7") || !strings.Contains(w, "elsewhere.example.org") {
+	if w := x.warnings(); !strings.Contains(w, "203.0.113.7") || !strings.Contains(w, "elsewhere.example.org") {
 		t.Errorf("warnings = %q, want one naming the address and the host", w)
 	}
 }
@@ -481,7 +473,7 @@ func TestRDAP_OrganisationSearchKeepsWordRuleMatches(t *testing.T) {
 	if x.file(eng, "netblocks.csv") != "" {
 		t.Errorf("a netblock found by search entered scope:\n%s", x.file(eng, "netblocks.csv"))
 	}
-	if n := x.summaryNum("netblocks"); n != 0 {
+	if n := x.h.total("netblocks"); n != 0 {
 		t.Errorf("summary netblocks = %d", n)
 	}
 	// ARIN needed the entity's own request for its networks; APNIC did not.
@@ -499,12 +491,6 @@ func TestRDAP_OrganisationSearchKeepsWordRuleMatches(t *testing.T) {
 	}
 }
 
-func (x *rdapWorld) summaryNum(category string) int {
-	totals, _ := x.h.summaryEvent()["totals"].(map[string]any)
-	n, _ := totals[category].(float64)
-	return int(n)
-}
-
 // A registry whose RDAP does not return an organisation's networks completes
 // with no results and a note; it is not asked.
 func TestRDAP_RegistryWithoutSearchCompletesWithANote(t *testing.T) {
@@ -516,7 +502,7 @@ func TestRDAP_RegistryWithoutSearchCompletesWithANote(t *testing.T) {
 		if n := len(x.requests(h)); n != 0 {
 			t.Errorf("%s got %d requests, want none", h, n)
 		}
-		if w := x.warns(); !strings.Contains(w, h) {
+		if w := x.warnings(); !strings.Contains(w, h) {
 			t.Errorf("no note names %s: %q", h, w)
 		}
 	}
@@ -549,11 +535,11 @@ func TestRDAP_SearchKeepsFiftyPerRegistry(t *testing.T) {
 	if n != 50+3 {
 		t.Errorf("%d netblock candidates, want 50 from APNIC and 3 from ARIN", n)
 	}
-	if w := x.warns(); !strings.Contains(w, hostAPNIC) || !strings.Contains(w, "50") {
+	if w := x.warnings(); !strings.Contains(w, hostAPNIC) || !strings.Contains(w, "50") {
 		t.Errorf("warnings = %q, want one naming the registry and the cap", w)
 	}
-	if strings.Contains(x.warns(), hostARIN+" returned more") {
-		t.Errorf("ARIN's result was not cut: %q", x.warns())
+	if strings.Contains(x.warnings(), hostARIN+" returned more") {
+		t.Errorf("ARIN's result was not cut: %q", x.warnings())
 	}
 }
 
@@ -573,7 +559,7 @@ func TestRDAP_ASNRangeCountsTowardTheFifty(t *testing.T) {
 	if n != 50 {
 		t.Errorf("%d asn candidates from a range of 60, want 50", n)
 	}
-	if w := x.warns(); !strings.Contains(w, hostAPNIC+") returned more than 50") {
+	if w := x.warnings(); !strings.Contains(w, hostAPNIC+") returned more than 50") {
 		t.Errorf("warnings = %q, want one naming the registry and the cap", w)
 	}
 }
@@ -615,7 +601,7 @@ func TestRDAP_RegistrantOnThreeRangesIsACandidate(t *testing.T) {
 		t.Errorf("ARIN lookups = %d, want one per range", n)
 	}
 	// The summary counts it among the candidates.
-	if n := x.summaryNum("candidates"); n != 1 {
+	if n := x.h.total("candidates"); n != 1 {
 		t.Errorf("summary candidates = %d, want 1", n)
 	}
 }
@@ -734,7 +720,7 @@ func TestRDAP_QuotaStopsTheStageAndTheChecksRunNextTime(t *testing.T) {
 	if n := len(x.lookupsAt(hostARIN)); n != 1 {
 		t.Errorf("ARIN was asked %d times after a 429, want 1", n)
 	}
-	quota := messages(x.world, "warning", "rdap")
+	quota := x.h.messages("warning", "rdap")
 	if len(quota) != 1 || !strings.Contains(quota[0], "retried next run") {
 		t.Errorf("quota warnings = %q", quota)
 	}

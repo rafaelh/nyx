@@ -53,9 +53,6 @@ func (x *web) jsparseURLs() []string {
 	return got
 }
 
-// warnings are the messages of the run's warning events (the world runs with --json).
-func (x *web) warnings() string { return strings.Join(messages(x.world, "warning", ""), "\n") }
-
 // A script on an in-scope host is fetched with one GET and never again, whatever
 // later runs do; the crawl still never fetches it.
 func TestJSParse_FetchesSameHostScriptsOnce(t *testing.T) {

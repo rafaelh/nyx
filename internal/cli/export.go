@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -160,42 +160,48 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 	}
 	defer db.Close() // nothing to save: it cannot write
 
-	lines, err := exportSnapshot(db, stageNames(inv.d.Stages), o, red)
+	data, err := exportSnapshot(db, stageNames(inv.d.Stages), o, red)
 	if err != nil {
 		return err
 	}
 	if ctx.Err() != nil {
 		return context.Cause(ctx) // a signal while reading: write nothing
 	}
-	return writeExport(o.output, inv.d.Stdout, lines, !inv.d.NoFsync)
+	return writeExport(o.output, inv.d.Stdout, data, !inv.d.NoFsync)
 }
 
 // exportSnapshot reads the engagement in one read transaction and returns the
-// lines to write, inputs and exclusions first and then the records in kind and
-// key order, each classified as a run would.
-func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *config.Redactor) ([]any, error) {
+// JSON lines to write, inputs and exclusions first and then the records in
+// kind and key order, each classified as a run would. Each line is encoded as
+// it is built, so the cleaned copy of a record's attributes is not kept.
+func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *config.Redactor) ([]byte, error) {
 	want := func(kind string) bool { return len(o.kinds) == 0 || slices.Contains(o.kinds, kind) }
-	var lines []any
+	var out, exclusions bytes.Buffer
+	enc, excl := lineEncoder(&out), lineEncoder(&exclusions)
 	err := db.View(func(r store.Reader) error {
-		lines = nil // View may call again, for a run that started while it read
+		out.Reset() // View may call again, for a run that started while it read
+		exclusions.Reset()
 		rows, err := r.Inputs()
 		if err != nil {
 			return err
 		}
 		// Inputs come first and then exclusions, each in stored order.
-		var exclusions []any
 		for _, in := range rows {
 			value := cleanText(in.Value, red)
 			switch {
 			case in.Kind == engagement.InputExclusion:
 				if want(exportExclusion) {
-					exclusions = append(exclusions, exportInputLine{Kind: exportExclusion, Value: value, Added: in.AddedAt})
+					if err := excl.Encode(exportInputLine{Kind: exportExclusion, Value: value, Added: in.AddedAt}); err != nil {
+						return err
+					}
 				}
 			case want(exportInput):
-				lines = append(lines, exportInputLine{Kind: exportInput, Type: in.Kind, Value: value, Added: in.AddedAt})
+				if err := enc.Encode(exportInputLine{Kind: exportInput, Type: in.Kind, Value: value, Added: in.AddedAt}); err != nil {
+					return err
+				}
 			}
 		}
-		lines = append(lines, exclusions...)
+		out.Write(exclusions.Bytes())
 
 		var wanted []kinds.Kind
 		for _, k := range kinds.All() {
@@ -235,12 +241,21 @@ func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *c
 					shown := built.Vis.Shown(h, rec)
 					l.Shown = &shown
 				}
-				lines = append(lines, l)
+				if err := enc.Encode(l); err != nil { // Encode ends the line
+					return err
+				}
 			}
 		}
 		return nil
 	})
-	return lines, err
+	return out.Bytes(), err
+}
+
+// lineEncoder encodes one JSON value per line to w.
+func lineEncoder(w io.Writer) *json.Encoder {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false) // a URL's & stays readable
+	return enc
 }
 
 // snapshotSource gives run.BuildScope the records of one snapshot, merged in
@@ -304,13 +319,16 @@ func cleanValue(v any, red *config.Redactor) any {
 	return v
 }
 
-// writeExport writes the lines to stdout, or to the file path, which it
+// writeExport writes data to stdout, or to the file path, which it
 // replaces by renaming a complete temporary file beside it into place. A file
 // it replaces keeps its permissions; a new one gets the umask's, as any file
 // the shell creates would. With fsync, the file reaches the disk before the rename.
-func writeExport(path string, stdout io.Writer, lines []any, fsync bool) (err error) {
+func writeExport(path string, stdout io.Writer, data []byte, fsync bool) (err error) {
 	if path == "" {
-		return encodeLines(stdout, lines)
+		if _, err := stdout.Write(data); err != nil {
+			return fmt.Errorf("write export: %w", err)
+		}
+		return nil
 	}
 	tmp, err := createBeside(path)
 	if err != nil {
@@ -322,7 +340,7 @@ func writeExport(path string, stdout io.Writer, lines []any, fsync bool) (err er
 			os.Remove(tmp.Name())
 		}
 	}()
-	if err = encodeLines(tmp, lines); err != nil {
+	if _, err = tmp.Write(data); err != nil {
 		return err
 	}
 	if fsync {
@@ -353,19 +371,4 @@ func createBeside(path string) (*os.File, error) {
 		}
 	}
 	return nil, fmt.Errorf("cannot create a temporary file beside %s", path)
-}
-
-func encodeLines(w io.Writer, lines []any) error {
-	bw := bufio.NewWriter(w)
-	enc := json.NewEncoder(bw)
-	enc.SetEscapeHTML(false) // a URL's & stays readable
-	for _, l := range lines {
-		if err := enc.Encode(l); err != nil { // Encode ends the line
-			return err
-		}
-	}
-	if err := bw.Flush(); err != nil {
-		return fmt.Errorf("write export: %w", err)
-	}
-	return nil
 }

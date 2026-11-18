@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -376,10 +375,7 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 	t.Run("a warning event under --json", func(t *testing.T) {
 		h := newHarness(t, mk()...)
 		h.exec("a.com", "--json")
-		var got []string
-		for _, e := range ofType(h.events(), "warning") {
-			got = append(got, e.str("message"))
-		}
+		got := h.messages("warning", "")
 		if len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe, crawl2"+tail {
 			t.Errorf("warning events = %q", got)
 		}
@@ -403,7 +399,7 @@ func TestLog_AuthorisationWarningMatchesTheStageLines(t *testing.T) {
 	if len(want) < 3 {
 		t.Fatalf("stages left out = %v", want)
 	}
-	msgs := messages(w, "warning", "not authorised")
+	msgs := w.h.messages("warning", "not authorised")
 	if len(msgs) != 1 || msgs[0] != "not authorised, so these stages are left out: "+strings.Join(want, ", ")+"; --authorised confirms authorisation" {
 		t.Errorf("warning = %q for stages %v", msgs, want)
 	}
@@ -821,21 +817,17 @@ func TestLog_Palette(t *testing.T) {
 	if !strings.Contains(out, "\n"+strings.Repeat(" ", 19)+"continued") || strings.Contains(out, esc) {
 		t.Errorf("plain sheet:\n%q", out)
 	}
-	if h.stderr.Len() != 0 || h.network() != 0 {
-		t.Errorf("stderr %q, network %d", h.stderr.String(), h.network())
+	if h.stderr.Len() != 0 {
+		t.Errorf("stderr %q", h.stderr.String())
 	}
-	if entries, _ := os.ReadDir(h.out); len(entries) != 0 {
-		t.Errorf("--palette created %v", entries)
-	}
+	h.untouched()
 
 	// Inputs, a missing scope and a broken config are ignored.
 	bad := writeFile(t, t.TempDir(), "config.yaml", "not: [valid\n")
 	if code := h.exec("--palette", "a.com", "--org", "Acme", "--config", bad); code != 0 || h.stdout.String() != out {
 		t.Errorf("with inputs: exit %d, same sheet = %v", code, h.stdout.String() == out)
 	}
-	if entries, _ := os.ReadDir(h.out); len(entries) != 0 {
-		t.Errorf("--palette with inputs created %v", entries)
-	}
+	h.untouched()
 
 	// Coloured it follows the colour rule, and the continuation is at 21.
 	colourAt(t, h, palette.TrueColor)

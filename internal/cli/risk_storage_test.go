@@ -39,7 +39,7 @@ func TestStorage_AttributedByCNAME(t *testing.T) {
 		t.Errorf("HEADs = %v, want only the first listed key", got)
 	}
 	for _, q := range s3.requestLog() {
-		if q.Method == http.MethodGet && strings.Count(strings.SplitN(q.URI, "?", 2)[0], "/") > 1 {
+		if q.Method == http.MethodGet && strings.Count(q.path(), "/") > 1 {
 			t.Errorf("an object was fetched: %s", q.URI)
 		}
 		if strings.Contains(q.URI, "list-type=2") && !strings.Contains(q.URI, "max-keys=1000") {
@@ -147,7 +147,7 @@ func TestStorage_AzureAccountThenContainers(t *testing.T) {
 	found := map[string]bool{}
 	for _, r := range az.requestLog() {
 		if r.Method == http.MethodGet {
-			found[strings.SplitN(r.URI, "?", 2)[0]] = true
+			found[r.path()] = true
 			if !strings.Contains(r.URI, "restype=container") || !strings.Contains(r.URI, "comp=list") || !strings.Contains(r.URI, "maxresults=1000") {
 				t.Errorf("list request %s", r.URI)
 			}

@@ -256,9 +256,7 @@ func TestBudget_RedoKeepsDeferredHitsCurrent(t *testing.T) {
 }
 
 // ran are the keys a fake stage has executed, sorted: workers run concurrently.
-func ran(s interface{ Executed() []string }) []string {
-	return slices.Sorted(slices.Values(s.Executed()))
-}
+func ran(s interface{ Executed() []string }) []string { return sorted(s.Executed()) }
 
 // retiringBudgeted is a budgeted stage that also retires the checks it no longer yields.
 type retiringBudgeted struct{ testkit.Budgeted }

@@ -41,14 +41,9 @@ func changeRow(t *testing.T, h *harness, want string) map[string]string {
 	if body == "" {
 		t.Fatalf("no changes.csv, want a row %q", want)
 	}
-	recs := csvRows(t, body)
-	for _, r := range recs[1:] {
-		if r[0]+" "+r[1]+" "+r[2] == want {
-			m := map[string]string{}
-			for i, c := range recs[0] {
-				m[c] = r[i]
-			}
-			return m
+	for _, r := range h.table("a.com", "changes.csv") {
+		if r["change"]+" "+r["kind"]+" "+r["key"] == want {
+			return r
 		}
 	}
 	t.Fatalf("no changes.csv row %q in\n%s", want, body)

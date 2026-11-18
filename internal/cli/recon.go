@@ -19,7 +19,6 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
 type reconOptions struct {
@@ -240,7 +239,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	switch {
 	case runErr != nil && !deadline:
 		if errors.As(runErr, &nl) {
-			runErr = &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: netblockHint(inv.args)}
+			runErr = &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: invocationHint(inv.args, "--allow-large-netblocks")} // approves the netblocks without repeating a stage
 		}
 		return runErr
 	case closeErr != nil:
@@ -254,7 +253,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	if warnings != nil {
 		env.Meta.Warnings = warnings.List()
 	}
-	env = env.Map(func(s string) string { return red.Redact(sanitize.Text(s)) })
+	env = env.Map(func(s string) string { return cleanText(s, red) })
 	if inv.sh.json {
 		if err := report.WriteEnvelope(d.Stdout, env); err != nil {
 			return err

@@ -80,7 +80,7 @@ func TestTimeout_IsNotASetting(t *testing.T) {
 	}
 
 	h = newHarness(t, noop())
-	f = h.failed(h.execRoot("recon", "export", "-e", "a.com", "--output-dir", h.out, "--timeout", "5s"), 2, false)
+	f = h.failed(h.exportExec("-e", "a.com", "--timeout", "5s"), 2, false)
 	if !strings.Contains(f.msg, "unknown flag: --timeout") {
 		t.Errorf("export takes no --timeout: %+v", f)
 	}

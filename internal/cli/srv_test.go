@@ -140,6 +140,7 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 		"timeout":  func(w *world) { w.dns.Drop("_matrix._tcp.example.com") },
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.dns.NS("example.com", "ns1.dns-host.test")
 			w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")

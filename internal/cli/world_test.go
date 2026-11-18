@@ -118,26 +118,15 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 	w.h.eopts.ResolverAddrs = []string{w.dns.Addr}
 	w.h.eopts.SourceBaseURLs = map[string]string{}
 	for _, p := range sourcePatterns {
-		s := &source{h: func(rw http.ResponseWriter, r *http.Request) { http.NotFound(rw, r) }}
-		if strings.Contains(p, "amazonaws.com") && !strings.HasPrefix(p, "ip-ranges") || strings.Contains(p, "googleapis.com") || strings.Contains(p, "blob.core.windows.net") {
-			s.h = missingStorage(p)
-		}
-		srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			body, _ := io.ReadAll(r.Body)
-			s.mu.Lock()
-			s.reqs = append(s.reqs, loggedReq{Method: r.Method, URI: r.URL.RequestURI(), Body: string(body), Header: r.Header.Clone()})
-			h := s.h
-			s.mu.Unlock()
-			r.Body = io.NopCloser(strings.NewReader(string(body)))
-			h(rw, r)
-		}))
-		t.Cleanup(srv.Close)
-		if p == "data.iana.org" {
+		h := http.HandlerFunc(http.NotFound)
+		switch {
+		case strings.Contains(p, "amazonaws.com") && !strings.HasPrefix(p, "ip-ranges") || strings.Contains(p, "googleapis.com") || strings.Contains(p, "blob.core.windows.net"):
+			h = missingStorage(p)
+		case p == "data.iana.org":
 			// No registry is listed, so an address has nowhere to be looked up.
-			s.h = jsonBody(`{"version":"1.0","services":[]}`)
+			h = jsonBody(`{"version":"1.0","services":[]}`)
 		}
-		w.src[p] = s
-		w.h.eopts.SourceBaseURLs[p] = srv.URL
+		w.serve(p, h)
 	}
 	// A source that answers 404 fails its check, which now makes the run partial (exit 7). So that
 	// a test is about what it names and not about the sources it ignores, each source that fails a
@@ -149,15 +138,18 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 	return w
 }
 
-// serve starts a fake HTTP server for an exact source host (a storage region or
-// an Azure account) and returns its request log.
+// serve starts a fake HTTP server for a source host (a source pattern, or an
+// exact host such as a storage region or an Azure account) that logs each
+// request, body included, and returns its request log.
 func (w *world) serve(host string, h http.HandlerFunc) *source {
 	s := &source{h: h}
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
-		s.reqs = append(s.reqs, loggedReq{Method: r.Method, URI: r.URL.RequestURI(), Header: r.Header.Clone()})
+		s.reqs = append(s.reqs, loggedReq{Method: r.Method, URI: r.URL.RequestURI(), Body: string(body), Header: r.Header.Clone()})
 		h := s.h
 		s.mu.Unlock()
+		r.Body = io.NopCloser(strings.NewReader(string(body)))
 		h(rw, r)
 	}))
 	w.t.Cleanup(srv.Close)
@@ -172,11 +164,23 @@ func (s *source) requestLog() []loggedReq {
 	return append([]loggedReq(nil), s.reqs...)
 }
 
+// path is the request's path, without the query.
+func (r loggedReq) path() string {
+	p, _, _ := strings.Cut(r.URI, "?")
+	return p
+}
+
+// query is the request's raw query, without the "?".
+func (r loggedReq) query() string {
+	_, q, _ := strings.Cut(r.URI, "?")
+	return q
+}
+
 // count is the number of requests with the method and request path (no query).
 func (s *source) count(method, path string) int {
 	n := 0
 	for _, r := range s.requestLog() {
-		if r.Method == method && strings.SplitN(r.URI, "?", 2)[0] == path {
+		if r.Method == method && r.path() == path {
 			n++
 		}
 	}
@@ -192,12 +196,11 @@ func (w *world) handle(pattern string, h http.HandlerFunc) {
 }
 
 // requests returns the requests a source received.
-func (w *world) requests(pattern string) []loggedReq {
-	s := w.src[pattern]
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]loggedReq(nil), s.reqs...)
-}
+func (w *world) requests(pattern string) []loggedReq { return w.src[pattern].requestLog() }
+
+// warnings are the messages of the last run's warning events, joined (the world
+// runs with --json).
+func (w *world) warnings() string { return strings.Join(w.h.messages("warning", ""), "\n") }
 
 // run executes nyx in JSON mode with rates high enough for tests.
 func (w *world) run(args ...string) int {
@@ -309,19 +312,7 @@ func (w *world) lines(eng, name string) []string { return w.h.lines(eng, name) }
 // table parses a CSV file into rows keyed by column name.
 func (w *world) table(eng, name string) []map[string]string {
 	w.t.Helper()
-	recs := csvRows(w.t, w.file(eng, name))
-	if len(recs) == 0 {
-		return nil
-	}
-	var out []map[string]string
-	for _, r := range recs[1:] {
-		m := map[string]string{}
-		for i, c := range recs[0] {
-			m[c] = r[i]
-		}
-		out = append(out, m)
-	}
-	return out
+	return w.h.table(eng, name)
 }
 
 func find(rows []map[string]string, col, val string) map[string]string {

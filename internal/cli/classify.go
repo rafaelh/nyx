@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/shellquote"
 )
 
 // scan is what the pre-scan of the arguments decided: a usage error, the root
@@ -227,7 +228,7 @@ func describeFlag(tok string, cmds []*cobra.Command) (owners []*cobra.Command, n
 func oldForm(args []string, first string) *clierr.Error {
 	return &clierr.Error{Code: clierr.InvalidInput,
 		Message: "nyx now takes a command first: what nyx did on its own is the recon command",
-		Hint:    "nyx recon " + quoteArgs(args),
+		Hint:    "nyx recon " + shellquote.Join(args),
 		Input:   map[string][]string{"argument": {first}}}
 }
 
@@ -245,13 +246,8 @@ func flagFirst(args []string, at int, flags []string) *clierr.Error {
 	moved := append([]string{args[at]}, args[:at]...)
 	moved = append(moved, args[at+1:]...)
 	return &clierr.Error{Code: clierr.InvalidInput, Message: "flags follow the command",
-		Hint: "nyx " + quoteArgs(moved), Input: map[string][]string{"flag": flags}}
+		Hint: "nyx " + shellquote.Join(moved), Input: map[string][]string{"flag": flags}}
 }
-
-// netblockHint is the caller's own call with --allow-large-netblocks directly
-// after the recon command and --redo (with its value) left out, so the hint
-// approves the netblocks without repeating a stage.
-func netblockHint(args []string) string { return invocationHint(args, "--allow-large-netblocks") }
 
 // invocationHint is the caller's own call, shell-quoted, with --redo (and its value) left out after
 // the recon command and every other argument kept, and with insert directly after the command. It
@@ -275,26 +271,5 @@ func invocationHint(args []string, insert ...string) string {
 		}
 		out = append(out, a)
 	}
-	return "nyx " + quoteArgs(out)
-}
-
-// quoteArgs quotes each argument for a POSIX shell and joins them with spaces.
-func quoteArgs(args []string) string {
-	q := make([]string, len(args))
-	for i, a := range args {
-		q[i] = shellQuote(a)
-	}
-	return strings.Join(q, " ")
-}
-
-// shellQuote quotes s for a POSIX shell: as it is when it holds only safe
-// characters, else in single quotes, a quote inside written '\”.
-func shellQuote(s string) string {
-	safe := func(r rune) bool {
-		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("@%+=:,./_-", r)
-	}
-	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !safe(r) }) < 0 {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return "nyx " + shellquote.Join(out)
 }

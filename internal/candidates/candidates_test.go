@@ -50,6 +50,9 @@ func TestScore(t *testing.T) {
 		{"the same pair twice counts once", ev("crtsh", "a", "crtsh", "a"), nil, candidates.Low, 1},
 		{"sources outside the table are their own family", ev("httpprobe", "a.example.com:443", "rdns", "198.51.100.9"), nil, candidates.Medium, 2},
 		{"three sources outside the table", ev("httpprobe", "a", "rdns", "b", "crawl", "c"), nil, candidates.High, 3},
+		{"two identifiers are one family", ev("identifier-pivot:G-AAAAAA1", "G-AAAAAA1", "identifier-pivot:111111111", "111111111"), nil, candidates.Low, 2},
+		{"two identifiers joined by one other family", ev("identifier-pivot:a", "a", "identifier-pivot:b", "b", "crtsh", "k"), nil, candidates.Medium, 3},
+		{"two identifiers joined by two other families", ev("identifier-pivot:a", "a", "identifier-pivot:b", "b", "crtsh", "k", "wayback", "w"), nil, candidates.High, 4},
 		{"no evidence", nil, acme, candidates.Low, 0},
 	}
 	for _, c := range cases {
@@ -64,6 +67,11 @@ func TestScoreSources(t *testing.T) {
 	got := candidates.Score(ev("wayback", "a", "crtsh", "b", "crtsh", "c", "wayback", "a"), nil)
 	if want := []string{"crtsh", "wayback"}; !slices.Equal(got.Sources, want) {
 		t.Errorf("sources = %v, want the distinct sources sorted: %v", got.Sources, want)
+	}
+	// Two identifiers are one family, but each value is its own source.
+	got = candidates.Score(ev("identifier-pivot:G-AAAAAA1", "G-AAAAAA1", "identifier-pivot:111111111", "111111111"), nil)
+	if want := []string{"identifier-pivot:111111111", "identifier-pivot:G-AAAAAA1"}; !slices.Equal(got.Sources, want) {
+		t.Errorf("sources = %v, want each identifier: %v", got.Sources, want)
 	}
 }
 
@@ -87,23 +95,6 @@ func TestFamily(t *testing.T) {
 		if got := candidates.Family(source); got != want {
 			t.Errorf("Family(%q) = %q, want %q", source, got, want)
 		}
-	}
-}
-
-// Two identifiers that found a candidate, and nothing else, are one family: the
-// candidate stays low, with both values in the sources and two pieces of evidence.
-func TestScore_TwoIdentifiersAreOneFamily(t *testing.T) {
-	got := candidates.Score(ev("identifier-pivot:G-AAAAAA1", "G-AAAAAA1", "identifier-pivot:111111111", "111111111"), nil)
-	if got.Confidence != candidates.Low || got.Count != 2 ||
-		!slices.Equal(got.Sources, []string{"identifier-pivot:111111111", "identifier-pivot:G-AAAAAA1"}) {
-		t.Errorf("rank = %+v, want low, two sources and a count of 2", got)
-	}
-	// Joined by one more family it is medium, and by two more it is high.
-	if got := candidates.Score(ev("identifier-pivot:a", "a", "identifier-pivot:b", "b", "crtsh", "k"), nil); got.Confidence != candidates.Medium {
-		t.Errorf("two identifiers and one other family = %s, want medium", got.Confidence)
-	}
-	if got := candidates.Score(ev("identifier-pivot:a", "a", "identifier-pivot:b", "b", "crtsh", "k", "wayback", "w"), nil); got.Confidence != candidates.High {
-		t.Errorf("two identifiers and two other families = %s, want high", got.Confidence)
 	}
 }
 

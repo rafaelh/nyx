@@ -5,8 +5,11 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -210,25 +213,12 @@ func TestPromotedCandidate(t *testing.T) {
 	}
 }
 
-// A directory that is not an engagement is refused untouched; an empty one, or
-// one whose creation was interrupted, is adopted.
-func TestNonEngagementDirRefused(t *testing.T) {
+// An empty directory, or one whose creation was interrupted, is adopted as the
+// engagement. (A directory that is not an engagement is refused: see
+// TestEngagementErrors_ForeignDirectory.)
+func TestEngagementDirAdopted(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
-	legacy := h.eng("legacy")
-	if err := os.MkdirAll(legacy, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(legacy, "subdomains.txt"), []byte("old\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code := h.exec("-e", "legacy", "a.com"); code != 2 || !strings.Contains(h.stderr.String(), legacy) {
-		t.Errorf("exit %d stderr %q", code, h.stderr.String())
-	}
-	if _, err := os.Stat(filepath.Join(legacy, ".nyx")); err == nil {
-		t.Error("must not write into a foreign directory")
-	}
-
 	if err := os.MkdirAll(h.eng("empty"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -329,10 +319,10 @@ func TestTransientFailure(t *testing.T) {
 	if count != 1 {
 		t.Errorf("X attempted %d times in one run (passes: %v)", count, flaky.Executed())
 	}
-	if !contains(flaky.Executed(), "host:new.a.com") {
+	if !slices.Contains(flaky.Executed(), "host:new.a.com") {
 		t.Errorf("second pass did not happen: %v", flaky.Executed())
 	}
-	if contains(h.completed("a.com", "flaky"), "X") || !contains(h.completed("a.com", "flaky"), "Y") {
+	if slices.Contains(h.completed("a.com", "flaky"), "X") || !slices.Contains(h.completed("a.com", "flaky"), "Y") {
 		t.Errorf("completed = %v", h.completed("a.com", "flaky"))
 	}
 	if f := queryStrings(t, h.openDB("a.com"), "SELECT key FROM failures WHERE stage='flaky'"); len(f) != 1 || f[0] != "X" {
@@ -349,7 +339,7 @@ func TestTransientFailure(t *testing.T) {
 	// Retried on every subsequent run.
 	flaky.Reset()
 	h.exec("-e", "a.com")
-	if !contains(flaky.Executed(), "X") {
+	if !slices.Contains(flaky.Executed(), "X") {
 		t.Error("X must be retried on the next run")
 	}
 }
@@ -447,7 +437,7 @@ func TestRedo(t *testing.T) {
 	src, other := redoStages(&b)
 	h := newHarness(t, src, other)
 	h.exec("a.com", "--json")
-	if got := ofType(h.events(), "summary")[0]["totals"].(map[string]any)["web services"]; got != float64(2) {
+	if got := h.total("web services"); got != 2 {
 		t.Fatalf("first summary web services = %v", got)
 	}
 	src.Reset()
@@ -463,7 +453,7 @@ func TestRedo(t *testing.T) {
 	if cur["u0"] != "0" || cur["u1"] != "1" {
 		t.Errorf("currency = %v (u1 is still observed by another stage)", cur)
 	}
-	if got := ofType(h.events(), "summary")[0]["totals"].(map[string]any)["web services"]; got != float64(1) {
+	if got := h.total("web services"); got != 1 {
 		t.Errorf("summary must count current records only: %v", got)
 	}
 	if _, ok := h.meta("a.com", "redo:src"); ok {
@@ -578,12 +568,12 @@ func TestDiscoveryLoop(t *testing.T) {
 		t.Fatal("run did not terminate")
 	}
 	for _, want := range []string{"C:new1.a.com", "C:later.a.com"} {
-		if !contains(c.Executed(), want) {
+		if !slices.Contains(c.Executed(), want) {
 			t.Errorf("C executed %v, missing %s", c.Executed(), want)
 		}
 	}
 	for _, want := range []string{"A:new1.a.com", "A:later.a.com"} {
-		if !contains(a.Executed(), want) {
+		if !slices.Contains(a.Executed(), want) {
 			t.Errorf("A needs a second pass for %s: %v", want, a.Executed())
 		}
 	}
@@ -657,9 +647,14 @@ func TestAckFlag(t *testing.T) {
 }
 
 // Netblock guard.
+
+// asnServer answers RIPEstat announced-prefixes with the current *prefix.
 func asnServer(t *testing.T, h *harness, prefix *string) {
-	srv := newPrefixServer(t, prefix)
-	h.eopts.SourceBaseURLs = map[string]string{"stat.ripe.net": srv}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"status":"ok","data":{"prefixes":[{"prefix":%q}]}}`, *prefix)
+	}))
+	t.Cleanup(srv.Close)
+	h.eopts.SourceBaseURLs = map[string]string{"stat.ripe.net": srv.URL}
 }
 
 func TestNetblockGuard(t *testing.T) {
@@ -954,21 +949,22 @@ func TestInvalidInputsTouchNothing(t *testing.T) {
 		{"missing config", []string{"a.com", "--config", "/no/such/config.yaml"}, "/no/such/config.yaml"},
 	}
 	for _, c := range cases {
-		h := newHarness(t, st)
-		st.Reset()
-		code := h.exec(append(c.args, "--authorised")...)
-		if code != 2 {
-			t.Errorf("%s: exit %d, stderr %q", c.name, code, h.stderr.String())
-		}
-		if !strings.Contains(h.stderr.String(), c.want) {
-			t.Errorf("%s: stderr %q should name %q", c.name, h.stderr.String(), c.want)
-		}
-		if h.network() != 0 || len(st.Executed()) != 0 {
-			t.Errorf("%s: activity before validation (net=%d executed=%v)", c.name, h.network(), st.Executed())
-		}
-		if entries, _ := os.ReadDir(h.out); len(entries) != 0 {
-			t.Errorf("%s: created %v before validation", c.name, entries)
-		}
+		// Not parallel: the cases share st.
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, st)
+			st.Reset()
+			code := h.exec(append(c.args, "--authorised")...)
+			if code != 2 {
+				t.Errorf("exit %d, stderr %q", code, h.stderr.String())
+			}
+			if !strings.Contains(h.stderr.String(), c.want) {
+				t.Errorf("stderr %q should name %q", h.stderr.String(), c.want)
+			}
+			if len(st.Executed()) != 0 {
+				t.Errorf("checks ran before validation: %v", st.Executed())
+			}
+			h.untouched()
+		})
 	}
 }
 

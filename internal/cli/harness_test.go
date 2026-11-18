@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -45,6 +46,9 @@ type harness struct {
 
 	stdout, stderr bytes.Buffer
 	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
+
+	dbMu sync.Mutex
+	dbs  map[string]*sql.DB // state databases opened by openDB, by path
 
 	// Network canaries: anything reaching them means a request was made.
 	udpHits, httpHits, tcpHits atomic.Int32
@@ -302,6 +306,12 @@ func (e event) num(k string) int    { f, _ := e[k].(float64); return int(f) }
 type recorder struct {
 	mu    sync.Mutex
 	lines []string
+	gen   int // bumped by every Emit and reset, so events knows when its parse is stale
+
+	parsed    []event // events' last parse of lines
+	parsedGen int
+	parsedOut int // the length of stdout parsed with it
+	parsedOK  bool
 }
 
 func (r *recorder) Emit(ev report.Event) {
@@ -313,26 +323,34 @@ func (r *recorder) Emit(ev report.Event) {
 	}
 	r.mu.Lock()
 	r.lines = append(r.lines, string(b))
+	r.gen++
 	r.mu.Unlock()
 }
 
 func (r *recorder) reset() {
 	r.mu.Lock()
 	r.lines = nil
+	r.gen++
 	r.mu.Unlock()
 }
 
 // events are the events of the last call, parsed from the tap's JSON lines, then the summary event
-// that the envelope on stdout makes (see summaryOf), when stdout holds one.
+// that the envelope on stdout makes (see summaryOf), when stdout holds one. The parse is kept
+// until another event arrives, the recorder is reset or stdout changes length, so callers that ask
+// in a loop parse once; each gets its own slice.
 func (h *harness) events() []event {
 	h.t.Helper()
-	h.rec.mu.Lock()
-	evs := jsonLines(h.t, strings.Join(h.rec.lines, "\n"))
-	h.rec.mu.Unlock()
-	if env, ok := tryEnvelope(h.stdout.String()); ok {
-		evs = append(evs, summaryOf(env))
+	r := &h.rec
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.parsedOK || r.parsedGen != r.gen || r.parsedOut != h.stdout.Len() {
+		evs := jsonLines(h.t, strings.Join(r.lines, "\n"))
+		if env, ok := tryEnvelope(h.stdout.String()); ok {
+			evs = append(evs, summaryOf(env))
+		}
+		r.parsed, r.parsedGen, r.parsedOut, r.parsedOK = evs, r.gen, h.stdout.Len(), true
 	}
-	return evs
+	return slices.Clone(r.parsed)
 }
 
 // tryEnvelope parses s as the one-line envelope of a recon --json run.
@@ -454,6 +472,25 @@ func (h *harness) lines(eng, name string) []string {
 	return strings.Split(s, "\n")
 }
 
+// table parses an engagement's CSV file into rows keyed by column name: nil when
+// the file is absent or has only its header.
+func (h *harness) table(eng, name string) []map[string]string {
+	h.t.Helper()
+	recs := csvRows(h.t, h.readOut(eng, name))
+	if len(recs) == 0 {
+		return nil
+	}
+	var out []map[string]string
+	for _, r := range recs[1:] {
+		m := map[string]string{}
+		for i, c := range recs[0] {
+			m[c] = r[i]
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 // summaryEvent is the run's one summary event.
 func (h *harness) summaryEvent() event {
 	h.t.Helper()
@@ -462,6 +499,14 @@ func (h *harness) summaryEvent() event {
 		h.t.Fatalf("want one summary event, got %d\n%s", len(sums), h.stdout.String())
 	}
 	return sums[0]
+}
+
+// total is the run's summary total for a category, 0 when it has none.
+func (h *harness) total(category string) int {
+	h.t.Helper()
+	totals, _ := h.summaryEvent()["totals"].(map[string]any)
+	n, _ := totals[category].(float64)
+	return int(n)
 }
 
 func ofType(evs []event, typ string) []event {
@@ -492,9 +537,23 @@ func lastState(evs []event, name string) event {
 	return se[len(se)-1]
 }
 
+// openDB is the engagement's state database, opened on first use and closed when
+// the test ends. A read sees what the runs since have committed, and an idle
+// connection holds no lock, so the same handle serves the whole test.
 func (h *harness) openDB(name string) *sql.DB {
 	h.t.Helper()
-	return openDB(h.t, filepath.Join(h.out, name, ".nyx", "state.db"))
+	path := filepath.Join(h.out, name, ".nyx", "state.db")
+	h.dbMu.Lock()
+	defer h.dbMu.Unlock()
+	if db, ok := h.dbs[path]; ok {
+		return db
+	}
+	if h.dbs == nil {
+		h.dbs = map[string]*sql.DB{}
+	}
+	db := openDB(h.t, path)
+	h.dbs[path] = db
+	return db
 }
 
 func openDB(t *testing.T, path string) *sql.DB {
@@ -549,13 +608,4 @@ func writeFile(t *testing.T, dir, name, body string) string {
 		t.Fatal(err)
 	}
 	return p
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

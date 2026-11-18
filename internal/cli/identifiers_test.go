@@ -83,7 +83,7 @@ func TestIdentifiers_ProbeAndCrawlUnion(t *testing.T) {
 		t.Errorf("analytics = %q, pixels = %q, favicon = %q, copyright = %q", a, p, f, c)
 	}
 	// Each stage recorded what it saw: the probe the root page, the crawl both.
-	if got := x.observedBy("web_identifier", "httpprobe"); !slices.Equal(sorted(got), []string{
+	if got := x.observedBy("web_identifier", "httpprobe"); !slices.Equal(got, []string{
 		"http://www.example.com|analytics|G-AAAAAA1", "http://www.example.com|copyright|© 2026 Acme Pty Ltd", "http://www.example.com|favicon|" + hash100}) {
 		t.Errorf("httpprobe observed %v", got)
 	}
@@ -435,11 +435,10 @@ func (x *web) pivot() *pivotFake {
 // searches are the queries sent to the host search, in order, with the page asked for.
 func (x *web) searches() (queries, pages []string) {
 	for _, r := range x.requests("api.shodan.io") {
-		path, raw, _ := strings.Cut(r.URI, "?")
-		if path != "/shodan/host/search" {
+		if r.path() != "/shodan/host/search" {
 			continue
 		}
-		v, _ := url.ParseQuery(raw)
+		v, _ := url.ParseQuery(r.query())
 		queries = append(queries, v.Get("query"))
 		pages = append(pages, v.Get("page"))
 	}
@@ -634,7 +633,7 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 		t.Errorf("completed = %v, want nothing", got)
 	}
 	n := 0
-	for _, m := range messages(x.world, "warning", "") {
+	for _, m := range x.h.messages("warning", "") {
 		if strings.Contains(m, "identifier-pivot") {
 			n++
 		}

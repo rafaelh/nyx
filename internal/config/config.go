@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -219,15 +220,20 @@ func builtinWordlist() []string {
 	return list
 }
 
+// The labels name the built-in lists in the flags' help, which every call builds, so each list is
+// parsed for its label only once.
+var (
+	builtinWordlistLabel       = sync.OnceValue(func() string { return builtinLabel(len(builtinWordlist())) })
+	builtinSensitivePathsLabel = sync.OnceValue(func() string { return builtinLabel(len(builtinSensitivePaths())) })
+)
+
+func builtinLabel(n int) string { return fmt.Sprintf("built-in (%d entries)", n) }
+
 // BuiltinWordlistLabel is "built-in (N entries)".
-func BuiltinWordlistLabel() string {
-	return fmt.Sprintf("built-in (%d entries)", len(builtinWordlist()))
-}
+func BuiltinWordlistLabel() string { return builtinWordlistLabel() }
 
 // BuiltinSensitivePathsLabel is "built-in (N entries)".
-func BuiltinSensitivePathsLabel() string {
-	return fmt.Sprintf("built-in (%d entries)", len(builtinSensitivePaths()))
-}
+func BuiltinSensitivePathsLabel() string { return builtinSensitivePathsLabel() }
 
 // dkimSelectors are the DKIM selectors looked up for every root.
 var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3", "default", "dkim", "mail", "s1", "s2", "smtp", "mandrill", "mxvault", "everlytickey1", "everlytickey2", "zendesk1", "zendesk2", "cm", "sig1", "scph1", "mte1"}

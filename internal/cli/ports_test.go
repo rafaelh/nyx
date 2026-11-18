@@ -200,7 +200,7 @@ func portKeys(ips []string, ports []int) []string {
 	return out
 }
 
-func (p *pworld) checked() []string { return sorted(p.completedKeys("ports")) }
+func (p *pworld) checked() []string { return p.completedKeys("ports") }
 
 func (p *pworld) openPortRows() []map[string]string { return p.table(eng, "open-ports.csv") }
 
@@ -216,8 +216,6 @@ func (p *pworld) openPortKeys() []string {
 	sort.Strings(out)
 	return out
 }
-
-func (p *pworld) stageState(name string) (string, string) { return stateOf(p.world, name) }
 
 const hello = "HELLO\r\n"
 
@@ -377,12 +375,9 @@ func TestPorts_UnknownOwnerSkippedThenChecked(t *testing.T) {
 	if slices.Contains(p.checked(), "192.0.2.77:8080") {
 		t.Error("an address of unknown owner must not be completed as checked")
 	}
-	var warned bool
-	for _, e := range ofType(p.h.events(), "warning") {
-		if m := e.str("message"); strings.HasPrefix(m, "ports: 1 address") && strings.Contains(m, "owner is unknown") {
-			warned = true
-		}
-	}
+	warned := slices.ContainsFunc(p.h.messages("warning", "owner is unknown"), func(m string) bool {
+		return strings.HasPrefix(m, "ports: 1 address")
+	})
 	if s := lastState(p.h.events(), "ports"); s != nil && s.num("failed") != 0 {
 		t.Errorf("a held-back address is not a failed check: %v", s)
 	}
@@ -679,8 +674,8 @@ func TestPorts_ExclusionHidesAnOpenPortButNotTheView(t *testing.T) {
 		}})
 
 	p.sweep([]int{7001})
-	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001", "203.0.113.7:7001"}) || p.summaryTotal("open ports (confirmed)") != 2 {
-		t.Fatalf("before the exclusion: rows=%v summary=%d", got, p.summaryTotal("open ports (confirmed)"))
+	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001", "203.0.113.7:7001"}) || p.h.total("open ports (confirmed)") != 2 {
+		t.Fatalf("before the exclusion: rows=%v summary=%d", got, p.h.total("open ports (confirmed)"))
 	}
 	p.sweep([]int{7001}, "-x", "203.0.113.7/32")
 	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001"}) {
@@ -689,7 +684,7 @@ func TestPorts_ExclusionHidesAnOpenPortButNotTheView(t *testing.T) {
 	if len(p.openPortRows()) != 1 {
 		t.Errorf("an excluded address's port must be gone from the file, not just not current: %v", p.openPortRows())
 	}
-	if n := p.summaryTotal("open ports (confirmed)"); n != 1 {
+	if n := p.h.total("open ports (confirmed)"); n != 1 {
 		t.Errorf("summary open ports = %d, want 1", n)
 	}
 	if got, _ := seen.Load().([]string); !slices.Equal(got, []string{"203.0.113.250:7001", "203.0.113.7:7001"}) {
@@ -732,7 +727,7 @@ func TestPortsPlumbing_OpenPortsCSV(t *testing.T) {
 			t.Errorf("hostnames of %s = %q, ips.csv has %v", r["ip"], r["hostnames"], want)
 		}
 	}
-	if n, rows := p.summaryTotal("open ports (confirmed)"), len(p.openPortKeys()); n != rows || n != 3 {
+	if n, rows := p.h.total("open ports (confirmed)"), len(p.openPortKeys()); n != rows || n != 3 {
 		t.Errorf("summary open ports = %d, rows = %d, want 3 and 3", n, rows)
 	}
 	p.sweep([]int{7001, 10001}, "--redo", "ports") // nothing new: no found lines

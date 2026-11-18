@@ -197,7 +197,7 @@ func TestContract_EveryProblemInOneError(t *testing.T) {
 
 	// export reports a missing -e with an unknown --kind.
 	h = newHarness(t, noop())
-	f = h.failed(h.execRoot("recon", "export", "--output-dir", h.out, "--kind", "nope", "--output", filepath.Join(t.TempDir(), "no", "x.jsonl"), "--json"), 2, true)
+	f = h.failed(h.exportExec("--kind", "nope", "--output", filepath.Join(t.TempDir(), "no", "x.jsonl"), "--json"), 2, true)
 	if !strings.Contains(f.msg, "-e") || !strings.Contains(f.msg, `"nope"`) || !strings.Contains(f.msg, "--output") ||
 		!slices.Contains(f.inputOf("kind"), "nope") || !f.hasInput("engagement") || !strings.Contains(f.hint, "finding") {
 		t.Errorf("%+v", f)
@@ -290,7 +290,7 @@ func TestContract_SignalBeforeExportWrites(t *testing.T) {
 		w := newExportWorld(t)
 		w.h.signals = make(chan os.Signal, 1)
 		w.h.signals <- sig
-		f := w.h.failed(w.h.execRoot("recon", "export", "--output-dir", w.h.out, "-e", "a.com"), want, false)
+		f := w.h.failed(w.h.exportExec("-e", "a.com"), want, false)
 		if f.code != "INTERRUPTED" || f.transient {
 			t.Errorf("%s: %+v", sig, f)
 		}

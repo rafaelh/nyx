@@ -89,7 +89,7 @@ func TestPartial_FailedCheck(t *testing.T) {
 			} else if !strings.Contains(h.stdout.String(), "Failed checks") {
 				t.Errorf("summary: %s", h.stdout.String())
 			}
-			if !contains(h.completed("a.com", "fine"), "c000") {
+			if !slices.Contains(h.completed("a.com", "fine"), "c000") {
 				t.Error("the other stage did not complete its check")
 			}
 			bad.RunFn = nil

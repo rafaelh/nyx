@@ -193,7 +193,7 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	sigs := watchSignals(inv.d.Signals, cancel, func(s os.Signal) {
 		// A second signal: exit at once, the one exit outside main.
 		inv.fw.write(inv.interruptError(s))
-		os.Exit(signalCode(s))
+		os.Exit(signalOf(s).code)
 	})
 	defer sigs.stop()
 
@@ -210,7 +210,7 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	var partial *clierr.Error
 	if s != nil && !(errors.As(err, &partial) && partial.Code == clierr.Partial) {
 		inv.fw.write(inv.interruptError(s))
-		return signalCode(s)
+		return signalOf(s).code
 	}
 	e := inv.toError(err)
 	inv.fw.write(e)
@@ -271,15 +271,12 @@ func (inv *invocation) toError(err error) *clierr.Error {
 		}
 	case errors.As(err, &e):
 	case errors.As(err, &probs):
-		e = probs.Usage(inv.helpHint())
+		e = probs.Usage(helpOf(inv.cmd))
 	default:
 		e = &clierr.Error{Code: clierr.Unexpected, Message: err.Error()}
 	}
 	return e
 }
-
-// helpHint is the help of the command that ran.
-func (inv *invocation) helpHint() string { return helpOf(inv.cmd) }
 
 // helpOf is the --help call of cmd, or of nyx when there is none.
 func helpOf(cmd *cobra.Command) string {
@@ -293,7 +290,7 @@ func helpOf(cmd *cobra.Command) string {
 func (inv *invocation) interruptError(s os.Signal) *clierr.Error {
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
-	return &clierr.Error{Code: clierr.Interrupted, Message: "interrupted by " + signalName(s), Hint: inv.interruptHint}
+	return &clierr.Error{Code: clierr.Interrupted, Message: "interrupted by " + signalOf(s).name, Hint: inv.interruptHint}
 }
 
 func (inv *invocation) setInterruptHint(h string) {

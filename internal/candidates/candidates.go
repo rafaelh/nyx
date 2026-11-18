@@ -14,6 +14,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/rafaelh/nyx/internal/shellquote"
 )
 
 // Confidence is how far a candidate's evidence supports promoting it to scope.
@@ -101,12 +103,7 @@ func Family(source string) string {
 // that carries what it found after a colon (see Family), which is listed by the
 // name before the colon.
 func Sources() []string {
-	out := make([]string, 0, len(families))
-	for s := range families {
-		out = append(out, s)
-	}
-	slices.Sort(out)
-	return out
+	return slices.Sorted(maps.Keys(families))
 }
 
 // Score ranks a candidate's evidence. orgs are the --org inputs.
@@ -185,19 +182,11 @@ func Compare(a, b Entry) int {
 func Promote(typ, value string) string {
 	switch typ {
 	case "netblock":
-		return "--cidr " + shell(value)
+		return "--cidr " + shellquote.Quote(value)
 	case "asn":
-		return "--asn " + shell(value)
+		return "--asn " + shellquote.Quote(value)
 	case "organisation":
-		return "--org " + shell(value)
+		return "--org " + shellquote.Quote(value)
 	}
 	return value
-}
-
-// shell quotes s for a POSIX shell when it needs it.
-func shell(s string) string {
-	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/-") == "" {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

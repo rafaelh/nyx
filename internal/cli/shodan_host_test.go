@@ -123,8 +123,7 @@ func (p *pworld) shodan() *shodanFake {
 func (p *pworld) lookups() []string {
 	var out []string
 	for _, r := range p.requests("api.shodan.io") {
-		path := strings.SplitN(r.URI, "?", 2)[0]
-		if rest, ok := strings.CutPrefix(path, "/shodan/host/"); ok && rest != "search" {
+		if rest, ok := strings.CutPrefix(r.path(), "/shodan/host/"); ok && rest != "search" {
 			out = append(out, rest)
 		}
 	}
@@ -171,12 +170,6 @@ func (p *pworld) foundFindings() []string {
 
 func (p *pworld) summaryNum(field string) int {
 	n, _ := p.h.summaryEvent()[field].(float64)
-	return int(n)
-}
-
-func (p *pworld) deferredHosts() int {
-	m, _ := p.h.summaryEvent()["deferred"].(map[string]any)
-	n, _ := m["shodan-host"].(float64)
 	return int(n)
 }
 
@@ -263,7 +256,7 @@ func TestShodanHost_UnknownAddressCompletesWithNothing(t *testing.T) {
 	p.app()
 	p.mustPassive("--ports", "3389")
 
-	if got := sorted(p.completedKeys("shodan-host")); !slices.Equal(got, []string{rootIP, appHost}) {
+	if got := p.completedKeys("shodan-host"); !slices.Equal(got, []string{rootIP, appHost}) {
 		t.Errorf("completed = %v, want both addresses", got)
 	}
 	if st, _ := p.stageState("shodan-host"); st != "done" {
@@ -320,7 +313,7 @@ func TestShodanHost_CapDefersInAddressOrder(t *testing.T) {
 	if got := p.lookups(); !slices.Equal(got, []string{"203.0.113.10", "203.0.113.20"}) {
 		t.Errorf("first run looked up %v", got)
 	}
-	if n := p.deferredHosts(); n != 2 {
+	if n := deferredOf(t, p.h, "shodan-host"); n != 2 {
 		t.Errorf("summary deferred shodan-host = %d, want 2", n)
 	}
 	if st, _ := p.stageState("shodan-host"); st != "done" {
@@ -562,7 +555,7 @@ func TestShodanHost_ActiveRunSettlesWhatShodanReported(t *testing.T) {
 		t.Errorf("port_check records = %v", checks)
 	}
 	// The summary splits the counts.
-	if c, r := p.summaryTotal("open ports (confirmed)"), p.summaryTotal("open ports (third-party reported)"); c != 1 || r != 1 {
+	if c, r := p.h.total("open ports (confirmed)"), p.h.total("open ports (third-party reported)"); c != 1 || r != 1 {
 		t.Errorf("open ports confirmed %d, reported %d; want 1 and 1 (the rejected one is in neither)", c, r)
 	}
 	if got := p.summaryNum("unconfirmed_risky_ports"); got != 1 {
@@ -594,7 +587,7 @@ func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
 		t.Errorf("open-ports.csv row = %v, want listed and not current", r)
 	}
 	for _, c := range []string{"open ports (confirmed)", "open ports (third-party reported)"} {
-		if n := p.summaryTotal(c); n != 0 {
+		if n := p.h.total(c); n != 0 {
 			t.Errorf("%s = %d, want 0", c, n)
 		}
 	}

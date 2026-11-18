@@ -95,6 +95,7 @@ func TestSkip_InvalidExits2(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			if code := w.run(append(c.args, "--passive", "example.com")...); code != 2 {
 				t.Fatalf("exit %d, want 2", code)
@@ -142,6 +143,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 		return out
 	}
 	t.Run("environment is comma separated", func(t *testing.T) {
+		t.Parallel()
 		w := newWorld(t)
 		w.h.setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "example.com")
@@ -150,6 +152,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 		}
 	})
 	t.Run("file", func(t *testing.T) {
+		t.Parallel()
 		w := newWorld(t)
 		cfg := writeFile(t, t.TempDir(), "config.yaml", "skip: [crtsh, wayback]\n")
 		w.run("--passive", "--config", cfg, "example.com")
@@ -158,6 +161,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 		}
 	})
 	t.Run("flag replaces the setting", func(t *testing.T) {
+		t.Parallel()
 		w := newWorld(t)
 		w.h.setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "--skip", "hackertarget", "--skip", "urlscan", "example.com")
@@ -166,6 +170,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 		}
 	})
 	t.Run("none runs every stage", func(t *testing.T) {
+		t.Parallel()
 		w := newWorld(t)
 		w.h.setenv("NYX_SKIP", "crtsh,wayback")
 		w.run("--passive", "--skip", "none", "example.com")

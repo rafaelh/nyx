@@ -284,7 +284,7 @@ func TestEOL_StaleDataWarning(t *testing.T) {
 	} {
 		x.h.now = tc.now
 		x.mustRun("--crawl-pages", "0")
-		got := messages(x.world, "warning", "end-of-life")
+		got := x.h.messages("warning", "end-of-life")
 		if tc.warn != (len(got) == 1) || len(got) > 1 {
 			t.Errorf("%s: warnings = %v", tc.name, got)
 		}

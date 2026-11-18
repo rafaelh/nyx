@@ -17,9 +17,8 @@ import (
 func ccAsked(w *world) []string {
 	var out []string
 	for _, r := range w.requests("index.commoncrawl.org") {
-		u, _ := url.Parse(r.URI)
-		switch q := u.Query(); {
-		case strings.HasSuffix(u.Path, "collinfo.json"):
+		switch q, _ := url.ParseQuery(r.query()); {
+		case strings.HasSuffix(r.path(), "collinfo.json"):
 			out = append(out, "collinfo")
 		case q.Has("showNumPages"):
 			out = append(out, "count")

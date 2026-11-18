@@ -64,6 +64,9 @@ func childMain() int {
 	d := cli.DefaultDeps()
 	d.Stages = []run.Stage{st}
 	d.Signals = cli.NotifySignals()
+	// The crash tests kill the process, not the machine: the page cache keeps every write, so
+	// output files need no fsync (which on macOS flushes the whole drive cache).
+	d.NoFsync = true
 	return cli.Execute(context.Background(), strings.Split(os.Getenv("NYX_TEST_ARGS"), "\x1f"), d)
 }
 
@@ -209,7 +212,8 @@ func setDiff(all []string, exclude map[string]bool) []string {
 	return out
 }
 
-func sorted(s []string) []string { c := append([]string(nil), s...); sort.Strings(c); return c }
+// sorted is a sorted copy of s.
+func sorted(s []string) []string { return slices.Sorted(slices.Values(s)) }
 
 func assertOutputsIntact(t *testing.T, out string) {
 	t.Helper()
@@ -412,6 +416,7 @@ func TestSignals_SecondExitsAtOnce(t *testing.T) {
 	}{"TERM then INT": {syscall.SIGTERM, syscall.SIGINT, 143}, "INT then HUP": {syscall.SIGINT, syscall.SIGHUP, 130}} {
 		for _, human := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s human=%v", name, human), func(t *testing.T) {
+				t.Parallel()
 				out := t.TempDir()
 				// The checks ignore the cancel and take a minute, so only the
 				// second signal can end the run soon.

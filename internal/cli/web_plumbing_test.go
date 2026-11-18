@@ -64,13 +64,8 @@ func TestWebPlumbing_FilesAreSortedSafeDatedAndCounted(t *testing.T) {
 	}
 	for _, cat := range []string{"web services", "urls"} {
 		file := map[string]string{"web services": "web-services.csv", "urls": "urls.csv"}[cat]
-		rows := 0
-		for _, r := range x.table(eng, file) {
-			if r["current"] == "true" {
-				rows++
-			}
-		}
-		if got := x.summaryTotal(cat); got != rows || rows == 0 {
+		rows := len(current(x.table(eng, file)))
+		if got := x.h.total(cat); got != rows || rows == 0 {
 			t.Errorf("summary %s = %d, %s has %d current rows", cat, got, file, rows)
 		}
 	}

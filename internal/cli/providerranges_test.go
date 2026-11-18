@@ -98,7 +98,7 @@ func TestProviderRanges_EachListIsItsOwnCheckFetchedOnce(t *testing.T) {
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := sorted(w.h.completed(eng, "providerranges")); !slices.Equal(got, allRangeChecks) {
+	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, allRangeChecks) {
 		t.Errorf("completed = %v, want %v", got, allRangeChecks)
 	}
 	for host, want := range map[string][]string{
@@ -143,7 +143,7 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	if code := w.run("--passive", "example.com"); code != 7 {
 		t.Fatalf("before the upgrade: exit %d, want 7 (six lists failed)", code)
 	}
-	if got := sorted(w.h.completed(eng, "providerranges")); !slices.Equal(got, []string{"aws", "gcp"}) {
+	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, []string{"aws", "gcp"}) {
 		t.Fatalf("before the upgrade: completed = %v", got)
 	}
 
@@ -151,7 +151,7 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := sorted(w.h.completed(eng, "providerranges")); !slices.Equal(got, allRangeChecks) {
+	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, allRangeChecks) {
 		t.Errorf("completed = %v, want %v", got, allRangeChecks)
 	}
 	if n := requestCount(w, "ip-ranges.amazonaws.com", "www.gstatic.com"); n != 2 {
@@ -175,6 +175,7 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 		{"no ranges in the body", jsonBody("<html>moved</html>")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			serveAllRanges(w)
 			w.crtsh(map[string][]string{"example.com": {"do.example.com", "cf.example.com"}}, nil)
@@ -195,7 +196,7 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 			if f.msg != "1 checks failed: providerranges 1" || !f.transient {
 				t.Errorf("error = %+v, want one failed providerranges check, transient", f)
 			}
-			done := sorted(w.h.completed(eng, "providerranges"))
+			done := w.h.completed(eng, "providerranges")
 			if want := allRangeChecksBut("digitalocean"); !slices.Equal(done, want) {
 				t.Errorf("completed = %v, want every list but digitalocean", done)
 			}

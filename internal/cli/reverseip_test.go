@@ -162,9 +162,8 @@ func (x *web) securityTrails(byAddr map[string][]string) *stReverse {
 func (x *web) htAsked() []string {
 	var out []string
 	for _, r := range x.requests("api.hackertarget.com") {
-		path, query, _ := strings.Cut(r.URI, "?")
-		if path == "/reverseiplookup/" {
-			out = append(out, strings.TrimPrefix(query, "q="))
+		if r.path() == "/reverseiplookup/" {
+			out = append(out, strings.TrimPrefix(r.query(), "q="))
 		}
 	}
 	return out
@@ -174,7 +173,7 @@ func (x *web) htAsked() []string {
 func (x *web) stAsked() []string {
 	var out []string
 	for _, r := range x.requests("api.securitytrails.com") {
-		if strings.SplitN(r.URI, "?", 2)[0] != "/v1/domains/list" {
+		if r.path() != "/v1/domains/list" {
 			continue
 		}
 		var q stQuery
@@ -235,7 +234,7 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 	if st, reason := stateOf(x.world, "reverseip"); st != "done" {
 		t.Errorf("reverseip = %s (%s), want done under --passive with no key", st, reason)
 	}
-	done := sorted(x.completedKeys("reverseip"))
+	done := x.completedKeys("reverseip")
 	if !slices.Equal(done, []string{"198.51.100.1|max=100", "203.0.113.250|max=100", "203.0.113.7|max=100"}) {
 		t.Errorf("completed checks = %v", done)
 	}
@@ -328,6 +327,7 @@ func TestReverseIP_NoRecordsCompletesWithNothing(t *testing.T) {
 	t.Parallel()
 	for _, body := range []string{"No records found", "no dns a records found for 203.0.113.250", "error check your search parameter", ""} {
 		t.Run(body, func(t *testing.T) {
+			t.Parallel()
 			x := newWeb(t)
 			ht := x.hackerTarget()
 			ht.answerAll(func(rw http.ResponseWriter) { _, _ = rw.Write([]byte(body)) })
@@ -394,11 +394,11 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 	if slices.Contains(x.hostnameKeys(), "intruder.example.com") {
 		t.Error("an in-scope name from an address over the cap was recorded")
 	}
-	warns := messages(x.world, "warning", "203.0.113.8")
+	warns := x.h.messages("warning", "203.0.113.8")
 	if len(warns) != 1 || !strings.Contains(warns[0], "reverseip") || !strings.Contains(warns[0], "max_domains") {
 		t.Errorf("want one warning naming the address and the setting, got %q", warns)
 	}
-	if got := messages(x.world, "warning", "203.0.113.7"); len(got) != 0 {
+	if got := x.h.messages("warning", "203.0.113.7"); len(got) != 0 {
 		t.Errorf("an address within the cap was warned about: %q", got)
 	}
 	if st, _ := stateOf(x.world, "reverseip"); st != "done" {
@@ -436,6 +436,7 @@ func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 	}
 	for name, spent := range variants {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			x := newWeb(t)
 			ht := x.hackerTarget()
 			x.names("app.example.com")
@@ -456,7 +457,7 @@ func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 			if n := len(x.htAsked()); n != 1 {
 				t.Errorf("the stage should stop after the first answer, saw %d lookups", n)
 			}
-			warns := messages(x.world, "warning", "reverseip")
+			warns := x.h.messages("warning", "reverseip")
 			if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
 				t.Errorf("want one quota warning naming reverseip, got %q", warns)
 			}
@@ -467,7 +468,7 @@ func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 			ht.answerAll(nil)
 			ht.set("203.0.113.7", "x.other.org")
 			x.mustPassive("--concurrency", "1")
-			if done := sorted(x.completedKeys("reverseip")); !slices.Equal(done, []string{"203.0.113.250|max=100", "203.0.113.7|max=100"}) {
+			if done := x.completedKeys("reverseip"); !slices.Equal(done, []string{"203.0.113.250|max=100", "203.0.113.7|max=100"}) {
 				t.Errorf("the next run completed %v, want both addresses", done)
 			}
 			if x.candidate("other.org") == nil {

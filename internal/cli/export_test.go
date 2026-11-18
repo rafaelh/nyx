@@ -37,19 +37,12 @@ func newExportWorld(t *testing.T) *exportWorld {
 	t.Helper()
 	w := &exportWorld{dropOld: &atomic.Bool{}}
 	w.title.Store("Welcome")
-	one := func(name string, obs ...run.Observation) *testkit.Stage {
-		return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-			ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-			RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
-				return obs, nil
-			}}
-	}
 	// zeta comes before alpha in the registry, and after it by name, so a merge
 	// that follows the registry gives alpha's title and one that follows the
 	// names gives zeta's.
-	zeta := one("zeta", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
+	zeta := finder("zeta", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
 		"title", "from zeta", "server", "zeta-server"))
-	alpha := one("alpha", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
+	alpha := finder("alpha", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
 		"title", "from alpha"))
 	disc := &testkit.Stage{StageName: "disc", Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
@@ -95,15 +88,11 @@ type exported struct {
 	stdout, stderr string
 }
 
-// export runs `nyx recon export` with its own output buffers, so it can run while
-// another run uses the harness's.
+// export runs `nyx recon export` through the harness and returns what it wrote.
 func export(h *harness, args ...string) exported {
-	var stdout, stderr bytes.Buffer
-	d := h.deps()
-	d.Stdout, d.Stderr = &stdout, &stderr
-	full := append([]string{"recon", "export", "--output-dir", h.out}, args...)
-	code := cli.Execute(context.Background(), full, d)
-	return exported{code, stdout.String(), stderr.String()}
+	h.t.Helper()
+	code := h.exportExec(args...)
+	return exported{code, h.stdout.String(), h.stderr.String()}
 }
 
 // exLine is one exported line.
@@ -543,16 +532,11 @@ func TestExport_OutputReplacesAtomically(t *testing.T) {
 func TestExport_NoSecrets(t *testing.T) {
 	t.Parallel()
 	const secret = "tok_Zq81xYw3"
-	seen := &testkit.Stage{StageName: "leaky", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
-			// Recorded by a run that had no key configured, so the store did not redact it.
-			return []run.Observation{
-				obs("hostname", "www.a.com"),
-				obs("web_service", "https://www.a.com/?k="+secret, "url", "https://www.a.com/?k="+secret, "host", "www.a.com",
-					"title", "key "+secret, "server", "nginx"),
-			}, nil
-		}}
+	// Recorded by a run that had no key configured, so the store did not redact it.
+	seen := finder("leaky",
+		obs("hostname", "www.a.com"),
+		obs("web_service", "https://www.a.com/?k="+secret, "url", "https://www.a.com/?k="+secret, "host", "www.a.com",
+			"title", "key "+secret, "server", "nginx"))
 	h := newHarness(t, seen)
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("run exit %d: %s", code, h.stderr.String())

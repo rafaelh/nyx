@@ -10,13 +10,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"slices"
-	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -187,12 +187,7 @@ func (s *site) uris() []string {
 	for _, r := range s.requests() {
 		set[r.URI] = true
 	}
-	out := make([]string, 0, len(set))
-	for u := range set {
-		out = append(out, u)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(set))
 }
 
 func (s *site) hostHeaders() []string {
@@ -200,12 +195,7 @@ func (s *site) hostHeaders() []string {
 	for _, r := range s.requests() {
 		set[r.Host] = true
 	}
-	out := make([]string, 0, len(set))
-	for h := range set {
-		out = append(out, h)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(set))
 }
 
 func (s *site) onlyGET() bool {
@@ -518,21 +508,9 @@ func (x *web) service(url string) map[string]string {
 	return r
 }
 
-func (x *web) serviceURLs() []string { return currentURLs(x.services()) }
+func (x *web) serviceURLs() []string { return col(current(x.services()), "url") }
 
-func (x *web) urlSet() []string { return currentURLs(x.urls()) }
-
-// currentURLs is the sorted url column of the current rows.
-func currentURLs(rows []map[string]string) []string {
-	var out []string
-	for _, r := range rows {
-		if r["current"] == "true" {
-			out = append(out, r["url"])
-		}
-	}
-	sort.Strings(out)
-	return out
-}
+func (x *web) urlSet() []string { return col(current(x.urls()), "url") }
 
 // observedBy returns the keys of kind observed by stage.
 func (x *web) observedBy(kind, stage string) []string {

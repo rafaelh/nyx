@@ -9,6 +9,7 @@
 package clierr
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -93,7 +94,8 @@ func (p *Problems) Merge(err error) {
 	if err == nil {
 		return
 	}
-	if q, ok := err.(Problems); ok {
+	var q Problems
+	if errors.As(err, &q) {
 		*p = append(*p, q...)
 		return
 	}

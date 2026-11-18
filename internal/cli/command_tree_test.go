@@ -455,34 +455,37 @@ func TestTree_FlagsAreSpeltInFull(t *testing.T) {
 func TestTree_UserAgentIsTheVersion(t *testing.T) {
 	t.Parallel()
 	for version, want := range map[string]string{"v1.2.3": "nyx/v1.2.3", "": "nyx/devel"} {
-		x := newWeb(t)
-		x.h.version = version
-		x.names("www.example.com")
-		x.host("www.example.com", "203.0.113.10")
-		var mu sync.Mutex
-		var seen []string
-		x.plain("203.0.113.10", 80, func(rw http.ResponseWriter, r *http.Request) {
-			mu.Lock()
-			seen = append(seen, r.UserAgent())
-			mu.Unlock()
-			page("hello")(rw, r)
+		t.Run(want, func(t *testing.T) {
+			t.Parallel()
+			x := newWeb(t)
+			x.h.version = version
+			x.names("www.example.com")
+			x.host("www.example.com", "203.0.113.10")
+			var mu sync.Mutex
+			var seen []string
+			x.plain("203.0.113.10", 80, func(rw http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				seen = append(seen, r.UserAgent())
+				mu.Unlock()
+				page("hello")(rw, r)
+			})
+			if code := x.run(); code != 0 {
+				t.Fatalf("exit %d", code)
+			}
+			reqs := x.requests("crt.sh")
+			if len(reqs) == 0 || len(seen) == 0 {
+				t.Fatalf("version %q: the source saw %d requests and the target %d", version, len(reqs), len(seen))
+			}
+			for _, r := range reqs {
+				if got := r.Header.Get("User-Agent"); got != want {
+					t.Errorf("version %q: a third-party request carried the User-Agent %q, want %q", version, got, want)
+				}
+			}
+			for _, got := range seen {
+				if got != want {
+					t.Errorf("version %q: the target saw the User-Agent %q, want %q", version, got, want)
+				}
+			}
 		})
-		if code := x.run(); code != 0 {
-			t.Fatalf("exit %d", code)
-		}
-		reqs := x.requests("crt.sh")
-		if len(reqs) == 0 || len(seen) == 0 {
-			t.Fatalf("version %q: the source saw %d requests and the target %d", version, len(reqs), len(seen))
-		}
-		for _, r := range reqs {
-			if got := r.Header.Get("User-Agent"); got != want {
-				t.Errorf("version %q: a third-party request carried the User-Agent %q, want %q", version, got, want)
-			}
-		}
-		for _, got := range seen {
-			if got != want {
-				t.Errorf("version %q: the target saw the User-Agent %q, want %q", version, got, want)
-			}
-		}
 	}
 }

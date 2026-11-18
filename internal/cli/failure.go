@@ -88,27 +88,22 @@ func (f *failureWriter) write(e *clierr.Error) {
 
 // signalInfo is the exit code (128 plus the signal's number, as a shell
 // reports it) and the name of each signal that ends a command.
-var signalInfo = map[os.Signal]struct {
+type signalInfo struct {
 	code int
 	name string
-}{
+}
+
+var signalInfos = map[os.Signal]signalInfo{
 	os.Interrupt: {130, "SIGINT"}, unix.SIGTERM: {143, "SIGTERM"}, unix.SIGHUP: {129, "SIGHUP"},
 }
 
-// signalCode is the exit code of a command signal s ended; any other signal
-// counts as SIGINT.
-func signalCode(s os.Signal) int {
-	if i, ok := signalInfo[s]; ok {
-		return i.code
+// signalOf is how a command signal s ended exits and is named; any other
+// signal counts as SIGINT.
+func signalOf(s os.Signal) signalInfo {
+	if i, ok := signalInfos[s]; ok {
+		return i
 	}
-	return signalInfo[os.Interrupt].code
-}
-
-func signalName(s os.Signal) string {
-	if i, ok := signalInfo[s]; ok {
-		return i.name
-	}
-	return signalInfo[os.Interrupt].name
+	return signalInfos[os.Interrupt]
 }
 
 // signals watches Deps.Signals for one command.

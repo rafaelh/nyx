@@ -29,17 +29,6 @@ func (x *web) partialPassive(args ...string) failure {
 	return x.h.partial(x.passive(args...), true)
 }
 
-func (x *web) summaryTotal(category string) int {
-	x.t.Helper()
-	sums := ofType(x.h.events(), "summary")
-	if len(sums) == 0 {
-		x.t.Fatal("no summary event")
-	}
-	totals, _ := sums[len(sums)-1]["totals"].(map[string]any)
-	n, _ := totals[category].(float64)
-	return int(n)
-}
-
 // --- Archived URLs ---
 
 func TestArchive_ArchivedURLsUnderPassive(t *testing.T) {
@@ -86,7 +75,7 @@ func TestArchive_ArchivedURLsUnderPassive(t *testing.T) {
 			t.Errorf("%s = %s, want done", st, s)
 		}
 	}
-	if got := x.summaryTotal("urls"); got != len(want) {
+	if got := x.h.total("urls"); got != len(want) {
 		t.Errorf("summary urls = %d, want %d", got, len(want))
 	}
 }
@@ -198,16 +187,11 @@ func TestArchive_AnExclusionAddedLaterHidesArchivedURLs(t *testing.T) {
 			t.Errorf("urls.csv still lists an excluded host: %v", r)
 		}
 	}
-	current := 0
-	for _, r := range x.urls() {
-		if r["current"] == "true" {
-			current++
-		}
+	cur := len(current(x.urls()))
+	if cur != 4 {
+		t.Errorf("current urls = %d, want the 4 under a.example.com", cur)
 	}
-	if current != 4 {
-		t.Errorf("current urls = %d, want the 4 under a.example.com", current)
-	}
-	if got := x.summaryTotal("urls"); got != current {
-		t.Errorf("summary urls = %d but urls.csv has %d current rows: both must use the same filter", got, current)
+	if got := x.h.total("urls"); got != cur {
+		t.Errorf("summary urls = %d but urls.csv has %d current rows: both must use the same filter", got, cur)
 	}
 }

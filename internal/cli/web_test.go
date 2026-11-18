@@ -63,7 +63,7 @@ func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
 	// A closed port is a completed check with no record.
 	keys := x.completedKeys("httpprobe")
 	for _, k := range []string{"a.example.com:80", "a.example.com:443", "c.example.com:80", "c.example.com:443", "b.example.com:80"} {
-		if !contains(keys, k) {
+		if !slices.Contains(keys, k) {
 			t.Errorf("check %s not completed: %v", k, keys)
 		}
 	}
@@ -125,7 +125,7 @@ func TestProbe_NonStandardPortDetectedOnce(t *testing.T) {
 		t.Errorf("port 8080 saw %d requests, want 3: detection once via a, then b and c (no duplicates)", s.hits())
 	}
 	keys := x.completedKeys("httpprobe")
-	if !contains(keys, "port|203.0.113.5:8080") {
+	if !slices.Contains(keys, "port|203.0.113.5:8080") {
 		t.Errorf("detection check missing: %v", keys)
 	}
 	// Ports 80 and 443 belong to the hostname checks, never the detection check.
@@ -176,7 +176,7 @@ func TestProbe_NameOnTwoAddressesIsDetectedOnce(t *testing.T) {
 	x.mustRun("--crawl-pages", "0")
 
 	keys := x.completedKeys("httpprobe")
-	if !contains(keys, "port|203.0.113.5:8080") || contains(keys, "port|203.0.113.6:8080") {
+	if !slices.Contains(keys, "port|203.0.113.5:8080") || slices.Contains(keys, "port|203.0.113.6:8080") {
 		t.Errorf("detection checks = %v, want one, on the first address", keys)
 	}
 	if n := s5.pageHits() + s6.pageHits(); n != 1 {
@@ -233,7 +233,7 @@ func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
 		x.open("203.0.113.5:8080", "") // nothing serves 8080
 		x.mustRun()
 		x.wantServices()
-		if !contains(x.completedKeys("httpprobe"), "port|203.0.113.5:8080") {
+		if !slices.Contains(x.completedKeys("httpprobe"), "port|203.0.113.5:8080") {
 			t.Error("the detection check must complete")
 		}
 	})
@@ -256,7 +256,7 @@ func TestProbe_BannerAndNonHTTPPortsGetNoVhostRequests(t *testing.T) {
 	if withBanner.hits() != 0 {
 		t.Errorf("a port with a banner was probed %d times", withBanner.hits())
 	}
-	if contains(x.completedKeys("httpprobe"), "port|203.0.113.5:9999") {
+	if slices.Contains(x.completedKeys("httpprobe"), "port|203.0.113.5:9999") {
 		t.Error("a port with a banner must not get a detection check")
 	}
 	if n := notHTTP.conns.Load(); n < 1 || n > 2 {
@@ -301,7 +301,7 @@ func TestProbeIP_IPLiteralService(t *testing.T) {
 	}
 	keys := x.completedKeys("httpprobe")
 	for _, k := range []string{"port|198.51.100.7:8080", "port|[2001:db8:1::5]:80"} {
-		if !contains(keys, k) {
+		if !slices.Contains(keys, k) {
 			t.Errorf("check %s missing: %v", k, keys)
 		}
 	}

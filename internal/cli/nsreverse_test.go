@@ -221,7 +221,7 @@ func TestNSReverse_AsksOnlySelfHostedServers(t *testing.T) {
 	if s, reason := stateOf(x.world, "nsreverse"); s != "done" {
 		t.Errorf("nsreverse = %s (%s), want done under --passive", s, reason)
 	}
-	done := sorted(x.completedKeys("nsreverse"))
+	done := x.completedKeys("nsreverse")
 	wantKeys := []string{"mx|mail.example.com|max=1000", "mx|mail.nbhosted.test|max=1000", "ns|ns-eligible.other.test|max=1000",
 		"ns|ns.nbhosted.test|max=1000", "ns|ns1.example.com|max=1000"}
 	if !slices.Equal(done, wantKeys) {
@@ -318,11 +318,11 @@ func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
 	if x.candidate("big-a.test") != nil || x.candidate("big-b.test") != nil {
 		t.Errorf("a server over the cap was recorded: %v", x.candidates())
 	}
-	warns := messages(x.world, "warning", "ns-eligible.other.test")
+	warns := x.h.messages("warning", "ns-eligible.other.test")
 	if len(warns) != 1 || !strings.Contains(warns[0], "nsreverse.max_domains") {
 		t.Errorf("want one warning naming the server and the setting, got %q", warns)
 	}
-	if got := messages(x.world, "warning", "ns.nbhosted.test"); len(got) != 0 {
+	if got := x.h.messages("warning", "ns.nbhosted.test"); len(got) != 0 {
 		t.Errorf("a server within the cap was warned about: %q", got)
 	}
 	if n := len(slices.DeleteFunc(x.stServers(), func(s string) bool { return s != "ns|ns-eligible.other.test" })); n != 1 {
@@ -355,7 +355,7 @@ func TestNSReverse_CapCountsPagesWithoutATotal(t *testing.T) {
 			t.Errorf("%s was recorded from a server over the cap", root)
 		}
 	}
-	if warns := messages(x.world, "warning", "ns-eligible.other.test"); len(warns) != 1 {
+	if warns := x.h.messages("warning", "ns-eligible.other.test"); len(warns) != 1 {
 		t.Errorf("want one warning naming the server, got %q", warns)
 	}
 	if x.candidate("sister-org.test") == nil {

@@ -3,7 +3,6 @@ package cli_test
 import (
 	"bytes"
 	"context"
-	"os"
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/cli"
@@ -23,12 +22,7 @@ func TestVersionFlag(t *testing.T) {
 	if h.stderr.Len() != 0 {
 		t.Errorf("stderr = %q", h.stderr.String())
 	}
-	if entries, _ := os.ReadDir(h.out); len(entries) != 0 {
-		t.Errorf("--version created %d entries in the output dir", len(entries))
-	}
-	if h.network() != 0 {
-		t.Error("--version made network contact")
-	}
+	h.untouched()
 }
 
 // With no Version in Deps (as the test harnesses build them), the version is "devel".

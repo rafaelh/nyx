@@ -79,7 +79,10 @@ func (s keyedSource) serveWith(w *world, body string) {
 func forEachKeyed(t *testing.T, fn func(t *testing.T, w *world, s keyedSource)) {
 	t.Helper()
 	for _, s := range keyedSources {
-		t.Run(s.stage, func(t *testing.T) { fn(t, newWorld(t), s) })
+		t.Run(s.stage, func(t *testing.T) {
+			t.Parallel()
+			fn(t, newWorld(t), s)
+		})
 	}
 }
 
@@ -276,6 +279,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 		"empty": jsonBody(`{"domain":"example.com","subdomains":[],"count":0}`),
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
 			w.handle("dns.projectdiscovery.io", h)
@@ -288,7 +292,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 			if done := w.h.completed(eng, "chaos"); !slices.Equal(done, []string{"example.com|pages=10"}) {
 				t.Errorf("completed = %v", done)
 			}
-			if warns := messages(w, "warning", "chaos"); len(warns) != 0 {
+			if warns := w.h.messages("warning", "chaos"); len(warns) != 0 {
 				t.Errorf("warnings = %q, want none", warns)
 			}
 		})
@@ -358,6 +362,7 @@ func TestKeyed_PageCap(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
 		t.Run(s.stage, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.h.setenv(s.env, s.key)
 			s.serve(w)
@@ -384,7 +389,7 @@ func TestKeyed_PageCap(t *testing.T) {
 			if !slices.Contains(got, "p2.example.com") || slices.Contains(got, "p3.example.com") {
 				t.Errorf("subdomains.txt = %v, want the first two pages only", got)
 			}
-			if warns := messages(w, "warning", s.stage); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
+			if warns := w.h.messages("warning", s.stage); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
 				t.Errorf("want one truncation warning, got %q", warns)
 			}
 
@@ -397,7 +402,7 @@ func TestKeyed_PageCap(t *testing.T) {
 			if !slices.Contains(w.lines(eng, "subdomains.txt"), "p3.example.com") {
 				t.Errorf("subdomains.txt = %v", w.lines(eng, "subdomains.txt"))
 			}
-			if warns := messages(w, "warning", "truncated"); len(warns) != 0 {
+			if warns := w.h.messages("warning", "truncated"); len(warns) != 0 {
 				t.Errorf("an untruncated result must not warn: %q", warns)
 			}
 		})
@@ -409,13 +414,14 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
 		t.Run(s.stage, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.h.setenv(s.env, s.key)
 			s.serve(w)
 			if code := w.run("--passive", s.flag, "3", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
-			if warns := messages(w, "warning", "truncated"); len(warns) != 0 {
+			if warns := w.h.messages("warning", "truncated"); len(warns) != 0 {
 				t.Errorf("the last page was read: %q", warns)
 			}
 		})
@@ -435,7 +441,7 @@ func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
 	if done := w.h.completed(eng, "chaos"); !slices.Equal(done, []string{"example.com|pages=3"}) {
 		t.Errorf("completed = %v", done)
 	}
-	if warns := messages(w, "warning", "chaos"); len(warns) != 0 {
+	if warns := w.h.messages("warning", "chaos"); len(warns) != 0 {
 		t.Errorf("warnings = %q", warns)
 	}
 }
@@ -444,6 +450,7 @@ func TestKeyed_MaxPagesMustBePositive(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--shodan-dns-max-pages", "--censys-max-pages", "--chaos-max-pages"} {
 		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			if code := w.run("--passive", flag, "0", "example.com"); code != 2 {
 				t.Errorf("exit %d, want 2", code)

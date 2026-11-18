@@ -329,12 +329,8 @@ func TestEnvelope_StdoutIsEmptyOnOtherExits(t *testing.T) {
 func TestEnvelope_FindingTextIsStrippedAndMasked(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
-	st := &testkit.Stage{StageName: "finder", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
-			return []run.Observation{obs("finding", "e", "category", "exposed", "severity", "high",
-				"target", "https://a.com/\x1b[2Jx", "detail", "echoed \x1b]0;pwn\x07"+key)}, nil
-		}}
+	st := finder("finder", obs("finding", "e", "category", "exposed", "severity", "high",
+		"target", "https://a.com/\x1b[2Jx", "detail", "echoed \x1b]0;pwn\x07"+key))
 	h := newHarness(t, st)
 	h.setenv("NYX_KEYS_FAKE", key)
 	if code := h.exec("a.com", "--json"); code != 0 {

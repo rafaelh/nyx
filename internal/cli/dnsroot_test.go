@@ -82,13 +82,16 @@ func TestDNSRoot_SOAMailbox(t *testing.T) {
 		{"hostmaster.example.com", "hostmaster@example.com"},
 		{`a\.b\.c.dept.example.com`, "a.b.c@dept.example.com"},
 	} {
-		w := newWorld(t)
-		w.dns.SOA("example.com", "ns1.dns-host.test", c.rname)
-		runRoot(t, w)
-		r := resolutionRow(w, "example.com", "SOA")
-		if r == nil || r["value"] != "ns1.dns-host.test "+c.want {
-			t.Errorf("SOA mailbox %q: row %v, want %q", c.rname, r, c.want)
-		}
+		t.Run(c.rname, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			w.dns.SOA("example.com", "ns1.dns-host.test", c.rname)
+			runRoot(t, w)
+			r := resolutionRow(w, "example.com", "SOA")
+			if r == nil || r["value"] != "ns1.dns-host.test "+c.want {
+				t.Errorf("SOA mailbox %q: row %v, want %q", c.rname, r, c.want)
+			}
+		})
 	}
 }
 
@@ -468,10 +471,8 @@ func TestDNSRoot_SummaryCount(t *testing.T) {
 	w.dns.TXT("example.com", "google-site-verification=abc")
 	w.dns.NS("example.com", "ns1.cloudflare.com")
 	runRoot(t, w)
-	evs := ofType(w.h.events(), "summary")
-	totals, _ := evs[len(evs)-1]["totals"].(map[string]any)
-	if n, _ := totals["third parties"].(float64); n != 2 {
-		t.Errorf("totals = %v, want 2 third parties", totals)
+	if n := w.h.total("third parties"); n != 2 {
+		t.Errorf("third parties = %d, want 2", n)
 	}
 }
 

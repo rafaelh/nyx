@@ -17,8 +17,8 @@ const (
 	startOneTail = "give domains, --org, --asn or --cidr to start one"
 )
 
-// exportExec runs nyx recon export through the harness, so its stdout and stderr are the ones
-// failed checks.
+// exportExec runs nyx recon export through the harness, so its stdout and stderr are the
+// harness's, which h.failed checks.
 func (h *harness) exportExec(args ...string) int {
 	h.t.Helper()
 	return h.execRoot(append([]string{"recon", "export", "--output-dir", h.out}, args...)...)

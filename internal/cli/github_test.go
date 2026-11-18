@@ -128,8 +128,8 @@ func ghWorld(t *testing.T, g *ghFake) *world {
 func ghQueries(w *world) []url.Values {
 	var out []url.Values
 	for _, r := range w.requests("api.github.com") {
-		u, _ := url.Parse(r.URI)
-		out = append(out, u.Query())
+		q, _ := url.ParseQuery(r.query())
+		out = append(out, q)
 	}
 	return out
 }
@@ -248,18 +248,12 @@ func TestGitHub_RowsHostnamesAndNoFragmentText(t *testing.T) {
 	if fs, _ := w.h.summaryEvent()["findings"].([]any); len(fs) != 0 {
 		t.Errorf("findings = %v, want none", fs)
 	}
-	if n := countOf(w, "code mentions"); n != 2 {
+	if n := w.h.total("code mentions"); n != 2 {
 		t.Errorf("summary counts %d code mentions, want 2", n)
 	}
 	if hits := leaks(w); len(hits) > 0 {
 		t.Errorf("key leaked into %v", hits)
 	}
-}
-
-func countOf(w *world, category string) int {
-	totals, _ := w.h.summaryEvent()["totals"].(map[string]any)
-	n, _ := totals[category].(float64)
-	return int(n)
 }
 
 // Repository, path and URL are target-influenced text and are written sanitised.
@@ -400,6 +394,7 @@ func TestGitHub_MaxResultsIsBounded(t *testing.T) {
 		code int
 	}{{"0", 2}, {"-5", 2}, {"1001", 2}, {"1", 0}, {"1000", 0}} {
 		t.Run(tc.val, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			if code := w.run("--passive", "--github-max-results", tc.val, "example.com"); code != tc.code {
 				t.Errorf("exit %d, want %d", code, tc.code)
@@ -458,7 +453,7 @@ func TestGitHub_RedoMarksVanishedMatchesNotCurrent(t *testing.T) {
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if n := countOf(w, "code mentions"); n != 2 {
+	if n := w.h.total("code mentions"); n != 2 {
 		t.Fatalf("code mentions = %d, want 2", n)
 	}
 	g.set("example.com", g.files["example.com"][:1])
@@ -481,7 +476,7 @@ func TestGitHub_RedoMarksVanishedMatchesNotCurrent(t *testing.T) {
 			t.Errorf("a not-current row keeps only its URL, but %s = %q", col, r[col])
 		}
 	}
-	if n := countOf(w, "code mentions"); n != 1 {
+	if n := w.h.total("code mentions"); n != 1 {
 		t.Errorf("code mentions = %d, want 1: a match that is gone is not counted", n)
 	}
 }
@@ -504,7 +499,7 @@ func TestGitHub_MentionsAreShownWhileTheRootIsInScope(t *testing.T) {
 	if len(rows) != 1 || rows[0]["root"] != "example.com" {
 		t.Errorf("code-mentions.csv = %v, want only the mention of the root still in scope", rows)
 	}
-	if n := countOf(w, "code mentions"); n != 1 {
+	if n := w.h.total("code mentions"); n != 1 {
 		t.Errorf("code mentions = %d, want 1", n)
 	}
 }

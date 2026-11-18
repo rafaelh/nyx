@@ -128,6 +128,7 @@ func TestCrawl_RelativeLinksResolveAgainstBaseHref(t *testing.T) {
 func TestCrawl_PageAndDepthCaps(t *testing.T) {
 	t.Parallel()
 	t.Run("pages count the root", func(t *testing.T) {
+		t.Parallel()
 		x, s := crawlFixture(t)
 		x.mustRun("--crawl-pages", "3", "--skip", "jsparse") // the page limit is the crawl's; jsparse would add the script
 		if got := s.pageURIs(); !slices.Equal(got, []string{"/", "/p1", "/p2"}) {
@@ -135,6 +136,7 @@ func TestCrawl_PageAndDepthCaps(t *testing.T) {
 		}
 	})
 	t.Run("depth 0 is the root only", func(t *testing.T) {
+		t.Parallel()
 		x, s := crawlFixture(t)
 		x.mustRun("--crawl-depth", "0", "--skip", "jsparse")
 		if got := s.pageURIs(); !slices.Equal(got, []string{"/"}) {
@@ -171,6 +173,7 @@ func TestCrawl_RecordedURLsAreCappedAt20TimesPages(t *testing.T) {
 func TestCrawl_Errors(t *testing.T) {
 	t.Parallel()
 	t.Run("a failing non-root page is skipped and the check completes", func(t *testing.T) {
+		t.Parallel()
 		x := newWeb(t)
 		x.names("a.example.com")
 		x.host("a.example.com", "203.0.113.5")
@@ -196,6 +199,7 @@ func TestCrawl_Errors(t *testing.T) {
 		}
 	})
 	t.Run("a failing root page fails the check and is retried next run", func(t *testing.T) {
+		t.Parallel()
 		x := newWeb(t)
 		x.names("a.example.com")
 		x.host("a.example.com", "203.0.113.5")
@@ -252,7 +256,7 @@ func TestCrawl_RootRedirectToAnotherOriginEndsTheCrawl(t *testing.T) {
 	if u := find(x.urls(), "url", "https://a.example.com/landing"); u == nil || !strings.Contains(u["found_by"], "crawl") {
 		t.Errorf("the redirect target must be recorded by the crawl: %v", u)
 	}
-	if got := x.completedKeys("crawl"); !contains(got, "http://a.example.com|depth=2|pages=100") {
+	if got := x.completedKeys("crawl"); !slices.Contains(got, "http://a.example.com|depth=2|pages=100") {
 		t.Errorf("the http service's crawl must complete: %v", got)
 	}
 }

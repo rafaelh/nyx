@@ -175,6 +175,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 	t.Parallel()
 	for _, code := range []int{401, 403, 429} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			w.h.setenv("NYX_KEYS_VIRUSTOTAL", "vt-key")
 			w.handle("www.virustotal.com", status(code))

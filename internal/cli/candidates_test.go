@@ -65,21 +65,6 @@ func finds(keyAndObs ...any) map[string][]run.Observation {
 
 func list(o ...run.Observation) []run.Observation { return o }
 
-// candidateRows are the rows of candidates.csv by column name.
-func candidateRows(t *testing.T, h *harness, eng string) []map[string]string {
-	t.Helper()
-	recs := csvRows(t, h.readOut(eng, "candidates.csv"))
-	var out []map[string]string
-	for _, r := range recs[1:] {
-		m := map[string]string{}
-		for i, c := range recs[0] {
-			m[c] = r[i]
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
 func values(rows []map[string]string) string {
 	var out []string
 	for _, r := range rows {
@@ -121,7 +106,7 @@ func TestCandidates_ColumnsAndOrder(t *testing.T) {
 	if hdr := strings.SplitN(h.readOut("a.com", "candidates.csv"), "\n", 2)[0]; hdr != "type,value,sources,evidence_count,confidence,current,first_seen,last_seen" {
 		t.Errorf("header = %s", hdr)
 	}
-	rows := candidateRows(t, h, "a.com")
+	rows := h.table("a.com", "candidates.csv")
 	if got := values(rows); got != "three.org high.org med.org low.org" {
 		t.Errorf("order = %s", got)
 	}
@@ -143,7 +128,7 @@ func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	rows := candidateRows(t, h, "a.com")
+	rows := h.table("a.com", "candidates.csv")
 	if values(rows) != "x.org y.org" {
 		t.Fatalf("first run order = %s", values(rows))
 	}
@@ -153,7 +138,7 @@ func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
 	if code := h.exec("-e", "a.com", "--redo", "pivot", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	rows = candidateRows(t, h, "a.com")
+	rows = h.table("a.com", "candidates.csv")
 	if values(rows) != "y.org x.org" {
 		t.Fatalf("a not-current row sorts last whatever it had: %s", values(rows))
 	}
@@ -181,14 +166,14 @@ func TestCandidates_NotCurrentAfterRedoKeepsTheRankItHadWhileSupported(t *testin
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "whoisxml", "1", "medium")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "whoisxml", "1", "medium")
 
 	early.finds = finds("k1", nil, "k2", nil) // does work before whoisxml runs again
 	who.finds = finds("Acme", nil)            // x.org is no longer found
 	if code := h.exec("-e", "a.com", "--redo", "whoisxml"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	r := rowOf(t, candidateRows(t, h, "a.com"), "x.org")
+	r := rowOf(t, h.table("a.com", "candidates.csv"), "x.org")
 	if r["current"] != "false" {
 		t.Fatalf("x.org should no longer be current: %v", r)
 	}
@@ -206,14 +191,14 @@ func TestCandidates_RootAwaitingRedoKeepsItsRankDespiteItsHostnames(t *testing.T
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "httpprobe;whoisxml", "2", "high")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "httpprobe;whoisxml", "2", "high")
 
 	early.finds = finds("k1", nil, "k2", nil) // does work before whoisxml runs again
 	who.finds = finds("Acme", nil)            // x.org is no longer found
 	if code := h.exec("-e", "a.com", "--redo", "whoisxml"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	r := rowOf(t, candidateRows(t, h, "a.com"), "x.org")
+	r := rowOf(t, h.table("a.com", "candidates.csv"), "x.org")
 	if r["current"] != "false" {
 		t.Fatalf("x.org should no longer be current: %v", r)
 	}
@@ -229,13 +214,13 @@ func TestCandidates_RedoLowersALevel(t *testing.T) {
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "certspotter;whoisxml", "2", "high")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "certspotter;whoisxml", "2", "high")
 
 	cs.finds = finds("k", nil)
 	if code := h.exec("-e", "a.com", "--redo", "certspotter"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "whoisxml", "1", "medium")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "whoisxml", "1", "medium")
 }
 
 // Confidence follows the evidence of every run: a stage that finds the
@@ -247,13 +232,13 @@ func TestCandidates_RecomputedOnEveryRun(t *testing.T) {
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "whoisxml", "1", "medium")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "whoisxml", "1", "medium")
 
 	cs.finds = finds("k", list(root("x.org")))
 	if code := h.exec("-e", "a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "certspotter;whoisxml", "2", "high")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "certspotter;whoisxml", "2", "high")
 }
 
 // Without --org there is no registrant match: the same evidence is only as
@@ -264,7 +249,7 @@ func TestCandidates_NoOrgInput(t *testing.T) {
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "whoisxml", "1", "low")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "whoisxml", "1", "low")
 }
 
 // A candidate root also counts the evidence of the candidate hostnames under
@@ -278,7 +263,7 @@ func TestCandidates_HostnameEvidenceRaisesItsRoot(t *testing.T) {
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	rows := candidateRows(t, h, "a.com")
+	rows := h.table("a.com", "candidates.csv")
 	wantRow(t, rowOf(t, rows, "other.org"), "httpprobe;whoisxml", "2", "high")
 	wantRow(t, rowOf(t, rows, "www.other.org"), "httpprobe", "1", "low")
 }
@@ -294,7 +279,7 @@ func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	rows := candidateRows(t, h, "a.com")
+	rows := h.table("a.com", "candidates.csv")
 	wantRow(t, rowOf(t, rows, "h1.other.org"), "httpprobe", "2", "low") // two keys, two pairs
 	wantRow(t, rowOf(t, rows, "h2.other.org"), "crtsh", "1", "low")     // two keys, one item, source named by the stage
 }
@@ -315,18 +300,7 @@ func TestCandidates_FindingsStillDerivedWhenOnlyEvidenceChanges(t *testing.T) {
 		t.Fatal(h.stderr.String())
 	}
 	spfRows := func() []map[string]string {
-		var out []map[string]string
-		recs := csvRows(t, h.readOut("a.com", "risk-email.csv"))
-		for _, r := range recs[1:] {
-			m := map[string]string{}
-			for i, c := range recs[0] {
-				m[c] = r[i]
-			}
-			if m["type"] == "spf-missing" {
-				out = append(out, m)
-			}
-		}
-		return out
+		return slices.DeleteFunc(h.table("a.com", "risk-email.csv"), func(r map[string]string) bool { return r["type"] != "spf-missing" })
 	}
 	if rows := spfRows(); len(rows) != 1 || rows[0]["current"] != "true" {
 		t.Fatalf("first run: spf-missing rows = %v\n%s", rows, h.readOut("a.com", "risk-email.csv"))
@@ -338,7 +312,7 @@ func TestCandidates_FindingsStillDerivedWhenOnlyEvidenceChanges(t *testing.T) {
 	if rows := spfRows(); len(rows) != 1 || rows[0]["current"] != "false" {
 		t.Errorf("the finding is no longer derived once the evidence changes: %v", rows)
 	}
-	wantRow(t, rowOf(t, candidateRows(t, h, "a.com"), "x.org"), "whoisxml", "1", "medium")
+	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "whoisxml", "1", "medium")
 }
 
 // highSet is 23 high candidates (a netblock and 22 roots), one medium root and
@@ -419,7 +393,7 @@ func TestCandidates_JSONEnvelope(t *testing.T) {
 	}
 	// The rest are in candidates.csv: 23 high rows in all.
 	high := 0
-	for _, r := range candidateRows(t, h, "a.com") {
+	for _, r := range h.table("a.com", "candidates.csv") {
 		if r["confidence"] == "high" {
 			high++
 		}
