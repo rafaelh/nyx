@@ -899,25 +899,29 @@ func (s *Store) PendingRedo() ([]string, error) {
 
 // FinishRedo sweeps the stage's observations whose check is no longer
 // produced (valid holds the CheckKey form of the keys it still produces) and
-// clears the marker. valid must be the stage's complete set of checks.
-func (s *Store) FinishRedo(stage string, valid map[string]struct{}) error {
-	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
+// clears the marker. valid must be the stage's complete set of checks. It
+// reports whether the sweep changed any record.
+func (s *Store) FinishRedo(stage string, valid map[string]struct{}) (changed bool, err error) {
+	err = s.update(func(tx *sql.Tx) (map[string]bool, error) {
 		kinds, err := sweepObservations(tx, stage, valid)
 		if err != nil {
 			return nil, err
 		}
+		changed = len(kinds) > 0
 		_, err = tx.Exec("DELETE FROM meta WHERE key=?", "redo:"+stage)
 		return kinds, err
 	})
+	return changed && err == nil, err
 }
 
 // Retire forgets the completed checks of a stage that are not in valid (the
 // CheckKey form of every check the stage yields now), with their observations
 // and failures. Evidence from a superseded check, one whose key carries a hash
 // of an entry that has since changed, so stops being current, and a check
-// yielded again later is run again. valid must be the stage's complete set of checks.
-func (s *Store) Retire(stage string, valid map[string]struct{}) error {
-	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
+// yielded again later is run again. valid must be the stage's complete set of
+// checks. It reports whether the sweep changed any record.
+func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, err error) {
+	err = s.update(func(tx *sql.Tx) (map[string]bool, error) {
 		kinds, err := sweepObservations(tx, stage, valid)
 		if err != nil {
 			return nil, err
@@ -927,8 +931,10 @@ func (s *Store) Retire(stage string, valid map[string]struct{}) error {
 				return nil, err
 			}
 		}
+		changed = len(kinds) > 0
 		return kinds, nil
 	})
+	return changed && err == nil, err
 }
 
 // retireKeys deletes the stage's rows of table whose key is not in valid.

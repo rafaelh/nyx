@@ -240,20 +240,20 @@ func (r *Runner) passes(ctx context.Context) error {
 		if err := r.buildScope(); err != nil {
 			return err
 		}
-		executed := 0
+		worked := false
 		for _, s := range r.cfg.Stages {
 			if ctx.Err() != nil {
 				return interrupted(ctx)
 			}
-			n, err := r.runStage(ctx, s, pass == 1)
+			did, err := r.runStage(ctx, s, pass == 1)
 			if err != nil {
 				return err
 			}
-			executed += n
+			worked = worked || did
 			if ctx.Err() != nil {
 				return interrupted(ctx)
 			}
-			if n > 0 {
+			if did {
 				if err := r.st.Flush(); err != nil {
 					return err
 				}
@@ -274,7 +274,7 @@ func (r *Runner) passes(ctx context.Context) error {
 		r.emitCounts(rendered)
 		// A pass that did no work has nothing left to cut short, so a deadline or a
 		// signal that lands during its render changes nothing.
-		if executed == 0 {
+		if !worked {
 			return nil
 		}
 		if ctx.Err() != nil {
@@ -478,19 +478,24 @@ func (r *Runner) setState(name, state, reason string, checks, failed int) {
 	r.emit("stage", f)
 }
 
-// runStage performs one pass of one stage and returns the number of checks attempted.
-func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error) {
+// runStage performs one pass of one stage and reports whether it did work: it
+// attempted a check, or the sweep that finishes a redo or a retire changed a
+// record. A sweep's change is work because the stage's own checks, or those of
+// another stage, may read the records it changed: after --redo rdap the
+// registrations the redo forgot stop being current only at the sweep, and the
+// addresses they held are looked up on the next pass.
+func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error) {
 	name := s.Name()
 	if ok, reason := r.gate(s); !ok {
 		r.setState(name, "not-configured", reason, 0, 0)
-		return 0, nil
+		return false, nil
 	}
 	if r.abortErr(name) != nil {
-		return 0, nil
+		return false, nil
 	}
 	done, err := r.st.Completed(name)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
 	pend, _ := r.st.PendingRedo()
 	redoPending := slices.Contains(pend, name)
@@ -662,7 +667,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 	close(work)
 	wg.Wait()
 	if ctx.Err() != nil {
-		return int(attempted.Load()), nil
+		return attempted.Load() > 0, nil
 	}
 	if n := aborted.Load(); n > 0 {
 		r.warn("%s: quota spent or key rejected; %d checks will be retried next run", name, n)
@@ -683,7 +688,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 	case first:
 		cnt, err := r.st.CompletedCount(name)
 		if err != nil {
-			return 0, err
+			return false, err
 		}
 		if cnt > 0 {
 			r.setState(name, "done-previously", "", 0, 0)
@@ -694,12 +699,13 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 	// The sweep needs every valid check; after an enumeration error it would
 	// delete the observations of checks that were never listed, so the redo
 	// stays pending until a pass enumerates cleanly.
+	swept := false
 	if redoPending && !enumFailed {
 		if err := r.st.Flush(); err != nil {
-			return n, err
+			return n > 0, err
 		}
-		if err := r.st.FinishRedo(name, all); err != nil {
-			return n, err
+		if swept, err = r.st.FinishRedo(name, all); err != nil {
+			return n > 0, err
 		}
 	}
 	// Only completed checks have observations, so there is nothing to retire
@@ -713,12 +719,14 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (int, error)
 			}
 		}
 		if unlisted {
-			if err := r.st.Retire(name, all); err != nil {
-				return n, err
+			retired, err := r.st.Retire(name, all)
+			if err != nil {
+				return n > 0, err
 			}
+			swept = swept || retired
 		}
 	}
-	return n, nil
+	return n > 0 || swept, nil
 }
 
 // abortErr is the error that aborted the stage in this run, or nil.

@@ -120,10 +120,10 @@ type orgInput struct {
 type ipInput struct{ addr netip.Addr }
 
 // Checks yields an organisation search for each --org input at each registry,
-// then each address no current registration holds. After --redo rdap no
-// registration is current (a redo forgets the checks, and a record is current
-// only while a completed check observes it), so every address is yielded again
-// and the lookups of a run share what they find: one request for a range.
+// then each address no current registration holds. A redo forgets the checks
+// but keeps their registrations current until its first pass ends, when the
+// runner sweeps them and runs another pass: every address is then yielded again
+// and the lookups of a run share what they find, one request for a range.
 func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, org := range v.Inputs().Orgs {

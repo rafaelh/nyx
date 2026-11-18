@@ -158,7 +158,7 @@ func TestRedoSweepsOrphans(t *testing.T) {
 	// ip1 is re-performed; ip2 is no longer produced by the stage.
 	s.Complete("st", "ip1", []store.Obs{{Kind: "x", Key: "a"}})
 	mustFlush(t, s)
-	if err := s.FinishRedo("st", map[string]struct{}{"ip1": {}}); err != nil {
+	if _, err := s.FinishRedo("st", map[string]struct{}{"ip1": {}}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.PendingRedo(); len(got) != 0 {
@@ -180,7 +180,7 @@ func TestRetireUnlistedChecks(t *testing.T) {
 	s.Fail("st", "gone|fp=old", "boom")
 	mustFlush(t, s)
 	before := s.KindVersion("x")
-	if err := s.Retire("st", map[string]struct{}{"svc|fp=new": {}}); err != nil {
+	if _, err := s.Retire("st", map[string]struct{}{"svc|fp=new": {}}); err != nil {
 		t.Fatal(err)
 	}
 	if rec(t, s, "x", "a").Current || !rec(t, s, "x", "b").Current {
@@ -213,7 +213,7 @@ func TestRedoFailedCheckKeepsObservations(t *testing.T) {
 	}
 	s.Fail("st", "k", "boom")
 	mustFlush(t, s)
-	if err := s.FinishRedo("st", map[string]struct{}{"k": {}}); err != nil {
+	if _, err := s.FinishRedo("st", map[string]struct{}{"k": {}}); err != nil {
 		t.Fatal(err)
 	}
 	if !rec(t, s, "x", "a").Current {
@@ -429,7 +429,7 @@ func TestKindVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	v3 := s.KindVersion("x")
-	if err := s.FinishRedo("st", map[string]struct{}{}); err != nil {
+	if _, err := s.FinishRedo("st", map[string]struct{}{}); err != nil {
 		t.Fatal(err)
 	}
 	if s.KindVersion("x") == v3 {
@@ -509,7 +509,7 @@ func TestObservers(t *testing.T) {
 	}
 	s.Complete("whoisxml", "Acme", obs("root", "x.org")) // y.org is no longer found
 	mustFlush(t, s)
-	if err := s.FinishRedo("whoisxml", map[string]struct{}{"Acme": {}}); err != nil {
+	if _, err := s.FinishRedo("whoisxml", map[string]struct{}{"Acme": {}}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.Observers("root")
@@ -522,7 +522,7 @@ func TestObservers(t *testing.T) {
 	mustFlush(t, s)
 	got, _ = s.Observers("root")
 	want(got, "z.org", "st/svc|fp=new", "st/svc|fp=old")
-	if err := s.Retire("st", map[string]struct{}{"svc|fp=new": {}}); err != nil {
+	if _, err := s.Retire("st", map[string]struct{}{"svc|fp=new": {}}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.Observers("root")

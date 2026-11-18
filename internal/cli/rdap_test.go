@@ -763,10 +763,7 @@ func TestRDAP_LookupsOnceAndRefreshedByRedo(t *testing.T) {
 	if got := x.lookups(); got != first {
 		t.Errorf("a second run made %d lookups in all, want %d", got, first)
 	}
-	// Another root gives the run other work to do before the stage's turn: a redo of this stage
-	// alone, with everything else done, finds the addresses' registrations still current and
-	// asks nothing.
-	x.mustScan("-e", eng, "--redo", "rdap", "other.test")
+	x.mustScan("-e", eng, "--redo", "rdap")
 	if got := len(x.lookupsAt(hostARIN)); got != first+1 {
 		t.Errorf("--redo rdap: %d lookups in all, want %d (the range fetched again once)", got, first+1)
 	}
@@ -818,10 +815,7 @@ func TestRDAP_BootstrapOncePerRun(t *testing.T) {
 	if n := x.bootstrapFetches(); n != 1 {
 		t.Errorf("ipv4.json fetched %d times in a run, want 1", n)
 	}
-	// Another root gives the run other work to do before the stage's turn: a redo of this stage
-	// alone, with everything else done, finds the addresses' registrations still current and
-	// asks nothing.
-	x.mustScan("-e", eng, "--redo", "rdap", "other.test")
+	x.mustScan("-e", eng, "--redo", "rdap")
 	if n := x.bootstrapFetches(); n != 2 {
 		t.Errorf("ipv4.json fetched %d times in two runs, want 2", n)
 	}
