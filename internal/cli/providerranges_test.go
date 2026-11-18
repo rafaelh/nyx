@@ -164,6 +164,8 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 
 // A list that cannot be read is a failed check named in a --debug line;
 // the ranges fetched before still apply and nothing is reported as a finding.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

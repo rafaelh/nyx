@@ -100,6 +100,8 @@ var sensitiveFields = map[string]bool{"path": true, "signature": true, "magic": 
 // status, severity}. A plain string, an entry with neither signature nor magic
 // and an unknown field are errors. Each path is appended to a service's origin,
 // so it must be an absolute path.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func parseSensitivePaths(b []byte) ([]SensitivePath, error) {
 	var nodes []yaml.Node
 	if err := yaml.Unmarshal(b, &nodes); err != nil {

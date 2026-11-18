@@ -107,6 +107,8 @@ const reconFooter = `Configuration:
 // runRecon checks every value and combination, reporting all problems in one
 // usage error before anything is created or contacted, then runs the
 // engagement.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, positional, names []string, o *reconOptions) error {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d

@@ -308,6 +308,8 @@ func TestOnlyAndTee(t *testing.T) {
 
 // The palette sheet has every entry of every table, a line per level and a
 // continuation line, through the formatter.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestSheet(t *testing.T) {
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		var buf bytes.Buffer

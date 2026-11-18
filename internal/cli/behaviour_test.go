@@ -734,6 +734,8 @@ func TestExcludedCSV(t *testing.T) {
 }
 
 // States, found lines, counts, summary.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestStageStatesAndFound(t *testing.T) {
 	t.Parallel()
 	prev := &testkit.Stage{StageName: "prev", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("p", 2) }}

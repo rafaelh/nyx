@@ -30,6 +30,8 @@ type portSources struct {
 // current: the showing rule hides it from the counts and findings, and the file
 // keeps what was once reported. A row for an address that may not be port-checked
 // is not listed at all.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func openPortRows(s Snapshot) []Row {
 	byKey := map[netip.AddrPort]*portSources{}
 	entry := func(ap netip.AddrPort) *portSources {

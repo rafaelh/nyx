@@ -54,6 +54,8 @@ var (
 
 // Checks yields the checks of this pass; a later pass picks up what these
 // found (an existing Azure account's containers, a listed bucket's first key).
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Storage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		emit := func(key string, in storageInput) bool { return yield(run.Check{Key: key, Input: in}, nil) }

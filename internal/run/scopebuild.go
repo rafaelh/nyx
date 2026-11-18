@@ -126,6 +126,8 @@ func asnNetblocks(src ScopeSource, in input.Parsed) (map[string]string, error) {
 }
 
 // inventoryData reads the current records the inventory is computed from.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func inventoryData(src ScopeSource) (inventory.Data, error) {
 	var d inventory.Data
 	hosts, err := src.CurrentRecords(kinds.Hostname)

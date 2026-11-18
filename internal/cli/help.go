@@ -149,6 +149,8 @@ func firstExample(c *cobra.Command) string {
 // --json, the shared flags, then every command with its usage, one example,
 // its everyday flags and the valid values of its fixed-set flags, the help
 // commands, and the exit codes.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func rootHelp(root *cobra.Command, depth palette.Depth) string {
 	cmds := runnable(root)
 	var b strings.Builder

@@ -32,3 +32,4 @@ Prepared statements and fewer SQL statements per observation in the store.
 Reusing HTTP connections, which would need rate limiting reworked.
 Encoding observation attributes to JSON only once.
 Making how a finding is announced a property of the finding kind, and replacing the hard-coded "asn" stage name.
+Splitting the 37 functions over the cognitive-complexity ceiling (`grep -rn 'nolint:gocognit'`), worst first: `Runner.runStage` (117), `Storage.Checks`, `exportSnapshot`, `origin.Candidates`, `targetHTTP.do`.

@@ -291,6 +291,8 @@ func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
 }
 
 // The authorisation warning names the stages left out, once, before any stage line.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestLog_AuthorisationWarning(t *testing.T) {
 	t.Parallel()
 	const tail = "; --authorised confirms authorisation"

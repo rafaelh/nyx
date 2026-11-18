@@ -31,6 +31,8 @@ func emptyDir(t *testing.T) func() {
 
 // A call in the form nyx took before it had commands exits 2 with the caller's
 // own arguments as the hint, recon inserted, and does nothing else.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) {
 	cases := []struct {
 		args     []string
@@ -261,6 +263,8 @@ func TestTree_CommandHelpOpensWithExamplesAndEndsWithExitCodes(t *testing.T) {
 
 // --json, --quiet and --debug are taken before and after the command, by
 // every command.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 	t.Parallel()
 	recon := func(h *harness, before, after []string) int {

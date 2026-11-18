@@ -471,6 +471,8 @@ type rawSettings struct {
 // cannot be read or holds an unknown key does not stop the other settings being checked. The
 // settings are returned even then, holding what was valid (the keys among it, so they can be
 // masked); a caller must not use them for a run.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	var probs clierr.Problems
 	d := Defaults()

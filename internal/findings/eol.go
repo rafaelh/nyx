@@ -17,6 +17,8 @@ import (
 // release cycle's security support has ended (medium, type eol) or ends within eol_warn_days
 // (low, type eol-approaching). A version that is a distribution build, or that only Shodan's
 // report of a port names, is one step lower. A version that matches no cycle is no finding.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (d *deriver) eolSoftware() []Finding {
 	today, err := time.Parse(time.DateOnly, d.in.Today)
 	if err != nil {

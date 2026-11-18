@@ -1,6 +1,13 @@
 version: "2"
 
 linters:
+  enable:
+    # A ceiling on cognitive complexity, which weighs nesting more than flat branches. Functions
+    # that predate it carry //nolint:gocognit until they are split.
+    - gocognit
+  settings:
+    gocognit:
+      min-complexity: 30
   exclusions:
     # Skip errcheck on Close, Flush, fmt.Print* and os.(Un)Setenv, where the
     # error is idiomatically ignored.

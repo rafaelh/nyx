@@ -55,6 +55,8 @@ type Candidate struct {
 // sibling is another in-scope, non-wildcard-only hostname that is not itself behind a CDN or WAF
 // and has a service whose certificate names the fronted host, or whose title is the fronted host's
 // (neither empty nor on the list of CDN, WAF and default-server titles).
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func Candidates(fronts []Front, hist []HistoricalAddr, services []Service, inv *inventory.Inventory, sc *scope.Scope, max int) []Candidate {
 	fronts = slices.SortedFunc(slices.Values(fronts), func(a, b Front) int { return strings.Compare(a.Host, b.Host) })
 	addrs := inv.Addrs()

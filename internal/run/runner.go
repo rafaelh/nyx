@@ -234,6 +234,7 @@ func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	return r.result(), err
 }
 
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (r *Runner) passes(ctx context.Context) error {
 	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {
@@ -484,6 +485,8 @@ func (r *Runner) setState(name, state, reason string, checks, failed int) {
 // another stage, may read the records it changed: after --redo rdap the
 // registrations the redo forgot stop being current only at the sweep, and the
 // addresses they held are looked up on the next pass.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error) {
 	name := s.Name()
 	if ok, reason := r.gate(s); !ok {

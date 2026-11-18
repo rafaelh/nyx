@@ -95,6 +95,7 @@ func matchSource(pattern, host string) bool {
 	return true
 }
 
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (t *thirdParty) Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyResponse, error) {
 	e := t.e
 	if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodHead {

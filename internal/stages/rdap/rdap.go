@@ -236,6 +236,8 @@ type result struct {
 // searchOrg asks one registry for the organisation's netblocks and autonomous
 // systems. The registry's entities are searched by the organisation's first word
 // and kept when the word rule matches their name.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observation, error) {
 	words := orgname.Tokens(in.org)
 	if len(words) == 0 {

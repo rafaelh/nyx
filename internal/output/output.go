@@ -110,6 +110,8 @@ func Sweep(dir string) error {
 // lists only current rows), so an empty file is never left in the engagement.
 // This is deliberate: a file with only a header row tells the operator nothing,
 // so a file's presence is itself the signal that there is something to read.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
 	rows := f.Rows(snap)
 	if f.Format == TXT {

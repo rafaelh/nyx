@@ -138,6 +138,8 @@ func (r *Runner) evidence(stage, check string) candidates.Evidence {
 // can corroborate each other; the hostnames keep their own rank. A candidate
 // that is no longer current, or whose only support awaits a redo, keeps the
 // rank it last had.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (r *Runner) rankCandidates(in DeriveInput) []store.Obs {
 	vis := kinds.NewVisibility(in.Scope, in.Inv)
 	last := map[string]kinds.CandidateRankAttrs{} // by rank key

@@ -44,6 +44,8 @@ type probeInput struct {
 // check per open port with no banner whose representative has not already
 // been given one on that port, and h:port for the other names on each
 // address that answered HTTP. A key may repeat; the runner keeps the first.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Probe) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		if _, err := fingerprints(); err != nil {
@@ -197,6 +199,8 @@ func otherHost(host, self string) (string, bool) {
 
 // service builds the web_service record from the first response and the page
 // the redirect chain ends on, following in-scope redirects.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first egress.Response, e egress.Clients) ([]run.Observation, error) {
 	obs := newObsSet()
 	last := first

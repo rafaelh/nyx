@@ -392,6 +392,8 @@ func yamlFor(key, val string) string {
 // Each whole-number setting has its default (shown in its flag's help), takes the config file,
 // the environment and a flag in rising order of precedence, and accepts its least value. A value
 // below that, or not a whole number, is an error naming the key from any of the three.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestIntSettings(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

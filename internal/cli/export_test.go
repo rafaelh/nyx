@@ -130,6 +130,7 @@ func exportLine(t *testing.T, lines []exLine, kind, key string) exLine {
 	return got[0]
 }
 
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestExport_EveryRecordOnce(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)

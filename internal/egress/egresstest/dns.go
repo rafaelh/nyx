@@ -300,6 +300,8 @@ func rrHeader(name string, t uint16) mdns.RR_Header {
 }
 
 // answer fills m. The caller holds d.mu.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16) {
 	if rc, ok := d.rcodes[name]; ok {
 		m.Rcode = rc

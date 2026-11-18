@@ -73,6 +73,8 @@ type scriptInput struct {
 // a script that was fetched is never pushed out of the cap, and so never retired,
 // by a new script that sorts ahead of it. The key carries the parser, not the
 // scope: a root added later is picked up only by --redo jsparse.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*JSParse) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		probe := map[string]bool{}

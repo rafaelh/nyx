@@ -81,6 +81,8 @@ type history struct {
 // Run asks for the A and then the AAAA history. A host SecurityTrails does not know (404) is a
 // completed check with nothing found. An address seen in several periods is one record, from the
 // earliest first_seen to the latest last_seen.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	host := c.Input.(string)
 	type span struct{ first, last string }

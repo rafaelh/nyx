@@ -174,6 +174,8 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 // JSON lines to write, inputs and exclusions first and then the records in
 // kind and key order, each classified as a run would. Each line is encoded as
 // it is built, so the cleaned copy of a record's attributes is not kept.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *config.Redactor) ([]byte, error) {
 	want := func(kind string) bool { return len(o.kinds) == 0 || slices.Contains(o.kinds, kind) }
 	var out, exclusions bytes.Buffer

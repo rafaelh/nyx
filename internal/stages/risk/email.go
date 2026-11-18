@@ -97,6 +97,8 @@ func withPrefix(records []string, prefix string) []string {
 // retried next run, and records no third parties); one on a DKIM selector is
 // recorded in dkim_errors, and one on a mail host's own address is ignored. An
 // include that does not exist or has no single SPF record makes the SPF invalid.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(input)
 	root := in.root

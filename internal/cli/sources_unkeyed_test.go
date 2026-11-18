@@ -245,6 +245,8 @@ func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 }
 
 // A spent quota stops that stage alone: one warning, the checks fail and are retried.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 	t.Parallel()
 	type variant struct {

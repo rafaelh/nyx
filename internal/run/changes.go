@@ -35,6 +35,8 @@ type entryKey struct{ label, key string }
 // candidate or excluded value counted once however many records carry it.
 // Evidence and internal kinds have no label and are skipped. The entries are
 // sorted by label and key.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func entriesOf(snap output.Snapshot) []entry {
 	vis := snap.Vis
 	wildcardOnly := snap.Inv.WildcardOnly()

@@ -172,6 +172,8 @@ func TestDNSRoot_NameServers(t *testing.T) {
 }
 
 // Every listed prefix, in any case, is one row per platform and root, without the token.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestDNSRoot_VerificationPlatforms(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ txt, platform string }{

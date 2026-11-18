@@ -291,6 +291,7 @@ func (t *targetHTTP) Head(ctx context.Context, r Request) (HTTPResult, error) {
 	return t.do(ctx, http.MethodHead, r)
 }
 
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResult, error) {
 	e := t.e
 	p := e.policy()

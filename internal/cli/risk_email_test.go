@@ -56,6 +56,8 @@ func includes(n int) string {
 }
 
 // SPF, DMARC and MX cases, each producing exactly the findings listed.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestEmail_Posture(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

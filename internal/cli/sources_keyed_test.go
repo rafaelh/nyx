@@ -196,6 +196,8 @@ func TestKeyed_RequestShapes(t *testing.T) {
 }
 
 // A rejected key or a spent quota stops that stage for the run, and only that stage.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 	t.Parallel()
 	for _, s := range keyedSources {
@@ -358,6 +360,8 @@ func pagedSources() []pagedSource {
 
 // Paging stops at <stage>.max_pages with a warning when the source has more;
 // the cap is part of the check, so raising it repeats the check.
+//
+//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestKeyed_PageCap(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
