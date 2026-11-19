@@ -11,6 +11,7 @@ import (
 // is shown. An IP literal is in scope iff it is inside an in-scope netblock and
 // not excluded; a name iff it classifies as in scope.
 func TestWebHostInScope(t *testing.T) {
+	t.Parallel()
 	s := scope.New(scope.Config{
 		Roots:      []string{"example.com"},
 		Netblocks:  []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24"), netip.MustParsePrefix("2001:db8:1::/64")},

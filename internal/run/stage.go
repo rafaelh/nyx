@@ -279,18 +279,6 @@ func (v View) WebServices() []WebService {
 	return out
 }
 
-// InScopeHostnames returns the current in-scope hostname records, in key order. It is
-// not wildcard-aware: use ProbeHostnames for anything that contacts a name.
-func (v View) InScopeHostnames() []string {
-	var out []string
-	for _, rec := range v.Records(kinds.Hostname) {
-		if v.sc.ClassifyHost(rec.Key).Class == scope.InScope {
-			out = append(out, rec.Key)
-		}
-	}
-	return out
-}
-
 // InScopeRoots returns the in-scope input roots, sorted: the roots the user gave
 // that the scope has not excluded.
 func (v View) InScopeRoots() []string {
@@ -325,7 +313,8 @@ func (v View) ResolvableHostnames() []string {
 
 // ProbeHostnames are the names later stages may probe over HTTP: resolved,
 // in-scope, not excluded, not wildcard-only, plus one representative for each
-// wildcard zone. InScopeHostnames is not wildcard-aware; web stages must use this.
+// wildcard zone. Web stages must use this, not the hostname records, so that
+// a wildcard zone is probed once.
 func (v View) ProbeHostnames() []string { return v.inv.ProbeHostnames(v.sc) }
 
 // ProviderHosts are the in-scope names on shared provider infrastructure, with

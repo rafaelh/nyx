@@ -28,6 +28,7 @@ func addrs(s ...string) []netip.Addr {
 
 // Classification of hostnames.
 func TestClassifyHost(t *testing.T) {
+	t.Parallel()
 	s := scope.New(scope.Config{
 		Roots:      []string{"example.com"},
 		Exclusions: excl(t, "admin.example.com", "*.dev.example.com", "198.51.100.0/24"),
@@ -63,27 +64,33 @@ func TestClassifyHost(t *testing.T) {
 	}
 }
 
-func TestExcludedAddr(t *testing.T) {
+func TestExcludedFor(t *testing.T) {
+	t.Parallel()
 	s := scope.New(scope.Config{
 		Roots:       []string{"example.com"},
 		Exclusions:  excl(t, "admin.example.com", "198.51.100.0/24"),
 		Resolutions: map[string][]netip.Addr{"admin.example.com": addrs("203.0.113.50"), "www.example.com": addrs("203.0.113.5")},
 	})
-	if ok, why := s.ExcludedAddr(netip.MustParseAddr("198.51.100.1")); !ok || why == "" {
+	if ok, why := s.ExcludedFor(netip.MustParseAddr("198.51.100.1"), false); !ok || why == "" {
 		t.Errorf("cidr: %v %q", ok, why)
 	}
-	if ok, why := s.ExcludedAddr(netip.MustParseAddr("203.0.113.50")); !ok || why == "" {
+	if ok, why := s.ExcludedFor(netip.MustParseAddr("203.0.113.50"), false); !ok || why == "" {
 		t.Errorf("address of excluded host: %v %q", ok, why)
 	}
-	if ok, _ := s.ExcludedAddr(netip.MustParseAddr("203.0.113.5")); ok {
+	if ok, _ := s.ExcludedFor(netip.MustParseAddr("203.0.113.5"), false); ok {
 		t.Error("address of a normal host is not excluded")
 	}
-	if !s.ExcludedCIDR(netip.MustParseAddr("198.51.100.1")) || s.ExcludedCIDR(netip.MustParseAddr("203.0.113.50")) {
-		t.Error("ExcludedCIDR must only report CIDR exclusions")
+	// Shared infrastructure escapes an exclusion by name, never an excluded CIDR.
+	if ok, _ := s.ExcludedFor(netip.MustParseAddr("198.51.100.1"), true); !ok {
+		t.Error("a shared address in an excluded CIDR must stay excluded")
+	}
+	if ok, _ := s.ExcludedFor(netip.MustParseAddr("203.0.113.50"), true); ok {
+		t.Error("a shared address of a host excluded by name must not be excluded")
 	}
 }
 
 func TestInScopeIP(t *testing.T) {
+	t.Parallel()
 	s := scope.New(scope.Config{
 		Netblocks:  []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")},
 		Exclusions: excl(t, "203.0.113.128/25"),
@@ -103,6 +110,7 @@ func TestInScopeIP(t *testing.T) {
 
 // Overlapping netblocks are counted once; IPv6 is not counted.
 func TestIPv4AddressCount(t *testing.T) {
+	t.Parallel()
 	s := scope.New(scope.Config{Netblocks: []netip.Prefix{
 		netip.MustParsePrefix("10.0.0.0/24"),
 		netip.MustParsePrefix("10.0.0.0/25"),   // inside the /24
@@ -127,6 +135,7 @@ func TestIPv4AddressCount(t *testing.T) {
 
 // The single eligibility function.
 func TestPortEligible(t *testing.T) {
+	t.Parallel()
 	res := map[string][]netip.Addr{
 		"www.example.com":   addrs("203.0.113.5"),
 		"wild.example.com":  addrs("203.0.113.20"),
@@ -178,6 +187,7 @@ func TestPortEligible(t *testing.T) {
 // An in-scope netblock address that no exclusion names is decided
 // without asking who owns it, so a netblock sweep costs no owner lookups.
 func TestPortEligibleAsksOwnerOnlyWhenNeeded(t *testing.T) {
+	t.Parallel()
 	s := scope.New(scope.Config{
 		Netblocks:  []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
 		Exclusions: excl(t, "192.0.2.0/24"),

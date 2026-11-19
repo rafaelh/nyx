@@ -5,6 +5,7 @@ package run
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -82,8 +83,9 @@ type Runner struct {
 	policy     *egress.Policy
 	scriptsVer uint64
 
-	recMu sync.Mutex
-	recs  map[string]recordsCache // the records of each kind read so far (see records)
+	recMu     sync.Mutex
+	recs      map[string]recordsCache   // the records of each kind read so far (see records)
+	observing map[string]observersCache // the observers of each kind read so far (see observers)
 
 	mu      sync.Mutex
 	failed  map[string]map[string]bool // stage -> check key, failed this run
@@ -98,7 +100,7 @@ type Runner struct {
 
 	derivedSig     string                          // what the findings were last derived from (see deriveFindings)
 	attribution    map[string]findings.StorageAttr // the storage attribution of that derivation
-	storedFindings string                          // the date and findings last stored (see deriveFindings)
+	storedFindings [sha256.Size]byte               // the date and findings last stored (see storeDerived)
 
 	derivers   []*deriver           // the derived records other than findings (see deriveRecords)
 	evidencers map[string]Evidencer // the stages that account for their own candidate evidence
@@ -117,6 +119,14 @@ type recordsCache struct {
 	all, curr []store.Record
 }
 
+// observersCache holds the observers of the records of a kind as of store
+// KindVersion ver. Completing, redoing or retiring a check bumps the version of
+// every kind it observes, so the version also tracks the checks that count.
+type observersCache struct {
+	ver uint64
+	m   map[string][]store.Observer
+}
+
 // stageStats are a stage's counters. spent is the budget the checks sent this
 // run have used (see Budgeted) and deferred the cost of the checks its last
 // pass deferred.
@@ -131,7 +141,7 @@ func New(cfg Config) *Runner {
 		cfg: cfg, st: cfg.Engagement.Store(),
 		failed: map[string]map[string]bool{}, stats: map[string]*stageStats{},
 		last: map[string]string{}, counts: map[string]int{}, aborted: map[string]error{},
-		recs: map[string]recordsCache{},
+		recs: map[string]recordsCache{}, observing: map[string]observersCache{},
 	}
 	r.evidencers = map[string]Evidencer{}
 	for _, s := range cfg.Stages {
@@ -183,6 +193,7 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 	}
 	r.st.OnNew(r.onNewRecord)
 
+	// The inputs are merged before the run starts and are fixed for its life.
 	var err error
 	if r.inputs, err = eng.Inputs(); err != nil {
 		return Result{}, err
@@ -305,17 +316,9 @@ func (r *Runner) afterWork() error {
 // Policy.Scripts when just the script records have.
 func (r *Runner) buildScope() error {
 	eng := r.cfg.Engagement
-	in, err := eng.Inputs()
-	if err != nil {
-		return err
-	}
-	r.inputs = in
-	var b strings.Builder
-	for _, k := range scopeKinds {
-		fmt.Fprintf(&b, "%s=%d;", k.Name(), r.st.KindVersion(k.Name()))
-	}
-	fmt.Fprintf(&b, "%v;%v", eng.Acked(), in)
-	sig := b.String()
+	// The inputs and the authorisation are fixed for the run (see Run), so
+	// only the records the scope is built from can change it.
+	sig := r.kindSig(scopeKinds)
 	if sig == r.scopeSig {
 		if r.st.KindVersion(kinds.Script.Name()) == r.scriptsVer {
 			return nil
@@ -328,7 +331,7 @@ func (r *Runner) buildScope() error {
 		r.policy = &p
 		return nil
 	}
-	built, err := BuildScope(in, runnerSource{r})
+	built, err := BuildScope(r.inputs, runnerSource{r})
 	if err != nil {
 		return err
 	}
@@ -397,17 +400,11 @@ func (r *Runner) guard(value, reason string) {
 	r.st.Complete("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
 }
 
-func (r *Runner) failedSet(stage string) map[string]bool {
+// hasFailed reports whether the stage's check failed earlier in this run.
+func (r *Runner) hasFailed(stage, key string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.failedLocked(stage)
-}
-
-func (r *Runner) failedLocked(stage string) map[string]bool {
-	if r.failed[stage] == nil {
-		r.failed[stage] = map[string]bool{}
-	}
-	return r.failed[stage]
+	return r.failed[stage][key]
 }
 
 func (r *Runner) stat(stage string) *stageStats {
@@ -522,9 +519,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	}
 
 	n := int(sr.attempted.Load())
-	if err := r.showOutcome(name, n, sr.spent, sr.deferredCost, first); err != nil {
-		return false, err
-	}
+	r.showOutcome(name, n, sr.spent, sr.deferredCost, first, len(sr.done) > 0)
 	swept, err := sr.sweep()
 	if err != nil {
 		return n > 0, err
@@ -534,8 +529,8 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 
 // showOutcome adds a pass's n attempted checks and its budget to the stage's
 // counters and shows the stage's state. A first pass that attempted nothing
-// shows whether an earlier run did the work.
-func (r *Runner) showOutcome(name string, n, spent, deferred int, first bool) error {
+// shows whether an earlier run did the work (doneBefore).
+func (r *Runner) showOutcome(name string, n, spent, deferred int, first, doneBefore bool) {
 	r.mu.Lock()
 	ss := r.stat(name)
 	ss.attempted += n
@@ -547,18 +542,11 @@ func (r *Runner) showOutcome(name string, n, spent, deferred int, first bool) er
 		r.setState(name, "failed", "", total, failed)
 	case total > 0:
 		r.setState(name, "done", "", total, failed)
+	case first && doneBefore:
+		r.setState(name, "done-previously", "", 0, 0)
 	case first:
-		cnt, err := r.st.CompletedCount(name)
-		if err != nil {
-			return err
-		}
-		if cnt > 0 {
-			r.setState(name, "done-previously", "", 0, 0)
-		} else {
-			r.setState(name, "done", "", 0, 0)
-		}
+		r.setState(name, "done", "", 0, 0)
 	}
-	return nil
 }
 
 // abortErr is the error that aborted the stage in this run, or nil.
@@ -580,7 +568,7 @@ func (r *Runner) count(stage string, f func(*stageStats)) {
 // line and the summary count it. A panic's stack follows as debug events, one
 // per line.
 func (r *Runner) failCheck(stage, key string, err error) {
-	r.recordFailure(stage, key, err.Error(), false)
+	r.recordFailure(stage, key, false)
 	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, err)})
 	var p *checkPanic
 	if errors.As(err, &p) {
@@ -614,18 +602,21 @@ func runCheck(ctx context.Context, s Stage, c Check, clients egress.Clients) (_ 
 	return s.Run(ctx, c, clients)
 }
 
-// recordFailure records a transient failure: not a completion, not retried this run.
+// recordFailure records a transient failure: not a completion, not retried
+// this run, and retried on the next because it is not completed.
 //
 // rejected says a refused key caused it (see Result.KeyRejected).
-func (r *Runner) recordFailure(stage, key, msg string, rejected bool) {
+func (r *Runner) recordFailure(stage, key string, rejected bool) {
 	r.mu.Lock()
-	r.failedLocked(stage)[key] = true
+	if r.failed[stage] == nil {
+		r.failed[stage] = map[string]bool{}
+	}
+	r.failed[stage][key] = true
 	r.stat(stage).failed++
 	if rejected {
 		r.stat(stage).rejected++
 	}
 	r.mu.Unlock()
-	r.st.Fail(stage, key, msg)
 }
 
 // emitCounts emits the category counts that changed. They are counted from the
@@ -702,7 +693,7 @@ func (r *Runner) render() (output.Snapshot, error) {
 		return output.Snapshot{}, err
 	}
 	eng := r.cfg.Engagement
-	snap, err := r.snapshot(r.sc.Load(), r.inv.Load())
+	snap, err := r.snapshot(r.sc.Load(), r.inv.Load(), r.vis.Load())
 	if err != nil {
 		return output.Snapshot{}, err
 	}
@@ -718,8 +709,8 @@ func (r *Runner) render() (output.Snapshot, error) {
 
 // snapshot reads the records of every kind, which it does so that a new kind's
 // file can never render empty, with the scope they are shown under (empty ones if
-// none has been built yet).
-func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory) (output.Snapshot, error) {
+// none has been built yet) and its Visibility vis (built when nil).
+func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility) (output.Snapshot, error) {
 	inputs, err := r.st.Inputs()
 	if err != nil {
 		return output.Snapshot{}, err
@@ -733,13 +724,14 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory) (output.Sna
 		snap.Records[k.Name] = recs
 	}
 	snap.Storage = r.attribution // computed with the findings, from the same evidence
-	if snap.Scope == nil {
+	if snap.Scope == nil || snap.Inv == nil {
 		snap.Scope = scope.New(scope.Config{})
-	}
-	if snap.Inv == nil {
 		snap.Inv = inventory.New(inventory.Data{}, provider.Default())
+		vis = nil
 	}
-	snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
+	if snap.Vis = vis; vis == nil {
+		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
+	}
 	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.inputs); err != nil {
 		return output.Snapshot{}, err
 	}
@@ -761,14 +753,7 @@ func (r *Runner) deriveFindings() error {
 	}
 	var readErr error
 	in := findings.Input{Scope: sc, Inv: inv, Settings: r.cfg.Settings, Today: r.today(),
-		Records: func(k kinds.Named) []store.Record {
-			recs, err := r.records(k.Name())
-			if err != nil && readErr == nil {
-				readErr = err
-			}
-			return recs
-		},
-		Roots: r.inputs.Roots, Orgs: r.inputs.Orgs}
+		Records: keepFirstErr(&readErr, r.records), Roots: r.inputs.Roots, Orgs: r.inputs.Orgs}
 	fs, attribution := findings.DeriveAll(in)
 	if readErr != nil {
 		return readErr
@@ -777,27 +762,22 @@ func (r *Runner) deriveFindings() error {
 	for i, f := range fs {
 		obs[i] = kinds.Finding.Obs(f.Key(), f.Attrs)
 	}
-	// Storing the same findings again on the same day changes nothing.
-	stored := fmt.Sprint(r.today(), obs)
-	if stored != r.storedFindings {
-		// A finding whose severity has risen (an unconfirmed port a handshake then
-		// confirmed) is printed again at the new severity; a new one is printed by
-		// the store's callback, and a finding that has fallen is not.
-		prev, err := r.records(kinds.Finding.Name())
-		if err != nil {
-			return err
-		}
-		was := map[string]string{}
+	// A finding whose severity has risen (an unconfirmed port a handshake then
+	// confirmed) is printed again at the new severity; a new one is printed by
+	// the store's callback, and a finding that has fallen is not.
+	prev, err := r.currentRecords(kinds.Finding)
+	if err != nil {
+		return err
+	}
+	stored, err := r.storeDerived("findings", obs, &r.storedFindings)
+	if err != nil {
+		return err
+	}
+	if stored {
+		was := make(map[string]string, len(prev))
 		for _, rec := range prev {
-			if rec.Current {
-				was[rec.Key] = rec.Str("severity")
-			}
+			was[rec.Key] = rec.Str("severity")
 		}
-		r.st.Complete("findings", "derived", obs)
-		if err := r.st.Flush(); err != nil {
-			return err
-		}
-		r.storedFindings = stored
 		for _, f := range fs {
 			if old, ok := was[f.Key()]; ok && findings.Higher(f.Severity, old) {
 				r.emit("found", foundFields(kinds.Finding.Name(), f.Key(), f.Attrs))
@@ -806,6 +786,34 @@ func (r *Runner) deriveFindings() error {
 	}
 	r.derivedSig, r.attribution = sig, attribution
 	return nil
+}
+
+// storeDerived stores obs as the records of the pseudo-stage name, its single
+// check key "derived", and reports whether it did: storing the same records
+// again on the same day as last (*last) changes nothing, so it is skipped.
+func (r *Runner) storeDerived(name string, obs []store.Obs, last *[sha256.Size]byte) (bool, error) {
+	sum := sha256.Sum256(fmt.Append(nil, r.today(), obs))
+	if sum == *last {
+		return false, nil
+	}
+	r.st.Complete(name, "derived", obs)
+	if err := r.st.Flush(); err != nil {
+		return false, err
+	}
+	*last = sum
+	return true, nil
+}
+
+// keepFirstErr adapts a read by kind name to a derivation's reader, which has
+// no error: the first error it meets is kept in *err for the caller to return.
+func keepFirstErr[T any](err *error, read func(string) (T, error)) func(kinds.Named) T {
+	return func(k kinds.Named) T {
+		v, e := read(k.Name())
+		if e != nil && *err == nil {
+			*err = e
+		}
+		return v
+	}
 }
 
 // records returns every record of a kind, current or not, read again only
@@ -841,24 +849,54 @@ func (r *Runner) cached(kind string) (recordsCache, error) {
 	return c, nil
 }
 
+// observers returns, per record key, the completed checks that observe a
+// record of the kind (see Store.Observers), read again only when the kind has
+// changed since the last read. Callers must not modify the returned map.
+func (r *Runner) observers(kind string) (map[string][]store.Observer, error) {
+	ver := r.st.KindVersion(kind)
+	r.recMu.Lock()
+	c, ok := r.observing[kind]
+	r.recMu.Unlock()
+	if ok && c.ver == ver {
+		return c.m, nil
+	}
+	m, err := r.st.Observers(kind)
+	if err != nil {
+		return nil, err
+	}
+	r.recMu.Lock()
+	r.observing[kind] = observersCache{ver: ver, m: m}
+	r.recMu.Unlock()
+	return m, nil
+}
+
+// kindSig changes whenever a record of one of the kinds ks does.
+func (r *Runner) kindSig(ks []kinds.Named) string {
+	var b strings.Builder
+	for _, k := range ks {
+		fmt.Fprintf(&b, "%s=%d;", k.Name(), r.st.KindVersion(k.Name()))
+	}
+	return b.String()
+}
+
 // derivationSignature changes whenever a record of any kind but the derived
-// kinds ("finding" and those the derivers write), the date or the engagement's
-// inputs change. The Scope and Inventory are built from nothing else, and the
-// settings are fixed for the Runner's life. The findings do not read the
-// derived records, so storing them must not derive the findings again.
+// kinds ("finding" and those the derivers write) or the date changes. The Scope
+// and Inventory are built from nothing else, and the settings and inputs are
+// fixed for the Runner's life. The findings do not read the derived records, so
+// storing them must not derive the findings again.
 func (r *Runner) derivationSignature() string {
 	derived := map[string]bool{kinds.Finding.Name(): true}
 	for _, d := range r.derivers {
 		derived[d.writes.Name()] = true
 	}
-	var b strings.Builder
+	var read []kinds.Named
 	for _, k := range kinds.All() {
 		if !derived[k.Name] {
-			fmt.Fprintf(&b, "%s=%d;", k.Name, r.st.KindVersion(k.Name))
+			named, _ := kinds.Lookup(k.Name)
+			read = append(read, named)
 		}
 	}
-	fmt.Fprintf(&b, "%s;%v", r.today(), r.inputs)
-	return b.String()
+	return r.kindSig(read) + r.today()
 }
 
 // currentRecords returns the current records of a kind. Callers must not

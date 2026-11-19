@@ -78,3 +78,17 @@ Historical addresses and code mentions that are no longer current skip the showi
 /code-review is the better place to chase those.
 
 Merging every Classify test into one table. The tests read well as separate named behaviours, so I only removed the exact duplicates.
+
+
+# internal/run, internal/sanitize, internal/scope, internal/shellquote, internal/store, internal/testkit, and internal/thirdparty
+
+Larger redesigns:
+Turning the findings derivation into an ordinary deriver with hooks.
+Making which entities the files list a single Visibility rule; today changes.go copies the rules from output.
+Moving the stage-specific View queries out to the stages that use them.
+Separating the egress policy from the scope build, and giving finding display its own Kind.Found instead of the special case in foundFields.
+Removing BuildScope's dependence on the asn stage's name.
+Moving the candidate roll-up rules into internal/candidates.
+Diffing SaveShown instead of rewriting every row.
+Caching each stage's completed checks between passes, and refreshing changed records incrementally.
+Would change behaviour: sorting OpenPorts with AddrPort.Compare would change the order from text to numeric.

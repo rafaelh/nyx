@@ -16,8 +16,10 @@ var (
 // Text removes terminal escape sequences, control characters and bidi
 // overrides, and turns tabs into spaces.
 func Text(s string) string {
-	s = ansiOSC.ReplaceAllString(s, "")
-	s = ansiCSI.ReplaceAllString(s, "")
+	if strings.IndexByte(s, 0x1b) >= 0 { // every escape sequence starts with ESC
+		s = ansiOSC.ReplaceAllString(s, "")
+		s = ansiCSI.ReplaceAllString(s, "")
+	}
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\t':

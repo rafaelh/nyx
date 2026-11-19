@@ -3,11 +3,11 @@
 package scope
 
 import (
+	"cmp"
 	"fmt"
 	"iter"
 	"net/netip"
 	"slices"
-	"sort"
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
@@ -172,34 +172,29 @@ func (s *Scope) InScopeIP(a netip.Addr) bool {
 func (s *Scope) WebHostInScope(host string) bool {
 	h := input.NormaliseHost(host)
 	if a, ok := input.IPLiteral(h); ok {
-		excluded, _ := s.ExcludedAddr(a)
+		_, _, excluded := s.exclusion(a)
 		return s.InScopeIP(a) && !excluded
 	}
 	return h != "" && s.ClassifyHost(h).Class == InScope
 }
 
-// ExcludedAddr reports whether the address is in an excluded CIDR or is an
-// address of a host excluded by name.
-func (s *Scope) ExcludedAddr(a netip.Addr) (bool, string) {
+// exclusion reports whether the address is in an excluded CIDR or is an
+// address of a host excluded by name, why, and whether it is the CIDR (which
+// excludes it regardless of shared infrastructure).
+func (s *Scope) exclusion(a netip.Addr) (why string, cidr, ok bool) {
 	if e, ok := s.cidrOf(a); ok {
-		return true, fmt.Sprintf("address %s in excluded %s", a, e.Entry)
+		return fmt.Sprintf("address %s in excluded %s", a, e.Entry), true, true
 	}
-	if why, ok := s.exclAddrs[a]; ok {
-		return true, why
-	}
-	return false, ""
+	why, ok = s.exclAddrs[a]
+	return why, false, ok
 }
-
-// ExcludedCIDR reports whether the address is inside an excluded CIDR (and so
-// excluded regardless of shared infrastructure).
-func (s *Scope) ExcludedCIDR(a netip.Addr) bool { _, ok := s.cidrOf(a); return ok }
 
 // ExcludedFor reports whether an exclusion refuses traffic to the address: an
 // excluded CIDR always does; the address of a host excluded by name does unless
 // it is shared provider infrastructure. An unknown owner is not shared.
 func (s *Scope) ExcludedFor(a netip.Addr, shared bool) (bool, string) {
-	ok, why := s.ExcludedAddr(a)
-	return ok && (!shared || s.ExcludedCIDR(a)), why
+	why, cidr, ok := s.exclusion(a)
+	return ok && (!shared || cidr), why
 }
 
 // Owner reports what is known about who owns an address: whether it is shared
@@ -216,8 +211,8 @@ type Owner func(netip.Addr) (shared, known bool)
 // when the refusal is an exclusion.
 func (s *Scope) PortEligible(a netip.Addr, owner Owner) (ok bool, why string, excluded bool) {
 	a = a.Unmap()
-	if ex, why := s.ExcludedAddr(a); ex {
-		if s.ExcludedCIDR(a) {
+	if why, cidr, ex := s.exclusion(a); ex {
+		if cidr {
 			return false, why, true
 		}
 		if shared, _ := owner(a); !shared {
@@ -271,7 +266,7 @@ func (s *Scope) ipv4Ranges() []ipv4Range {
 		lo := uint64(b[0])<<24 | uint64(b[1])<<16 | uint64(b[2])<<8 | uint64(b[3])
 		ivs = append(ivs, ipv4Range{lo, lo + (1 << (32 - p.Bits())) - 1})
 	}
-	sort.Slice(ivs, func(i, j int) bool { return ivs[i].lo < ivs[j].lo })
+	slices.SortFunc(ivs, func(a, b ipv4Range) int { return cmp.Compare(a.lo, b.lo) })
 	var out []ipv4Range
 	for _, r := range ivs {
 		if n := len(out); n > 0 && r.lo <= out[n-1].hi+1 {

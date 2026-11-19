@@ -64,11 +64,7 @@ func TestShown_Persists(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := store.Open(p, store.Options{Clock: c.now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s2.Close()
+	s2 := reopen(t, c, p)
 	if got, saved, _ := s2.Shown(); !saved || len(got) != 1 {
 		t.Errorf("after reopening: %v, %v", got, saved)
 	}
@@ -94,11 +90,7 @@ func TestShown_TableCreatedInAnOlderDatabase(t *testing.T) {
 	}
 	db.Close()
 
-	s2, err := store.Open(p, store.Options{Clock: c.now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s2.Close()
+	s2 := reopen(t, c, p)
 	if _, saved, err := s2.Shown(); err != nil || saved {
 		t.Fatalf("Shown() saved=%v err=%v", saved, err)
 	}

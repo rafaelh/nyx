@@ -37,6 +37,7 @@ func keys(obs []store.Obs) []string {
 
 // One row per root and provider suffix for each in-scope name whose chain ends at a SaaS entry.
 func TestCNAMEDerivation(t *testing.T) {
+	t.Parallel()
 	obs := build([]string{"example.com", "example.org"},
 		[]string{"a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.org", "f.other.test", "g.example.com"},
 		map[string]string{
@@ -60,6 +61,7 @@ func TestCNAMEDerivation(t *testing.T) {
 
 // A name that answers only because of a wildcard is not listed.
 func TestCNAMEDerivationSkipsWildcardOnly(t *testing.T) {
+	t.Parallel()
 	obs := build([]string{"example.com"}, []string{"x.wild.example.com", "real.example.com"},
 		map[string]string{"x.wild.example.com": "w.myshopify.com", "real.example.com": "r.github.io"},
 		[]inventory.Wildcard{{Zone: "wild.example.com", CNAME: "w.myshopify.com"}})

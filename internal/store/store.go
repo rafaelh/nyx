@@ -1,17 +1,18 @@
 // Package store is the SQLite-backed engagement state: inputs, completed
-// checks, records with per-stage observations, failures and metadata.
+// checks, records with per-stage observations and metadata.
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,6 @@ CREATE TABLE records(kind TEXT NOT NULL, key TEXT NOT NULL, first_seen TEXT NOT 
 CREATE TABLE observations(kind TEXT NOT NULL, key TEXT NOT NULL, stage TEXT NOT NULL, check_key TEXT NOT NULL,
                           attrs TEXT NOT NULL, seen TEXT NOT NULL, PRIMARY KEY(kind, key, stage, check_key));
 CREATE INDEX observations_check ON observations(stage, check_key);
-CREATE TABLE failures(stage TEXT NOT NULL, key TEXT NOT NULL, error TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY(stage, key));
 `
 
 // Options configure a Store.
@@ -71,14 +71,10 @@ type ObsRow struct{ Key, CheckKey string }
 // Input is a stored scope input or exclusion.
 type Input struct{ Kind, Value, AddedAt string }
 
-// Failure is the last transient failure of a check.
-type Failure struct{ Stage, Key, Error, At string }
-
 type opKind int
 
 const (
 	opComplete opKind = iota
-	opFail
 	opBarrier
 )
 
@@ -86,7 +82,6 @@ type op struct {
 	kind         opKind
 	stage, check string
 	obs          []Obs
-	errMsg       string
 	done         chan error
 }
 
@@ -334,11 +329,6 @@ func (s *Store) Complete(stage, check string, obs []Obs) {
 	s.send(op{kind: opComplete, stage: stage, check: s.CheckKey(check), obs: obs})
 }
 
-// Fail queues a record of a transient failure (not a completion).
-func (s *Store) Fail(stage, check, errMsg string) {
-	s.send(op{kind: opFail, stage: stage, check: s.CheckKey(check), errMsg: s.red.Redact(errMsg)})
-}
-
 // Flush waits until everything queued so far is committed and returns the first write error.
 func (s *Store) Flush() error {
 	done := make(chan error, 1)
@@ -398,31 +388,23 @@ func (s *Store) writer() {
 	}
 }
 
-type newRec struct {
-	kind, key string
-	attrs     map[string]any
-}
-
+// commit commits the batch, calls the new-record callback and then releases
+// the batch's barriers. A panic in the commit or the callback is the store's
+// sticky error, so the barriers are still released and Flush returns it
+// instead of waiting for ever.
 func (s *Store) commit(batch []op) {
-	s.commitAndNotify(batch)
-	err := s.firstErr()
-	for _, o := range batch {
-		if o.kind == opBarrier {
-			o.done <- err
-		}
-	}
-}
-
-// commitAndNotify commits the batch and calls the new-record callback. A panic
-// in either is the store's sticky error, so the barriers are still released
-// and Flush returns it instead of waiting for ever.
-func (s *Store) commitAndNotify(batch []op) {
 	defer func() {
 		if v := recover(); v != nil {
 			s.setErr(fmt.Errorf("store writer: panic: %v", v))
 		}
+		err := s.firstErr()
+		for _, o := range batch {
+			if o.kind == opBarrier {
+				o.done <- err
+			}
+		}
 	}()
-	var news []newRec
+	var news []Obs
 	if s.firstErr() == nil {
 		news = s.commitOps(batch)
 	}
@@ -431,7 +413,7 @@ func (s *Store) commitAndNotify(batch []op) {
 	s.mu.Unlock()
 	if err == nil && cb != nil {
 		for _, n := range news {
-			cb(n.kind, n.key, n.attrs)
+			cb(n.Kind, n.Key, n.Attrs)
 		}
 	}
 }
@@ -461,7 +443,7 @@ func (s *Store) setErr(err error) {
 	s.mu.Unlock()
 }
 
-func (s *Store) commitOps(batch []op) []newRec {
+func (s *Store) commitOps(batch []op) []Obs {
 	tx, err := s.db.Begin()
 	if err != nil {
 		s.setErr(err)
@@ -469,7 +451,7 @@ func (s *Store) commitOps(batch []op) []newRec {
 	}
 	defer func() { _ = tx.Rollback() }() // a no-op after Commit
 	today := s.today()
-	var news []newRec
+	var news []Obs
 	kinds := map[string]bool{}
 	wrote := false
 	for _, o := range batch {
@@ -481,13 +463,6 @@ func (s *Store) commitOps(batch []op) []newRec {
 				return nil
 			}
 			news = append(news, n...)
-			wrote = true
-		case opFail:
-			if _, err := tx.Exec(`INSERT INTO failures(stage,key,error,at) VALUES(?,?,?,?)
-				ON CONFLICT(stage,key) DO UPDATE SET error=excluded.error, at=excluded.at`, o.stage, o.check, o.errMsg, today); err != nil {
-				s.setErr(err)
-				return nil
-			}
 			wrote = true
 		}
 	}
@@ -505,7 +480,7 @@ func (s *Store) commitOps(batch []op) []newRec {
 }
 
 // applyComplete adds the kind of every record it touches to kinds.
-func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]bool) ([]newRec, error) {
+func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]bool) ([]Obs, error) {
 	// Later observations of the same record in one check win.
 	type rk struct{ kind, key string }
 	seen := map[rk]Obs{}
@@ -518,7 +493,7 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		}
 		seen[k] = ob
 	}
-	var news []newRec
+	var news []Obs
 	touched := map[rk]bool{}
 	for _, k := range order {
 		ob := seen[k]
@@ -535,7 +510,7 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		err = tx.QueryRow("SELECT 1 FROM records WHERE kind=? AND key=?", k.kind, k.key).Scan(&one)
 		switch err {
 		case sql.ErrNoRows:
-			news = append(news, newRec{k.kind, k.key, attrs})
+			news = append(news, Obs{k.kind, k.key, attrs})
 			_, err = tx.Exec("INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1)", k.kind, k.key, today, today)
 		case nil:
 			_, err = tx.Exec("UPDATE records SET last_seen=? WHERE kind=? AND key=?", today, k.kind, k.key)
@@ -551,23 +526,17 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		touched[k] = true
 	}
 	// Drop this check's observations that it no longer produces.
-	rows, err := tx.Query("SELECT kind,key FROM observations WHERE stage=? AND check_key=?", o.stage, o.check)
+	stored, err := queryAll(tx, func(r *sql.Rows) (k rk, err error) {
+		err = r.Scan(&k.kind, &k.key)
+		return k, err
+	}, "SELECT kind,key FROM observations WHERE stage=? AND check_key=?", o.stage, o.check)
 	if err != nil {
 		return nil, err
 	}
-	var stale []rk
-	for rows.Next() {
-		var k rk
-		if err := rows.Scan(&k.kind, &k.key); err != nil {
-			rows.Close()
-			return nil, err
+	for _, k := range stored {
+		if _, ok := seen[k]; ok {
+			continue
 		}
-		if _, ok := seen[k]; !ok {
-			stale = append(stale, k)
-		}
-	}
-	rows.Close()
-	for _, k := range stale {
 		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?", k.kind, k.key, o.stage, o.check); err != nil {
 			return nil, err
 		}
@@ -579,10 +548,7 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		}
 		kinds[k.kind] = true
 	}
-	if _, err := tx.Exec("INSERT OR REPLACE INTO checks(stage,key,completed_at) VALUES(?,?,?)", o.stage, o.check, today); err != nil {
-		return nil, err
-	}
-	_, err = tx.Exec("DELETE FROM failures WHERE stage=? AND key=?", o.stage, o.check)
+	_, err = tx.Exec("INSERT OR REPLACE INTO checks(stage,key,completed_at) VALUES(?,?,?)", o.stage, o.check, today)
 	return news, err
 }
 
@@ -594,50 +560,41 @@ func refreshCurrent(tx *sql.Tx, kind, key string) error {
 
 // Completed returns the keys of the completed checks of a stage, as CheckKey stores them.
 func (s *Store) Completed(stage string) (map[string]struct{}, error) {
-	rows, err := s.db.Query("SELECT key FROM checks WHERE stage=?", stage)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]struct{}{}
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, err
-		}
+	keys, err := queryAll(s.db, scanString, "SELECT key FROM checks WHERE stage=?", stage)
+	out := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
 		out[k] = struct{}{}
 	}
-	return out, rows.Err()
-}
-
-// CompletedCount is the number of completed checks of a stage.
-func (s *Store) CompletedCount(stage string) (int, error) {
-	var n int
-	err := s.db.QueryRow("SELECT count(*) FROM checks WHERE stage=?", stage).Scan(&n)
-	return n, err
-}
-
-// Failures lists the last failure of each failed check of a stage.
-func (s *Store) Failures(stage string) ([]Failure, error) {
-	rows, err := s.db.Query("SELECT stage,key,error,at FROM failures WHERE stage=? ORDER BY key", stage)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Failure
-	for rows.Next() {
-		var f Failure
-		if err := rows.Scan(&f.Stage, &f.Key, &f.Error, &f.At); err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, rows.Err()
+	return out, err
 }
 
 // querier is what a Reader reads through: the database or one transaction of it.
 type querier interface {
 	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// queryAll runs query through q and returns its rows, each read by scan.
+func queryAll[T any](q querier, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// scanString reads a row of one string column.
+func scanString(r *sql.Rows) (s string, err error) {
+	err = r.Scan(&s)
+	return s, err
 }
 
 // Reader reads the records, inputs and observations of one view of the
@@ -658,72 +615,49 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 	for i, st := range order {
 		rank[st] = i + 1
 	}
-	rows, err := rd.q.Query("SELECT key,first_seen,last_seen,current FROM records WHERE kind=? ORDER BY key", kind)
+	recs, err := queryAll(rd.q, func(rows *sql.Rows) (r Record, err error) {
+		var cur int
+		err = rows.Scan(&r.Key, &r.FirstSeen, &r.LastSeen, &cur)
+		r.Kind, r.Attrs, r.Current = kind, map[string]any{}, cur == 1
+		return r, err
+	}, "SELECT key,first_seen,last_seen,current FROM records WHERE kind=? ORDER BY key", kind)
 	if err != nil {
 		return nil, err
 	}
-	var recs []Record
-	idx := map[string]int{}
-	for rows.Next() {
-		r := Record{Kind: kind, Attrs: map[string]any{}}
-		var cur int
-		if err := rows.Scan(&r.Key, &r.FirstSeen, &r.LastSeen, &cur); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		r.Current = cur == 1
-		idx[r.Key] = len(recs)
-		recs = append(recs, r)
+	idx := make(map[string]int, len(recs))
+	for i, r := range recs {
+		idx[r.Key] = i
 	}
-	rows.Close()
 
 	type ob struct {
 		key, stage, check string
 		attrs             map[string]any
 	}
-	orows, err := rd.q.Query("SELECT key,stage,check_key,attrs FROM observations WHERE kind=?", kind)
+	obs, err := queryAll(rd.q, func(rows *sql.Rows) (o ob, err error) {
+		var blob string
+		if err = rows.Scan(&o.key, &o.stage, &o.check, &blob); err == nil {
+			_ = json.Unmarshal([]byte(blob), &o.attrs)
+		}
+		return o, err
+	}, "SELECT key,stage,check_key,attrs FROM observations WHERE kind=?", kind)
 	if err != nil {
 		return nil, err
 	}
-	defer orows.Close()
-	var obs []ob
-	for orows.Next() {
-		var o ob
-		var blob string
-		if err := orows.Scan(&o.key, &o.stage, &o.check, &blob); err != nil {
-			return nil, err
-		}
-		_ = json.Unmarshal([]byte(blob), &o.attrs)
-		obs = append(obs, o)
-	}
-	sort.Slice(obs, func(i, j int) bool {
-		if ri, rj := rank[obs[i].stage], rank[obs[j].stage]; ri != rj {
-			return ri < rj
-		}
-		if obs[i].stage != obs[j].stage {
-			return obs[i].stage < obs[j].stage
-		}
-		return obs[i].check < obs[j].check
+	slices.SortFunc(obs, func(a, b ob) int {
+		return cmp.Or(cmp.Compare(rank[a.stage], rank[b.stage]), cmp.Compare(a.stage, b.stage), cmp.Compare(a.check, b.check))
 	})
-	stages := map[string]map[string]bool{}
 	for _, o := range obs {
 		i, ok := idx[o.key]
 		if !ok {
 			continue
 		}
-		for k, v := range o.attrs {
-			recs[i].Attrs[k] = v
+		maps.Copy(recs[i].Attrs, o.attrs)
+		if !slices.Contains(recs[i].Stages, o.stage) {
+			recs[i].Stages = append(recs[i].Stages, o.stage)
 		}
-		if stages[o.key] == nil {
-			stages[o.key] = map[string]bool{}
-		}
-		stages[o.key][o.stage] = true
 	}
-	for k, set := range stages {
-		for st := range set {
-			recs[idx[k]].Stages = append(recs[idx[k]].Stages, st)
-		}
-		sort.Strings(recs[idx[k]].Stages)
+	for i := range recs {
+		slices.Sort(recs[i].Stages)
 	}
 	return recs, nil
 }
@@ -735,20 +669,10 @@ func (s *Store) Observations(kind, stage string) ([]ObsRow, error) {
 
 // Observations lists the observations of a kind made by a stage.
 func (rd Reader) Observations(kind, stage string) ([]ObsRow, error) {
-	rows, err := rd.q.Query("SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, stage)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ObsRow
-	for rows.Next() {
-		var r ObsRow
-		if err := rows.Scan(&r.Key, &r.CheckKey); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return queryAll(rd.q, func(rows *sql.Rows) (r ObsRow, err error) {
+		err = rows.Scan(&r.Key, &r.CheckKey)
+		return r, err
+	}, "SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, stage)
 }
 
 // Observer is a completed check that observes a record.
@@ -760,23 +684,24 @@ type Observer struct{ Stage, CheckKey string }
 // check running again) does not count: the support is what a check found, not
 // what an earlier run left behind.
 func (s *Store) Observers(kind string) (map[string][]Observer, error) {
-	rows, err := s.db.Query(`SELECT o.key, o.stage, o.check_key FROM observations o
+	type row struct {
+		key string
+		o   Observer
+	}
+	rows, err := queryAll(s.db, func(r *sql.Rows) (w row, err error) {
+		err = r.Scan(&w.key, &w.o.Stage, &w.o.CheckKey)
+		return w, err
+	}, `SELECT o.key, o.stage, o.check_key FROM observations o
 		JOIN checks c ON c.stage = o.stage AND c.key = o.check_key
 		WHERE o.kind = ? ORDER BY o.key, o.stage, o.check_key`, kind)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := map[string][]Observer{}
-	for rows.Next() {
-		var key string
-		var o Observer
-		if err := rows.Scan(&key, &o.Stage, &o.CheckKey); err != nil {
-			return nil, err
-		}
-		out[key] = append(out[key], o)
+	for _, w := range rows {
+		out[w.key] = append(out[w.key], w.o)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // Meta reads a metadata value.
@@ -796,14 +721,10 @@ func (s *Store) SetMeta(key, value string) error {
 	return err
 }
 
-// AddInput stores an input if it is new and reports whether it was added.
-func (s *Store) AddInput(kind, value string) (bool, error) {
-	res, err := s.db.Exec("INSERT OR IGNORE INTO inputs(kind,value,added_at) VALUES(?,?,?)", kind, value, s.today())
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+// AddInput stores an input unless it is already stored.
+func (s *Store) AddInput(kind, value string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO inputs(kind,value,added_at) VALUES(?,?,?)", kind, value, s.today())
+	return err
 }
 
 // Inputs lists the stored inputs ordered by kind then value.
@@ -811,20 +732,10 @@ func (s *Store) Inputs() ([]Input, error) { return Reader{s.db}.Inputs() }
 
 // Inputs lists the stored inputs ordered by kind then value.
 func (rd Reader) Inputs() ([]Input, error) {
-	rows, err := rd.q.Query("SELECT kind,value,added_at FROM inputs ORDER BY kind,value")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Input
-	for rows.Next() {
-		var in Input
-		if err := rows.Scan(&in.Kind, &in.Value, &in.AddedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, in)
-	}
-	return out, rows.Err()
+	return queryAll(rd.q, func(r *sql.Rows) (in Input, err error) {
+		err = r.Scan(&in.Kind, &in.Value, &in.AddedAt)
+		return in, err
+	}, "SELECT kind,value,added_at FROM inputs ORDER BY kind,value")
 }
 
 // Redo forgets every completed check of a stage and marks the redo as pending.
@@ -835,22 +746,13 @@ func (s *Store) Redo(stage string) error {
 		if _, err := tx.Exec("DELETE FROM checks WHERE stage=?", stage); err != nil {
 			return nil, err
 		}
-		rows, err := tx.Query("SELECT DISTINCT kind FROM observations WHERE stage=?", stage)
+		names, err := queryAll(tx, scanString, "SELECT DISTINCT kind FROM observations WHERE stage=?", stage)
 		if err != nil {
 			return nil, err
 		}
 		kinds := map[string]bool{}
-		for rows.Next() {
-			var k string
-			if err := rows.Scan(&k); err != nil {
-				rows.Close()
-				return nil, err
-			}
+		for _, k := range names {
 			kinds[k] = true
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
 		}
 		_, err = tx.Exec(setMetaSQL, "redo:"+stage, s.today())
 		return kinds, err
@@ -881,20 +783,11 @@ func (s *Store) update(fn func(*sql.Tx) (map[string]bool, error)) error {
 
 // PendingRedo lists stages whose redo has not finished.
 func (s *Store) PendingRedo() ([]string, error) {
-	rows, err := s.db.Query("SELECT key FROM meta WHERE key LIKE 'redo:%' ORDER BY key")
-	if err != nil {
-		return nil, err
+	keys, err := queryAll(s.db, scanString, "SELECT key FROM meta WHERE key LIKE 'redo:%' ORDER BY key")
+	for i, k := range keys {
+		keys[i] = strings.TrimPrefix(k, "redo:")
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, err
-		}
-		out = append(out, strings.TrimPrefix(k, "redo:"))
-	}
-	return out, rows.Err()
+	return keys, err
 }
 
 // FinishRedo sweeps the stage's observations whose check is no longer
@@ -915,8 +808,7 @@ func (s *Store) FinishRedo(stage string, valid map[string]struct{}) (changed boo
 }
 
 // Retire forgets the completed checks of a stage that are not in valid (the
-// CheckKey form of every check the stage yields now), with their observations
-// and failures. Evidence from a superseded check, one whose key carries a hash
+// CheckKey form of every check the stage yields now), with their observations. Evidence from a superseded check, one whose key carries a hash
 // of an entry that has since changed, so stops being current, and a check
 // yielded again later is run again. valid must be the stage's complete set of
 // checks. It reports whether the sweep changed any record.
@@ -926,10 +818,8 @@ func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, e
 		if err != nil {
 			return nil, err
 		}
-		for _, table := range []string{"checks", "failures"} {
-			if err := retireKeys(tx, table, stage, valid); err != nil {
-				return nil, err
-			}
+		if err := retireChecks(tx, stage, valid); err != nil {
+			return nil, err
 		}
 		changed = len(kinds) > 0
 		return kinds, nil
@@ -937,29 +827,17 @@ func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, e
 	return changed && err == nil, err
 }
 
-// retireKeys deletes the stage's rows of table whose key is not in valid.
-func retireKeys(tx *sql.Tx, table, stage string, valid map[string]struct{}) error {
-	rows, err := tx.Query("SELECT key FROM "+table+" WHERE stage=?", stage)
+// retireChecks deletes the stage's completed checks whose key is not in valid.
+func retireChecks(tx *sql.Tx, stage string, valid map[string]struct{}) error {
+	keys, err := queryAll(tx, scanString, "SELECT key FROM checks WHERE stage=?", stage)
 	if err != nil {
 		return err
 	}
-	var gone []string
-	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			rows.Close()
-			return err
+	for _, k := range keys {
+		if _, ok := valid[k]; ok {
+			continue
 		}
-		if _, ok := valid[k]; !ok {
-			gone = append(gone, k)
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, k := range gone {
-		if _, err := tx.Exec("DELETE FROM "+table+" WHERE stage=? AND key=?", stage, k); err != nil {
+		if _, err := tx.Exec("DELETE FROM checks WHERE stage=? AND key=?", stage, k); err != nil {
 			return err
 		}
 	}
@@ -969,28 +847,19 @@ func retireKeys(tx *sql.Tx, table, stage string, valid map[string]struct{}) erro
 // sweepObservations deletes the stage's observations whose check is not in
 // valid, refreshes the records they belonged to and returns their kinds.
 func sweepObservations(tx *sql.Tx, stage string, valid map[string]struct{}) (map[string]bool, error) {
-	rows, err := tx.Query("SELECT kind,key,check_key FROM observations WHERE stage=?", stage)
+	type obsKey struct{ kind, key, check string }
+	all, err := queryAll(tx, func(r *sql.Rows) (o obsKey, err error) {
+		err = r.Scan(&o.kind, &o.key, &o.check)
+		return o, err
+	}, "SELECT kind,key,check_key FROM observations WHERE stage=?", stage)
 	if err != nil {
 		return nil, err
 	}
-	type orphan struct{ kind, key, check string }
-	var orphans []orphan
-	for rows.Next() {
-		var o orphan
-		if err := rows.Scan(&o.kind, &o.key, &o.check); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		if _, ok := valid[o.check]; !ok {
-			orphans = append(orphans, o)
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 	kinds := map[string]bool{}
-	for _, o := range orphans {
+	for _, o := range all {
+		if _, ok := valid[o.check]; ok {
+			continue
+		}
 		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?", o.kind, o.key, stage, o.check); err != nil {
 			return nil, err
 		}
@@ -1060,23 +929,18 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 	case err != nil:
 		return nil, false, err
 	}
-	q, err := s.db.Query("SELECT kind,key,stages,scope,severity FROM shown ORDER BY kind,key")
-	if err != nil {
-		return nil, false, err
-	}
-	defer q.Close()
-	for q.Next() {
-		var r ShownRow
+	rows, err = queryAll(s.db, func(q *sql.Rows) (r ShownRow, err error) {
 		var stages string
-		if err := q.Scan(&r.Kind, &r.Key, &stages, &r.Scope, &r.Severity); err != nil {
-			return nil, false, err
-		}
+		err = q.Scan(&r.Kind, &r.Key, &stages, &r.Scope, &r.Severity)
 		if stages != "" {
 			r.Stages = strings.Split(stages, ",")
 		}
-		rows = append(rows, r)
+		return r, err
+	}, "SELECT kind,key,stages,scope,severity FROM shown ORDER BY kind,key")
+	if err != nil {
+		return nil, false, err
 	}
-	return rows, true, q.Err()
+	return rows, true, nil
 }
 
 // HasRecords reports whether the store holds a record of any kind, current or

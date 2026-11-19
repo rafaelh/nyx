@@ -109,7 +109,7 @@ func TestTimeout_CutChecksAreNeitherDoneNorFailed(t *testing.T) {
 	if got := h.completed("a.com", "slow"); !slices.Equal(got, []string{"q000", "q001"}) {
 		t.Errorf("checks = %v, want only the two quick ones", got)
 	}
-	if got := queryStrings(t, h.openDB("a.com"), "SELECT key FROM failures WHERE stage='slow'"); len(got) != 0 {
+	if got := h.failedChecks("slow"); len(got) != 0 {
 		t.Errorf("a cancelled check was recorded as failed: %v", got)
 	}
 	if _, err := os.Stat(filepath.Join(h.eng("a.com"), "scope.csv")); err != nil {
@@ -161,7 +161,7 @@ func TestTimeout_CheckWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
 	if env.Meta.ChecksCancelled == 0 {
 		t.Fatalf("no check was waiting when the timer fired: %+v", env.Meta)
 	}
-	if got := queryStrings(t, w.h.openDB("a.example"), "SELECT stage||':'||key FROM failures"); len(got) != 0 {
+	if got := w.h.failedChecks(""); len(got) != 0 {
 		t.Errorf("checks waiting on the limiter were recorded as failed: %v", got)
 	}
 }

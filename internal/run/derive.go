@@ -1,12 +1,11 @@
 package run
 
 import (
-	"fmt"
+	"crypto/sha256"
 	"slices"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/candidates"
-	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -16,15 +15,14 @@ import (
 	"github.com/rafaelh/nyx/internal/thirdparty"
 )
 
-// DeriveInput is what a deriver reads: the current Scope and Inventory, the
-// settings, the engagement's inputs, the date, and the store through the
-// records of a kind (current or not) and the completed checks observing them.
-type DeriveInput struct {
+// deriveInput is what a deriver reads: the current Scope, Inventory and their
+// Visibility, the engagement's inputs, and the store through the records of a
+// kind (current or not) and the completed checks observing them.
+type deriveInput struct {
 	Scope     *scope.Scope
 	Inv       *inventory.Inventory
-	Settings  config.Settings
+	Vis       *kinds.Visibility
 	Inputs    input.Parsed
-	Today     string
 	Records   func(kinds.Named) []store.Record
 	Observers func(kinds.Named) map[string][]store.Observer
 }
@@ -33,16 +31,17 @@ type DeriveInput struct {
 // stores them as the observations of a single check "derived" of the
 // pseudo-stage name. A record it no longer emits loses its only observation, so
 // it stops being current. It runs after every stage that did work and before
-// every render, and is skipped while the version of each kind in reads, the
-// inputs and the date are unchanged. A deriver must read nothing else, and
+// every render, and is skipped while the version of each kind in reads and the
+// date are unchanged. A deriver must read nothing else, and
 // writes only records of its kind writes, which the findings never read.
 type deriver struct {
 	name   string
 	reads  []kinds.Named
 	writes kinds.Named
-	derive func(DeriveInput) []store.Obs
+	derive func(deriveInput) []store.Obs
 
-	sig, stored string // what it was last derived from, and the date and records last stored
+	sig    string            // what it was last derived from
+	stored [sha256.Size]byte // the date and records last stored (see storeDerived)
 }
 
 // derivers are the derived records other than the findings (which depend on
@@ -58,7 +57,7 @@ func (r *Runner) newDerivers() []*deriver {
 // thirdPartyCNAME derives the SaaS platforms in-scope names are served by. Its
 // deriver reads the kinds the inventory's provider hosts come from, and not
 // third_party, which it and the stages write.
-func thirdPartyCNAME(in DeriveInput) []store.Obs {
+func thirdPartyCNAME(in deriveInput) []store.Obs {
 	return thirdparty.CNAME(in.Scope, in.Inv, provider.Default())
 }
 
@@ -73,48 +72,23 @@ func (r *Runner) derive() error {
 
 // deriveRecords runs the derivers whose inputs have changed.
 func (r *Runner) deriveRecords() error {
-	sc, inv := r.sc.Load(), r.inv.Load()
+	sc, inv, vis := r.sc.Load(), r.inv.Load(), r.vis.Load()
 	if sc == nil || inv == nil {
 		return nil
 	}
 	for _, d := range r.derivers {
-		var b strings.Builder
-		for _, k := range d.reads {
-			fmt.Fprintf(&b, "%s=%d;", k.Name(), r.st.KindVersion(k.Name()))
-		}
-		fmt.Fprintf(&b, "%s;%v", r.today(), r.inputs)
-		sig := b.String()
+		sig := r.kindSig(d.reads) + r.today()
 		if sig == d.sig {
 			continue
 		}
 		var readErr error
-		note := func(err error) {
-			if err != nil && readErr == nil {
-				readErr = err
-			}
-		}
-		obs := d.derive(DeriveInput{Scope: sc, Inv: inv, Settings: r.cfg.Settings, Inputs: r.inputs, Today: r.today(),
-			Records: func(k kinds.Named) []store.Record {
-				recs, err := r.records(k.Name())
-				note(err)
-				return recs
-			},
-			Observers: func(k kinds.Named) map[string][]store.Observer {
-				m, err := r.st.Observers(k.Name())
-				note(err)
-				return m
-			}})
+		obs := d.derive(deriveInput{Scope: sc, Inv: inv, Vis: vis, Inputs: r.inputs,
+			Records: keepFirstErr(&readErr, r.records), Observers: keepFirstErr(&readErr, r.observers)})
 		if readErr != nil {
 			return readErr
 		}
-		// Storing the same records again on the same day changes nothing.
-		stored := fmt.Sprint(r.today(), obs)
-		if stored != d.stored {
-			r.st.Complete(d.name, "derived", obs)
-			if err := r.st.Flush(); err != nil {
-				return err
-			}
-			d.stored = stored
+		if _, err := r.storeDerived(d.name, obs, &d.stored); err != nil {
+			return err
 		}
 		d.sig = sig
 	}
@@ -138,7 +112,7 @@ func (r *Runner) evidence(stage, check string) candidates.Evidence {
 // can corroborate each other; the hostnames keep their own rank. A candidate
 // that is no longer current, or whose only support awaits a redo, keeps the
 // rank it last had.
-func (r *Runner) rankCandidates(in DeriveInput) []store.Obs {
+func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
 	last := map[string]kinds.CandidateRankAttrs{} // by rank key
 	for _, rec := range in.Records(kinds.CandidateRank) {
 		if rec.Current {
@@ -180,15 +154,14 @@ type rankedCandidate struct {
 // with the evidence of the checks that observe it, and rolls the evidence of
 // each current candidate hostname up into the current candidate roots above
 // it (or equal to it).
-func (r *Runner) gatherCandidates(in DeriveInput) []*rankedCandidate {
-	vis := kinds.NewVisibility(in.Scope, in.Inv)
+func (r *Runner) gatherCandidates(in deriveInput) []*rankedCandidate {
 	var all []*rankedCandidate
 	roots := map[string]*rankedCandidate{} // current candidate roots, by value
 	var hostnames []*rankedCandidate
 	for _, kind := range kinds.CandidateKinds {
 		observers := in.Observers(kind)
 		for _, rec := range in.Records(kind) {
-			if vis.Category(kind, rec) != kinds.Candidates {
+			if in.Vis.Category(kind, rec) != kinds.Candidates {
 				continue
 			}
 			c := &rankedCandidate{typ: kind.Name(), value: rec.Key, current: rec.Current}

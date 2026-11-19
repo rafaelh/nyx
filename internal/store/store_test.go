@@ -31,6 +31,17 @@ func open(t *testing.T, c *clock, r *config.Redactor) (*store.Store, string) {
 	return s, p
 }
 
+// reopen opens the closed store at p again, closed when the test ends.
+func reopen(t *testing.T, c *clock, p string) *store.Store {
+	t.Helper()
+	s, err := store.Open(p, store.Options{Clock: c.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
 func newClock() *clock { return &clock{t: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)} }
 
 func mustFlush(t *testing.T, s *store.Store) {
@@ -57,6 +68,7 @@ func rec(t *testing.T, s *store.Store, kind, key string) store.Record {
 
 // Re-observation updates attrs and last_seen, keeps first_seen.
 func TestReobservation(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("dns", "a", []store.Obs{{Kind: "host", Key: "h1", Attrs: map[string]any{"ip": "1.1.1.1"}}})
@@ -77,6 +89,7 @@ func TestReobservation(t *testing.T) {
 
 // Two stages observing one record keep both stages' attrs; later stages in order win.
 func TestTwoStagesAttrs(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("ct", "c1", []store.Obs{{Kind: "host", Key: "h", Attrs: map[string]any{"src": "ct", "only_ct": 1}}})
@@ -114,25 +127,17 @@ func TestTwoStagesAttrs(t *testing.T) {
 	}
 }
 
-// Completed checks vs failures.
-func TestChecksAndFailures(t *testing.T) {
+// Completed lists a stage's completed checks, and only that stage's.
+func TestCompleted(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("s", "k1", nil)
-	s.Fail("s", "k2", "timeout talking to host")
+	s.Complete("other", "k2", nil)
 	mustFlush(t, s)
 	done, err := s.Completed("s")
 	if err != nil || len(done) != 1 || !hasKey(done, "k1") {
 		t.Fatalf("completed = %v, %v", done, err)
-	}
-	fs, _ := s.Failures("s")
-	if len(fs) != 1 || fs[0].Key != "k2" || fs[0].Error != "timeout talking to host" {
-		t.Fatalf("failures = %v", fs)
-	}
-	s.Complete("s", "k2", nil) // success deletes the failure row
-	mustFlush(t, s)
-	if fs, _ = s.Failures("s"); len(fs) != 0 {
-		t.Errorf("failure row should be deleted: %v", fs)
 	}
 }
 
@@ -140,6 +145,7 @@ func hasKey(m map[string]struct{}, k string) bool { _, ok := m[k]; return ok }
 
 // Redo semantics.
 func TestRedoSweepsOrphans(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("st", "ip1", []store.Obs{{Kind: "x", Key: "a"}})
@@ -169,15 +175,15 @@ func TestRedoSweepsOrphans(t *testing.T) {
 	}
 }
 
-// Retire forgets the checks a stage no longer yields, with their observations
-// and failures, and leaves the other stages and the still-valid checks alone.
+// Retire forgets the checks a stage no longer yields, with their observations,
+// and leaves the other stages and the still-valid checks alone.
 func TestRetireUnlistedChecks(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("st", "svc|fp=old", []store.Obs{{Kind: "x", Key: "a"}, {Kind: "x", Key: "shared"}})
 	s.Complete("st", "svc|fp=new", []store.Obs{{Kind: "x", Key: "b"}})
 	s.Complete("other", "svc|fp=old", []store.Obs{{Kind: "x", Key: "shared"}})
-	s.Fail("st", "gone|fp=old", "boom")
 	mustFlush(t, s)
 	before := s.KindVersion("x")
 	if _, err := s.Retire("st", map[string]struct{}{"svc|fp=new": {}}); err != nil {
@@ -195,15 +201,15 @@ func TestRetireUnlistedChecks(t *testing.T) {
 	if done, _ := s.Completed("other"); len(done) != 1 {
 		t.Errorf("another stage's checks were retired: %v", done)
 	}
-	if f, _ := s.Failures("st"); len(f) != 0 {
-		t.Errorf("failures of an unlisted check = %v", f)
-	}
 	if s.KindVersion("x") == before {
 		t.Error("retiring must bump the version of the kinds it changed")
 	}
 }
 
+// A check a redo forgot that has not completed again (it failed, say) keeps its
+// old observations while it is still yielded.
 func TestRedoFailedCheckKeepsObservations(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("st", "k", []store.Obs{{Kind: "x", Key: "a"}})
@@ -211,8 +217,6 @@ func TestRedoFailedCheckKeepsObservations(t *testing.T) {
 	if err := s.Redo("st"); err != nil {
 		t.Fatal(err)
 	}
-	s.Fail("st", "k", "boom")
-	mustFlush(t, s)
 	if _, err := s.FinishRedo("st", map[string]struct{}{"k": {}}); err != nil {
 		t.Fatal(err)
 	}
@@ -223,6 +227,7 @@ func TestRedoFailedCheckKeepsObservations(t *testing.T) {
 
 // Batching commits and survives reopen; OnNew fires once per new record.
 func TestBatchingAndOnNew(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, p := open(t, c, nil)
 	var mu sync.Mutex
@@ -242,11 +247,7 @@ func TestBatchingAndOnNew(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := store.Open(p, store.Options{Clock: c.now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s2.Close()
+	s2 := reopen(t, c, p)
 	done, _ := s2.Completed("st")
 	if len(done) != 500 {
 		t.Errorf("completed after reopen = %d", len(done))
@@ -259,27 +260,25 @@ func TestBatchingAndOnNew(t *testing.T) {
 
 // Redaction at the writer sink.
 func TestRedactionInStore(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	r := config.NewRedactor("TOPSECRET")
 	s, p := open(t, c, r)
 	s.Complete("st", "https://x/?k=TOPSECRET", []store.Obs{{Kind: "x", Key: "TOPSECRET-key", Attrs: map[string]any{"a": "v TOPSECRET", "n": []any{"TOPSECRET"}}}})
-	s.Fail("st", "other", "GET https://x/?k=TOPSECRET failed")
 	mustFlush(t, s)
 	s.Close()
-	rs, _ := mustOpenRecords(t, p)
+	s2 := reopen(t, c, p)
+	rs, _ := s2.Records("x", nil)
 	for _, r := range rs {
 		if strings.Contains(fmt.Sprint(r), "TOPSECRET") {
 			t.Errorf("leaked: %v", r)
 		}
 	}
-	fs, _ := mustOpenFailures(t, p)
-	if strings.Contains(fs[0].Error, "TOPSECRET") {
-		t.Errorf("leaked failure: %v", fs)
-	}
 }
 
 // A check key containing a key value is matched in its stored (redacted) form.
 func TestRedactedCheckKeyMatches(t *testing.T) {
+	t.Parallel()
 	s, _ := open(t, newClock(), config.NewRedactor("123"))
 	s.Complete("st", "AS4123", nil)
 	mustFlush(t, s)
@@ -294,6 +293,7 @@ func TestRedactedCheckKeyMatches(t *testing.T) {
 
 // URI metacharacters in the directory are part of the filename.
 func TestOpenPathWithURIMetacharacters(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "client#1 ?50%", "state.db")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
@@ -315,6 +315,7 @@ func TestOpenPathWithURIMetacharacters(t *testing.T) {
 
 // Sends racing Close are dropped, never a send on a closed channel.
 func TestSendDuringClose(t *testing.T) {
+	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	var wg sync.WaitGroup
 	for i := range 8 {
@@ -331,35 +332,16 @@ func TestSendDuringClose(t *testing.T) {
 	wg.Wait()
 }
 
-func mustOpenRecords(t *testing.T, p string) ([]store.Record, error) {
-	s, err := store.Open(p, store.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	return s.Records("x", nil)
-}
-
-func mustOpenFailures(t *testing.T, p string) ([]store.Failure, error) {
-	s, err := store.Open(p, store.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	return s.Failures("st")
-}
-
 func TestInputsAndMeta(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
-	added, err := s.AddInput("root", "example.com")
-	if err != nil || !added {
-		t.Fatal(added, err)
+	for _, v := range []string{"example.com", "example.com"} { // a duplicate is not added again
+		if err := s.AddInput("root", v); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if added, _ = s.AddInput("root", "example.com"); added {
-		t.Error("duplicate should not be added")
-	}
-	if _, err := s.AddInput("cidr", "10.0.0.0/8"); err != nil {
+	if err := s.AddInput("cidr", "10.0.0.0/8"); err != nil {
 		t.Fatal(err)
 	}
 	in, _ := s.Inputs()
@@ -378,6 +360,7 @@ func TestInputsAndMeta(t *testing.T) {
 }
 
 func TestObservationsOf(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
 	s.Complete("asn", "AS1", []store.Obs{{Kind: "netblock", Key: "10.0.0.0/24"}})
@@ -390,6 +373,7 @@ func TestObservationsOf(t *testing.T) {
 }
 
 func TestOpenRejectsForeignDB(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "state.db")
 	if err := writeGarbage(p); err != nil {
 		t.Fatal(err)
@@ -402,6 +386,7 @@ func TestOpenRejectsForeignDB(t *testing.T) {
 // KindVersion moves when a kind's records change, including when a redo drops
 // them, and not for other kinds' writes.
 func TestKindVersion(t *testing.T) {
+	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	if s.KindVersion("x") != 0 {
 		t.Fatal("fresh store")
@@ -440,6 +425,7 @@ func TestKindVersion(t *testing.T) {
 // A redo moves the version of the kinds the stage observes, because those
 // records lose their observers at once; a kind it does not observe stays put.
 func TestRedoBumpsTheKindsTheStageObserves(t *testing.T) {
+	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	s.Complete("st", "c1", []store.Obs{{Kind: "x", Key: "a"}})
 	s.Complete("other", "c2", []store.Obs{{Kind: "y", Key: "b"}})
@@ -459,6 +445,7 @@ func TestRedoBumpsTheKindsTheStageObserves(t *testing.T) {
 // Observers lists, per record, the completed checks that observe it now: not
 // the observations of a check a redo has forgotten, nor of one retired.
 func TestObservers(t *testing.T) {
+	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	obs := func(kind string, keys ...string) []store.Obs {
 		var out []store.Obs
@@ -541,10 +528,11 @@ func viewRecords(t *testing.T, ro *store.ReadOnly, kind string) []store.Record {
 
 // A read-only open reads what a run committed while the run still has it open.
 func TestOpenReadOnlyReads(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, p := open(t, c, nil)
 	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
-	if _, err := s.AddInput("root", "example.com"); err != nil {
+	if err := s.AddInput("root", "example.com"); err != nil {
 		t.Fatal(err)
 	}
 	mustFlush(t, s)
@@ -576,6 +564,7 @@ func TestOpenReadOnlyReads(t *testing.T) {
 
 // With no run there is no log file, and opening must not create one.
 func TestOpenReadOnlyCreatesNothing(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, p := open(t, c, nil)
 	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
@@ -611,6 +600,7 @@ func TestOpenReadOnlyCreatesNothing(t *testing.T) {
 // that starts during the read could change the file under it. The read is then
 // made again, under the run's log, and sees what the run committed.
 func TestViewRereadsWhenARunStarts(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, p := open(t, c, nil)
 	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
@@ -650,6 +640,7 @@ func TestViewRereadsWhenARunStarts(t *testing.T) {
 }
 
 func TestOpenReadOnlyRefusesWhatIsNotAStateDatabase(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := store.OpenReadOnly(filepath.Join(dir, "missing.db")); err == nil {
 		t.Error("a missing file was opened")
@@ -678,6 +669,7 @@ func TestOpenReadOnlyRefusesWhatIsNotAStateDatabase(t *testing.T) {
 
 // Everything read in one View is one snapshot, whatever is committed meanwhile.
 func TestViewIsOneSnapshot(t *testing.T) {
+	t.Parallel()
 	c := newClock()
 	s, p := open(t, c, nil)
 	s.Complete("disc", "k", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
@@ -717,6 +709,7 @@ func TestViewIsOneSnapshot(t *testing.T) {
 // A panic in the writer, here in the new-record callback, sets the sticky
 // error, and Flush returns it instead of waiting for ever.
 func TestWriterPanicSetsTheStickyError(t *testing.T) {
+	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	s.OnNew(func(kind, key string, attrs map[string]any) { panic("callback boom") })
 	s.Complete("st", "c1", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})

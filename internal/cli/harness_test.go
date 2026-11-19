@@ -463,6 +463,24 @@ func (h *harness) logMsgs(level string) []string {
 // debugLines are the messages of the DEBUG lines on stderr.
 func (h *harness) debugLines() []string { return h.logMsgs("DEBUG") }
 
+// checkFailure is a check the last call's run failed, as the debug event the
+// runner emits for it reads: "<stage> check <key> failed: <error>".
+type checkFailure struct{ stage, key, err string }
+
+// failedChecks are the checks of a stage (of every stage for "") that the last
+// call's run failed.
+func (h *harness) failedChecks(stage string) []checkFailure {
+	var out []checkFailure
+	for _, m := range h.messages("debug", " failed: ") {
+		st, rest, ok := strings.Cut(m, " check ")
+		key, err, ok2 := strings.Cut(rest, " failed: ")
+		if ok && ok2 && (stage == "" || st == stage) {
+			out = append(out, checkFailure{st, key, err})
+		}
+	}
+	return out
+}
+
 // lines are the lines of an engagement output file, none for a missing or empty file.
 func (h *harness) lines(eng, name string) []string {
 	s := strings.TrimSpace(h.readOut(eng, name))

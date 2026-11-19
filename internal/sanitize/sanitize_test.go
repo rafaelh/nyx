@@ -8,6 +8,7 @@ import (
 )
 
 func TestText(t *testing.T) {
+	t.Parallel()
 	in := "ok\x1b[31m red\x1b]0;title\x07 \x00bell\x07 tab\there \u202e bidi"
 	got := sanitize.Text(in)
 	for _, bad := range []string{"\x1b", "\x07", "\x00", "\t", "\u202e", "[31m", "title"} {

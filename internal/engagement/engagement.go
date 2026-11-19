@@ -213,7 +213,7 @@ func inputFields(p *input.Parsed) map[string]*[]string {
 func (e *Engagement) MergeInputs(p input.Parsed) error {
 	for kind, vals := range inputFields(&p) {
 		for _, v := range *vals {
-			if _, err := e.st.AddInput(kind, v); err != nil {
+			if err := e.st.AddInput(kind, v); err != nil {
 				return err
 			}
 		}

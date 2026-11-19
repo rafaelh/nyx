@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/store"
@@ -92,7 +91,7 @@ func (e *entry) add(r store.Record, shown bool) {
 	e.shown = true
 	e.stages = append(e.stages, r.Stages...)
 	if e.label == kinds.LabelFinding {
-		e.severity = findings.FromRecord(r).Severity
+		e.severity = r.Str("severity")
 	}
 }
 
@@ -115,6 +114,7 @@ func shownRows(entries []entry) []store.ShownRow {
 // baseline is a first run, with nothing to compare with.
 type baseline struct {
 	rows    []store.ShownRow
+	byKey   map[entryKey]store.ShownRow // rows, by label and key
 	started map[entryKey]bool
 }
 
@@ -131,10 +131,6 @@ func (b *baseline) compare(cur []entry, passive bool, target map[string]bool) (c
 	if b == nil {
 		return nil, nil
 	}
-	base := make(map[entryKey]store.ShownRow, len(b.rows))
-	for _, r := range b.rows {
-		base[entryKey{r.Kind, r.Key}] = r
-	}
 	now := make(map[entryKey]*entry, len(cur))
 	var out []output.Change
 	for i := range cur {
@@ -144,7 +140,7 @@ func (b *baseline) compare(cur []entry, passive bool, target map[string]bool) (c
 		if !e.shown {
 			continue
 		}
-		if _, was := base[k]; was {
+		if _, was := b.byKey[k]; was {
 			continue
 		}
 		change := output.ChangeNew
@@ -191,7 +187,7 @@ func (r *Runner) loadBaseline() (*baseline, error) {
 	if err != nil {
 		return nil, err
 	}
-	snap, err := r.snapshot(built.Scope, built.Inv)
+	snap, err := r.snapshot(built.Scope, built.Inv, built.Vis)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +206,15 @@ func (r *Runner) loadBaseline() (*baseline, error) {
 			started[entryKey{e.label, e.key}] = true
 		}
 	}
-	return &baseline{rows: rows, started: started}, nil
+	return newBaseline(rows, started), nil
+}
+
+func newBaseline(rows []store.ShownRow, started map[entryKey]bool) *baseline {
+	byKey := make(map[entryKey]store.ShownRow, len(rows))
+	for _, r := range rows {
+		byKey[entryKey{r.Kind, r.Key}] = r
+	}
+	return &baseline{rows: rows, byKey: byKey, started: started}
 }
 
 // saveShown replaces the saved baseline with what the files show now, and the rows

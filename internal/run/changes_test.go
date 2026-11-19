@@ -35,16 +35,13 @@ func byKey(cs []output.Change) map[string]output.Change {
 // not shown at the end is gone. A record shown at both ends is no change.
 func TestDiff_NewReturnedGone(t *testing.T) {
 	t.Parallel()
-	b := &baseline{
-		rows: []store.ShownRow{
-			{Kind: "web service", Key: "https://kept.a.com", Scope: "in-scope", Stages: []string{"web"}},
-			{Kind: "web service", Key: "https://lost.a.com", Scope: "in-scope", Stages: []string{"web"}},
-		},
-		started: map[entryKey]bool{
-			{"web service", "https://kept.a.com"}: true, {"web service", "https://lost.a.com"}: true,
-			{"web service", "https://back.a.com"}: true,
-		},
-	}
+	b := newBaseline([]store.ShownRow{
+		{Kind: "web service", Key: "https://kept.a.com", Scope: "in-scope", Stages: []string{"web"}},
+		{Kind: "web service", Key: "https://lost.a.com", Scope: "in-scope", Stages: []string{"web"}},
+	}, map[entryKey]bool{
+		{"web service", "https://kept.a.com"}: true, {"web service", "https://lost.a.com"}: true,
+		{"web service", "https://back.a.com"}: true,
+	})
 	cur := []entry{
 		{label: "web service", key: "https://kept.a.com", scope: "in-scope", shown: true},
 		{label: "web service", key: "https://lost.a.com", shown: false, first: "2026-10-01", last: "2026-10-20"},
@@ -71,10 +68,7 @@ func TestDiff_NewReturnedGone(t *testing.T) {
 // gone row, which has no attributes left to read it from.
 func TestDiff_FindingSeverity(t *testing.T) {
 	t.Parallel()
-	b := &baseline{
-		rows:    []store.ShownRow{{Kind: "finding", Key: "certificates|expiring|https://a.com", Severity: "low", Stages: []string{"findings"}}},
-		started: map[entryKey]bool{{"finding", "certificates|expiring|https://a.com"}: true},
-	}
+	b := newBaseline([]store.ShownRow{{Kind: "finding", Key: "certificates|expiring|https://a.com", Severity: "low", Stages: []string{"findings"}}}, map[entryKey]bool{{"finding", "certificates|expiring|https://a.com"}: true})
 	cur := []entry{
 		{label: "finding", key: "certificates|expiring|https://a.com", shown: false},
 		{label: "finding", key: "certificates|expired|https://a.com", severity: "medium", shown: true},
@@ -117,7 +111,7 @@ func TestDiff_PassiveRule(t *testing.T) {
 	cur := []entry{
 		{label: "web service", key: "fresh", shown: true},
 	}
-	passive := byKey(diff(&baseline{rows: rows}, cur, true))
+	passive := byKey(diff(newBaseline(rows, nil), cur, true))
 	for _, k := range []string{"gone web service target-only", "gone web service two-targets"} {
 		if _, ok := passive[k]; ok {
 			t.Errorf("passive run reported %q", k)
@@ -131,7 +125,7 @@ func TestDiff_PassiveRule(t *testing.T) {
 	}
 	// The two it left out are carried into the next baseline, so that a run that
 	// makes contact can report them.
-	_, carried := (&baseline{rows: rows}).compare(cur, true, targets)
+	_, carried := newBaseline(rows, nil).compare(cur, true, targets)
 	var carriedKeys []string
 	for _, r := range carried {
 		carriedKeys = append(carriedKeys, r.Key)
@@ -139,10 +133,10 @@ func TestDiff_PassiveRule(t *testing.T) {
 	if !slices.Equal(carriedKeys, []string{"target-only", "two-targets"}) {
 		t.Errorf("carried = %v", carriedKeys)
 	}
-	if _, carried := (&baseline{rows: rows}).compare(cur, false, targets); len(carried) != 0 {
+	if _, carried := newBaseline(rows, nil).compare(cur, false, targets); len(carried) != 0 {
 		t.Errorf("an active run carried %v", carried)
 	}
-	active := byKey(diff(&baseline{rows: rows}, cur, false))
+	active := byKey(diff(newBaseline(rows, nil), cur, false))
 	if _, ok := active["gone web service target-only"]; !ok {
 		t.Error("an active run did not report the target-only record gone")
 	}
@@ -151,10 +145,7 @@ func TestDiff_PassiveRule(t *testing.T) {
 // The changes are sorted: new, then returned, then gone, then by kind and key.
 func TestDiff_Order(t *testing.T) {
 	t.Parallel()
-	b := &baseline{
-		rows:    []store.ShownRow{{Kind: "hostname", Key: "gone.a.com"}},
-		started: map[entryKey]bool{{"hostname", "back.a.com"}: true},
-	}
+	b := newBaseline([]store.ShownRow{{Kind: "hostname", Key: "gone.a.com"}}, map[entryKey]bool{{"hostname", "back.a.com"}: true})
 	cur := []entry{
 		{label: "web service", key: "z", shown: true},
 		{label: "hostname", key: "b.a.com", shown: true},

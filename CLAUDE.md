@@ -84,7 +84,7 @@ stable interface**: adding one is compatible, renaming, removing or retyping one
   summed `Check.Cost` of the checks sent; the runner defers the first check that would pass it and
   all after it, without failing or retiring them, and the summary reports the deferred cost).
 - Stages read state only through `run.View`, which offers scope, inventory and cached current
-  records. Web stages must use `ProbeHostnames()` (wildcard-aware), not `InScopeHostnames()`.
+  records. Web stages must use `ProbeHostnames()` (wildcard-aware), not the hostname records.
 - The registry order is `defaultStages()` in `internal/cli/cli.go`, and that order matters (see
   its comment). The runner repeats passes over all stages until no new work appears. After any
   stage does work it flushes the store, rebuilds the scope (which also updates the egress Policy)

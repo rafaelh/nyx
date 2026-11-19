@@ -3,7 +3,6 @@ package run
 import (
 	"context"
 	"errors"
-	"runtime/debug"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -24,7 +23,6 @@ type stageRun struct {
 	name string
 
 	done        map[string]struct{} // the stored keys of the stage's completed checks
-	failed      map[string]bool     // the check keys failed this run, guarded by r.mu
 	redoPending bool
 	retiring    bool
 	clients     egress.Clients
@@ -64,7 +62,7 @@ func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 	}
 	pend, _ := r.st.PendingRedo()
 	sr := &stageRun{r: r, ctx: ctx, s: s, name: name, done: done,
-		redoPending: slices.Contains(pend, name), failed: r.failedSet(name)}
+		redoPending: slices.Contains(pend, name)}
 	var exempt []string
 	if ce, ok := s.(CandidateExempt); ok {
 		exempt = ce.CandidateExemptSources()
@@ -113,9 +111,21 @@ func (sr *stageRun) execute() {
 
 // abortFail fails a check because its stage aborted with cause. The stage warns
 // once for all of them (see runStage), not once per check.
-func (sr *stageRun) abortFail(key, msg string, cause error) {
-	sr.r.recordFailure(sr.name, key, msg, errors.Is(cause, ErrKeyRejected))
+func (sr *stageRun) abortFail(key string, cause error) {
+	sr.r.recordFailure(sr.name, key, errors.Is(cause, ErrKeyRejected))
 	sr.aborted.Add(1)
+}
+
+// abortedEarlier fails, as attempted, a check of a stage that aborted earlier
+// in this run, and reports whether it did.
+func (sr *stageRun) abortedEarlier(key string) bool {
+	cause := sr.r.abortErr(sr.name)
+	if cause == nil {
+		return false
+	}
+	sr.attempted.Add(1)
+	sr.abortFail(key, cause)
+	return true
 }
 
 // runOne runs a check on a worker and records its result. A check the
@@ -125,9 +135,7 @@ func (sr *stageRun) runOne(c Check) {
 	if sr.ctx.Err() != nil {
 		return
 	}
-	if cause := r.abortErr(name); cause != nil {
-		sr.abortFail(c.Key, "stage aborted earlier in this run", cause)
-		sr.attempted.Add(1)
+	if sr.abortedEarlier(c.Key) {
 		return
 	}
 	fault.PointDetail("in-flight", c.Key)
@@ -149,7 +157,7 @@ func (sr *stageRun) runOne(c Check) {
 			r.aborted[name] = err
 		}
 		r.mu.Unlock()
-		sr.abortFail(c.Key, err.Error(), err)
+		sr.abortFail(c.Key, err)
 		return
 	}
 	if err != nil {
@@ -165,11 +173,8 @@ func (sr *stageRun) enumFail(err error) {
 	sr.enumFailed = true
 	const enumKey = "(enumeration)"
 	r := sr.r
-	r.mu.Lock()
-	again := sr.failed[enumKey]
-	r.mu.Unlock()
 	// An enumeration the cancel cut short is not a failure: the stage is listed again next run.
-	if !again && sr.ctx.Err() == nil {
+	if !r.hasFailed(sr.name, enumKey) && sr.ctx.Err() == nil {
 		r.failCheck(sr.name, enumKey, err)
 		r.count(sr.name, func(s *stageStats) { s.completed++ })
 		sr.attempted.Add(1)
@@ -180,11 +185,13 @@ func (sr *stageRun) enumFail(err error) {
 // own Checks is an enumeration failure: the work channel is still closed
 // and the workers waited for.
 func (sr *stageRun) produce() {
+	var panicked error
 	defer func() {
-		if v := recover(); v != nil {
-			sr.enumFail(&checkPanic{value: v, stack: debug.Stack()})
+		if panicked != nil {
+			sr.enumFail(panicked)
 		}
 	}()
+	defer RecoverInto(&panicked)
 	for c, cerr := range sr.s.Checks(sr.ctx, sr.view) {
 		if sr.ctx.Err() != nil {
 			return // stop producing: the checks that follow would only be cancelled
@@ -225,16 +232,11 @@ func (sr *stageRun) admit(c Check) bool {
 		return false
 	}
 	sr.all[stored] = struct{}{}
-	r.mu.Lock()
-	skip := sr.failed[c.Key]
-	r.mu.Unlock()
-	if skip {
+	if r.hasFailed(sr.name, c.Key) {
 		return false
 	}
-	if cause := r.abortErr(sr.name); cause != nil {
+	if sr.abortedEarlier(c.Key) {
 		sr.running = true
-		sr.attempted.Add(1)
-		sr.abortFail(c.Key, "stage aborted earlier in this run", cause)
 		return false
 	}
 	return sr.withinBudget(c)

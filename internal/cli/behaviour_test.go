@@ -17,7 +17,9 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
@@ -283,13 +285,24 @@ func TestKeyEncodedSettingCreatesNewChecks(t *testing.T) {
 	}
 }
 
+// inScopeHostnames are the in-scope hostname records a fake stage reads, in key order.
+func inScopeHostnames(v run.View) []string {
+	var out []string
+	for _, rec := range v.Records(kinds.Hostname) {
+		if v.Scope().ClassifyHost(rec.Key).Class == scope.InScope {
+			out = append(out, rec.Key)
+		}
+	}
+	return out
+}
+
 // Transient failures.
 func TestTransientFailure(t *testing.T) {
 	t.Parallel()
 	flaky := &testkit.Stage{StageName: "flaky", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
 			cs := []run.Check{{Key: "X"}, {Key: "Y"}}
-			for _, hn := range v.InScopeHostnames() {
+			for _, hn := range inScopeHostnames(v) {
 				cs = append(cs, run.Check{Key: "host:" + hn})
 			}
 			return cs
@@ -325,7 +338,7 @@ func TestTransientFailure(t *testing.T) {
 	if slices.Contains(h.completed("a.com", "flaky"), "X") || !slices.Contains(h.completed("a.com", "flaky"), "Y") {
 		t.Errorf("completed = %v", h.completed("a.com", "flaky"))
 	}
-	if f := queryStrings(t, h.openDB("a.com"), "SELECT key FROM failures WHERE stage='flaky'"); len(f) != 1 || f[0] != "X" {
+	if f := h.failedChecks("flaky"); len(f) != 1 || f[0].key != "X" || f[0].err != "timeout talking to source" {
 		t.Errorf("failures = %v", f)
 	}
 	evs := h.events()
@@ -535,7 +548,7 @@ func TestDiscoveryLoop(t *testing.T) {
 	perHost := func(prefix string) func(v run.View) []run.Check {
 		return func(v run.View) []run.Check {
 			var cs []run.Check
-			for _, hn := range v.InScopeHostnames() {
+			for _, hn := range inScopeHostnames(v) {
 				cs = append(cs, run.Check{Key: prefix + hn, Input: hn})
 			}
 			return cs

@@ -138,8 +138,8 @@ func TestCommonCrawl_GivesUpAfterThreeRetries(t *testing.T) {
 	if st, _ := stateOf(w, "commoncrawl"); st != "failed" {
 		t.Errorf("commoncrawl = %s, want failed", st)
 	}
-	f := queryStrings(t, w.h.openDB(eng), "SELECT error FROM failures WHERE stage='commoncrawl'")
-	if len(f) != 1 || !strings.Contains(f[0], "HTTP 504") || !strings.Contains(f[0], "3 retries") {
+	f := w.h.failedChecks("commoncrawl")
+	if len(f) != 1 || !strings.Contains(f[0].err, "HTTP 504") || !strings.Contains(f[0].err, "3 retries") {
 		t.Errorf("failures = %q, want the 504 and the retries", f)
 	}
 
