@@ -203,11 +203,16 @@ func Defaults() Settings {
 	}
 }
 
-// KeyValues returns the configured key values, for building a Redactor.
+// KeyValues returns the configured key values, each as given and trimmed (the
+// form a caller that trims its key sends), for building a Redactor.
 func (s Settings) KeyValues() []string {
 	var out []string
 	for _, n := range slices.Sorted(maps.Keys(s.Keys)) {
-		out = append(out, s.Keys[n].Reveal())
+		v := s.Keys[n].Reveal()
+		out = append(out, v)
+		if t := strings.TrimSpace(v); t != v {
+			out = append(out, t)
+		}
 	}
 	return out
 }
@@ -377,20 +382,49 @@ func floatFlag(fs *pflag.FlagSet, name string, def float64, usage string) {
 	fs.Var(&numberFlag{raw: strconv.FormatFloat(def, 'f', -1, 64), kind: "float"}, name, usage)
 }
 
-// EnvKeyValues are the API keys set as NYX_KEYS_<SOURCE> in the environment,
-// for masking before the configuration has loaded.
-func EnvKeyValues(env Env) []string { return Settings{Keys: envKeys(env)}.KeyValues() }
+// EnvKeyValues are the API keys set in the environment, as NYX_KEYS_<SOURCE>
+// and as NVD_API_KEY (as given and trimmed), for masking before the
+// configuration has loaded.
+func EnvKeyValues(env Env) []string {
+	keys := envKeys(env)
+	if v := env.Get("NVD_API_KEY"); v != "" {
+		keys["NVD_API_KEY"] = Secret(v)
+	}
+	return Settings{Keys: keys}.KeyValues()
+}
 
 // envKeys are the API keys set as NYX_KEYS_<SOURCE>, by lower-case source.
 func envKeys(env Env) map[string]Secret {
 	keys := map[string]Secret{}
 	for _, kv := range env {
 		name, val, _ := strings.Cut(kv, "=")
-		if src, ok := strings.CutPrefix(name, "NYX_KEYS_"); ok && val != "" {
-			keys[strings.ToLower(src)] = Secret(val)
+		if src, ok := envKeySource(name); ok && val != "" {
+			keys[src] = Secret(val)
 		}
 	}
 	return keys
+}
+
+// WithoutEnvKey is env without the NYX_KEYS_<SOURCE> variables of source,
+// however <SOURCE> is cased, and whether one of them was set.
+func WithoutEnvKey(env Env, source string) (Env, bool) {
+	out := make(Env, 0, len(env))
+	set := false
+	for _, kv := range env {
+		name, val, _ := strings.Cut(kv, "=")
+		if src, ok := envKeySource(name); ok && src == source {
+			set = set || val != ""
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out, set
+}
+
+// envKeySource is the lower-case source of a NYX_KEYS_<SOURCE> variable's name.
+func envKeySource(name string) (string, bool) {
+	src, ok := strings.CutPrefix(name, "NYX_KEYS_")
+	return strings.ToLower(src), ok
 }
 
 // rawPages is the raw form of a PagedSource.

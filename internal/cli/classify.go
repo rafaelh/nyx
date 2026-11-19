@@ -91,7 +91,8 @@ func scanShared(args []string) shared {
 // that is no command is the old form of a call (export, or a word with a dot)
 // or an unknown command; a flag is "flags follow the command" when a command
 // name comes after it, else the old form of a call when only recon or its
-// children take it.
+// children take it, or when recon and another command take it and the first
+// positional argument is an old-form word too.
 func classify(args []string, root *cobra.Command) scan {
 	commands := visibleCommands(root)
 	first, help, version := -1, false, false
@@ -115,7 +116,7 @@ func classify(args []string, root *cobra.Command) scan {
 		return scan{}
 	}
 	if !isFlag(tok) {
-		if tok == "export" || strings.Contains(tok, ".") {
+		if oldFormWord(tok) {
 			return scan{err: oldForm(args, tok)}
 		}
 		return scan{err: unknownCommand(tok, root)}
@@ -124,6 +125,7 @@ func classify(args []string, root *cobra.Command) scan {
 	cmds := descendants(root)
 	owners, _ := describeFlag(tok, cmds)
 	var flags []string
+	positional := ""
 	for i := first; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -142,17 +144,23 @@ func classify(args []string, root *cobra.Command) scan {
 		if slices.Contains(commands, a) {
 			return scan{err: flagFirst(args, i, flags)}
 		}
+		positional = a
 		break
 	}
 	switch {
 	case len(owners) == 0:
 		return scan{err: &clierr.Error{Code: clierr.InvalidInput, Message: "unknown flag: " + tok, Hint: "nyx --help",
 			Input: map[string][]string{"flag": {tok}}}}
-	case !slices.ContainsFunc(owners, func(c *cobra.Command) bool { return !underRecon(c) }):
+	case !slices.ContainsFunc(owners, func(c *cobra.Command) bool { return !underRecon(c) }),
+		slices.ContainsFunc(owners, underRecon) && oldFormWord(positional):
 		return scan{err: oldForm(args, tok)}
 	}
 	return scan{err: &clierr.Error{Code: clierr.InvalidInput, Message: "no command given", Hint: "nyx --help"}}
 }
+
+// oldFormWord reports whether a positional argument marks the old form of a
+// call: export, or a word with a dot.
+func oldFormWord(a string) bool { return a == "export" || strings.Contains(a, ".") }
 
 // visibleCommands are the names of the root's commands that are not hidden.
 func visibleCommands(root *cobra.Command) []string {

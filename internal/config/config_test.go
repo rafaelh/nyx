@@ -281,6 +281,14 @@ func TestRedactor(t *testing.T) {
 	if got := enc.Redact(`Get "https://h/?key=abc%2Bdef%2Fghi%3D": timeout`); got != `Get "https://h/?key=****": timeout` {
 		t.Errorf("got %q", got)
 	}
+	// A blank value is no key: masking it would mangle every line.
+	if got := config.NewRedactor(" ", "\t").Redact("a b\tc"); got != "a b\tc" {
+		t.Errorf("blank values masked: %q", got)
+	}
+	// NVD_API_KEY is masked as given and trimmed, as nyx cve sends it trimmed.
+	if got := config.NewRedactor(config.EnvKeyValues(config.Env{"NVD_API_KEY= k3y "})...).Redact("[ k3y ] [k3y]"); got != "[****] [****]" {
+		t.Errorf("NVD_API_KEY: %q", got)
+	}
 	var nilR *config.Redactor
 	if nilR.Redact("x") != "x" {
 		t.Error("nil redactor must pass through")

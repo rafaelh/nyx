@@ -47,11 +47,14 @@ make lint                       # golangci-lint pinned in tools/go.mod; config i
 
 ## Architecture
 
-Flow: `cmd/nyx` → `internal/cli` (the command tree `nyx` → `recon` → `export`, plus `help` and the
-help topics; cobra/viper flags, a pre-scan of the arguments, validation, help, signals, and the one
-place that picks the exit code and writes the error) → `internal/run.Runner` → stages →
+Flow: `cmd/nyx` → `internal/cli` (the command tree `nyx` → `recon` → `export`, plus `cve`, `help`
+and the help topics; cobra/viper flags, a pre-scan of the arguments, validation, help, signals, and
+the one place that picks the exit code and writes the error) → `internal/run.Runner` → stages →
 `internal/store` (SQLite via `modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output`
 (CSV/TXT files) and `internal/report` (the console log, the summary and the `--json` envelope).
+`nyx cve` skips the runner: `internal/cli/cve.go` (flags, stdin, the worker pool, the writing) →
+`internal/cve` (the CVE record and its field table, the NVD client with its sliding window, the human
+layout and the batch outcome), which reaches the NVD through `egress`'s third-party client.
 
 **Commands and errors.** `cli.Execute` alone picks the exit code and writes the error: a command
 returns an error and prints none. The error is a `clierr.Error` (code, message, hint, input,
@@ -61,9 +64,10 @@ main goroutine, in a check or in the store's writer is recovered. `Deps.Signals`
 don't send any; `cli.NotifySignals` in `main`) delivers signals: the first cancels, a second exits at
 once. A new command needs only `AddCommand`, an `Example` and its help annotations
 (`internal/cli/help.go`) to be in the root help and the pre-scan. **The exit codes, the error codes,
-the five keys of the JSON error and the keys of the recon `--json` envelope (`data` and `meta`) are a
-stable interface**: adding one is compatible, renaming, removing or retyping one is a breaking change
-(README, "Exit codes" and "Console and JSON").
+the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
+keys of the CVE record and of the `nyx cve` envelope are a stable interface**: adding one is
+compatible, renaming, removing or retyping one is a breaking change (README, "Exit codes" and
+"Console and JSON").
 
 **Stages** (`internal/run/stage.go`) implement `Name/Contact/Sources/Configured/Checks/Run`.
 - `Contact` is either `ThirdParty` or `Target`, never both. A stage that would do both is split

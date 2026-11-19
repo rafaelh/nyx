@@ -26,13 +26,14 @@ func (s Secret) Reveal() string { return string(s) }
 // Redactor masks configured key values in strings.
 type Redactor struct{ values []string }
 
-// NewRedactor builds a Redactor from key values. Empty values are ignored.
-// Each value's URL-encoded forms are masked too, since net/http errors embed
-// the request URL with any query-parameter key percent-encoded.
+// NewRedactor builds a Redactor from key values. Blank values are ignored: no
+// key is all whitespace, and masking one would mangle every line. Each value's
+// URL-encoded forms are masked too, since net/http errors embed the request
+// URL with any query-parameter key percent-encoded.
 func NewRedactor(values ...string) *Redactor {
 	r := &Redactor{}
 	for _, v := range values {
-		if v == "" {
+		if strings.TrimSpace(v) == "" || slices.Contains(r.values, v) {
 			continue
 		}
 		r.values = append(r.values, v)

@@ -5,7 +5,6 @@
     Internal IP addresses and invalid IP addresses should be caught by default.
   - Standalone domain enumeration as `domain`. Find and print subdomains and other obtainable records,
     print DMARC with any issues.
-  - merge in CVE functionality as a `cve` lookup subcommand. Cache?
 - Add the capability to define an internal scope of assets, IPs, domains, etc to identify automatically.
   If a domain has been reconned recently, should it resolve from those files?
 

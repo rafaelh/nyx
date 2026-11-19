@@ -1,0 +1,11 @@
+{
+  "id": "CVE-2023-0002",
+  "vulnStatus": "Analyzed",
+  "published": "2023-02-01T00:00:00.000",
+  "lastModified": "2023-02-02T00:00:00.000",
+  "descriptions": [
+    {"lang": "fr", "value": "Une vulnérabilité d'exemple."},
+    {"lang": "en", "value": "  An example vulnerability.  "}
+  ],
+  "references": []
+}

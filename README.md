@@ -53,6 +53,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 
 - **`nyx recon [domain...] [flags]`** runs an engagement: everything below. **`nyx recon export`**
   writes what an engagement holds as JSON lines (see [Exporting an engagement](#exporting-an-engagement)).
+- **`nyx cve <CVE-ID>... [flags]`** looks CVEs up in the NVD by CVE ID (see [CVE lookup](#cve-lookup)).
+  It needs no engagement and no authorisation, and writes no files.
 - **`--timeout <duration>`** is a recon flag: `nyx recon example.com --json --timeout 30m` stops by
   that deadline and exits 7, and a re-run carries on (see [Deadline](#deadline)). `export` makes no
   network calls and takes no `--timeout`.
@@ -61,7 +63,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
   stages, the export kinds) and the exit codes. The recon example in `nyx --help` and in
   `nyx recon --help` passes `--json` and `--timeout`, and the root help lists `--timeout` among
   recon's everyday flags. `nyx help <command>` (or `nyx <command> --help`) is
-  one command's full help; recon's tuning settings are listed only there. `nyx help stages` and
+  one command's full help; recon's tuning settings are listed only there. The root help also lists
+  cve's flags and the field names `--fields` accepts. `nyx help stages` and
   `nyx help findings` are the two help topics. Help goes to stdout and exits 0.
 - **Shared flags.** Every command takes `--json` (`-J`), `--quiet` (`-q`) and `--debug`, before or
   after its name (`nyx --json recon example.com` runs recon). `--json` implies `--quiet`, and
@@ -69,8 +72,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
   command: one placed before it exits 2 with the same call, the command moved first, as the hint.
 - **Flags are spelt in full.** An abbreviation (`--pass` for `--passive`) is an unknown flag;
   `--authorized` is the one alias.
-- **No prompts, no stdin.** No command asks a question or reads stdin, and none loads a `.env`
-  file: the environment is the one you gave it.
+- **No prompts, no stdin.** No command asks a question, and none loads a `.env` file: the
+  environment is the one you gave it. Only `nyx cve`, given a lone `-`, reads stdin.
 - **Version.** `nyx --version` prints the version; every HTTP request nyx makes carries
   `nyx/<version>` (`nyx/devel` for a build with no version) as its User-Agent.
 
@@ -111,6 +114,9 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 - **API keys:** set only as `keys.<source>` in the file or `NYX_KEYS_<SOURCE>` in the
   environment. There are no key flags, so keys never appear in shell history or process lists.
   Keys are redacted from all output and files.
+- **The NVD key:** `nyx cve` reads its key from `NVD_API_KEY`, and otherwise from `keys.nvd` in the
+  file. `NYX_KEYS_NVD` is not read (see [CVE lookup](#cve-lookup)). `keys.nvd` is a valid key for
+  every command.
 - **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos` and
   `github`. A stage whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
   `shodan-dns`, which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
@@ -1189,6 +1195,97 @@ so renaming one would break resuming an engagement) and the export's own field n
 names. The attributes of a `finding` record are derived and may change, and so may anything in the
 CSV files.
 
+## CVE lookup
+
+`nyx cve` looks CVEs up in the NVD by CVE ID and returns one record for each ID the NVD holds. It
+returns the same records as the standalone `cve` tool, so one binary serves both jobs.
+
+```sh
+nyx cve CVE-2021-44228 CVE-2024-3094 --json
+nyx cve - --json < ids.txt
+nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
+```
+
+- **IDs.** Pass one or more as arguments, or a lone `-` to read them from stdin, one per line, with
+  blank lines ignored. `-` alongside other arguments exits 2, and so does a bare `nyx cve` or a `-`
+  with no IDs on stdin, with the hint `nyx --help`. Case and surrounding whitespace are tidied
+  (`cve-2021-44228` is `CVE-2021-44228`), an ID given twice is looked up and returned once, and
+  records come back in argument order. Every ID is checked against `CVE-YYYY-NNNN` (four or more
+  digits) before the first request. A malformed one becomes an `INVALID_INPUT` entry and the others
+  are still looked up.
+- **The record.** Every record has these keys, in this order. A key with no value is `null`, and an
+  empty list is `[]`. A rejected CVE is a record with the status `Rejected`, not a not-found.
+
+  | Key | Meaning |
+  |---|---|
+  | `id` | The CVE ID |
+  | `status` | The NVD's status: `Analyzed`, `Modified`, `Awaiting Analysis`, `Rejected` and the like |
+  | `published`, `last_modified` | RFC 3339 in UTC, to the second |
+  | `description` | The first English description, trimmed, else the first in any language |
+  | `cvss_version`, `cvss_score`, `cvss_severity`, `cvss_vector`, `cvss_source` | One CVSS score: the highest version present (4.0, 3.1, 3.0, then 2.0), and within it the NVD's own (`Primary`) score over anyone else's. The severity is upper case |
+  | `weaknesses` | The English CWE values, de-duplicated in order (`NVD-CWE-Other` and `NVD-CWE-noinfo` are kept) |
+  | `affected_products` | Each vulnerable CPE match, once: `cpe`, `vendor`, `product`, `version` (from the CPE, unescaped, `null` for `*` or `-`) and the four `version_start_*`/`version_end_*` bounds |
+  | `references` | Each reference's `url` and `tags` |
+
+- **`--fields a,b,c`** returns only those keys, plus `id`, in both modes; `all`, the default,
+  returns every key. An unknown name exits 2 with the valid names in the hint.
+- **`--json`** prints one compact object,
+  `{"data":[…],"meta":{"count":n,"errors":[…],"warnings":[…]}}`. `meta.errors` and
+  `meta.warnings` are always present, `[]` when empty. Each `meta.errors` entry has the five keys of
+  the error (see [Errors](#errors)), with the argument exactly as given in `input`. The NVD's text
+  is written as the NVD sent it.
+- **Without `--json`** each record is laid out for reading: its ID and a severity badge, then a
+  section each for the status and dates, the description, the CVSS score, the weaknesses, the
+  affected products and the references, as `--fields` selects them. Records are separated by a
+  blank line, and text is wrapped to `COLUMNS` (default 100, at least 60). The NVD's text is
+  stripped of anything that would act on a terminal.
+- **The key.** `NVD_API_KEY`, and otherwise `keys.nvd` in the config file. `nyx cve` takes
+  `--config` and reads the configuration as recon does: an unreadable or invalid config file, or an
+  invalid `NYX_*` setting, exits 2, and a missing default file is fine. `NYX_KEYS_NVD` is not read:
+  when it is set and no key was found, the call warns `NYX_KEYS_NVD is not read; set NVD_API_KEY
+  instead`, in `meta.warnings` under `--json`, as a `WARN` line on stderr otherwise, and in the
+  error's hint when the call fails with nothing on stdout. The key never appears in any output.
+- **Pacing.** Requests are paced to the NVD's rate limit with a sliding window: 50 per rolling 30
+  seconds with a key and 5 without, with at most 4 in flight. A batch longer than that waits for the
+  window, within the deadline.
+- **`--timeout`** (default `60s`) is the deadline for the whole call. A network error, a 502, 503 or
+  504, and a rate-limit answer (a 429, or a 403 that does not name the API key) are retried up to
+  twice, after the NVD's `Retry-After` when it gives one in seconds, else after a backoff of about
+  1s, then 2s. A wait that would pass the deadline fails that ID at once, marked transient, with the
+  wait in its hint: `RATE_LIMITED` when it was for the window or for a rate-limit retry, `TIMEOUT`
+  otherwise. A request still in flight at the deadline is `TIMEOUT`. A stdin that is not closed by
+  the deadline is `TIMEOUT` too.
+- **A refused key** is `AUTH_FAILED` (exit 1), however the NVD says so: a 401, or a 403 or 404 whose
+  `message` header or body names the API key. The first refusal stops the batch: the IDs not yet
+  sent fail with the same error. A 404 that does not name the key is `UPSTREAM_ERROR` (the NVD
+  answers 404 to a parameter it refuses), never `NOT_FOUND`: an ID the NVD does not hold is a 200
+  with no results.
+- **Contact.** `nyx cve` contacts only `services.nvd.nist.gov`, keeps no state and writes no files,
+  so the same call gives the same result.
+
+**The outcome** of a call depends on how many IDs succeeded:
+
+| Outcome | Exit | stdout |
+|---|---|---|
+| Every ID succeeded | 0 | The records |
+| Some succeeded | 7 | The records and the failures |
+| None succeeded, all with one error code | That code's: 3 when all are `NOT_FOUND`, 1 for `AUTH_FAILED` or `RATE_LIMITED`, 2 when every ID is malformed | Empty. The one error covers every ID: its `input` is `{"id":[…]}`, the IDs as given |
+| None succeeded, with different codes | 7 | No records, and the failures |
+
+On exit 7 the `PARTIAL` error counts what succeeded and what did not (`3 of 5 IDs returned, 2
+failed`, or `none of 3 IDs returned`), its `input` lists the IDs that failed as given, and it is
+transient when any failure is. In human mode one `error: <input>: <message> (<CODE>)` line follows
+for each ID that failed. The hint is the command to run for the IDs worth retrying (the transient
+failures), with the flags you gave, after the longest known wait: `after 25s, run: nyx cve
+CVE-2024-3094 --json`. When none is worth retrying it lists the IDs to check. Past 20 IDs it points
+at the failures instead of listing them. A single-code error that is transient carries the same
+command, listing every ID however many, as its failures are not written; when the code is `TIMEOUT`
+it adds `, or raise --timeout`. One that is not transient keeps its code's hint, such as `check the
+ID; the NVD lists only published CVEs` or `check NVD_API_KEY`.
+
+**Differences from the `cve` tool.** A 404 is never "not found" (see above). The `--api-key` flag is
+gone: the key comes only from `NVD_API_KEY` or `keys.nvd`. Colours are nyx's palette.
+
 ## Exit codes
 
 Every command uses the same exit codes:
@@ -1197,9 +1294,9 @@ Every command uses the same exit codes:
 |---|---|---|
 | 0 | Success: the run did all its work and no check failed. A `not-configured` stage, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
 | 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` |
-| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit. Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
-| 3 | Not found: an engagement that does not exist | `NOT_FOUND` |
-| 7 | Partial result: a recon run the deadline ended, or in which any check failed | `PARTIAL` |
+| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx cve`, no IDs, or only malformed ones. Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
+| 3 | Not found: an engagement that does not exist, or no CVE ID the NVD holds | `NOT_FOUND` |
+| 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes | `PARTIAL` |
 | 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |
 
 **Exit 7 for recon.** A recon run exits 7 when the deadline ended it (see [Deadline](#deadline)) or
@@ -1250,7 +1347,8 @@ first one's code.
 ### Errors
 
 Every non-zero exit writes one error to stderr. stdout is empty on every exit but 0 and 7: a recon
-run that exits 7 has written its summary, or its envelope under `--json`, first. The error is never
+run that exits 7 has written its summary, or its envelope under `--json`, first, and a `nyx cve`
+batch its records (none, in human mode, when no ID succeeded). The error is never
 sent through the log formatter.
 
 ```
@@ -1260,7 +1358,8 @@ hint: nyx recon --help
 
 A `hint:` line follows when there is a next step, and `retry: may succeed after a wait` when the
 error is transient. A partial result from several targets adds one `error: <input>: <message>
-(<CODE>)` line for each target that failed. `input` is `null` for the `PARTIAL` error of a recon run. Under `--json`, even when the arguments fail to parse,
+(<CODE>)` line for each target that failed. `input` is `null` for the `PARTIAL` error of a recon run;
+for `nyx cve` it is `{"id":[…]}`, the IDs that failed as given. Under `--json`, even when the arguments fail to parse,
 the error is one compact line of JSON with exactly the keys `error`, `code`, `hint`, `input` and
 `transient`, in that order; `hint` and `input` are `null` when there is nothing to say, and `input`
 maps each failing argument to the list of its values as given:
@@ -1272,8 +1371,9 @@ maps each failing argument to the list of its values as given:
 Checks of values and combinations report every problem they find in one error. API keys are masked
 in the error as everywhere else.
 
-**What stays stable.** The exit codes, the error codes, the five keys of the error and the keys of
-the recon `--json` envelope (see [The `--json` envelope](#the---json-envelope)) are an interface: a
+**What stays stable.** The exit codes, the error codes, the five keys of the error, the keys of
+the recon `--json` envelope (see [The `--json` envelope](#the---json-envelope)), and the keys of the
+CVE record and of the `nyx cve` envelope (see [CVE lookup](#cve-lookup)) are an interface: a
 new one may be added, but renaming, removing or retyping one is a breaking change. The wording of
 messages and hints may change.
 
@@ -1290,11 +1390,13 @@ The guidance in `docs/agent-tools` is followed, except in these eleven ways:
 7. SIGHUP exits 129.
 8. recon can finish slightly after its deadline, when writing the files takes longer than the
    reserve (see [Deadline](#deadline)).
-9. Requests are paced by token buckets, not a sliding window.
-10. A failed request is not retried within the run: its check is retried on the next run. The
-    exceptions are GitHub's rate limit (see [GitHub code search](#github-code-search)) and an overloaded
-    Common Crawl index (see [Passive boundary](#passive-boundary)).
-11. HTTP connections are not reused.
+9. recon's requests are paced by token buckets, not a sliding window (`nyx cve` uses a sliding
+   window).
+10. A failed recon request is not retried within the run: its check is retried on the next run.
+    The exceptions are GitHub's rate limit (see [GitHub code search](#github-code-search)) and an
+    overloaded Common Crawl index (see [Passive boundary](#passive-boundary)). `nyx cve` retries
+    within the call.
+11. recon's HTTP connections are not reused.
 
 ## Migrating from the Python version
 

@@ -40,13 +40,25 @@ func (f *failureWriter) setRedactor(r *config.Redactor) {
 	f.mu.Unlock()
 }
 
-// errorLine is the JSON error: exactly these five keys, in this order.
+// errorLine is the JSON error: exactly these five keys, in this order. It is
+// also each meta.errors entry of nyx cve.
 type errorLine struct {
 	Error     string  `json:"error"`
 	Code      string  `json:"code"`
 	Hint      *string `json:"hint"`
 	Input     any     `json:"input"`
 	Transient bool    `json:"transient"`
+}
+
+// newErrorLine is e as the JSON error, with every API key masked; an empty
+// hint is null.
+func newErrorLine(e *clierr.Error, red *config.Redactor) errorLine {
+	l := errorLine{Error: red.Redact(e.Message), Code: string(e.Code), Input: red.Any(e.Input), Transient: e.Transient}
+	if e.Hint != "" {
+		h := red.Redact(e.Hint)
+		l.Hint = &h
+	}
+	return l
 }
 
 // write writes e, unless an error has been written already. Every API key is
@@ -58,11 +70,7 @@ func (f *failureWriter) write(e *clierr.Error) {
 		f.mu.Unlock()
 		var b bytes.Buffer
 		if f.json {
-			l := errorLine{Error: red.Redact(e.Message), Code: string(e.Code), Input: red.Any(e.Input), Transient: e.Transient}
-			if e.Hint != "" {
-				h := red.Redact(e.Hint)
-				l.Hint = &h
-			}
+			l := newErrorLine(e, red)
 			enc := json.NewEncoder(&b)
 			enc.SetEscapeHTML(false) // a URL's & stays readable
 			if err := enc.Encode(l); err != nil {

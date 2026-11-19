@@ -1,0 +1,26 @@
+{
+  "id": "CVE-2020-0001",
+  "vulnStatus": "Analyzed",
+  "published": "2020-01-01T00:00:00.000",
+  "lastModified": "2020-01-02T00:00:00.000",
+  "descriptions": [
+    {"lang": "en", "value": "An example vulnerability in a product whose CPE needs escaping."}
+  ],
+  "configurations": [
+    {
+      "nodes": [
+        {
+          "operator": "OR",
+          "negate": false,
+          "cpeMatch": [
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:acme\\:labs:widget\\_pro\\!:1.0\\.2:*:*:*:*:*:*:*"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "references": []
+}

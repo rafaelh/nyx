@@ -117,7 +117,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 		return nil
 	}
 	probs := inv.problems()
-	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, probs)
+	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, d.Env, probs)
 	timeout := reconTimeout(probs, cmd, o.timeout)
 
 	parsed, perr := input.Parse(input.Raw{
@@ -166,7 +166,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	}
 	inv.setInterruptHint(interruptedRecon)
 
-	em, warnings := reconEmitter(inv, red)
+	em, warnings := newEmitter(inv, red)
 	eopts := d.Egress.WithSettings(settings, red)
 	if eopts.Now == nil {
 		eopts.Now = d.Clock
@@ -206,11 +206,7 @@ func reconTimeout(probs *clierr.Problems, cmd *cobra.Command, value string) time
 	if !cmd.Flags().Changed("timeout") {
 		return 0
 	}
-	timeout, err := time.ParseDuration(value)
-	if err != nil || timeout <= 0 {
-		probs.Add("timeout", value, fmt.Sprintf("timeout: invalid value %q: not a positive duration", value), "--timeout 30m")
-	}
-	return timeout
+	return parseTimeout(probs, value, "--timeout 30m")
 }
 
 // reconEngagementName is the engagement's directory name: -e when given,
@@ -256,16 +252,6 @@ func prepareEngagement(eng *engagement.Engagement, parsed input.Parsed, name str
 		return eng.SetAck()
 	}
 	return nil
-}
-
-// reconEmitter is the run's event emitter, teed to Deps.Events when set and
-// redacting API keys, and the warnings it collects for the envelope.
-func reconEmitter(inv *invocation, red *config.Redactor) (report.Emitter, *report.Warnings) {
-	base, warnings := newEmitter(inv.d, inv.sh, inv.dp)
-	if inv.d.Events != nil {
-		base = report.Tee(base, inv.d.Events)
-	}
-	return report.WithRedactor(base, red), warnings
 }
 
 // reconFailure is the error that ends a run before its summary, in order of

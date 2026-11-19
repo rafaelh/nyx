@@ -126,7 +126,7 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 			probs.Add("kind", k, fmt.Sprintf("unknown kind %q for --kind", k), "kinds: "+strings.Join(valid, ", "))
 		}
 	}
-	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, probs)
+	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, inv.d.Env, probs)
 	var name string
 	if o.engagement != "" {
 		var err error

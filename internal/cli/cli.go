@@ -1,6 +1,6 @@
 // Package cli is the nyx command line: the command tree (nyx, recon, recon
-// export, help and the help topics), flags, validation, help text, signals,
-// and the one place that picks the exit code and writes the error.
+// export, cve, help and the help topics), flags, validation, help text,
+// signals, and the one place that picks the exit code and writes the error.
 package cli
 
 import (
@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,8 @@ type Deps struct {
 	// Events, when set, also receives every event of a recon run, as the console would see it
 	// (redacted). Only tests set it, to read the events that --json no longer writes.
 	Events report.Emitter
+	// Stdin is read only by a command given a lone "-" (nyx cve); nil means an empty one.
+	Stdin io.Reader
 }
 
 // DefaultDeps returns the production dependencies, except Signals, which only
@@ -79,6 +82,7 @@ func DefaultDeps() Deps {
 		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
 		Clock:       time.Now,
 		Env:         os.Environ(),
+		Stdin:       os.Stdin,
 	}
 }
 
@@ -117,6 +121,9 @@ func withDefaults(d Deps) Deps {
 	}
 	if d.Location == nil {
 		d.Location = time.Local
+	}
+	if d.Stdin == nil {
+		d.Stdin = strings.NewReader("")
 	}
 	return d
 }
@@ -173,12 +180,13 @@ func newInvocation(d Deps, args []string) *invocation {
 	return inv
 }
 
-// loadSettings loads a command's settings into probs and has the error mask
-// every key that loaded, even when some setting did not.
-func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs *clierr.Problems) (config.Settings, *config.Redactor) {
-	settings, err := config.Load(fs, configPath, inv.d.Env)
+// loadSettings loads a command's settings from env into probs, and has the
+// error mask every key that loaded, even when some setting did not, and every
+// key set in the whole environment, whatever env leaves out.
+func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, env config.Env, probs *clierr.Problems) (config.Settings, *config.Redactor) {
+	settings, err := config.Load(fs, configPath, env)
 	probs.Merge(err)
-	red := config.NewRedactor(settings.KeyValues()...)
+	red := config.NewRedactor(append(settings.KeyValues(), config.EnvKeyValues(inv.d.Env)...)...)
 	inv.fw.setRedactor(red)
 	return settings, red
 }
@@ -353,11 +361,13 @@ func stageNames(stages []run.Stage) []string {
 	return names
 }
 
-// newEmitter builds the run's event sink. The console writes the log to stderr. Under --json
-// nothing is written while the run goes on: the warnings are kept (the second result) for the
-// envelope, and --debug adds a console on stderr which passes only the debug events, so that
-// stdout is the same with or without --debug. The summary is not an event: recon writes it.
-func newEmitter(d Deps, sh shared, dp depths) (report.Emitter, *report.Warnings) {
+// newEmitter builds a command's event sink, teed to Deps.Events when set and redacting API keys
+// with red. The console writes the log to stderr. Under --json nothing is written while the
+// command goes on: the warnings are kept (the second result) for the envelope, and --debug adds a
+// console on stderr which passes only the debug events, so that stdout is the same with or without
+// --debug. The summary is not an event: recon writes it.
+func newEmitter(inv *invocation, red *config.Redactor) (report.Emitter, *report.Warnings) {
+	d, sh := inv.d, inv.sh
 	minLevel := report.Info
 	switch {
 	case sh.debug:
@@ -365,14 +375,19 @@ func newEmitter(d Deps, sh shared, dp depths) (report.Emitter, *report.Warnings)
 	case sh.quiet:
 		minLevel = report.Warn
 	}
-	console := report.NewConsole(report.ConsoleOptions{Log: d.Stderr, LogDepth: dp.err,
+	console := report.NewConsole(report.ConsoleOptions{Log: d.Stderr, LogDepth: inv.dp.err,
 		Min: minLevel, Clock: d.Clock, Location: d.Location})
-	if !sh.json {
-		return console, nil
+	var em report.Emitter = console
+	var warnings *report.Warnings
+	if sh.json {
+		warnings = &report.Warnings{}
+		em = warnings
+		if sh.debug {
+			em = report.Tee(warnings, report.Only("debug", console))
+		}
 	}
-	warnings := &report.Warnings{}
-	if !sh.debug {
-		return warnings, warnings
+	if d.Events != nil {
+		em = report.Tee(em, d.Events)
 	}
-	return report.Tee(warnings, report.Only("debug", console)), warnings
+	return report.WithRedactor(em, red), warnings
 }

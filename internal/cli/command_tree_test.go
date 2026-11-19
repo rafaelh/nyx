@@ -46,6 +46,9 @@ func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) {
 		{[]string{"-e", "recon"}, "nyx recon -e recon", "-e"},
 		{[]string{"--org", "Acme Pty", "it's.example.com"}, `nyx recon --org 'Acme Pty' 'it'\''s.example.com'`, "--org"},
 		{[]string{"-q", "--engagement=acme", "--debug"}, "nyx recon -q --engagement=acme --debug", "--engagement=acme"},
+		// cve also takes --config and --timeout; a first positional with a dot is still a domain.
+		{[]string{"--config", "c.yaml", "example.com"}, "nyx recon --config c.yaml example.com", "--config"},
+		{[]string{"--timeout", "30m", "example.com"}, "nyx recon --timeout 30m example.com", "--timeout"},
 	}
 	for _, c := range cases {
 		for _, jsonMode := range []bool{false, true} {

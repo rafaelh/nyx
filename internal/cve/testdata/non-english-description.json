@@ -1,0 +1,11 @@
+{
+  "id": "CVE-2023-0001",
+  "vulnStatus": "Awaiting Analysis",
+  "published": "2023-01-01T00:00:00.000",
+  "lastModified": "2023-01-02T00:00:00.000",
+  "descriptions": [
+    {"lang": "es", "value": "Una vulnerabilidad de ejemplo."},
+    {"lang": "fr", "value": "Une vulnérabilité d'exemple."}
+  ],
+  "references": []
+}

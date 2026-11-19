@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -43,6 +44,7 @@ type harness struct {
 	now       time.Time
 	version   string
 	env       map[string]string // the environment cli.Execute sees; see setenv
+	stdin     io.Reader         // nil means an empty one
 
 	stdout, stderr bytes.Buffer
 	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
@@ -117,6 +119,7 @@ func (h *harness) deps() cli.Deps {
 		Env:         h.environ(),
 		NoFsync:     true,
 		Events:      &h.rec,
+		Stdin:       h.stdin,
 	}
 }
 
@@ -163,6 +166,7 @@ type failure struct {
 	hint      string // "" when there is none
 	input     any    // nil when there is none
 	transient bool
+	targets   []string // in human mode, a partial result's "<input>: <message> (<CODE>)" lines
 }
 
 // humanErrorLine is the error line of human mode: "error: <message> (<CODE>)".
@@ -198,6 +202,12 @@ func (h *harness) theError(jsonMode bool) failure {
 		n := 0
 		for _, l := range lines {
 			switch {
+			case strings.HasPrefix(l, "error: ") && n == 1 && f.code == "PARTIAL":
+				// A partial result's per-target lines follow its error.
+				if !humanErrorLine.MatchString(l) {
+					h.t.Fatalf("target line %q is not \"error: <input>: <message> (<CODE>)\"", l)
+				}
+				f.targets = append(f.targets, strings.TrimPrefix(l, "error: "))
 			case strings.HasPrefix(l, "error: "):
 				n++
 				m := humanErrorLine.FindStringSubmatch(l)
@@ -205,9 +215,9 @@ func (h *harness) theError(jsonMode bool) failure {
 					h.t.Fatalf("error line %q is not \"error: <message> (<CODE>)\"", l)
 				}
 				f.msg, f.code = m[1], m[2]
-			case strings.HasPrefix(l, "hint: ") && n == 1:
+			case strings.HasPrefix(l, "hint: ") && n == 1 && f.targets == nil:
 				f.hint = strings.TrimPrefix(l, "hint: ")
-			case l == "retry: may succeed after a wait" && n == 1:
+			case l == "retry: may succeed after a wait" && n == 1 && f.targets == nil:
 				f.transient = true
 			default:
 				h.t.Errorf("stderr holds a line that is not part of the error: %q", l)

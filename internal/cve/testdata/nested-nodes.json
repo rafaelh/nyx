@@ -1,0 +1,57 @@
+{
+  "id": "CVE-2021-44228",
+  "vulnStatus": "Analyzed",
+  "published": "2021-12-10T10:15:09.143",
+  "lastModified": "2025-10-27T17:40:33.747",
+  "descriptions": [
+    {"lang": "en", "value": "Apache Log4j2 JNDI features do not protect against attacker controlled LDAP."}
+  ],
+  "configurations": [
+    {
+      "nodes": [
+        {
+          "operator": "AND",
+          "negate": false,
+          "nodes": [
+            {
+              "operator": "OR",
+              "negate": false,
+              "cpeMatch": [
+                {
+                  "vulnerable": true,
+                  "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+                  "versionStartIncluding": "2.0.1",
+                  "versionEndExcluding": "2.3.1",
+                  "matchCriteriaId": "03FA5E81-F9C0-403E-8A4B-E4284E4E7B72"
+                }
+              ]
+            },
+            {
+              "operator": "OR",
+              "negate": false,
+              "cpeMatch": [
+                {
+                  "vulnerable": false,
+                  "criteria": "cpe:2.3:o:linux:linux_kernel:-:*:*:*:*:*:*:*",
+                  "matchCriteriaId": "703AF700-7A70-47E2-BC3A-7FD03B3CA9C1"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "operator": "OR",
+          "negate": false,
+          "cpeMatch": [
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:siemens:sppa-t3000_ses3000_firmware:-:*:*:*:*:*:*:*",
+              "matchCriteriaId": "7A43FE8D-8B03-4E7D-9E5B-3A2B3C1E6F10"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "references": []
+}

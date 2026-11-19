@@ -173,7 +173,8 @@ func New(o Options) *Egress {
 	e := &Egress{
 		opts: o, hostLim: map[netip.Addr]*rate.Limiter{}, srcLim: map[string]*rate.Limiter{},
 		thirdParty: &http.Client{
-			Transport:     &http.Transport{Proxy: nil},
+			// Four idle connections per host: nyx cve has four requests to the NVD in flight.
+			Transport:     &http.Transport{Proxy: nil, MaxIdleConnsPerHost: 4},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}

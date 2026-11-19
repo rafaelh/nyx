@@ -26,18 +26,29 @@ import (
 // holds the result (a call that exits 7 writes it first).
 func (h *harness) partial(code int, jsonMode bool) failure {
 	h.t.Helper()
+	return h.partialOf(code, jsonMode, nil, true)
+}
+
+// partialOf is partial for a call whose PARTIAL error names the inputs that failed: under --json its
+// input is {"id": ids}, or null when ids is nil. A call that returned no record (records false)
+// writes nothing on stdout in human mode, and an empty data list under --json.
+func (h *harness) partialOf(code int, jsonMode bool, ids []string, records bool) failure {
+	h.t.Helper()
 	if code != 7 {
 		h.t.Fatalf("exit %d, want 7\nstdout %q\nstderr %q", code, h.stdout.String(), h.stderr.String())
 	}
-	if h.stdout.Len() == 0 {
-		h.t.Error("stdout is empty on exit 7: the result is written before the error")
+	if empty := h.stdout.Len() == 0; empty != (!records && !jsonMode) {
+		h.t.Errorf("stdout is empty %v on exit 7 (records %v, json %v): %q", empty, records, jsonMode, h.stdout.String())
 	}
 	f := h.theError(jsonMode)
 	if f.code != "PARTIAL" {
 		h.t.Errorf("code = %s, want PARTIAL: %+v", f.code, f)
 	}
-	if f.input != nil {
+	switch {
+	case ids == nil && f.input != nil:
 		h.t.Errorf("input = %v, want null", f.input)
+	case ids != nil && jsonMode && !slices.Equal(f.inputOf("id"), ids):
+		h.t.Errorf("input = %v, want the IDs %v", f.input, ids)
 	}
 	return f
 }

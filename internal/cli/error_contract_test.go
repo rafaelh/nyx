@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"syscall"
@@ -216,7 +217,7 @@ func TestContract_NewEngagementWithoutInputsCreatesNothing(t *testing.T) {
 		t.Errorf("%+v", f)
 	}
 	h.untouched()
-	if again := h.failed(h.exec("-e", "fresh"), 3, false); again != f {
+	if again := h.failed(h.exec("-e", "fresh"), 3, false); !reflect.DeepEqual(again, f) {
 		t.Errorf("the second call differs: %+v", again)
 	}
 

@@ -1,0 +1,36 @@
+{
+  "id": "CVE-2024-0001",
+  "vulnStatus": "Analyzed",
+  "published": "2024-03-01T12:00:00.000",
+  "lastModified": "2024-03-02T12:00:00.000",
+  "descriptions": [
+    {"lang": "en", "value": "An example vulnerability scored by its CNA under CVSS 4.0."}
+  ],
+  "metrics": {
+    "cvssMetricV40": [
+      {
+        "source": "cna@example.com",
+        "type": "Secondary",
+        "cvssData": {
+          "version": "4.0",
+          "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+          "baseScore": 9.3,
+          "baseSeverity": "CRITICAL"
+        }
+      }
+    ],
+    "cvssMetricV31": [
+      {
+        "source": "nvd@nist.gov",
+        "type": "Primary",
+        "cvssData": {
+          "version": "3.1",
+          "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+          "baseScore": 9.8,
+          "baseSeverity": "CRITICAL"
+        }
+      }
+    ]
+  },
+  "references": []
+}

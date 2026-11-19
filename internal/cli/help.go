@@ -30,8 +30,8 @@ const (
 // exitCodesLine is the last line of every help text.
 const exitCodesLine = "Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)"
 
-// newRoot builds the command tree: nyx, recon and its export, help and the
-// help topics. The root owns the shared flags, which every command takes
+// newRoot builds the command tree: nyx, recon and its export, cve, help and
+// the help topics. The root owns the shared flags, which every command takes
 // before or after its name.
 func newRoot(inv *invocation) *cobra.Command {
 	root := &cobra.Command{
@@ -46,9 +46,9 @@ func newRoot(inv *invocation) *cobra.Command {
 	}
 	pf := root.PersistentFlags()
 	pf.SortFlags = false
-	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Print one JSON object with the run's outcome on stdout when the run ends (recon), and any error as one JSON line on stderr")
-	pf.BoolVarP(&inv.sh.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; the summary is still printed")
-	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write each failed check, and the stack of an unexpected failure, to stderr")
+	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Print the result as one JSON object on stdout, and any error as one JSON line on stderr")
+	pf.BoolVarP(&inv.sh.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; recon's summary is still printed")
+	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), and the stack of an unexpected failure")
 	f := root.Flags()
 	f.SortFlags = false
 	f.Bool("version", false, "Print the version and exit") // long-only: -v is usually read as verbose
@@ -58,7 +58,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	recon.AddCommand(newExportCommand(inv))
 	help := newHelpCommand(inv, root)
 	depth := inv.helpDepth()
-	root.AddCommand(recon, help,
+	root.AddCommand(recon, newCVECommand(inv), help,
 		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp, depth),
 		newTopic(inv, "stages", "The stages, in run order, and what each one contacts and does",
 			func(dep palette.Depth) string { return stagesHelp(dep, inv.d.Stages) }, depth))

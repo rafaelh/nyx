@@ -2,7 +2,10 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"time"
+
+	"github.com/rafaelh/nyx/internal/clierr"
 )
 
 // errDeadline is the cause of the cancel the --timeout timer sends: the runner returns an error
@@ -28,3 +31,13 @@ func (t timeoutFlag) String() string {
 }
 func (t timeoutFlag) Set(s string) error { *t.raw = s; return nil }
 func (timeoutFlag) Type() string         { return "duration" }
+
+// parseTimeout is --timeout's value as a duration. A value that is not a positive duration is
+// recorded as a problem, with example as its hint.
+func parseTimeout(probs *clierr.Problems, value, example string) time.Duration {
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		probs.Add("timeout", value, fmt.Sprintf("timeout: invalid value %q: not a positive duration", value), example)
+	}
+	return timeout
+}
