@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,7 +144,7 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 // request, body included, and returns its request log.
 func (w *world) serve(host string, h http.HandlerFunc) *source {
 	s := &source{h: h}
-	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
 		s.reqs = append(s.reqs, loggedReq{Method: r.Method, URI: r.URL.RequestURI(), Body: string(body), Header: r.Header.Clone()})
@@ -152,6 +153,8 @@ func (w *world) serve(host string, h http.HandlerFunc) *source {
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
 		h(rw, r)
 	}))
+	srv.Listener = resetOnClose{srv.Listener}
+	srv.Start()
 	w.t.Cleanup(srv.Close)
 	w.src[host] = s
 	w.h.eopts.SourceBaseURLs[host] = srv.URL
@@ -362,4 +365,17 @@ func (w *world) anywhere(eng, s string) []string {
 		hits = append(hits, "stderr")
 	}
 	return hits
+}
+
+// resetOnClose is a listener whose connections end with a reset when this side closes them,
+// as httptest.Server.Close does to the idle keep-alive connections a run leaves. Ending with a
+// FIN would leave each in TIME-WAIT for a minute, holding its port.
+type resetOnClose struct{ net.Listener }
+
+func (l resetOnClose) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetLinger(0)
+	}
+	return c, err
 }

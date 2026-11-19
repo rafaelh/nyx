@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"maps"
 	"math/big"
@@ -20,6 +21,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -280,13 +282,32 @@ func (f *filterListener) Close() error {
 
 type openPort struct{ addr, banner string }
 
+// refusedAddr is a loopback address that refuses connections. Port 1 is below
+// every system's ephemeral range, so no test's listener (always on port 0) can be
+// given it. A port freed by closing a listener could not stand in: under parallel
+// load another test's server can be given that port, and connections meant to be
+// refused reach a live server.
+const refusedAddr = "127.0.0.1:1"
+
+// checkRefused reports whether refusedAddr refuses a connection on this machine.
+var checkRefused = sync.OnceValue(func() error {
+	c, err := net.DialTimeout("tcp", refusedAddr, 2*time.Second)
+	if err == nil {
+		c.Close()
+		return fmt.Errorf("%s accepted a connection; the web tests need nothing listening there", refusedAddr)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("dialling %s: %w; the web tests need it to refuse connections", refusedAddr, err)
+	}
+	return nil
+})
+
 // web is a world with fake web servers. Every address a name resolves to, and
 // every port a test declares open, is mapped to a loopback address: a real
-// server where the test serves one, and a closed port elsewhere, so nothing
-// ever leaves the machine.
+// server where the test serves one, and refusedAddr elsewhere, so nothing ever
+// leaves the machine.
 type web struct {
 	*world
-	closed string
 	ips    map[string]bool
 	ports  map[int]bool
 	mapped map[string]bool
@@ -311,14 +332,11 @@ func newWeb(t *testing.T) *web { return newWebWith(t) }
 // newWebWith is newWeb with the named risk stages in the stage list.
 func newWebWith(t *testing.T, keep ...string) *web {
 	t.Helper()
-	w := newWorldWith(t, keep...)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+	if err := checkRefused(); err != nil {
 		t.Fatal(err)
 	}
-	closed := ln.Addr().String()
-	ln.Close()
-	x := &web{world: w, closed: closed, ips: map[string]bool{"203.0.113.250": true}, ports: map[int]bool{}, mapped: map[string]bool{}}
+	w := newWorldWith(t, keep...)
+	x := &web{world: w, ips: map[string]bool{"203.0.113.250": true}, ports: map[int]bool{}, mapped: map[string]bool{}}
 	w.h.eopts.DialMap = map[string]string{}
 	fake := &testkit.Stage{StageName: "fakeports", Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check {
@@ -462,7 +480,7 @@ func (x *web) silent(ip string, port int) *site {
 	return s
 }
 
-// fill maps every address:port a probe could try that no test serves to the closed port.
+// fill maps every address:port a probe could try that no test serves to refusedAddr.
 func (x *web) fill() {
 	for ip := range x.ips {
 		for _, p := range []int{80, 443} {
@@ -476,7 +494,7 @@ func (x *web) fill() {
 
 func (x *web) fillOne(ip string, port int) {
 	if key := hostPort(ip, port); !x.mapped[key] {
-		x.h.eopts.DialMap[key] = x.closed
+		x.h.eopts.DialMap[key] = refusedAddr
 	}
 }
 

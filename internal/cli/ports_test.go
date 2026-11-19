@@ -569,7 +569,10 @@ func TestPorts_RedoMarksClosedPortNotCurrent(t *testing.T) {
 	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001"}) {
 		t.Fatalf("open ports = %v", got)
 	}
+	// The port closes. Its listener's freed port could be given to another test's
+	// server, so it is pointed at an address that refuses.
 	srv.Close()
+	p.mapTo("203.0.113.250", 7001, refusedAddr)
 	p.sweep([]int{7001}, "--redo", "ports")
 	if got := p.openPortKeys(); len(got) != 0 {
 		t.Errorf("a port that has closed is still current: %v", got)
