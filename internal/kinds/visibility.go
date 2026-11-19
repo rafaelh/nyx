@@ -241,12 +241,7 @@ func (v *Visibility) Totals(recs map[string][]store.Record) map[string]int {
 	totals := map[string]int{Hosts: 0}
 	excluded := map[string]bool{}
 	// A port nyx confirmed is counted as confirmed only, whoever reported it.
-	confirmed := map[netip.AddrPort]bool{}
-	for _, r := range recs[OpenPort.Name()] {
-		if ap, ok := ParsePortKey(r.Key); ok && r.Current {
-			confirmed[ap] = true
-		}
-	}
+	confirmed := OpenedPorts(recs[OpenPort.Name()])
 	isConfirmed := func(key string) bool {
 		ap, ok := ParsePortKey(key)
 		return ok && confirmed[ap]

@@ -28,13 +28,9 @@ func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
 func mustExcl(t *testing.T, entries ...string) []input.Exclusion {
 	t.Helper()
-	var out []input.Exclusion
-	for _, e := range entries {
-		x, err := input.ParseExclusion(e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, x)
+	out, err := input.ParseExclusions(entries)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return out
 }

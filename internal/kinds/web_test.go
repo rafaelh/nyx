@@ -19,14 +19,14 @@ func TestWebKinds(t *testing.T) {
 	if k, _ := kinds.Get("web_service"); !k.Printed {
 		t.Error("web_service is printed")
 	}
-	if k, _ := kinds.Get("url"); !k.Counted || k.Printed {
+	if k, _ := kinds.Get("url"); k.Category == "" || k.Printed {
 		t.Error("url is counted and never printed")
 	}
 	k, ok := kinds.Get("http_port")
 	if !ok {
 		t.Fatal("http_port is not registered")
 	}
-	if k.Category != "" || k.Printed || k.Counted || k.Entity {
+	if k.Category != "" || k.Printed || k.Entity {
 		t.Errorf("http_port = %+v, want an internal kind with no category", k)
 	}
 	if k, _ := kinds.Get("open_port"); k.HostAttr != "" {
@@ -41,7 +41,7 @@ func TestWebIdentifierKind(t *testing.T) {
 	if !ok {
 		t.Fatal("web_identifier is not registered")
 	}
-	if k.HostAttr != "host" || k.Printed || k.Counted || k.Entity {
+	if k.HostAttr != "host" || k.Printed || k.Entity {
 		t.Errorf("web_identifier = %+v, want an internal kind shown by its host", k)
 	}
 	o := kinds.WebIdentifier.Obs("http://a.example.com|favicon|1", kinds.WebIdentifierAttrs{

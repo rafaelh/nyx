@@ -30,8 +30,6 @@ type Kind struct {
 	Entity bool
 	// Printed kinds are printed as a line the first time they are seen in an engagement.
 	Printed bool
-	// Counted kinds are only counted, never printed (URLs).
-	Counted bool
 	// HostAttr names the attribute holding the host of a web record. Such a
 	// record is shown only while that host is in scope, decided when it is read.
 	HostAttr string
@@ -89,14 +87,17 @@ type Named interface {
 	kind() Kind
 }
 
-// Of is the handle of a kind whose observations carry attributes A. Its zero
-// value is not usable; the handles are the variables in table.go.
-type Of[A any] struct{ k Kind }
+// ref is what every kind handle holds, and gives it Named's methods.
+type ref struct{ k Kind }
 
 // Name is the kind's name, as the store keys its records.
-func (k Of[A]) Name() string { return k.k.Name }
+func (r ref) Name() string { return r.k.Name }
 
-func (k Of[A]) kind() Kind { return k.k }
+func (r ref) kind() Kind { return r.k }
+
+// Of is the handle of a kind whose observations carry attributes A. Its zero
+// value is not usable; the handles are the variables in table.go.
+type Of[A any] struct{ ref }
 
 // Obs is an observation of the kind.
 func (k Of[A]) Obs(key string, a A) store.Obs {
@@ -115,12 +116,7 @@ func (k Of[A]) Attrs(r store.Record) A {
 }
 
 // Bare is the handle of a kind whose observations carry no attributes.
-type Bare struct{ k Kind }
-
-// Name is the kind's name, as the store keys its records.
-func (k Bare) Name() string { return k.k.Name }
-
-func (k Bare) kind() Kind { return k.k }
+type Bare struct{ ref }
 
 // Obs is an observation of the kind.
 func (k Bare) Obs(key string) store.Obs { return store.Obs{Kind: k.k.Name, Key: key} }
@@ -141,9 +137,9 @@ func encode(a any) map[string]any {
 
 var table []Kind // sorted by name once the handles are defined
 
-func define[A any](k Kind) Of[A] { table = append(table, k); return Of[A]{k} }
+func define[A any](k Kind) Of[A] { table = append(table, k); return Of[A]{ref{k}} }
 
-func defineBare(k Kind) Bare { table = append(table, k); return Bare{k} }
+func defineBare(k Kind) Bare { table = append(table, k); return Bare{ref{k}} }
 
 func init() {
 	slices.SortFunc(table, func(a, b Kind) int { return strings.Compare(a.Name, b.Name) })
@@ -159,16 +155,13 @@ func Get(name string) (Kind, bool) {
 }
 
 // handle is a kind handle found by name. It reads; it cannot make observations.
-type handle struct{ k Kind }
-
-func (h handle) Name() string { return h.k.Name }
-func (h handle) kind() Kind   { return h.k }
+type handle struct{ ref }
 
 // Lookup returns the handle of a kind by name, for a reader that walks kinds by
 // name (see All) and asks the Visibility about them.
 func Lookup(name string) (Named, bool) {
 	k, ok := Get(name)
-	return handle{k}, ok
+	return handle{ref{k}}, ok
 }
 
 // All returns every kind sorted by name.

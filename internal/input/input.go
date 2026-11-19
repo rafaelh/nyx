@@ -10,7 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -62,31 +62,30 @@ func IPLiteral(host string) (netip.Addr, bool) {
 // ParseDomain lowercases, converts to punycode and validates a root domain.
 // Public suffixes and IP literals are rejected.
 func ParseDomain(s string) (string, error) {
-	orig := s
 	d := NormaliseHost(s)
 	if d == "" {
-		return "", fmt.Errorf("invalid domain %q: empty", orig)
+		return "", fmt.Errorf("invalid domain %q: empty", s)
 	}
 	if _, err := netip.ParseAddr(d); err == nil {
-		return "", fmt.Errorf("invalid domain %q: IP addresses are not domains", orig)
+		return "", fmt.Errorf("invalid domain %q: IP addresses are not domains", s)
 	}
 	if strings.ContainsAny(d, "/:@ _*") {
-		return "", fmt.Errorf("invalid domain %q: contains characters not allowed in a hostname", orig)
+		return "", fmt.Errorf("invalid domain %q: contains characters not allowed in a hostname", s)
 	}
 	ascii, err := idna.Lookup.ToASCII(d)
 	if err != nil {
-		return "", fmt.Errorf("invalid domain %q: %v", orig, err)
+		return "", fmt.Errorf("invalid domain %q: %v", s, err)
 	}
 	if len(ascii) > 253 {
-		return "", fmt.Errorf("invalid domain %q: too long", orig)
+		return "", fmt.Errorf("invalid domain %q: too long", s)
 	}
 	for _, label := range strings.Split(ascii, ".") {
 		if !dnsname.ValidLabel(label) {
-			return "", fmt.Errorf("invalid domain %q: bad label %q", orig, label)
+			return "", fmt.Errorf("invalid domain %q: bad label %q", s, label)
 		}
 	}
 	if suffix, _ := publicsuffix.PublicSuffix(ascii); suffix == ascii {
-		return "", fmt.Errorf("invalid domain %q: it is a public suffix, not a registrable domain", orig)
+		return "", fmt.Errorf("invalid domain %q: it is a public suffix, not a registrable domain", s)
 	}
 	return ascii, nil
 }
@@ -159,13 +158,11 @@ func ParseCIDR(s string) (netip.Prefix, error) {
 	return p.Masked(), nil
 }
 
-// Exclusion is a hostname, wildcard or CIDR exclusion entry.
+// Exclusion is a hostname, wildcard or CIDR exclusion entry. Entry is the
+// canonical entry; prefix is set for a CIDR only.
 type Exclusion struct {
-	Entry    string
-	host     string
-	wildBase string
-	prefix   netip.Prefix
-	isCIDR   bool
+	Entry  string
+	prefix netip.Prefix
 }
 
 // ParseExclusion parses "host.example.com", "*.dev.example.com", a CIDR or a bare IP.
@@ -176,7 +173,7 @@ func ParseExclusion(s string) (Exclusion, error) {
 	}
 	if a, err := netip.ParseAddr(t); err == nil {
 		p := netip.PrefixFrom(a, a.BitLen())
-		return Exclusion{Entry: p.String(), prefix: p, isCIDR: true}, nil
+		return Exclusion{Entry: p.String(), prefix: p}, nil
 	}
 	if strings.Contains(t, "/") {
 		p, err := netip.ParsePrefix(t)
@@ -184,7 +181,7 @@ func ParseExclusion(s string) (Exclusion, error) {
 			return Exclusion{}, fmt.Errorf("invalid exclusion %q: %v", s, err)
 		}
 		p = p.Masked()
-		return Exclusion{Entry: p.String(), prefix: p, isCIDR: true}, nil
+		return Exclusion{Entry: p.String(), prefix: p}, nil
 	}
 	name := strings.TrimSuffix(t, ".")
 	wild := false
@@ -205,26 +202,39 @@ func ParseExclusion(s string) (Exclusion, error) {
 		ascii = name
 	}
 	if wild {
-		return Exclusion{Entry: "*." + ascii, wildBase: ascii}, nil
+		return Exclusion{Entry: "*." + ascii}, nil
 	}
-	return Exclusion{Entry: ascii, host: ascii}, nil
+	return Exclusion{Entry: ascii}, nil
+}
+
+// ParseExclusions parses each entry with ParseExclusion, stopping at the first
+// that does not parse.
+func ParseExclusions(entries []string) ([]Exclusion, error) {
+	var out []Exclusion
+	for _, e := range entries {
+		x, err := ParseExclusion(e)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, nil
 }
 
 // MatchesHost reports whether the hostname is excluded by name. CIDR entries never match a name.
 func (e Exclusion) MatchesHost(h string) bool {
-	h = NormaliseHost(h)
-	switch {
-	case e.isCIDR:
+	if e.prefix.IsValid() {
 		return false
-	case e.wildBase != "":
-		return strings.HasSuffix(h, "."+e.wildBase)
-	default:
-		return h == e.host
 	}
+	h = NormaliseHost(h)
+	if base, ok := strings.CutPrefix(e.Entry, "*."); ok {
+		return strings.HasSuffix(h, "."+base)
+	}
+	return h == e.Entry
 }
 
 // Prefix returns the CIDR of a CIDR exclusion.
-func (e Exclusion) Prefix() (netip.Prefix, bool) { return e.prefix, e.isCIDR }
+func (e Exclusion) Prefix() (netip.Prefix, bool) { return e.prefix, e.prefix.IsValid() }
 
 // ReadList reads a file of one entry per line; blank lines and # comments
 // (whole-line or trailing) are ignored.
@@ -307,7 +317,6 @@ func Parse(raw Raw) (Parsed, error) {
 	}
 
 	set := func(items []item, parse func(string) (string, error)) []string {
-		seen := map[string]bool{}
 		var out []string
 		for _, it := range items {
 			c, err := parse(it.value)
@@ -315,13 +324,10 @@ func Parse(raw Raw) (Parsed, error) {
 				probs.Add(it.name, it.value, err.Error(), "")
 				continue
 			}
-			if !seen[c] {
-				seen[c] = true
-				out = append(out, c)
-			}
+			out = append(out, c)
 		}
-		sort.Strings(out)
-		return out
+		slices.Sort(out)
+		return slices.Compact(out)
 	}
 	p.Roots = set(domains, ParseDomain)
 	p.Orgs = set(named("org", raw.Orgs), ParseOrg)

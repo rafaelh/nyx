@@ -2,6 +2,7 @@ package findings
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -48,12 +49,7 @@ func (d *deriver) takeovers() []Finding {
 	d.missingStorage(ev)
 	var out []Finding
 	for target, e := range ev {
-		var types []string
-		for t := range e.types {
-			types = append(types, t)
-		}
-		slices.Sort(types)
-		typ := strings.Join(types, ";")
+		typ := strings.Join(slices.Sorted(maps.Keys(e.types)), ";")
 		out = append(out, newFinding(Takeover, typ, Severity(Takeover, typ), target, strings.Join(e.details, "; "), e.attrs))
 	}
 	return out

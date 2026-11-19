@@ -70,9 +70,7 @@ type StorageAttr struct {
 	Severity      string
 }
 
-// Attribution maps each storage record key, current or not, to its StorageAttr.
-func Attribution(in Input) map[string]StorageAttr { return newDeriver(in).attribution() }
-
+// attribution maps each storage record key, current or not, to its StorageAttr.
 func (d *deriver) attribution() map[string]StorageAttr {
 	attributed, guessed, public := attributedSet(d.references()), d.guessed(), d.publicStates()
 	out := map[string]StorageAttr{}

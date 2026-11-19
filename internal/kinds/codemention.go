@@ -5,7 +5,7 @@ package kinds
 // matched text is never stored. It is keyed by the match's URL on GitHub and is
 // shown while its root is in scope.
 var CodeMention = define[CodeMentionAttrs](Kind{
-	Name: "code_mention", Singular: "code mention", Category: "code mentions", Counted: true,
+	Name: "code_mention", Singular: "code mention", Category: "code mentions",
 	HostAttr: "root", Change: "code mention",
 })
 

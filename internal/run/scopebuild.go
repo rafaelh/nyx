@@ -52,13 +52,9 @@ type Built struct {
 // that reads an engagement afterwards. It reads, and writes nothing: the
 // netblock-limit approval and the egress policy belong to the run.
 func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
-	var excl []input.Exclusion
-	for _, e := range in.Exclusions {
-		x, err := input.ParseExclusion(e)
-		if err != nil {
-			return nil, err
-		}
-		excl = append(excl, x)
+	excl, err := input.ParseExclusions(in.Exclusions)
+	if err != nil {
+		return nil, err
 	}
 	var blocks []netip.Prefix
 	for _, c := range in.CIDRs {

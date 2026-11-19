@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // ReportedPort is a TCP service a third party (Shodan) says is open on an
@@ -61,3 +63,15 @@ func ShodanBanner(b string) string {
 
 // maxReportedBanner is how many characters of a third party's banner are kept.
 const maxReportedBanner = 256
+
+// OpenedPorts is the set of ports among the current open_port records recs. A
+// port nyx opened supersedes a third party's report of it, however it is shown.
+func OpenedPorts(recs []store.Record) map[netip.AddrPort]bool {
+	opened := map[netip.AddrPort]bool{}
+	for _, r := range recs {
+		if ap, ok := ParsePortKey(r.Key); ok && r.Current {
+			opened[ap] = true
+		}
+	}
+	return opened
+}

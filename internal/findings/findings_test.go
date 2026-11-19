@@ -2,12 +2,14 @@ package findings_test
 
 import (
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/input"
@@ -32,12 +34,17 @@ func newFixture() *fixture {
 	return &fixture{recs: map[string][]store.Record{}, set: config.Defaults(), today: "2026-11-01"}
 }
 
-func rec(kind, key string, kv ...any) store.Record {
+// attrs builds an attribute map from key and value pairs.
+func attrs(kv ...any) map[string]any {
 	a := map[string]any{}
 	for i := 0; i+1 < len(kv); i += 2 {
 		a[kv[i].(string)] = kv[i+1]
 	}
-	return store.Record{Kind: kind, Key: key, Current: true, Attrs: a, FirstSeen: "2026-11-01", LastSeen: "2026-11-01"}
+	return a
+}
+
+func rec(kind, key string, kv ...any) store.Record {
+	return store.Record{Kind: kind, Key: key, Current: true, Attrs: attrs(kv...), FirstSeen: "2026-11-01", LastSeen: "2026-11-01"}
 }
 
 func (f *fixture) add(r store.Record) { f.recs[r.Kind] = append(f.recs[r.Kind], r) }
@@ -57,13 +64,9 @@ func (f *fixture) cname(name, target string) {
 func (f *fixture) input(t *testing.T) findings.Input {
 	t.Helper()
 	inv := inventory.New(inventory.Data{Hosts: f.hosts, Resolutions: f.res}, provider.Default())
-	var xs []input.Exclusion
-	for _, e := range f.excl {
-		x, err := input.ParseExclusion(e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		xs = append(xs, x)
+	xs, err := input.ParseExclusions(f.excl)
+	if err != nil {
+		t.Fatal(err)
 	}
 	sc := scope.New(scope.Config{
 		Roots: []string{"example.com"}, Netblocks: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
@@ -74,7 +77,12 @@ func (f *fixture) input(t *testing.T) findings.Input {
 		Records: func(k kinds.Named) []store.Record { return recs[k.Name()] }}
 }
 
-func (f *fixture) derive(t *testing.T) []findings.Finding { return findings.Derive(f.input(t)) }
+func (f *fixture) derive(t *testing.T) []findings.Finding { return derive(f.input(t)) }
+
+func derive(in findings.Input) []findings.Finding {
+	fs, _ := findings.DeriveAll(in)
+	return fs
+}
 
 // types lists "category/type=severity" of the findings, sorted.
 func summarise(fs []findings.Finding) []string {
@@ -177,14 +185,14 @@ func TestEmailFindings(t *testing.T) {
 		"dmarc": "v=DMARC1; p=reject", "dmarc_policy": "reject", "dmarc_source": "root",
 	}
 	with := func(kv ...any) map[string]any {
-		m := map[string]any{}
-		for k, v := range good {
-			m[k] = v
-		}
-		for i := 0; i+1 < len(kv); i += 2 {
-			m[kv[i].(string)] = kv[i+1]
-		}
+		m := maps.Clone(good)
+		maps.Copy(m, attrs(kv...))
 		return m
+	}
+	posture := func(a map[string]any) store.Record {
+		r := rec("email_posture", "example.com")
+		r.Attrs = a
+		return r
 	}
 	cases := []struct {
 		name  string
@@ -217,24 +225,16 @@ func TestEmailFindings(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture()
-			f.add(rec("email_posture", "example.com", mapKV(c.attrs)...))
+			f.add(posture(c.attrs))
 			wantSet(t, f.derive(t), c.want...)
 		})
 	}
 	t.Run("out of scope root", func(t *testing.T) {
 		f := newFixture()
 		f.excl = []string{"example.com"}
-		f.add(rec("email_posture", "example.com", mapKV(with("spf", ""))...))
+		f.add(posture(with("spf", "")))
 		wantSet(t, f.derive(t))
 	})
-}
-
-func mapKV(m map[string]any) []any {
-	var kv []any
-	for k, v := range m {
-		kv = append(kv, k, v)
-	}
-	return kv
 }
 
 // Risky open ports are medium, filtered by port visibility.
@@ -357,12 +357,8 @@ func TestSensitiveHits(t *testing.T) {
 }
 
 func storageRec(provider, name, container string, kv ...any) store.Record {
-	key := provider + "|" + name
-	if container != "" {
-		key += "/" + container
-	}
-	attrs := append([]any{"provider", provider, "name", name, "container", container}, kv...)
-	return rec("storage", key, attrs...)
+	kv = append([]any{"provider", provider, "name", name, "container", container}, kv...)
+	return rec("storage", cloudstorage.Key(provider, name, container), kv...)
 }
 
 // Attributed storage findings.
@@ -388,7 +384,11 @@ func TestAttributedStorage(t *testing.T) {
 			rec("storage_object", "s3|acme-assets/a.png", "bucket", "s3|acme-assets", "public", false)},
 			[]string{"storage/exists=low"}, nil},
 		{"exists and private is low", []store.Record{storageRec("s3", "acme-assets", "", "exists", true, "listable", false)}, []string{"storage/exists=low"}, nil},
-		{"missing is a takeover", []store.Record{storageRec("s3", "acme-assets", "", "exists", false)},
+		{"missing is a takeover", []store.Record{storageRec("s3", "acme-assets", "", "exists", false),
+			// the takeover stage's HTTP evidence
+			rec("web_service", "https://static.example.com", "host", "static.example.com", "scheme", "https"),
+			rec("takeover_http", "https://static.example.com", "host", "static.example.com", "service", "https://static.example.com",
+				"url", "https://static.example.com/", "status", 404.0)},
 			[]string{"takeover/http-fingerprint;storage-missing=high"}, nil},
 	}
 	for _, c := range cases {
@@ -398,11 +398,6 @@ func TestAttributedStorage(t *testing.T) {
 			f.cname("static.example.com", "acme-assets.s3.amazonaws.com")
 			for _, r := range c.recs {
 				f.add(r)
-			}
-			if c.name == "missing is a takeover" { // the takeover stage's HTTP evidence
-				f.add(rec("web_service", "https://static.example.com", "host", "static.example.com", "scheme", "https"))
-				f.add(rec("takeover_http", "https://static.example.com", "host", "static.example.com", "service", "https://static.example.com",
-					"url", "https://static.example.com/", "status", 404.0))
 			}
 			got := f.derive(t)
 			wantSet(t, got, c.want...)
@@ -425,14 +420,13 @@ func TestStorageAttribution(t *testing.T) {
 	f.add(storageRec("s3", "example-logs", "", "exists", true, "listable", false)) // private guess: not a finding
 	f.add(storageRec("s3", "example-nothing", "", "exists", false))
 	in := f.input(t)
-	got := findings.Derive(in)
+	got, attr := findings.DeriveAll(in)
 	wantSet(t, got, "storage/listable=high", "storage-unattributed/listable=low", "storage-unattributed/public=low")
 	for _, x := range got {
 		if x.Category == "storage-unattributed" && x.Severity != "low" {
 			t.Errorf("unattributed finding %s is %s", x.Target, x.Severity)
 		}
 	}
-	attr := findings.Attribution(in)
 	if a := attr["s3|acme-assets"]; !a.Attributed || len(a.GeneratedFrom) != 0 {
 		t.Errorf("referenced = %+v", a)
 	}
@@ -451,11 +445,11 @@ func TestStorageAttribution(t *testing.T) {
 	// A guessed name that is also referenced is attributed, and not listed as unattributed.
 	f.cname("cdn.example.com", "example-backup.s3.amazonaws.com")
 	f.host("cdn.example.com")
-	in = f.input(t)
-	if a := findings.Attribution(in)["s3|example-backup"]; !a.Attributed {
+	got, attr = findings.DeriveAll(f.input(t))
+	if a := attr["s3|example-backup"]; !a.Attributed {
 		t.Errorf("now referenced = %+v", a)
 	}
-	wantSet(t, findings.Derive(in), "storage/listable=high", "storage/listable=high", "storage-unattributed/public=low")
+	wantSet(t, got, "storage/listable=high", "storage/listable=high", "storage-unattributed/public=low")
 }
 
 // Azure references attribute the account's containers.

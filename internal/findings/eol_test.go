@@ -285,7 +285,7 @@ func TestEOL_VersionReportedByAThirdParty(t *testing.T) {
 		reported(f)
 		in := f.input(t)
 		in.Inv = inventory.New(inventory.Data{ClosedPorts: []netip.AddrPort{netip.MustParseAddrPort("198.51.100.5:21")}}, provider.Default())
-		wantSet(t, eolFindings(findings.Derive(in)))
+		wantSet(t, eolFindings(derive(in)))
 	})
 }
 

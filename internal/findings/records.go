@@ -1,6 +1,7 @@
 package findings
 
 import (
+	"cmp"
 	"maps"
 	"net/netip"
 	"slices"
@@ -62,18 +63,14 @@ func ParseKey(key string) (category, typ, target string) {
 // category, type and target then come from its key.
 func FromRecord(r store.Record) Finding {
 	category, typ, target := ParseKey(r.Key)
-	f := Finding{Category: category, Type: typ, Target: target, Attrs: r.Attrs}
-	if v := r.Str("category"); v != "" {
-		f.Category = v
+	return Finding{
+		Category: cmp.Or(r.Str("category"), category),
+		Type:     cmp.Or(r.Str("type"), typ),
+		Target:   cmp.Or(r.Str("target"), target),
+		Severity: r.Str("severity"),
+		Detail:   r.Str("detail"),
+		Attrs:    r.Attrs,
 	}
-	if v := r.Str("type"); v != "" {
-		f.Type = v
-	}
-	if v := r.Str("target"); v != "" {
-		f.Target = v
-	}
-	f.Severity, f.Detail = r.Str("severity"), r.Str("detail")
-	return f
 }
 
 // FoundText is the text the console prints for a newly found finding in place of its category and
@@ -111,10 +108,7 @@ func Headline(recs []store.Record) []Finding {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b Finding) int {
-		if a.Severity != b.Severity {
-			return rank[b.Severity] - rank[a.Severity]
-		}
-		return strings.Compare(a.Target, b.Target)
+		return cmp.Or(rank[b.Severity]-rank[a.Severity], strings.Compare(a.Target, b.Target))
 	})
 	return out
 }
@@ -163,11 +157,10 @@ var riskFiles = []struct {
 }{
 	{Takeover, []string{"severity", "target", "type", "service", "cname", "detail"}, nil},
 	{Storage, []string{"severity", "provider", "name", "url", "exists", "public", "listable", "object_count", "first_keys", "referenced_by"},
-		func(_, _, target string) map[string]string { return map[string]string{"url": target} }},
+		targetAs("url")},
 	{SensitivePaths, []string{"severity", "url", "path", "status", "size", "signature"},
 		func(_, typ, target string) map[string]string { return map[string]string{"path": typ, "url": target} }},
-	{Email, []string{"severity", "root", "type", "detail"},
-		func(_, _, target string) map[string]string { return map[string]string{"root": target} }},
+	{Email, []string{"severity", "root", "type", "detail"}, targetAs("root")},
 	{Ports, []string{"severity", "ip", "port", "banner", "hostnames", "confirmed"},
 		func(_, _, target string) map[string]string {
 			ap, err := netip.ParseAddrPort(target)
@@ -176,10 +169,8 @@ var riskFiles = []struct {
 			}
 			return map[string]string{"ip": ap.Addr().String(), "port": strconv.Itoa(int(ap.Port()))}
 		}},
-	{Certificates, []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"},
-		func(_, _, target string) map[string]string { return map[string]string{"url": target} }},
-	{WebPosture, []string{"severity", "url", "type", "detail"},
-		func(_, _, target string) map[string]string { return map[string]string{"url": target} }},
+	{Certificates, []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"}, targetAs("url")},
+	{WebPosture, []string{"severity", "url", "type", "detail"}, targetAs("url")},
 	{OriginExposure, []string{"severity", "hostname", "provider", "address", "found_by", "confirmed_by", "confirmed"},
 		func(_, _, target string) map[string]string {
 			host, addr := splitOriginTarget(target)
@@ -190,6 +181,11 @@ var riskFiles = []struct {
 			_, product, _ := strings.CutLast(key, "|")
 			return map[string]string{"product": product}
 		}},
+}
+
+// targetAs is a fromKey that puts the target in column col.
+func targetAs(col string) func(key, typ, target string) map[string]string {
+	return func(_, _, target string) map[string]string { return map[string]string{col: target} }
 }
 
 // Files are the findings files: storage-unattributed.csv, then one
@@ -213,9 +209,12 @@ func riskFile(category string, columns []string, fromKey func(key, typ, target s
 			if cat != category {
 				continue
 			}
-			fallback := map[string]string{"type": typ, "target": target}
-			if !r.Current && fromKey != nil {
-				maps.Copy(fallback, fromKey(r.Key, typ, target))
+			var fallback map[string]string // read only for a finding no longer derived
+			if !r.Current {
+				fallback = map[string]string{"type": typ, "target": target}
+				if fromKey != nil {
+					maps.Copy(fallback, fromKey(r.Key, typ, target))
+				}
 			}
 			cells := make([]string, len(columns))
 			for i, c := range columns {

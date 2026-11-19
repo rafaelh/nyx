@@ -32,3 +32,22 @@ Prepared statements and fewer SQL statements per observation in the store.
 Reusing HTTP connections, which would need rate limiting reworked.
 Encoding observation attributes to JSON only once.
 Making how a finding is announced a property of the finding kind, and replacing the hard-coded "asn" stage name.
+
+
+
+# internal/eol, internal/fault, internal/findings, internal/input, internal/inventory, and internal/kinds
+
+Kinds that are classified against the scope decide their placement and category by switching on kind names (kinds/visibility.go). Moving that onto the kinds themselves is a redesign, not a cleanup. The review also found that placement and category use different rules for organisations. As a result, nyx recon export can report an organisation as a candidate that candidates.csv doesn't list. That may be a bug: worth running /code-review on it.
+
+A per-category table for finding keys, parsing and found text: a larger refactor, and the stored key strings must stay byte-for-byte the same.
+
+Renaming input.NormaliseHost to dnsname.Normalise: it touches about 30 files outside the scope.
+
+Shared test scope builder in testkit: it would change test helpers in several packages outside the scope.
+
+Efficiency changes left alone:
+A non-JSON fast path for encoding finding attributes: it risks changing stored values.
+Caching the inventory's CNAME chains and per-scope results: these touch shared infrastructure for about 5–10 ms per stage.
+Speeding up indexRegistrants: it runs once per inventory.
+Decoding each web service's attributes only once: a small gain at about 3 ms per 5k services.
+Storage reading CNAMEs that the inventory already indexes, and the finding kind building its found line outside the Found hook: both need new seams in other packages.

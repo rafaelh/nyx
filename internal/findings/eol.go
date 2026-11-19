@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"net/netip"
 	"strings"
-	"time"
 
 	"github.com/rafaelh/nyx/internal/banner"
 	"github.com/rafaelh/nyx/internal/eol"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/store"
 )
 
 // eolSoftware derives the end-of-life findings: a version nyx already captured (a Wappalyzer
@@ -18,12 +16,12 @@ import (
 // (low, type eol-approaching). A version that is a distribution build, or that only Shodan's
 // report of a port names, is one step lower. A version that matches no cycle is no finding.
 func (d *deriver) eolSoftware() []Finding {
-	today, err := time.Parse(time.DateOnly, d.in.Today)
-	if err != nil {
+	// With a window of 0 the horizon is today, which the eol case already takes.
+	horizon, ok := d.horizon(d.in.Settings.EOLWarnDays)
+	if !ok {
 		return nil
 	}
-	// With a window of 0 the horizon is today, which the eol case already takes.
-	a := &eolAssessor{d: d, horizon: today.AddDate(0, 0, d.in.Settings.EOLWarnDays).Format(time.DateOnly)}
+	a := &eolAssessor{d: d, horizon: horizon}
 	a.webServices()
 	a.ports()
 	return a.out
@@ -95,32 +93,17 @@ func (a *eolAssessor) webServices() {
 // banner. A port only Shodan reports, or one whose banner named no version that Shodan's
 // does, is read from Shodan's and is unconfirmed.
 func (a *eolAssessor) ports() {
-	d := a.d
-	reported := map[netip.AddrPort]store.Record{}
-	for _, r := range d.current(kinds.ReportedPort) {
-		if addr, ok := kinds.ParsePortKey(r.Key); ok && d.vis.Shown(kinds.ReportedPort, r) {
-			reported[addr] = r
-		}
-	}
-	opened := map[netip.AddrPort]bool{}
-	for _, r := range d.current(kinds.OpenPort) {
-		addr, ok := kinds.ParsePortKey(r.Key)
-		if !ok {
-			continue
-		}
-		opened[addr] = true
-		if !d.vis.Shown(kinds.OpenPort, r) {
-			continue
-		}
-		if !a.portBanner(addr, kinds.OpenPort.Attrs(r).Banner, false) {
-			if rep, ok := reported[addr]; ok {
-				a.portBanner(addr, kinds.ReportedPort.Attrs(rep).Banner, true)
+	p := a.d.portIndex()
+	for addr, banner := range p.open {
+		if !a.portBanner(addr, banner, false) {
+			if rep, ok := p.reported[addr]; ok {
+				a.portBanner(addr, rep, true)
 			}
 		}
 	}
-	for addr, rep := range reported {
-		if !opened[addr] {
-			a.portBanner(addr, kinds.ReportedPort.Attrs(rep).Banner, true)
+	for addr, banner := range p.reported {
+		if !p.opened[addr] {
+			a.portBanner(addr, banner, true)
 		}
 	}
 }

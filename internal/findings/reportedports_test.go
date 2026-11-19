@@ -13,12 +13,12 @@ import (
 // step lower and unconfirmed; once nyx has opened it, the same key is at full
 // severity and confirmed. A port nyx found closed is no finding.
 func TestRiskyPortsReportedByAThirdParty(t *testing.T) {
-	reported := func(f *fixture, key string) {
-		f.add(rec("reported_port", key, "ip", key[:len(key)-5], "port", 3389.0, "banner", "rdp", "last_seen", "2026-10-30"))
+	reported := func(f *fixture) {
+		f.add(rec("reported_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389.0, "banner", "rdp", "last_seen", "2026-10-30"))
 	}
 	t.Run("reported only", func(t *testing.T) {
 		f := newFixture()
-		reported(f, "198.51.100.5:3389")
+		reported(f)
 		f.add(rec("reported_port", "198.51.100.5:8080", "ip", "198.51.100.5", "port", 8080.0, "banner", ""))
 		got := f.derive(t)
 		wantSet(t, got, "ports/risky-port=low")
@@ -31,7 +31,7 @@ func TestRiskyPortsReportedByAThirdParty(t *testing.T) {
 	})
 	t.Run("confirmed", func(t *testing.T) {
 		f := newFixture()
-		reported(f, "198.51.100.5:3389")
+		reported(f)
 		f.add(rec("open_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389.0, "banner", "nyx banner"))
 		got := f.derive(t)
 		wantSet(t, got, "ports/risky-port=medium")
@@ -44,10 +44,10 @@ func TestRiskyPortsReportedByAThirdParty(t *testing.T) {
 	})
 	t.Run("closed", func(t *testing.T) {
 		f := newFixture()
-		reported(f, "198.51.100.5:3389")
+		reported(f)
 		in := f.input(t)
 		in.Inv = inventory.New(inventory.Data{ClosedPorts: []netip.AddrPort{netip.MustParseAddrPort("198.51.100.5:3389")}}, provider.Default())
-		wantSet(t, findings.Derive(in))
+		wantSet(t, derive(in))
 	})
 	t.Run("not eligible", func(t *testing.T) {
 		f := newFixture()

@@ -9,6 +9,7 @@ package findings
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
 	"strings"
@@ -45,14 +46,9 @@ type Finding struct {
 
 func newFinding(category, typ, severity, target, detail string, attrs map[string]any) Finding {
 	a := map[string]any{"category": category, "type": typ, "severity": severity, "target": target, "detail": detail}
-	for k, v := range attrs {
-		a[k] = v
-	}
+	maps.Copy(a, attrs)
 	return Finding{Category: category, Type: typ, Severity: severity, Target: target, Detail: detail, Attrs: a}
 }
-
-// Derive computes every finding, sorted by key.
-func Derive(in Input) []Finding { return newDeriver(in).findings() }
 
 // DeriveAll computes the findings and the storage Attribution together, so the
 // references, guesses and public states they share are computed once.
@@ -72,8 +68,22 @@ func (d *deriver) findings() []Finding {
 	out = append(out, d.webPosture()...)
 	out = append(out, d.originExposure()...)
 	out = append(out, d.eolSoftware()...)
-	slices.SortStableFunc(out, func(a, b Finding) int { return strings.Compare(a.Key(), b.Key()) })
-	return slices.CompactFunc(out, func(a, b Finding) bool { return a.Key() == b.Key() })
+	// Sorted and deduplicated by key, each key built once.
+	type keyed struct {
+		key string
+		f   Finding
+	}
+	ks := make([]keyed, len(out))
+	for i, f := range out {
+		ks[i] = keyed{f.Key(), f}
+	}
+	slices.SortStableFunc(ks, func(a, b keyed) int { return strings.Compare(a.key, b.key) })
+	ks = slices.CompactFunc(ks, func(a, b keyed) bool { return a.key == b.key })
+	out = out[:len(ks)]
+	for i, k := range ks {
+		out[i] = k.f
+	}
+	return out
 }
 
 type deriver struct {
@@ -84,7 +94,8 @@ type deriver struct {
 
 	public map[string][]bool // see publicStates
 
-	hosts map[netip.Addr][]string // see hostnamesByIP
+	hosts   map[netip.Addr][]string // see hostnamesByIP
+	portIdx *portIndex              // see portIndex
 }
 
 func newDeriver(in Input) *deriver {
@@ -122,6 +133,42 @@ func (d *deriver) hostnamesByIP() map[netip.Addr][]string {
 		d.hosts = d.in.Inv.HostnamesByIP(d.in.Scope)
 	}
 	return d.hosts
+}
+
+// portIndex holds the ports the risky-port and end-of-life findings read.
+type portIndex struct {
+	opened   map[netip.AddrPort]bool   // every current open port: one nyx opened supersedes a report of it
+	open     map[netip.AddrPort]string // the banner of each shown open port
+	reported map[netip.AddrPort]string // the banner of each shown reported port
+}
+
+// portIndex indexes the current ports, computed once.
+func (d *deriver) portIndex() *portIndex {
+	if d.portIdx != nil {
+		return d.portIdx
+	}
+	opens := d.current(kinds.OpenPort)
+	d.portIdx = &portIndex{opened: kinds.OpenedPorts(opens), open: map[netip.AddrPort]string{}, reported: map[netip.AddrPort]string{}}
+	for _, r := range opens {
+		if addr, ok := kinds.ParsePortKey(r.Key); ok && d.vis.Shown(kinds.OpenPort, r) {
+			d.portIdx.open[addr] = kinds.OpenPort.Attrs(r).Banner
+		}
+	}
+	for _, r := range d.current(kinds.ReportedPort) {
+		if addr, ok := kinds.ParsePortKey(r.Key); ok && d.vis.Shown(kinds.ReportedPort, r) {
+			d.portIdx.reported[addr] = kinds.ReportedPort.Attrs(r).Banner
+		}
+	}
+	return d.portIdx
+}
+
+// horizon is the date days after today, or false when today does not parse.
+func (d *deriver) horizon(days int) (string, bool) {
+	today, err := time.Parse(time.DateOnly, d.in.Today)
+	if err != nil {
+		return "", false
+	}
+	return today.AddDate(0, 0, days).Format(time.DateOnly), true
 }
 
 // isTrue reads an attribute that may be unknown: only a known true is true.
@@ -212,35 +259,27 @@ func (d *deriver) ports() []Finding {
 			map[string]any{"ip": addr.Addr().String(), "port": int(addr.Port()), "banner": banner,
 				"hostnames": strings.Join(hostnames[addr.Addr()], ";"), "confirmed": confirmed}))
 	}
-	opened := map[netip.AddrPort]bool{}
-	for _, r := range d.current(kinds.OpenPort) {
-		addr, ok := kinds.ParsePortKey(r.Key)
-		if !ok {
-			continue
-		}
-		opened[addr] = true
-		if risky[int(addr.Port())] && d.vis.Shown(kinds.OpenPort, r) {
-			add(addr, Severity(Ports, "risky-port"), kinds.OpenPort.Attrs(r).Banner,
+	p := d.portIndex()
+	for addr, banner := range p.open {
+		if risky[int(addr.Port())] {
+			add(addr, Severity(Ports, "risky-port"), banner,
 				fmt.Sprintf("port %d is open on %s", addr.Port(), addr.Addr()), "yes")
 		}
 	}
-	for _, r := range d.current(kinds.ReportedPort) {
-		addr, ok := kinds.ParsePortKey(r.Key)
-		if !ok || !risky[int(addr.Port())] || opened[addr] || !d.vis.Shown(kinds.ReportedPort, r) {
-			continue
+	for addr, banner := range p.reported {
+		if risky[int(addr.Port())] && !p.opened[addr] {
+			add(addr, StepDown(Severity(Ports, "risky-port")), banner,
+				fmt.Sprintf("port %d is reported open on %s by Shodan; nyx has not confirmed it", addr.Port(), addr.Addr()), "no")
 		}
-		add(addr, StepDown(Severity(Ports, "risky-port")), kinds.ReportedPort.Attrs(r).Banner,
-			fmt.Sprintf("port %d is reported open on %s by Shodan; nyx has not confirmed it", addr.Port(), addr.Addr()), "no")
 	}
 	return out
 }
 
 func (d *deriver) certificates() []Finding {
-	today, err := time.Parse(time.DateOnly, d.in.Today)
-	if err != nil {
+	horizon, ok := d.horizon(d.in.Settings.CertExpiryDays)
+	if !ok {
 		return nil
 	}
-	horizon := today.AddDate(0, 0, d.in.Settings.CertExpiryDays).Format(time.DateOnly)
 	var out []Finding
 	for _, r := range d.current(kinds.WebService) {
 		if !d.vis.Shown(kinds.WebService, r) {

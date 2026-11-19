@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -124,6 +123,7 @@ type Inventory struct {
 
 	mu    sync.Mutex
 	class map[netip.Addr]provider.Result
+	regOf map[netip.Addr]int // see RegistrationOf: the index in regs, or -1
 
 	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
 
@@ -144,7 +144,7 @@ type registrantInfo struct {
 func New(d Data, db *provider.DB) *Inventory {
 	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{}, srv: map[string][]uint16{},
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
-		class: map[netip.Addr]provider.Result{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{}}
+		class: map[netip.Addr]provider.Result{}, regOf: map[netip.Addr]int{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{}}
 	for _, s := range d.ServerAddresses {
 		host := input.NormaliseHost(s.Host)
 		i.servers[host] = append(i.servers[host], s.Addr.Unmap())
@@ -229,21 +229,10 @@ func parent(name string) string {
 }
 
 func (i *Inventory) matchesWildcard(name string, w Wildcard) bool {
-	if w.CNAME != "" {
-		for _, t := range i.cn[name] {
-			if t == w.CNAME {
-				return true
-			}
-		}
+	if w.CNAME != "" && slices.Contains(i.cn[name], w.CNAME) {
+		return true
 	}
-	for _, a := range i.addr[name] {
-		for _, wa := range w.Addrs {
-			if a == wa.Unmap() {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(w.Addrs, func(wa netip.Addr) bool { return slices.Contains(i.addr[name], wa.Unmap()) })
 }
 
 // Addrs maps each queried name to its A/AAAA addresses (unmapped). Callers
@@ -284,14 +273,11 @@ func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 			sc.ClassifyHost(parent(h.Name)).Class != scope.InScope {
 			continue
 		}
-		for _, s := range h.Stages {
-			if s != generator {
-				out = append(out, h.Name)
-				break
-			}
+		if slices.ContainsFunc(h.Stages, func(s string) bool { return s != generator }) {
+			out = append(out, h.Name)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -312,15 +298,21 @@ func (i *Inventory) result(a netip.Addr) provider.Result {
 	return r
 }
 
-// RegistrationOf returns the narrowest registered netblock that holds the address.
+// RegistrationOf returns the narrowest registered netblock that holds the
+// address, looked up once per address.
 func (i *Inventory) RegistrationOf(a netip.Addr) (Registration, bool) {
 	a = a.Unmap()
-	for _, r := range i.regs {
-		if r.Contains(a) {
-			return r, true
-		}
+	i.mu.Lock()
+	n, ok := i.regOf[a]
+	if !ok {
+		n = slices.IndexFunc(i.regs, func(r Registration) bool { return r.Contains(a) })
+		i.regOf[a] = n
 	}
-	return Registration{}, false
+	i.mu.Unlock()
+	if n < 0 {
+		return Registration{}, false
+	}
+	return i.regs[n], true
 }
 
 // RegistrantCandidate reports whether a registrant name is a candidate
@@ -572,10 +564,9 @@ func (i *Inventory) namesByIP(sc *scope.Scope) map[netip.Addr]map[string]bool {
 		touch(a)
 	}
 	for _, h := range i.d.IPHostnames {
+		names := touch(h.IP)
 		if sc.ClassifyHost(h.Hostname).Class != scope.Excluded {
-			touch(h.IP)[h.Hostname] = true
-		} else {
-			touch(h.IP)
+			names[h.Hostname] = true
 		}
 	}
 	for name, addrs := range i.addr {
@@ -619,7 +610,7 @@ func (i *Inventory) IPRows(sc *scope.Scope) []IPRow {
 		row.SRVPorts = i.srvPorts(names, sc)
 		rows = append(rows, row)
 	}
-	sort.Slice(rows, func(x, y int) bool { return rows[x].IP.Less(rows[y].IP) })
+	slices.SortFunc(rows, func(x, y IPRow) int { return x.IP.Compare(y.IP) })
 	return rows
 }
 

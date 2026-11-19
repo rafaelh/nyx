@@ -40,11 +40,7 @@ func resolve(d *inventory.Data, name string, addrs ...string) {
 }
 
 func newScope(inv *inventory.Inventory, d inventory.Data, excl ...string) *scope.Scope {
-	var xs []input.Exclusion
-	for _, e := range excl {
-		x, _ := input.ParseExclusion(e)
-		xs = append(xs, x)
-	}
+	xs, _ := input.ParseExclusions(excl)
 	return scope.New(scope.Config{
 		Roots: []string{"example.com"}, Netblocks: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
 		Exclusions: xs, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
@@ -136,14 +132,11 @@ func TestSeeds(t *testing.T) {
 		{Name: "api.corp.example.com", Stages: []string{"crtsh"}},
 		{Name: "api-dev.corp.example.com", Stages: []string{"permutations"}},
 		{Name: "both.corp.example.com", Stages: []string{"permutations", "rdns"}},
-		{Name: "wild.example.com", Stages: []string{"crtsh"}},
-		{Name: "real.example.com", Stages: []string{"crtsh"}}, // exists for real, but its parent is a wildcard zone
 		{Name: "x.example.org", Stages: []string{"crtsh"}},
 		{Name: "example.com", Stages: []string{"crtsh"}}, // the apex: its parent "com" is not in scope
 	}
 	resolve(&d, "wild.example.com", "203.0.113.1")
-	resolve(&d, "real.example.com", "203.0.113.2")
-	d.Hosts = d.Hosts[:len(d.Hosts)-2] // resolve() appended duplicate records for these two
+	resolve(&d, "real.example.com", "203.0.113.2") // exists for real, but its parent is a wildcard zone
 	inv := inventory.New(d, provider.Default())
 	got := inv.Seeds(newScope(inv, d), "permutations")
 	if !slices.Equal(got, []string{"api.corp.example.com", "both.corp.example.com"}) {

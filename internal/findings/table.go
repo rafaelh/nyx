@@ -2,6 +2,7 @@ package findings
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -71,7 +72,7 @@ var table = []Row{
 }
 
 // SeverityTable is the documented default severity of every finding type.
-func SeverityTable() []Row { return append([]Row(nil), table...) }
+func SeverityTable() []Row { return slices.Clone(table) }
 
 var rank = map[string]int{Low: 1, Medium: 2, High: 3}
 

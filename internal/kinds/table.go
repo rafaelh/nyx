@@ -42,8 +42,8 @@ type ExcludedAttrs struct {
 // DNS and address inventory.
 var (
 	Resolution    = define[ResolutionAttrs](Kind{Name: "resolution", Change: "resolution"})
-	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Counted: true, Change: "address"})
-	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Counted: true, Change: "unresolved name"})
+	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Change: "address"})
+	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Change: "unresolved name"})
 	Wildcard      = define[WildcardAttrs](Kind{Name: "wildcard"})
 	IPOwner       = define[IPOwnerAttrs](Kind{Name: "ip_owner"})
 	IPHostname    = define[IPHostnameAttrs](Kind{Name: "ip_hostname"})
@@ -97,7 +97,7 @@ type ProviderRangeAttrs struct {
 var (
 	WebService = define[WebServiceAttrs](Kind{Name: "web_service", Singular: "web service", Category: "web services", Printed: true, HostAttr: "host", Change: "web service"})
 	HTTPPort   = define[HTTPPortAttrs](Kind{Name: "http_port"})
-	URL        = define[URLAttrs](Kind{Name: "url", Singular: "url", Category: "urls", Counted: true, HostAttr: "host", Change: "url"})
+	URL        = define[URLAttrs](Kind{Name: "url", Singular: "url", Category: "urls", HostAttr: "host", Change: "url"})
 )
 
 // WebServiceAttrs is what a probe of an origin found.

@@ -9,22 +9,18 @@ import (
 // The discovery kinds (addresses, owners, wildcards, resolutions) and which of
 // them are counted.
 func TestDiscoveryKinds(t *testing.T) {
-	want := map[string]struct {
-		category string
-		counted  bool
-	}{
-		"ip": {"ips", true}, "unresolved": {"unresolved names", true},
-		"wildcard": {"", false}, "ip_owner": {"", false}, "ip_hostname": {"", false}, "provider_range": {"", false},
-		"resolution": {"", false},
+	want := map[string]string{ // name to category; one with a category and not printed is only counted
+		"ip": "ips", "unresolved": "unresolved names",
+		"wildcard": "", "ip_owner": "", "ip_hostname": "", "provider_range": "", "resolution": "",
 	}
-	for name, w := range want {
+	for name, category := range want {
 		k, ok := kinds.Get(name)
 		if !ok {
 			t.Errorf("kind %s not registered", name)
 			continue
 		}
-		if k.Category != w.category || k.Counted != w.counted || k.Printed || k.Entity {
-			t.Errorf("%s = %+v, want category %q counted %v, not printed, not an entity", name, k, w.category, w.counted)
+		if k.Category != category || k.Printed || k.Entity {
+			t.Errorf("%s = %+v, want category %q, not printed, not an entity", name, k, category)
 		}
 	}
 	if k, _ := kinds.Get("hostname"); !k.Printed {

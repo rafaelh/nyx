@@ -9,11 +9,7 @@ import (
 )
 
 func srec(kind, key string, current bool, kv ...any) store.Record {
-	a := map[string]any{}
-	for i := 0; i+1 < len(kv); i += 2 {
-		a[kv[i].(string)] = kv[i+1]
-	}
-	return store.Record{Kind: kind, Key: key, Current: current, Attrs: a, FirstSeen: "2026-10-01", LastSeen: "2026-11-01"}
+	return store.Record{Kind: kind, Key: key, Current: current, Attrs: attrs(kv...), FirstSeen: "2026-10-01", LastSeen: "2026-11-01"}
 }
 
 func file(t *testing.T, name string) findings.File {

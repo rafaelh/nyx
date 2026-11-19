@@ -25,13 +25,9 @@ func world(t *testing.T, excl ...string) *kinds.Visibility {
 		},
 	}
 	inv := inventory.New(d, provider.Default())
-	var xs []input.Exclusion
-	for _, e := range excl {
-		x, err := input.ParseExclusion(e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		xs = append(xs, x)
+	xs, err := input.ParseExclusions(excl)
+	if err != nil {
+		t.Fatal(err)
 	}
 	sc := scope.New(scope.Config{Roots: []string{"example.com"}, Netblocks: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
 		Exclusions: xs, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly()})
