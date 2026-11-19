@@ -31,11 +31,7 @@ var changeColumns = []string{"change", "kind", "key", "scope", "severity"}
 // CompareChanges orders changes as changes.csv lists them: new, then returned,
 // then gone, each by kind and key.
 func CompareChanges(a, b Change) int {
-	return cmp.Or(compareChangeRank(a.Change, b.Change), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Key, b.Key))
-}
-
-func compareChangeRank(a, b string) int {
-	return cmp.Compare(slices.Index(changeRank, a), slices.Index(changeRank, b))
+	return cmp.Or(cmp.Compare(slices.Index(changeRank, a.Change), slices.Index(changeRank, b.Change)), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Key, b.Key))
 }
 
 func changeRows(s Snapshot) []Row {

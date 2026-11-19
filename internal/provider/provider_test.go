@@ -12,25 +12,29 @@ func ip(s string) netip.Addr    { return netip.MustParseAddr(s) }
 
 // CNAME suffix labels.
 func TestCNAMESuffix(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	for target, want := range map[string]provider.Match{
 		"d111.cloudfront.net":       {Provider: "aws", Service: "CloudFront"},
 		"mybucket.s3.amazonaws.com": {Provider: "aws", Service: "S3"},
 		"foo.azurewebsites.net":     {Provider: "azure", Service: "App Service"},
+		// Linode object storage is shared infrastructure, so a host on it is never dedicated.
+		"acme.us-east-1.linodeobjects.com": {Provider: "linode", Service: "Object Storage"},
 	} {
-		m, ok := db.CNAME(target)
-		if !ok || m.Provider != want.Provider || m.Service != want.Service {
-			t.Errorf("CNAME(%s) = %+v %v, want %+v", target, m, ok, want)
+		e, ok := db.CNAMEEntry(target)
+		if m := e.Match; !ok || m != want {
+			t.Errorf("CNAMEEntry(%s) = %+v %v, want %+v", target, e.Match, ok, want)
 		}
 	}
 	for _, target := range []string{"mail.example.net", "notcloudfront.net", "cloudfront.net.evil.example"} {
-		if m, ok := db.CNAME(target); ok {
-			t.Errorf("CNAME(%s) matched %+v; suffixes match on label boundaries only", target, m)
+		if e, ok := db.CNAMEEntry(target); ok {
+			t.Errorf("CNAMEEntry(%s) matched %+v; suffixes match on label boundaries only", target, e.Match)
 		}
 	}
 }
 
 func TestClassify(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	ranges := []provider.Range{
 		{Prefix: pfx("203.0.113.0/24"), Provider: "aws", Service: "AMAZON", Region: "eu-west-1"},
@@ -75,6 +79,7 @@ func TestClassify(t *testing.T) {
 // The index finds exactly the ranges a linear scan does, in the same order, so
 // Classify's first-match result is unchanged.
 func TestClassifyIndexMatchesLinearScan(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	ranges := []provider.Range{
 		{Prefix: pfx("203.0.112.0/22"), Provider: "aws", Service: "AMAZON"},

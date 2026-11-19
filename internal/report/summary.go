@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
@@ -166,19 +168,22 @@ func writeSinceLastRun(b *strings.Builder, d palette.Depth, ch Changes) {
 		counts[key{c.Kind, c.Change}] += c.N
 	}
 	b.WriteString("\n" + d.Bold("Since last run"))
+	rows := make([]labelled, 0, 7)
 	for _, l := range []struct {
 		heading, kind, change string
 	}{
-		{"new hostnames", "hostname", "new"}, {"new addresses", "address", "new"}, {"new web services", "web service", "new"},
-		{"new open ports", "open port", "new"}, {"new candidates", "candidate", "new"}, {"new findings", "finding", "new"},
-		{"gone findings", "finding", "gone"},
+		{"new hostnames", kinds.LabelHostname, output.ChangeNew}, {"new addresses", kinds.LabelAddress, output.ChangeNew},
+		{"new web services", kinds.LabelWebService, output.ChangeNew}, {"new open ports", kinds.LabelOpenPort, output.ChangeNew},
+		{"new candidates", kinds.LabelCandidate, output.ChangeNew}, {"new findings", kinds.LabelFinding, output.ChangeNew},
+		{"gone findings", kinds.LabelFinding, output.ChangeGone},
 	} {
 		n := counts[key{l.kind, l.change}]
-		if l.change == "new" {
-			n += counts[key{l.kind, "returned"}]
+		if l.change == output.ChangeNew {
+			n += counts[key{l.kind, output.ChangeReturned}]
 		}
-		fmt.Fprintf(b, "\n  %-16s %d", l.heading, n)
+		rows = append(rows, labelled{l.heading, n})
 	}
+	writeLabelled(b, rows)
 	writeFindingRows(b, d, "New findings (high and medium)", ch.Findings)
 }
 

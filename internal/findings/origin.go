@@ -24,7 +24,7 @@ func splitOriginTarget(target string) (host, addr string) {
 // which includes a candidate that may not be contacted and one whose answer does not confirm. A
 // pair that no longer qualifies is not derived, so its finding stops being current.
 func (d *deriver) originExposure() []Finding {
-	pairs := origin.Pairs(d.in.Scope, d.in.Inv, d.in.Records, d.in.Settings.OriginCheck.MaxCandidates)
+	pairs := origin.Pairs(d.in.Scope, d.in.Inv, d.vis, d.in.Records, d.in.Settings.OriginCheck.MaxCandidates)
 	if len(pairs) == 0 {
 		return nil
 	}

@@ -13,7 +13,6 @@ import (
 	"net/netip"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -142,16 +141,13 @@ type addrRange struct {
 // txtPrefix is a TXT value prefix (lower case) and the platform it verifies ownership for.
 type txtPrefix struct{ prefix, platform string }
 
-// domainOwner is a domain suffix (lower case) and the provider that operates it.
-type domainOwner struct{ suffix, provider string }
-
 // DB is the parsed providers.yaml.
 type DB struct {
-	cnames  []Entry
+	cnames  map[string]Entry // by normalised suffix
 	asns    map[int]struct{ provider, class string }
 	ranges  []addrRange
 	txt     []txtPrefix
-	domains []domainOwner
+	domains map[string]string // the provider that operates each normalised suffix
 }
 
 var (
@@ -191,9 +187,9 @@ func Parse(b []byte) (*DB, error) {
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return nil, err
 	}
-	db := &DB{asns: map[int]struct{ provider, class string }{}}
+	db := &DB{asns: map[int]struct{ provider, class string }{}, cnames: map[string]Entry{}, domains: map[string]string{}}
 	for _, c := range raw.CNAME {
-		e := Entry{Match: Match{c.Provider, c.Service}, Suffix: strings.ToLower(c.Suffix), Class: c.Class, NXDomain: c.NXDomain, Body: c.Body}
+		e := Entry{Match: Match{c.Provider, c.Service}, Suffix: dnsname.Normalise(c.Suffix), Class: c.Class, NXDomain: c.NXDomain, Body: c.Body}
 		if c.Body != "" {
 			re, err := regexp.Compile(c.Body)
 			if err != nil {
@@ -201,10 +197,10 @@ func Parse(b []byte) (*DB, error) {
 			}
 			e.re = re
 		}
-		db.cnames = append(db.cnames, e)
+		if _, dup := db.cnames[e.Suffix]; !dup {
+			db.cnames[e.Suffix] = e
+		}
 	}
-	// Longest suffix first, so a specific service wins over its provider's generic domain.
-	sort.SliceStable(db.cnames, func(i, j int) bool { return len(db.cnames[i].Suffix) > len(db.cnames[j].Suffix) })
 	for _, a := range raw.ASN {
 		db.asns[a.ASN] = struct{ provider, class string }{a.Provider, a.Class}
 	}
@@ -225,28 +221,34 @@ func Parse(b []byte) (*DB, error) {
 		if d.Suffix == "" || d.Provider == "" {
 			return nil, fmt.Errorf("domains entry %+v needs a suffix and a provider", d)
 		}
-		db.domains = append(db.domains, domainOwner{dnsname.Normalise(d.Suffix), d.Provider})
+		if n := dnsname.Normalise(d.Suffix); db.domains[n] == "" {
+			db.domains[n] = d.Provider
+		}
 	}
-	// Longest suffix first, as for CNAMEs, so a specific service wins.
-	sort.SliceStable(db.domains, func(i, j int) bool { return len(db.domains[i].suffix) > len(db.domains[j].suffix) })
 	return db, nil
 }
 
-// CNAME returns the provider hosting a CNAME target, matching on label boundaries.
-func (db *DB) CNAME(target string) (Match, bool) {
-	e, ok := db.CNAMEEntry(target)
-	return e.Match, ok
+// CNAMEEntry returns the entry of the provider hosting a CNAME target, matching on label
+// boundaries.
+func (db *DB) CNAMEEntry(target string) (Entry, bool) {
+	return longestSuffix(db.cnames, dnsname.Normalise(target))
 }
 
-// CNAMEEntry is CNAME with the whole matched entry.
-func (db *DB) CNAMEEntry(target string) (Entry, bool) {
-	t := dnsname.Normalise(target)
-	for _, c := range db.cnames {
-		if dnsname.Under(t, c.Suffix) {
-			return c, true
+// longestSuffix returns the value of the longest key of m that name is, or is under. Each
+// shorter suffix is tried in turn, so a specific service wins over its provider's generic
+// domain.
+func longestSuffix[V any](m map[string]V, name string) (V, bool) {
+	for {
+		if v, ok := m[name]; ok {
+			return v, true
 		}
+		i := strings.IndexByte(name, '.')
+		if i < 0 {
+			var zero V
+			return zero, false
+		}
+		name = name[i+1:]
 	}
-	return Entry{}, false
 }
 
 func (db *DB) staticRange(a netip.Addr) (addrRange, bool) {
@@ -416,11 +418,5 @@ func (db *DB) Verification(value string) (string, bool) {
 // DomainOwner returns the provider that operates a domain, such as a managed
 // DNS service for its name servers, matching on label boundaries.
 func (db *DB) DomainOwner(name string) (string, bool) {
-	n := dnsname.Normalise(name)
-	for _, d := range db.domains {
-		if dnsname.Under(n, d.suffix) {
-			return d.provider, true
-		}
-	}
-	return "", false
+	return longestSuffix(db.domains, dnsname.Normalise(name))
 }

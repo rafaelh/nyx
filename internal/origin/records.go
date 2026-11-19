@@ -49,13 +49,13 @@ func FrontedHosts(sc *scope.Scope, inv *inventory.Inventory) []Front {
 }
 
 // Pairs derives the candidates of every fronted hostname from the current records: the historical
-// addresses and the probed web services, with at most max candidates for each hostname.
-func Pairs(sc *scope.Scope, inv *inventory.Inventory, records Records, max int) []Pair {
+// addresses and the probed web services, with at most max candidates for each hostname. vis is
+// the caller's showing rules for sc and inv.
+func Pairs(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility, records Records, max int) []Pair {
 	fronts := FrontedHosts(sc, inv)
 	if len(fronts) == 0 {
 		return nil
 	}
-	vis := kinds.NewVisibility(sc, inv)
 	var services []Service
 	probes := map[string]kinds.WebServiceAttrs{} // the https service of each host
 	for _, r := range records(kinds.WebService) {
@@ -74,19 +74,17 @@ func Pairs(sc *scope.Scope, inv *inventory.Inventory, records Records, max int) 
 			probes[a.Host] = a
 		}
 	}
-	fronted := make(map[string]bool, len(fronts))
 	for i := range fronts {
 		fronts[i].Title = probes[fronts[i].Host].Title
-		fronted[fronts[i].Host] = true
 	}
-	// Only a fronted host's history is used, and a fronted host is in scope.
+	// Candidates reads only a fronted host's history, and a fronted host is in scope.
 	var hist []HistoricalAddr
 	for _, r := range records(kinds.HistoricalAddress) {
 		if !r.Current {
 			continue
 		}
 		a := kinds.HistoricalAddress.Attrs(r)
-		if addr, err := netip.ParseAddr(a.Addr); err == nil && fronted[a.Host] {
+		if addr, err := netip.ParseAddr(a.Addr); err == nil {
 			hist = append(hist, HistoricalAddr{Host: a.Host, Addr: addr, LastSeen: a.LastSeen})
 		}
 	}

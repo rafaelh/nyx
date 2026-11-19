@@ -8,6 +8,7 @@ import (
 
 // A TXT value that starts with a listed prefix, in any case, names its platform.
 func TestVerification(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	for value, want := range map[string]string{
 		"google-site-verification=abc":        "Google",
@@ -39,8 +40,11 @@ func TestVerification(t *testing.T) {
 	}
 }
 
-// A name server's domain names its provider when its suffix is listed, on label boundaries.
+// A domain names its provider when its suffix is listed, on label boundaries: a name server's
+// domain, and the mail and SaaS providers, which are listed at their registrable domain so that a
+// record of any depth (an SPF include, an MX host, a CNAME target's suffix) names its provider.
 func TestDomainOwner(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	for name, want := range map[string]string{
 		"ns1.cloudflare.com":            "Cloudflare",
@@ -49,37 +53,7 @@ func TestDomainOwner(t *testing.T) {
 		"ns51.domaincontrol.com":        "GoDaddy",
 		"ns1-01.azure-dns.com":          "Microsoft Azure DNS",
 		"ns-cloud-a1.googledomains.com": "Google Cloud DNS",
-	} {
-		if got, ok := db.DomainOwner(name); !ok || got != want {
-			t.Errorf("DomainOwner(%q) = %q, %v, want %q", name, got, ok, want)
-		}
-	}
-	for _, name := range []string{"ns1.example.net", "notcloudflare.com", "cloudflare.com.evil.test", ""} {
-		if got, ok := db.DomainOwner(name); ok {
-			t.Errorf("DomainOwner(%q) = %q; suffixes match on label boundaries only", name, got)
-		}
-	}
-}
-
-func TestParseTXTAndDomains(t *testing.T) {
-	db, err := provider.Parse([]byte("txt:\n  - {prefix: 'X-Verify=', platform: Example}\ndomains:\n  - {suffix: Dns.Example.Test, provider: ExampleDNS}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p, ok := db.Verification("x-verify=1"); !ok || p != "Example" {
-		t.Errorf("Verification = %q, %v", p, ok)
-	}
-	if p, ok := db.DomainOwner("a.dns.example.test"); !ok || p != "ExampleDNS" {
-		t.Errorf("DomainOwner = %q, %v", p, ok)
-	}
-}
-
-// The mail and SaaS providers are listed at their registrable domain, so a
-// record of any depth (an SPF include, an MX host, a CNAME target's suffix)
-// names its provider, and every SaaS CNAME entry's suffix has an owner.
-func TestDomainOwnerMailAndSaaS(t *testing.T) {
-	db := provider.Default()
-	for name, want := range map[string]string{
+		// Mail and SaaS.
 		"_spf.google.com":                         "Google",
 		"aspmx.l.google.com":                      "Google",
 		"example-com.mail.protection.outlook.com": "Microsoft 365",
@@ -101,9 +75,23 @@ func TestDomainOwnerMailAndSaaS(t *testing.T) {
 			t.Errorf("DomainOwner(%q) = %q, %v, want %q", name, got, ok, want)
 		}
 	}
-	for _, name := range []string{"notgoogle.com", "google.com.evil.test"} {
+	for _, name := range []string{"ns1.example.net", "notcloudflare.com", "cloudflare.com.evil.test", "notgoogle.com", "google.com.evil.test", ""} {
 		if got, ok := db.DomainOwner(name); ok {
-			t.Errorf("DomainOwner(%q) = %q", name, got)
+			t.Errorf("DomainOwner(%q) = %q; suffixes match on label boundaries only", name, got)
 		}
+	}
+}
+
+func TestParseTXTAndDomains(t *testing.T) {
+	t.Parallel()
+	db, err := provider.Parse([]byte("txt:\n  - {prefix: 'X-Verify=', platform: Example}\ndomains:\n  - {suffix: Dns.Example.Test, provider: ExampleDNS}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := db.Verification("x-verify=1"); !ok || p != "Example" {
+		t.Errorf("Verification = %q, %v", p, ok)
+	}
+	if p, ok := db.DomainOwner("a.dns.example.test"); !ok || p != "ExampleDNS" {
+		t.Errorf("DomainOwner = %q, %v", p, ok)
 	}
 }

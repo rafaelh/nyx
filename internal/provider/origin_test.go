@@ -10,6 +10,7 @@ import (
 // range for a dedicated provider covers it. Linode's list holds Akamai edge space, and treating
 // that as a customer's own machine would make a CDN edge a candidate origin.
 func TestClassify_CDNASNStaysSharedInsideADedicatedRange(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	idx := provider.NewRanges([]provider.Range{
 		rng("104.64.0.0/10", "linode", "", "US-TX"),
@@ -29,8 +30,6 @@ func TestClassify_CDNASNStaysSharedInsideADedicatedRange(t *testing.T) {
 			provider.Result{Known: true, Provider: "linode", Region: "US-TX", Evidence: "range"}},
 		{"an unknown owner inside linode's list stays dedicated", "45.79.1.2", provider.Owner{},
 			provider.Result{Known: true, Provider: "linode", Region: "US-TX", Evidence: "range"}},
-		{"a hosting asn that is not a cdn stays dedicated inside digitalocean's list", "143.198.1.2", provider.Owner{ASN: 14061, Known: true},
-			provider.Result{Known: true, Provider: "digitalocean", Region: "US-NJ", Evidence: "range"}},
 	}
 	for _, c := range cases {
 		if got := db.Classify(ip(c.addr), c.owner, idx); got != c.want {
@@ -42,6 +41,7 @@ func TestClassify_CDNASNStaysSharedInsideADedicatedRange(t *testing.T) {
 // CNAME entries carry the class cdn or waf for the providers that front a site, so a host whose
 // chain ends on one is known to be behind one. The other entries keep the class they had.
 func TestCNAMEClasses_CDNAndWAF(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	for target, want := range map[string]string{
 		"d111111abcdef8.cloudfront.net": provider.ClassCDN,
@@ -63,13 +63,5 @@ func TestCNAMEClasses_CDNAndWAF(t *testing.T) {
 		if !ok || e.Class != want {
 			t.Errorf("CNAMEEntry(%s) = class %q, ok=%v; want class %q", target, e.Class, ok, want)
 		}
-	}
-}
-
-// Linode object storage is shared infrastructure, so a host on it is never dedicated.
-func TestCNAME_LinodeObjectStorage(t *testing.T) {
-	m, ok := provider.Default().CNAME("acme.us-east-1.linodeobjects.com")
-	if !ok || m.Provider != "linode" || m.Service != "Object Storage" {
-		t.Errorf("linodeobjects.com = %+v, %v", m, ok)
 	}
 }

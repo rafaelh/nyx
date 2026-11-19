@@ -17,7 +17,7 @@ var (
 	noon = clk()
 )
 
-// harness is a console over two buffers.
+// cons is a console that writes its log to a buffer.
 type cons struct {
 	*report.Console
 	log bytes.Buffer
@@ -53,6 +53,7 @@ func stripEscapes(s string) string {
 // A plain line is HH:MM:SS | LEVEL | message with the level padded to 5, so
 // the message follows the first 19 characters, for every level.
 func TestLinePlain(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		l    report.Level
 		want string
@@ -73,6 +74,7 @@ func TestLinePlain(t *testing.T) {
 // A coloured line is byte for byte the example in the palette document, and its
 // message follows the first 21 cells.
 func TestLineColoured(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 11, 1, 14, 2, 8, 0, time.UTC)
 	want := "\x1b[38;2;124;129;145m14:02:08\x1b[0m\x1b[38;2;74;79;92m │ \x1b[0m" +
 		"\x1b[38;2;236;208;143;48;2;61;52;32m WARN  \x1b[0m\x1b[38;2;74;79;92m │ \x1b[0mrate limited, retrying in 2s"
@@ -92,6 +94,7 @@ func TestLineColoured(t *testing.T) {
 // The second and later lines of a message are indented to the message column,
 // with no timestamp or level.
 func TestLineContinuation(t *testing.T) {
+	t.Parallel()
 	got := report.Line(palette.None, noon, report.Error, "request failed\nTraceback\n  File x")
 	want := "12:00:00 | ERROR | request failed\n" + strings.Repeat(" ", 19) + "Traceback\n" + strings.Repeat(" ", 19) + "  File x"
 	if got != want {
@@ -103,8 +106,10 @@ func TestLineContinuation(t *testing.T) {
 	}
 }
 
-// The console writes a log line for each known event and nothing for an unknown one.
+// The console writes a log line for each known event and nothing for an unknown one. There is
+// no error event: the error line is the CLI's, so an "error" event is unknown too.
 func TestConsoleStreams(t *testing.T) {
+	t.Parallel()
 	c := plain(report.Info)
 	c.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots, 0 orgs, 0 asns, 0 cidrs, 0 exclusions"}))
 	c.Emit(ev("stage", map[string]any{"name": "asn", "state": "running"}))
@@ -112,6 +117,7 @@ func TestConsoleStreams(t *testing.T) {
 	c.Emit(ev("count", map[string]any{"category": "hosts", "n": 1}))
 	c.Emit(ev("warning", map[string]any{"message": "careful"}))
 	c.Emit(ev("nonsense", nil))
+	c.Emit(ev("error", map[string]any{"message": "no inputs", "exit_code": 2}))
 	if n := strings.Count(c.log.String(), "\n"); n != 5 {
 		t.Errorf("%d log lines, want 5 (unknown types print nothing):\n%s", n, c.log.String())
 	}
@@ -120,6 +126,7 @@ func TestConsoleStreams(t *testing.T) {
 // Events map to levels; the minimum level drops lower ones, but never the
 // summary or the error line.
 func TestConsoleLevels(t *testing.T) {
+	t.Parallel()
 	events := []report.Event{
 		ev("run_start", map[string]any{"engagement": "eng"}),
 		ev("stage", map[string]any{"name": "asn", "state": "done", "checks": 2, "failed": 0}),
@@ -153,6 +160,7 @@ func TestConsoleLevels(t *testing.T) {
 
 // Header, stage and count messages keep their text, with no colour in them.
 func TestConsoleMessageText(t *testing.T) {
+	t.Parallel()
 	c := plain(report.Info)
 	c.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots", "passive": true, "authorised": true}))
 	c.Emit(ev("stage", map[string]any{"name": "ports", "state": "not-configured", "reason": "passive-only"}))
@@ -189,6 +197,7 @@ func TestConsoleMessageText(t *testing.T) {
 
 // A found line carries the severity badge after the +; its suffix is gone.
 func TestConsoleFoundLines(t *testing.T) {
+	t.Parallel()
 	found := func(c *cons, f map[string]any) string {
 		c.log.Reset()
 		c.Emit(ev("found", f))
@@ -227,18 +236,10 @@ func TestConsoleFoundLines(t *testing.T) {
 	}
 }
 
-// There is no error event: an unknown type, error included, prints nothing.
-func TestConsoleHasNoErrorEvent(t *testing.T) {
-	p := plain(report.Info)
-	p.Emit(ev("error", map[string]any{"message": "no inputs", "exit_code": 2}))
-	if p.log.Len() != 0 {
-		t.Errorf("an error event printed: %q", p.log.String())
-	}
-}
-
 // Target-supplied escapes, titles, newlines and bidi controls never reach
 // the log, and a long message stays on one line.
 func TestConsoleSanitises(t *testing.T) {
+	t.Parallel()
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
 	long := strings.Repeat("a", 500)
 	events := []report.Event{
@@ -280,6 +281,7 @@ func TestConsoleSanitises(t *testing.T) {
 
 // The redactor wrapper scrubs every string in an event, including nested ones.
 func TestRedactingEmitter(t *testing.T) {
+	t.Parallel()
 	var w report.Warnings
 	em := report.WithRedactor(&w, config.NewRedactor("SEKRET"))
 	em.Emit(ev("warning", map[string]any{"message": "GET /?k=SEKRET failed", "extra": []map[string]any{{"x": "SEKRET"}}}))
@@ -291,6 +293,7 @@ func TestRedactingEmitter(t *testing.T) {
 
 // Only passes one event type, and Tee sends each event to both emitters.
 func TestOnlyAndTee(t *testing.T) {
+	t.Parallel()
 	var w report.Warnings
 	var logb bytes.Buffer
 	console := report.NewConsole(report.ConsoleOptions{Log: &logb, Min: report.Debug, Clock: clk, Location: time.UTC})
@@ -309,6 +312,7 @@ func TestOnlyAndTee(t *testing.T) {
 // The palette sheet has every entry of every table, a line per level and a
 // continuation line, through the formatter.
 func TestSheet(t *testing.T) {
+	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		var buf bytes.Buffer
 		report.Sheet(&buf, d, clk().In(time.UTC))

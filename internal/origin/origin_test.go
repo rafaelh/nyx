@@ -104,6 +104,7 @@ var (
 // or whose non-empty title equals the fronted host's. Historical addresses come first, most
 // recent first, then siblings in name order; a candidate found two ways has both.
 func TestCandidates_SelectionAndOrder(t *testing.T) {
+	t.Parallel()
 	inv, sc := standard().build()
 	hist := []origin.HistoricalAddr{
 		{Host: "www.example.com", Addr: ip("203.0.113.21"), LastSeen: "2024-05-05"},
@@ -164,6 +165,7 @@ func TestCandidates_SelectionAndOrder(t *testing.T) {
 
 // At most max candidates are kept for each fronted host: the first in the order above.
 func TestCandidates_CapKeepsTheFirst(t *testing.T) {
+	t.Parallel()
 	inv, sc := standard().build()
 	hist := []origin.HistoricalAddr{
 		{Host: "www.example.com", Addr: ip("203.0.113.21"), LastSeen: "2024-05-05"},
@@ -191,6 +193,7 @@ func TestCandidates_CapKeepsTheFirst(t *testing.T) {
 // A sibling matches on a title only when the title is not empty and is not one a CDN, a WAF or a
 // default server page shows: every host on the same default page would match otherwise.
 func TestCandidates_TitleMatchNeedsARealTitle(t *testing.T) {
+	t.Parallel()
 	inv, sc := standard().build()
 	for _, title := range []string{"", "Welcome to nginx!", "Attention Required! | Cloudflare"} {
 		svcs := []origin.Service{{Host: "title.example.com", Title: title, Names: []string{"title.example.com"}}}
@@ -204,6 +207,7 @@ func TestCandidates_TitleMatchNeedsARealTitle(t *testing.T) {
 // A sibling's service on either scheme counts, and several services of one sibling give its
 // address once.
 func TestCandidates_SiblingAddressesOnce(t *testing.T) {
+	t.Parallel()
 	inv, sc := standard().build()
 	svcs := []origin.Service{
 		{Host: "title.example.com", Title: "Acme", Names: nil},
@@ -217,6 +221,7 @@ func TestCandidates_SiblingAddressesOnce(t *testing.T) {
 
 // A fronted host's own address, and a host that is no longer fronted, give no candidates.
 func TestCandidates_NothingForAHostThatIsNotFronted(t *testing.T) {
+	t.Parallel()
 	inv, sc := standard().build()
 	if got := origin.Candidates(nil, []origin.HistoricalAddr{{Host: "www.example.com", Addr: ip("203.0.113.22")}}, acmeSvc, inv, sc, 5); len(got) != 0 {
 		t.Errorf("no fronted host, got %v", addrs(got))
@@ -224,6 +229,7 @@ func TestCandidates_NothingForAHostThatIsNotFronted(t *testing.T) {
 }
 
 func TestConfirmed(t *testing.T) {
+	t.Parallel()
 	probe := origin.Probe{Status: 200, Title: "Acme Corp", BodyLen: 1000}
 	for _, c := range []struct {
 		name string
@@ -262,6 +268,7 @@ func TestConfirmed(t *testing.T) {
 }
 
 func TestDefaultTitle(t *testing.T) {
+	t.Parallel()
 	for title, want := range map[string]bool{
 		"Attention Required! | Cloudflare":      true,
 		"Just a moment...":                      true,
@@ -288,6 +295,7 @@ func TestDefaultTitle(t *testing.T) {
 
 // A certificate names a host by the host itself or by a wildcard standing for its first label.
 func TestCertNames(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		names []string
 		host  string

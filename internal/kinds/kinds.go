@@ -64,13 +64,16 @@ func (k Kind) scoped() bool {
 }
 
 // The changes.csv labels other packages read: those of the entity categories
-// (see Visibility.ChangeLabel) and the finding's.
+// (see Visibility.ChangeLabel), and those of the kinds the summary counts.
 const (
-	LabelHostname  = "hostname"
-	LabelCandidate = "candidate"
-	LabelExcluded  = "excluded"
-	LabelNetblock  = "netblock"
-	LabelFinding   = "finding"
+	LabelHostname   = "hostname"
+	LabelCandidate  = "candidate"
+	LabelExcluded   = "excluded"
+	LabelNetblock   = "netblock"
+	LabelFinding    = "finding"
+	LabelAddress    = "address"
+	LabelWebService = "web service"
+	LabelOpenPort   = "open port"
 )
 
 // Summary categories of entity kinds.

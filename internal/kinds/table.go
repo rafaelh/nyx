@@ -42,7 +42,7 @@ type ExcludedAttrs struct {
 // DNS and address inventory.
 var (
 	Resolution    = define[ResolutionAttrs](Kind{Name: "resolution", Change: "resolution"})
-	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Change: "address"})
+	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Change: LabelAddress})
 	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Change: "unresolved name"})
 	Wildcard      = define[WildcardAttrs](Kind{Name: "wildcard"})
 	IPOwner       = define[IPOwnerAttrs](Kind{Name: "ip_owner"})
@@ -95,7 +95,7 @@ type ProviderRangeAttrs struct {
 
 // Web.
 var (
-	WebService = define[WebServiceAttrs](Kind{Name: "web_service", Singular: "web service", Category: "web services", Printed: true, HostAttr: "host", Change: "web service"})
+	WebService = define[WebServiceAttrs](Kind{Name: "web_service", Singular: "web service", Category: "web services", Printed: true, HostAttr: "host", Change: LabelWebService})
 	HTTPPort   = define[HTTPPortAttrs](Kind{Name: "http_port"})
 	URL        = define[URLAttrs](Kind{Name: "url", Singular: "url", Category: "urls", HostAttr: "host", Change: "url"})
 )
@@ -178,7 +178,7 @@ type URLAttrs struct {
 }
 
 // Ports.
-var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true, Change: "open port"})
+var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true, Change: LabelOpenPort})
 
 // OpenPortAttrs: an open TCP port and the banner it sent unprompted, escaped
 // with strconv.Quote's rules and without the quotes.

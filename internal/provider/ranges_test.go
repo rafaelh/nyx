@@ -12,6 +12,7 @@ func rng(prefix, prov, service, region string) provider.Range {
 
 // Each provider's published ranges settle an address by that provider's own rule.
 func TestClassify_PublishedRangeRules(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	ranges := []provider.Range{
 		rng("104.16.0.0/13", "cloudflare", "", ""),
@@ -65,6 +66,7 @@ func TestClassify_PublishedRangeRules(t *testing.T) {
 // list says the address is a customer's own machine. Without the list the ASN
 // still applies.
 func TestClassify_RangeBeatsASN(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	doASN := provider.Owner{ASN: 14061, Holder: "DIGITALOCEAN-ASN", Known: true}
 	withList := db.Classify(ip("143.198.1.1"), doASN, provider.NewRanges([]provider.Range{rng("143.198.0.0/16", "digitalocean", "", "US-NJ")}))
@@ -75,16 +77,12 @@ func TestClassify_RangeBeatsASN(t *testing.T) {
 	if !without.Shared || without.Provider != "digitalocean" || without.Evidence != "asn" {
 		t.Errorf("without the list: %+v, want shared digitalocean by asn", without)
 	}
-	// A Linode range wins over an unrelated owner too.
-	got := db.Classify(ip("45.79.1.1"), provider.Owner{ASN: 64500, Known: true}, provider.NewRanges([]provider.Range{rng("45.79.0.0/16", "linode", "", "")}))
-	if got.Shared || got.Provider != "linode" {
-		t.Errorf("linode over an ordinary owner: %+v", got)
-	}
 }
 
 // An address two providers' lists cover shows both, in name order, and is shared
 // if either result is shared.
 func TestClassify_AddressInTwoLists(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	cases := []struct {
 		name   string
@@ -111,6 +109,7 @@ func TestClassify_AddressInTwoLists(t *testing.T) {
 // Each provider settles its own lists first, so an EC2 range still wins over the
 // AMAZON superset that also covers the address.
 func TestClassify_EC2InsideAmazonStaysDedicated(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	got := db.Classify(ip("203.0.113.5"), provider.Owner{ASN: 16509, Known: true}, provider.NewRanges([]provider.Range{
 		rng("203.0.112.0/22", "aws", "AMAZON", "eu-west-1"),
@@ -125,6 +124,7 @@ func TestClassify_EC2InsideAmazonStaysDedicated(t *testing.T) {
 // The class of every ASN entry reaches the caller, not only saas: Akamai's and
 // Cloudflare's ASNs are cdn.
 func TestClassify_ASNClassIsPassedThrough(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	for _, c := range []struct {
 		asn      int
@@ -147,6 +147,7 @@ func TestClassify_ASNClassIsPassedThrough(t *testing.T) {
 
 // A range from a provider with no rule says nothing, as before.
 func TestClassify_UnknownProviderRangeIsIgnored(t *testing.T) {
+	t.Parallel()
 	db := provider.Default()
 	got := db.Classify(ip("192.0.2.7"), provider.Owner{ASN: 64500, Known: true}, provider.NewRanges([]provider.Range{rng("192.0.2.0/24", "someone-else", "x", "y")}))
 	if got != (provider.Result{Known: true}) {

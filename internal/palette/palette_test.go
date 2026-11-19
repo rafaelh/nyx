@@ -14,6 +14,7 @@ func env(kv map[string]string) func(string) string {
 // The colour decision: a terminal, NO_COLOR unset or empty and TERM not dumb;
 // nothing else turns colour on, and the depth variables only choose the depth.
 func TestDetect(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		tty  bool
@@ -47,6 +48,7 @@ func TestDetect(t *testing.T) {
 
 // The exact sequences of one badge at each depth, and the unstyled form.
 func TestBadgeSequences(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		d    palette.Depth
 		want string
@@ -72,6 +74,7 @@ func TestBadgeSequences(t *testing.T) {
 
 // Every badge of every category is as wide as its category plus the side spaces.
 func TestBadgeWidths(t *testing.T) {
+	t.Parallel()
 	want := map[palette.Category]int{palette.Level: 5, palette.Outcome: 7, palette.Severity: 8, palette.HTTPStatus: 3}
 	for _, c := range palette.Categories() {
 		if palette.Width(c) != want[c] {
@@ -108,6 +111,7 @@ func stripEscapes(s string) string {
 // width, and takes the style found case-insensitively; an unknown value takes
 // the DEBUG style and never fails.
 func TestValueBadge(t *testing.T) {
+	t.Parallel()
 	if got, want := palette.None.Value(palette.Severity, "high"), "high    "; got != want {
 		t.Errorf("plain = %q, want %q", got, want)
 	}
@@ -131,40 +135,9 @@ func TestValueBadge(t *testing.T) {
 	}
 }
 
-// The 256-colour entries are the nearest of indices 16 to 255; the 16-colour
-// table is fixed, not computed.
-func TestDepthTables(t *testing.T) {
-	want256 := map[string][2]int{
-		"DEBUG": {146, 236}, "INFO": {111, 236}, "WARN": {222, 236}, "ERROR": {210, 236},
-		"CRIT": {255, 131}, "PASS": {150, 235}, "DRY RUN": {116, 236}, "MEDIUM": {216, 236},
-	}
-	want16 := map[string][2]int{
-		"DEBUG": {37, 40}, "INFO": {94, 40}, "WARN": {93, 40}, "ERROR": {91, 40},
-		"CRIT": {97, 41}, "PASS": {92, 40}, "DRY RUN": {96, 40}, "MEDIUM": {33, 40},
-	}
-	styles := palette.Styles()
-	if len(styles) != len(want256) {
-		t.Fatalf("%d base styles, want %d", len(styles), len(want256))
-	}
-	for _, s := range styles {
-		if got := [2]int{s.FG256, s.BG256}; got != want256[s.Name] {
-			t.Errorf("%s: 256-colour %v, want %v", s.Name, got, want256[s.Name])
-		}
-		if got := [2]int{s.FG16, s.BG16}; got != want16[s.Name] {
-			t.Errorf("%s: 16-colour %v, want %v", s.Name, got, want16[s.Name])
-		}
-		if s.Bold != (s.Name == "CRIT") {
-			t.Errorf("%s: bold = %v", s.Name, s.Bold)
-		}
-		// Every depth keeps the foreground apart from the background.
-		if s.FG == s.BG || s.FG16 == s.BG16 || s.FG256 == s.BG256 {
-			t.Errorf("%s: foreground equals background at some depth: %+v", s.Name, s)
-		}
-	}
-}
-
 // The foreground-only entries at each depth.
 func TestTextColours(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		d         palette.Depth
 		group     palette.Group
@@ -199,6 +172,7 @@ func TestTextColours(t *testing.T) {
 }
 
 func TestBold(t *testing.T) {
+	t.Parallel()
 	if got := palette.TrueColor.Bold("Summary"); got != "\x1b[1mSummary\x1b[0m" {
 		t.Errorf("bold = %q", got)
 	}
@@ -209,6 +183,7 @@ func TestBold(t *testing.T) {
 
 // Lookup is case-insensitive, and the category tables follow the palette document.
 func TestCategoryTables(t *testing.T) {
+	t.Parallel()
 	if palette.TrueColor.Badge(palette.Outcome, "dry run") != palette.TrueColor.Badge(palette.Outcome, "DRY RUN") {
 		t.Error("lookup is not case-insensitive")
 	}

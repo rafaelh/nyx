@@ -48,10 +48,7 @@ func fixedEnvelope() report.Envelope {
 // The envelope of a fixed run is one compact line with every key, in order.
 func TestEnvelope_ExactBytes(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
-	if err := report.WriteEnvelope(&buf, fixedEnvelope()); err != nil {
-		t.Fatal(err)
-	}
+	out := encode(t, fixedEnvelope())
 	want := `{"data":{"engagement":"acme","directory":"/tmp/acme",` +
 		`"counts":[{"category":"hosts","n":3},{"category":"urls","n":2}],` +
 		`"failed_checks":[{"stage":"dns","n":1}],` +
@@ -64,7 +61,7 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 		`"changes":{"counts":[{"kind":"hostname","change":"new","n":2}],` +
 		`"findings":[{"severity":"high","category":"exposed-admin","target":"https://a.example.com/admin","detail":"login <page> & more"}]}},` +
 		`"meta":{"count":1,"deadline_exceeded":true,"checks_completed":5,"checks_cancelled":2,"warnings":["w"]}}` + "\n"
-	if got := buf.String(); got != want {
+	if got := out; got != want {
 		t.Errorf("envelope\n got %s\nwant %s", got, want)
 	}
 }
@@ -73,14 +70,11 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 // run's changes. The zero Envelope has that shape too.
 func TestEnvelope_ZeroValueShape(t *testing.T) {
 	t.Parallel()
-	var buf bytes.Buffer
-	if err := report.WriteEnvelope(&buf, report.Envelope{}); err != nil {
-		t.Fatal(err)
-	}
+	out := encode(t, report.Envelope{})
 	want := `{"data":{"engagement":"","directory":"","counts":[],"failed_checks":[],"deferred":[],"not_configured":[],` +
 		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"notes":[],"changes":null},` +
 		`"meta":{"count":0,"deadline_exceeded":false,"checks_completed":0,"checks_cancelled":0,"warnings":[]}}` + "\n"
-	if got := buf.String(); got != want {
+	if got := out; got != want {
 		t.Errorf("zero envelope\n got %s\nwant %s", got, want)
 	}
 }
@@ -93,16 +87,8 @@ func TestEnvelope_NestedNilListsAreEmpty(t *testing.T) {
 		Findings:   []report.FindingRow{{Severity: "high", Category: "c", Target: "t"}},
 		Changes:    &report.Changes{},
 	}}
-	var buf bytes.Buffer
-	if err := report.WriteEnvelope(&buf, env); err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
-	for _, w := range []string{`"sources":[]`, `"detail":null`, `"changes":{"counts":[],"findings":[]}`} {
-		if !strings.Contains(out, w) {
-			t.Errorf("missing %s in %s", w, out)
-		}
-	}
+	out := encode(t, env)
+	containsAll(t, out, `"sources":[]`, `"detail":null`, `"changes":{"counts":[],"findings":[]}`)
 	if strings.Contains(out, `"sources":null`) || strings.Contains(out, `"counts":null`) {
 		t.Errorf("a nil list was written as null: %s", out)
 	}
@@ -129,11 +115,7 @@ func TestEnvelope_WriteLeavesTheValueAlone(t *testing.T) {
 func TestEnvelope_DoesNotEscapeHTML(t *testing.T) {
 	t.Parallel()
 	env := report.Envelope{Meta: report.Meta{Warnings: []string{"a <b> & c > d"}}}
-	var buf bytes.Buffer
-	if err := report.WriteEnvelope(&buf, env); err != nil {
-		t.Fatal(err)
-	}
-	out := buf.String()
+	out := encode(t, env)
 	if !strings.Contains(out, `"a <b> & c > d"`) || strings.Contains(out, `\u00`) {
 		t.Errorf("HTML characters were escaped: %s", out)
 	}
@@ -141,7 +123,7 @@ func TestEnvelope_DoesNotEscapeHTML(t *testing.T) {
 		t.Errorf("not one newline-terminated line: %q", out)
 	}
 	var back report.Envelope
-	if err := json.Unmarshal(buf.Bytes(), &back); err != nil || back.Meta.Warnings[0] != "a <b> & c > d" {
+	if err := json.Unmarshal([]byte(out), &back); err != nil || back.Meta.Warnings[0] != "a <b> & c > d" {
 		t.Errorf("round trip: %v %+v", err, back)
 	}
 }
@@ -192,14 +174,11 @@ func TestEnvelope_MapMasksEveryString(t *testing.T) {
 	orig := secretEnvelope()
 	got := orig.Map(mask)
 
-	var buf bytes.Buffer
-	if err := report.WriteEnvelope(&buf, got); err != nil {
-		t.Fatal(err)
+	out := encode(t, got)
+	if strings.Contains(out, "SEKRET") {
+		t.Errorf("a string was not mapped: %s", out)
 	}
-	if strings.Contains(buf.String(), "SEKRET") {
-		t.Errorf("a string was not mapped: %s", buf.String())
-	}
-	if n := strings.Count(buf.String(), "****"); n != strings.Count(mustJSON(t, orig), "SEKRET") {
+	if n := strings.Count(out, "****"); n != strings.Count(mustJSON(t, orig), "SEKRET") {
 		t.Errorf("%d masked strings, want one for each of the original's", n)
 	}
 	if !reflect.DeepEqual(orig, secretEnvelope()) {
@@ -209,6 +188,16 @@ func TestEnvelope_MapMasksEveryString(t *testing.T) {
 	if got.Meta.Count != 1 || got.Data.CandidatesTotal != 1 || got.Data.Counts[0].N != 1 {
 		t.Errorf("numbers lost: %+v", got)
 	}
+}
+
+// encode is the envelope as WriteEnvelope writes it.
+func encode(t *testing.T, env report.Envelope) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := report.WriteEnvelope(&buf, env); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
 }
 
 func mustJSON(t *testing.T, env report.Envelope) string {

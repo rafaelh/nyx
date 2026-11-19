@@ -45,11 +45,11 @@ func Detect(isTerminal bool, getenv func(string) string) Depth {
 	return Color16
 }
 
-// Style is a base badge style: 24-bit foreground and background, the nearest
+// badgeStyle is a base badge style: 24-bit foreground and background, the nearest
 // 256-colour entries, and the fixed 16-colour codes. The 16-colour pair is the
 // bright colour of the style's hue on black, not the nearest of the 16 (which
 // would make most badges grey on black).
-type Style struct {
+type badgeStyle struct {
 	fgStyle
 	Name  string
 	BG    [3]uint8
@@ -65,8 +65,8 @@ type fgStyle struct {
 	FG256 int // xterm index 16 to 255
 }
 
-func base(name string, fg, bg [3]uint8, bold bool, fg16, bg16 int) Style {
-	return Style{fgStyle: fgOnly(fg, fg16), Name: name, BG: bg, Bold: bold, BG16: bg16, BG256: nearest256(bg)}
+func base(name string, fg, bg [3]uint8, bold bool, fg16, bg16 int) badgeStyle {
+	return badgeStyle{fgStyle: fgOnly(fg, fg16), Name: name, BG: bg, Bold: bold, BG16: bg16, BG256: nearest256(bg)}
 }
 
 func fgOnly(fg [3]uint8, fg16 int) fgStyle {
@@ -74,7 +74,7 @@ func fgOnly(fg [3]uint8, fg16 int) fgStyle {
 }
 
 // The base badge styles.
-var styles = []Style{
+var styles = []badgeStyle{
 	base("DEBUG", [3]uint8{169, 177, 198}, [3]uint8{42, 47, 58}, false, 37, 40),
 	base("INFO", [3]uint8{143, 179, 255}, [3]uint8{31, 44, 77}, false, 94, 40),
 	base("WARN", [3]uint8{236, 208, 143}, [3]uint8{61, 52, 32}, false, 93, 40),
@@ -85,10 +85,7 @@ var styles = []Style{
 	base("MEDIUM", [3]uint8{240, 180, 124}, [3]uint8{69, 48, 28}, false, 33, 40),
 }
 
-// Styles lists the base badge styles.
-func Styles() []Style { return append([]Style(nil), styles...) }
-
-func styleNamed(name string) Style {
+func styleNamed(name string) badgeStyle {
 	for _, s := range styles {
 		if s.Name == name {
 			return s
@@ -108,7 +105,20 @@ const (
 	HTTPStatus Category = "http_status"
 )
 
-type label struct{ name, style string }
+// label is a badge label and its style.
+type label struct {
+	name  string
+	style badgeStyle
+}
+
+// labels pairs each label with the base style it takes.
+func labels(pairs ...string) []label {
+	out := make([]label, 0, len(pairs)/2)
+	for i := 0; i < len(pairs); i += 2 {
+		out = append(out, label{pairs[i], styleNamed(pairs[i+1])})
+	}
+	return out
+}
 
 type table struct {
 	cat    Category
@@ -116,10 +126,10 @@ type table struct {
 }
 
 var tables = []table{
-	{Level, []label{{"DEBUG", "DEBUG"}, {"INFO", "INFO"}, {"WARN", "WARN"}, {"ERROR", "ERROR"}, {"CRIT", "CRIT"}}},
-	{Outcome, []label{{"PASS", "PASS"}, {"FAIL", "ERROR"}, {"SKIP", "WARN"}, {"DRY RUN", "DRY RUN"}}},
-	{Severity, []label{{"CRITICAL", "CRIT"}, {"HIGH", "ERROR"}, {"MEDIUM", "MEDIUM"}, {"LOW", "WARN"}, {"INFO", "INFO"}}},
-	{HTTPStatus, []label{{"2xx", "PASS"}, {"3xx", "DEBUG"}, {"4xx", "WARN"}, {"5xx", "ERROR"}}},
+	{Level, labels("DEBUG", "DEBUG", "INFO", "INFO", "WARN", "WARN", "ERROR", "ERROR", "CRIT", "CRIT")},
+	{Outcome, labels("PASS", "PASS", "FAIL", "ERROR", "SKIP", "WARN", "DRY RUN", "DRY RUN")},
+	{Severity, labels("CRITICAL", "CRIT", "HIGH", "ERROR", "MEDIUM", "MEDIUM", "LOW", "WARN", "INFO", "INFO")},
+	{HTTPStatus, labels("2xx", "PASS", "3xx", "DEBUG", "4xx", "WARN", "5xx", "ERROR")},
 }
 
 func tableOf(c Category) table {
@@ -160,16 +170,16 @@ func Width(c Category) int {
 
 // styleOf finds the style of a label, case-insensitively. A label the category
 // does not hold gets the DEBUG style.
-func styleOf(c Category, name string) (canonical string, s Style) {
+func styleOf(c Category, name string) (canonical string, s badgeStyle) {
 	for _, l := range tableOf(c).labels {
 		if strings.EqualFold(l.name, name) {
-			return l.name, styleNamed(l.style)
+			return l.name, l.style
 		}
 	}
-	return name, styleNamed("DEBUG")
+	return name, styles[0] // DEBUG
 }
 
-func (d Depth) badge(c Category, text string, s Style) string {
+func (d Depth) badge(c Category, text string, s badgeStyle) string {
 	padded := fmt.Sprintf("%-*s", Width(c), text)
 	if d == None {
 		return padded
@@ -177,7 +187,7 @@ func (d Depth) badge(c Category, text string, s Style) string {
 	return d.wrap(d.badgeParams(s), " "+padded+" ")
 }
 
-func (d Depth) badgeParams(s Style) string {
+func (d Depth) badgeParams(s badgeStyle) string {
 	p := d.fgParams(s.fgStyle) + ";"
 	switch d {
 	case TrueColor:

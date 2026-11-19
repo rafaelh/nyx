@@ -89,11 +89,7 @@ func TestWriteSummary_CountColumnWidth(t *testing.T) {
 		Counts:       []report.CountRow{{Category: "a very long category", N: 1}, {Category: "b", N: 22}},
 		FailedChecks: []report.StageCount{{Stage: "dns", N: 3}},
 	}))
-	for _, w := range []string{"  a very long category 1\n", "  b                    22\n", "  dns              3\n"} {
-		if !strings.Contains(got, w) {
-			t.Errorf("missing %q in\n%s", w, got)
-		}
-	}
+	containsAll(t, got, "  a very long category 1\n", "  b                    22\n", "  dns              3\n")
 }
 
 // Rows come out in the order given: the caller sorts them.
@@ -114,11 +110,7 @@ func TestWriteSummary_NotesAndUnconfirmedRiskyPorts(t *testing.T) {
 		Notes:                 []string{"shodan: the search of 198.51.100.0/24 was truncated at 10 pages"},
 		UnconfirmedRiskyPorts: 3,
 	}))
-	for _, w := range []string{"  shodan: the search of 198.51.100.0/24 was truncated at 10 pages\n", "  3 risky ports reported by Shodan, unconfirmed\n"} {
-		if !strings.Contains(out, w) {
-			t.Errorf("missing %q in\n%s", w, out)
-		}
-	}
+	containsAll(t, out, "  shodan: the search of 198.51.100.0/24 was truncated at 10 pages\n", "  3 risky ports reported by Shodan, unconfirmed\n")
 	out = writeSummary(palette.None, withData(report.Summary{Counts: []report.CountRow{{Category: "hosts", N: 1}}}))
 	if strings.Contains(out, "risky ports reported") {
 		t.Errorf("a zero count printed a line:\n%s", out)
@@ -241,15 +233,11 @@ func TestWriteSummary_CandidatesOverTheCap(t *testing.T) {
 	}
 	rows[0] = report.CandidateRow{Kind: "netblock", Value: "198.51.100.0/24", Sources: []string{"crtsh"}, EvidenceCount: 3, Confidence: "high", Promote: "--cidr 198.51.100.0/24"}
 	out := writeSummary(palette.None, withData(report.Summary{Candidates: rows, CandidatesTotal: 22}))
-	for _, w := range []string{
+	containsAll(t, out,
 		"  198.51.100.0/24  3 evidence (crtsh)  promote: --cidr 198.51.100.0/24\n",
 		"  t.org  2 evidence (crtsh;whoisxml)  promote: t.org\n",
 		"  and 2 more in candidates.csv\n",
-	} {
-		if !strings.Contains(out, w) {
-			t.Errorf("missing %q in\n%s", w, out)
-		}
-	}
+	)
 	if strings.Contains(out, "u.org") {
 		t.Errorf("a row past the list was printed:\n%s", out)
 	}
@@ -280,11 +268,7 @@ func TestWriteSummary_CandidateSources(t *testing.T) {
 		{Value: "a.org", Sources: []string{"x", "y", "z"}, EvidenceCount: 3, Promote: "-d a.org"},
 		{Value: "b.org", EvidenceCount: 1, Promote: "-d b.org"},
 	}, CandidatesTotal: 2}))
-	for _, w := range []string{"  a.org  3 evidence (x;y;z)  promote: -d a.org\n", "  b.org  1 evidence ()  promote: -d b.org\n"} {
-		if !strings.Contains(out, w) {
-			t.Errorf("missing %q in\n%s", w, out)
-		}
-	}
+	containsAll(t, out, "  a.org  3 evidence (x;y;z)  promote: -d a.org\n", "  b.org  1 evidence ()  promote: -d b.org\n")
 }
 
 // The block ends the summary and has seven lines, zeros included. Returned
@@ -400,5 +384,15 @@ func TestWriteSummary_LeavesTheEnvelopeAlone(t *testing.T) {
 	writeSummary(palette.None, env)
 	if !reflect.DeepEqual(env, secretEnvelope()) {
 		t.Error("WriteSummary changed the envelope")
+	}
+}
+
+// containsAll reports each of wants that out does not contain.
+func containsAll(t *testing.T, out string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in\n%s", w, out)
+		}
 	}
 }

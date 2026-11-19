@@ -21,6 +21,8 @@ const (
 	siblingTitle       = "sibling-title"
 )
 
+var howOrder = []string{historical, siblingCertificate, siblingTitle}
+
 // Front is an in-scope hostname behind a CDN or WAF: the provider and the title its probe saw.
 type Front struct{ Host, Provider, Title string }
 
@@ -86,7 +88,9 @@ func Candidates(fronts []Front, hist []HistoricalAddr, services []Service, inv *
 			}
 		}
 		for i := range c.found {
-			slices.SortStableFunc(c.found[i].Found, func(a, b string) int { return howRank(a) - howRank(b) })
+			slices.SortStableFunc(c.found[i].Found, func(a, b string) int {
+				return cmp.Compare(slices.Index(howOrder, a), slices.Index(howOrder, b))
+			})
 		}
 		out = append(out, c.found...)
 	}
@@ -174,16 +178,6 @@ func (c *candidateSet) add(a netip.Addr, how string) {
 	}
 	c.at[a] = len(c.found)
 	c.found = append(c.found, Candidate{Host: c.front.Host, Provider: c.front.Provider, Addr: a, Found: []string{how}, Contactable: c.inv.PortEligible(a, c.sc)})
-}
-
-func howRank(how string) int {
-	switch how {
-	case historical:
-		return 0
-	case siblingCertificate:
-		return 1
-	}
-	return 2
 }
 
 // Probe is what the probe saw of a fronted hostname: its status, title and body length.

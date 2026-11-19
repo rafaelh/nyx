@@ -348,7 +348,7 @@ func (v View) FrontedHostnames() []string {
 // OriginPairs are the candidate origins of the fronted hostnames, at most
 // origincheck.max_candidates for each: the same pairs the findings report.
 func (v View) OriginPairs() []origin.Pair {
-	return origin.Pairs(v.sc, v.inv, v.Records, v.Settings().OriginCheck.MaxCandidates)
+	return origin.Pairs(v.sc, v.inv, kinds.NewVisibility(v.sc, v.inv), v.Records, v.Settings().OriginCheck.MaxCandidates)
 }
 
 // StorageRefs are the buckets and containers in-scope names and pages point at,

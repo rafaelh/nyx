@@ -8,6 +8,7 @@ import (
 )
 
 func TestTokens(t *testing.T) {
+	t.Parallel()
 	for org, want := range map[string][]string{
 		"Acme Pty Ltd":         {"acme"},
 		"Acme, Inc.":           {"acme"},
@@ -25,6 +26,7 @@ func TestTokens(t *testing.T) {
 // A name matches when it contains every word of the organisation, whatever
 // else it holds. An organisation with no words matches nothing.
 func TestMatches(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		org, name string
 		want      bool
