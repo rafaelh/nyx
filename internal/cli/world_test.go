@@ -49,7 +49,7 @@ func missingStorage(pattern string) http.HandlerFunc {
 	}
 	return func(rw http.ResponseWriter, r *http.Request) {
 		rw.Header().Set("Content-Type", "application/xml")
-		rw.WriteHeader(404)
+		rw.WriteHeader(http.StatusNotFound)
 		if r.Method != http.MethodHead {
 			_, _ = rw.Write([]byte(body))
 		}
@@ -80,7 +80,10 @@ type world struct {
 	probe      *testkit.Stage
 }
 
-func newWorld(t *testing.T) *world { return newWorldWith(t) }
+func newWorld(t *testing.T) *world {
+	t.Helper()
+	return newWorldWith(t)
+}
 
 // newWorldWith is newWorld with the named risk stages kept in the stage list.
 func newWorldWith(t *testing.T, keep ...string) *world {
@@ -119,7 +122,7 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 	w.h.eopts.ResolverAddrs = []string{w.dns.Addr}
 	w.h.eopts.SourceBaseURLs = map[string]string{}
 	for _, p := range sourcePatterns {
-		h := http.HandlerFunc(http.NotFound)
+		var h http.HandlerFunc = http.NotFound
 		switch {
 		case strings.Contains(p, "amazonaws.com") && !strings.HasPrefix(p, "ip-ranges") || strings.Contains(p, "googleapis.com") || strings.Contains(p, "blob.core.windows.net"):
 			h = missingStorage(p)
@@ -302,7 +305,7 @@ func (w *world) commonCrawl(id string, urls ...string) {
 
 // ccPastLastPage is the Common Crawl index's answer to a page beyond last.
 func ccPastLastPage(rw http.ResponseWriter, r *http.Request, last int) {
-	rw.WriteHeader(400)
+	rw.WriteHeader(http.StatusBadRequest)
 	fmt.Fprintf(rw, `{"message": "Page %s invalid: First Page is 0, Last Page is %d"}`, r.URL.Query().Get("page"), last)
 }
 

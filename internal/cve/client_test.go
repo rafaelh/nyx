@@ -3,6 +3,7 @@ package cve
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -112,7 +113,7 @@ func TestClient_Found(t *testing.T) {
 			t.Errorf("record %s", got)
 		}
 		r := f.reqs[0]
-		if r.Method != "GET" || r.URL != "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2021-44228" || r.Accept != "application/json" {
+		if r.Method != http.MethodGet || r.URL != "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2021-44228" || r.Accept != "application/json" {
 			t.Errorf("request %+v", r)
 		}
 		if keyed != (r.KeySource == "nvd" && r.KeyHeader == "apiKey") || !keyed && (r.KeySource != "" || r.KeyHeader != "") {

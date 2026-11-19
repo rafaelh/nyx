@@ -11,6 +11,7 @@ import (
 // domain, only while that domain is not. The rule is read-time: a root added
 // later hides the row.
 func TestThirdPartyShown(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		excl []string
@@ -32,6 +33,7 @@ func TestThirdPartyShown(t *testing.T) {
 }
 
 func TestThirdPartyCountedAndPrinted(t *testing.T) {
+	t.Parallel()
 	k, ok := kinds.Get("third_party")
 	if !ok || k.Category != "third parties" || k.Singular != "third party" || !k.Printed || k.Entity {
 		t.Fatalf("third_party = %+v, %v", k, ok)
@@ -57,6 +59,7 @@ func TestThirdPartyCountedAndPrinted(t *testing.T) {
 
 // A third party describes its own found line.
 func TestThirdPartyFound(t *testing.T) {
+	t.Parallel()
 	k, _ := kinds.Get("third_party")
 	if k.Found == nil {
 		t.Fatal("third_party has no Found")
@@ -81,6 +84,7 @@ func TestThirdPartyFound(t *testing.T) {
 // A record that is no longer current keeps no attributes, so its root,
 // mechanism and domain (and the provider that domain belongs to) come from its key.
 func TestThirdPartyOfKeyFallback(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		key            string
 		mechanism, dom string

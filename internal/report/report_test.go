@@ -142,7 +142,7 @@ func TestConsoleLevels(t *testing.T) {
 			c.Emit(e)
 		}
 		var out []string
-		for _, l := range strings.Split(strings.TrimSpace(c.log.String()), "\n") {
+		for l := range strings.SplitSeq(strings.TrimSpace(c.log.String()), "\n") {
 			out = append(out, strings.TrimSpace(l[11:16]))
 		}
 		return out
@@ -168,7 +168,7 @@ func TestConsoleMessageText(t *testing.T) {
 	c.Emit(ev("stage", map[string]any{"name": "dns", "state": "running"}))
 	c.Emit(ev("count", map[string]any{"category": "hosts", "n": 12}))
 	var got []string
-	for _, l := range strings.Split(strings.TrimSpace(c.log.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(c.log.String()), "\n") {
 		got = append(got, l[19:])
 	}
 	want := []string{
@@ -187,7 +187,7 @@ func TestConsoleMessageText(t *testing.T) {
 	col.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots", "passive": true, "authorised": true}))
 	col.Emit(ev("stage", map[string]any{"name": "asn", "state": "done", "checks": 3, "failed": 1}))
 	col.Emit(ev("count", map[string]any{"category": "hosts", "n": 12}))
-	for _, l := range strings.Split(strings.TrimSpace(col.log.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(col.log.String()), "\n") {
 		prefix := l[:strings.LastIndex(l, "│ \x1b[0m")+len("│ \x1b[0m")]
 		if rest := l[len(prefix):]; strings.Contains(rest, "\x1b") {
 			t.Errorf("an escape inside the message: %q", l)
@@ -264,7 +264,7 @@ func TestConsoleSanitises(t *testing.T) {
 		if n := strings.Count(c.log.String(), "\n"); n != 5 {
 			t.Errorf("depth %d: %d log lines for 5 events: %q", d, n, c.log.String())
 		}
-		for _, l := range strings.Split(c.log.String(), "\n") {
+		for l := range strings.SplitSeq(c.log.String(), "\n") {
 			if strings.Contains(l, long) && utf8.RuneCountInString(stripEscapes(l)) != 21+500 && utf8.RuneCountInString(stripEscapes(l)) != 19+500 {
 				t.Errorf("a long message was wrapped or cut: %d cells", utf8.RuneCountInString(stripEscapes(l)))
 			}
@@ -355,7 +355,7 @@ func checkSheetLevels(t *testing.T, d palette.Depth, plainOut string) {
 	t.Helper()
 	for _, l := range []string{"DEBUG", "INFO", "WARN", "ERROR", "CRIT"} {
 		found := false
-		for _, line := range strings.Split(plainOut, "\n") {
+		for line := range strings.SplitSeq(plainOut, "\n") {
 			if strings.HasPrefix(line, "12:00:00 ") && strings.Contains(line, l) {
 				found = true
 			}

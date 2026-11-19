@@ -19,6 +19,7 @@ func ev(pairs ...string) []candidates.Evidence {
 
 // The rules of confidence, one row per rule and one per edge of a rule.
 func TestScore(t *testing.T) {
+	t.Parallel()
 	acme := []string{"Acme Pty Ltd"}
 	cases := []struct {
 		name  string
@@ -64,6 +65,7 @@ func TestScore(t *testing.T) {
 }
 
 func TestScoreSources(t *testing.T) {
+	t.Parallel()
 	got := candidates.Score(ev("wayback", "a", "crtsh", "b", "crtsh", "c", "wayback", "a"), nil)
 	if want := []string{"crtsh", "wayback"}; !slices.Equal(got.Sources, want) {
 		t.Errorf("sources = %v, want the distinct sources sorted: %v", got.Sources, want)
@@ -76,6 +78,7 @@ func TestScoreSources(t *testing.T) {
 }
 
 func TestFamily(t *testing.T) {
+	t.Parallel()
 	for source, want := range map[string]string{
 		"crtsh": "certificate transparency", "certspotter": "certificate transparency", "censys": "certificate transparency",
 		"wayback": "web archive", "commoncrawl": "web archive",
@@ -101,6 +104,7 @@ func TestFamily(t *testing.T) {
 // high first, then more evidence, then value; a row that is not current is
 // last whatever it had, and keeps its own confidence.
 func TestCompare(t *testing.T) {
+	t.Parallel()
 	rows := []candidates.Entry{
 		{Value: "gone-high.org", Confidence: candidates.High, Count: 9, Current: false},
 		{Value: "low-many.org", Confidence: candidates.Low, Count: 7, Current: true},
@@ -122,6 +126,7 @@ func TestCompare(t *testing.T) {
 }
 
 func TestPromote(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ typ, value, want string }{
 		{"root", "other.org", "other.org"},
 		{"hostname", "www.other.org", "www.other.org"},
@@ -140,6 +145,7 @@ func TestPromote(t *testing.T) {
 // The README lists every source the sources column can hold, so adding one to
 // the family table without documenting it fails here.
 func TestREADMEListsEverySource(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)

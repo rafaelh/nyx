@@ -9,6 +9,7 @@ import (
 // Parse reads the product and version a service names in its banner, and says whether the
 // version is a distribution's build.
 func TestParse(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, banner, product, version string
 		distro                         bool
@@ -58,6 +59,7 @@ func TestParse(t *testing.T) {
 // The product and version go into files people read, so terminal-acting characters in
 // the banner never reach them.
 func TestParse_ValuesAreSanitised(t *testing.T) {
+	t.Parallel()
 	product, version, _ := banner.Parse("SSH-2.0-OpenSSH_8.2p1\x1b[31m")
 	for _, s := range []string{product, version} {
 		for _, r := range s {
@@ -74,6 +76,7 @@ func TestParse_ValuesAreSanitised(t *testing.T) {
 // Distro reads a version string that is not from a banner (a Wappalyzer technology's) the
 // same way Parse does.
 func TestDistro(t *testing.T) {
+	t.Parallel()
 	for v, want := range map[string]bool{
 		"7.4.3":                   false,
 		"2.4.41":                  false,

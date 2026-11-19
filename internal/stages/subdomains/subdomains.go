@@ -196,7 +196,7 @@ func crtshNames(body []byte) ([]string, error) {
 		NameValue string `json:"name_value"`
 	}
 	if err := json.Unmarshal(body, &rows); err != nil {
-		return nil, fmt.Errorf("unreadable crt.sh response: %v", err)
+		return nil, fmt.Errorf("unreadable crt.sh response: %w", err)
 	}
 	var out []string
 	for _, r := range rows {
@@ -235,11 +235,11 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 	}
 	pages, err := strconv.Atoi(strings.TrimSpace(string(body)))
 	if err != nil {
-		return result{}, fmt.Errorf("unreadable CDX page count: %v", err)
+		return result{}, fmt.Errorf("unreadable CDX page count: %w", err)
 	}
 	pages = min(pages, maxPages)
 	var names, urls []string
-	for p := 0; p < pages; p++ {
+	for p := range pages {
 		q := maps.Clone(base) // shallow is enough: only Set follows
 		q.Set("page", strconv.Itoa(p))
 		body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: "https://web.archive.org/cdx/search/cdx?" + q.Encode()})
@@ -248,7 +248,7 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 		}
 		var rows [][]string
 		if err := json.Unmarshal(body, &rows); err != nil {
-			return result{}, fmt.Errorf("unreadable CDX page %d: %v", p, err)
+			return result{}, fmt.Errorf("unreadable CDX page %d: %w", p, err)
 		}
 		for i, r := range rows {
 			if i == 0 && len(r) > 0 && r[0] == "original" || len(r) == 0 {
@@ -334,7 +334,7 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 		if err != nil {
 			return result{}, err
 		}
-		for _, line := range strings.Split(string(body), "\n") {
+		for line := range strings.SplitSeq(string(body), "\n") {
 			var row struct {
 				URL string `json:"url"`
 			}
@@ -391,7 +391,7 @@ func virustotal(ctx context.Context, in rootInput, c egress.Clients) (result, er
 	root := in.root
 	var names []string
 	cursor := ""
-	for page := 0; page < maxPages; page++ {
+	for range maxPages {
 		q := url.Values{"limit": {"40"}}
 		if cursor != "" {
 			q.Set("cursor", cursor)
@@ -416,7 +416,7 @@ func virustotal(ctx context.Context, in rootInput, c egress.Clients) (result, er
 			} `json:"meta"`
 		}
 		if err := json.Unmarshal(body, &r); err != nil {
-			return result{}, fmt.Errorf("unreadable VirusTotal response: %v", err)
+			return result{}, fmt.Errorf("unreadable VirusTotal response: %w", err)
 		}
 		for _, d := range r.Data {
 			names = append(names, d.ID)
@@ -443,7 +443,7 @@ func securitytrails(ctx context.Context, in rootInput, c egress.Clients) (result
 		Subdomains []string `json:"subdomains"`
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
-		return result{}, fmt.Errorf("unreadable SecurityTrails response: %v", err)
+		return result{}, fmt.Errorf("unreadable SecurityTrails response: %w", err)
 	}
 	return result{names: httpsrc.JoinLabels(root, r.Subdomains)}, nil
 }

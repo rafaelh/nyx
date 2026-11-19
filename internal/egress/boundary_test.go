@@ -59,6 +59,7 @@ var unixAllowed = map[string]map[string]bool{
 }
 
 func checkBoundary(t *testing.T, root, goos, goarch string) {
+	t.Helper()
 	cmd := exec.Command("go", "list", "-json=ImportPath,Dir,GoFiles,Imports", "./...")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
@@ -108,6 +109,7 @@ func checkBoundary(t *testing.T, root, goos, goarch string) {
 // checkUnixUse fails for any golang.org/x/sys/unix identifier the package is
 // not allowed, including a dot or blank import that would hide its uses.
 func checkUnixUse(t *testing.T, importPath, dir string, files []string) {
+	t.Helper()
 	var allowed map[string]bool
 	for suffix, names := range unixAllowed {
 		if strings.HasSuffix(importPath, suffix) {

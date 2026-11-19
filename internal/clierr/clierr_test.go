@@ -10,6 +10,7 @@ import (
 
 // Every error code has its exit code; the table is part of the stable interface.
 func TestExitCodes(t *testing.T) {
+	t.Parallel()
 	for code, want := range map[clierr.Code]int{
 		clierr.NetworkError: 1, clierr.Timeout: 1, clierr.RateLimited: 1, clierr.UpstreamError: 1,
 		clierr.AuthFailed: 1, clierr.Unexpected: 1, clierr.Locked: 1,
@@ -39,6 +40,7 @@ func TestExitCodes(t *testing.T) {
 // Problems become one usage error: every message, the distinct hints, and each
 // failing value under its argument's name, always as a list.
 func TestProblemsUsage(t *testing.T) {
+	t.Parallel()
 	var p clierr.Problems
 	if p.Err() != nil {
 		t.Fatal("no problems is no error")
@@ -83,6 +85,7 @@ func TestProblemsUsage(t *testing.T) {
 }
 
 func TestPanicError(t *testing.T) {
+	t.Parallel()
 	if got := (&clierr.PanicError{Value: "boom"}).Error(); got != "unexpected failure: boom" {
 		t.Errorf("%q", got)
 	}

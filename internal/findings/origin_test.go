@@ -11,6 +11,7 @@ import (
 // An origin exposure is keyed by hostname and address alone, so the row is the same whether the pair
 // is a possible origin or a confirmed one; ParseKey reverses Key, giving the target "host -> address".
 func TestOriginExposure_KeyIsStableBetweenPossibleAndConfirmed(t *testing.T) {
+	t.Parallel()
 	possible := findings.Finding{Category: findings.OriginExposure, Type: "possible", Target: "www.example.com -> 203.0.113.20"}
 	confirmed := findings.Finding{Category: findings.OriginExposure, Type: "confirmed", Target: "www.example.com -> 203.0.113.20"}
 	const want = "origin-exposure|www.example.com|203.0.113.20"
@@ -29,6 +30,7 @@ func TestOriginExposure_KeyIsStableBetweenPossibleAndConfirmed(t *testing.T) {
 }
 
 func TestOriginExposure_Severities(t *testing.T) {
+	t.Parallel()
 	if got := findings.Severity(findings.OriginExposure, "confirmed"); got != findings.Medium {
 		t.Errorf("confirmed = %q, want medium", got)
 	}
@@ -52,6 +54,7 @@ func TestOriginExposure_Severities(t *testing.T) {
 // risk-origin-exposure.csv has one row per hostname and address, and a pair no longer derived
 // keeps its hostname and address from its key.
 func TestOriginExposure_File(t *testing.T) {
+	t.Parallel()
 	f := file(t, "risk-origin-exposure.csv")
 	want := []string{"severity", "hostname", "provider", "address", "found_by", "confirmed_by", "confirmed"}
 	if !slices.Equal(f.Columns, want) {

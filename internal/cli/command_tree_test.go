@@ -31,7 +31,7 @@ func emptyDir(t *testing.T) func() {
 
 // A call in the form nyx took before it had commands exits 2 with the caller's
 // own arguments as the hint, recon inserted, and does nothing else.
-func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) {
+func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	cases := []struct {
 		args     []string
 		hint     string
@@ -81,6 +81,7 @@ func oldFormInMode(args []string, hint string, jsonMode bool) (_ []string, _ str
 // corrected command as its hint, names the argument under --json, touches
 // nothing, and gives the same error when repeated.
 func checkOldFormCall(t *testing.T, args []string, hint, argument string, jsonMode bool) {
+	t.Helper()
 	h := newHarness(t, noop())
 	cwd := emptyDir(t)
 	f := h.failed(h.execRoot(args...), 2, jsonMode)
@@ -105,7 +106,7 @@ func checkOldFormCall(t *testing.T, args []string, hint, argument string, jsonMo
 
 // A bare nyx, nyx --help and nyx help print the same help and exit 0; help
 // <command> is that command's --help.
-func TestTree_HelpIsBareNyxAndTheHelpCommand(t *testing.T) {
+func TestTree_HelpIsBareNyxAndTheHelpCommand(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	h := newHarness(t, noop())
 	cwd := emptyDir(t)
 	if code := h.execRoot("--help"); code != 0 || h.stderr.Len() != 0 {
@@ -138,7 +139,7 @@ func TestTree_HelpIsBareNyxAndTheHelpCommand(t *testing.T) {
 
 // A first word that is no command is a usage error that names the commands,
 // and prints no help.
-func TestTree_UnknownCommand(t *testing.T) {
+func TestTree_UnknownCommand(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	for _, jsonMode := range []bool{false, true} {
 		for _, args := range [][]string{{"frob"}, {"frob", "example.com"}, {"help", "frob"}} {
 			h := newHarness(t, noop())
@@ -367,7 +368,7 @@ func checkExportTakesSharedFlags(t *testing.T) {
 }
 
 // --quiet with --debug is a usage error on every command.
-func TestTree_QuietWithDebugIsAUsageError(t *testing.T) {
+func TestTree_QuietWithDebugIsAUsageError(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	for _, args := range [][]string{
 		{"recon", "a.com", "--quiet", "--debug"},
 		{"-q", "--debug", "recon", "a.com"},
@@ -422,7 +423,7 @@ func TestTree_SharedFlagsAreNotSettings(t *testing.T) {
 
 // Any other flag before the command is a usage error whose hint is the same
 // call with the command moved to the front.
-func TestTree_FlagBeforeTheCommand(t *testing.T) {
+func TestTree_FlagBeforeTheCommand(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	for _, c := range []struct {
 		args  []string
 		hint  string
@@ -449,7 +450,7 @@ func TestTree_FlagBeforeTheCommand(t *testing.T) {
 }
 
 // A flag must be spelt in full; --authorized is the one alias.
-func TestTree_FlagsAreSpeltInFull(t *testing.T) {
+func TestTree_FlagsAreSpeltInFull(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	for _, c := range []struct {
 		args       []string
 		flag, hint string

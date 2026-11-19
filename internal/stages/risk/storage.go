@@ -203,7 +203,7 @@ func account(ctx context.Context, e egress.Clients, in storageInput) ([]run.Obse
 func escapePath(parts ...string) string {
 	var segs []string
 	for _, p := range parts {
-		for _, s := range strings.Split(p, "/") {
+		for s := range strings.SplitSeq(p, "/") {
 			segs = append(segs, url.PathEscape(s))
 		}
 	}
@@ -316,7 +316,7 @@ func list(ctx context.Context, e egress.Clients, in storageInput) ([]run.Observa
 		if err := xml.Unmarshal(resp.Body, &l); err != nil {
 			return nil, fmt.Errorf("unreadable listing: %w", err)
 		}
-		keys := append(l.Keys, l.Blobs...)
+		keys := slices.Concat(l.Keys, l.Blobs)
 		count := fmt.Sprint(len(keys))
 		if strings.EqualFold(l.Truncated, "true") || l.NextMarker != "" {
 			count += "+"

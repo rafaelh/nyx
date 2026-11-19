@@ -22,6 +22,7 @@ func derived(w *world, label string) []string { return derivedUnder(w, label, "e
 
 // worldWithSeeds is a world whose crt.sh answer gives two seeds, api and ftp.
 func worldWithSeeds(t *testing.T, words string) (*world, string) {
+	t.Helper()
 	w := newWorld(t)
 	wl := writeFile(t, t.TempDir(), "words.txt", words)
 	w.crtsh(map[string][]string{"example.com": {"ftp.example.com", "api.example.com"}}, nil)
@@ -101,7 +102,7 @@ func TestListsPermutations_RootAloneOverCapIsTaken(t *testing.T) {
 	if code := permRun(w, wl, "--permutations-max-names", "3"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, word := range strings.Fields("dev test beta old qa uat stg prod int lab") {
+	for word := range strings.FieldsSeq("dev test beta old qa uat stg prod int lab") {
 		if w.dns.Count(word+".example.com", "A") != 1 {
 			t.Errorf("%s.example.com queried %d times; the root is 10 names over a cap of 3 yet must be taken whole", word, w.dns.Count(word+".example.com", "A"))
 		}
@@ -282,6 +283,7 @@ func total(sites []*site, path string) int {
 
 // twoServices is a risk world with two live web services serving tiers.
 func twoServices(t *testing.T) (*risk, []*site) {
+	t.Helper()
 	x := newRisk(t, "sensitive-paths")
 	x.names("plain.example.com", "www.example.com")
 	x.host("plain.example.com", "203.0.113.6")

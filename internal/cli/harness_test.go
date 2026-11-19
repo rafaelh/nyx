@@ -191,7 +191,7 @@ func (h *harness) failed(code, want int, jsonMode bool) failure {
 func (h *harness) theError(jsonMode bool) failure {
 	h.t.Helper()
 	var lines []string
-	for _, l := range strings.Split(strings.TrimRight(h.stderr.String(), "\n"), "\n") {
+	for l := range strings.SplitSeq(strings.TrimRight(h.stderr.String(), "\n"), "\n") {
 		if !logLayout.MatchString(l) {
 			lines = append(lines, l)
 		}
@@ -427,7 +427,7 @@ func summaryOf(env report.Envelope) event {
 func jsonLines(t *testing.T, s string) []event {
 	t.Helper()
 	var out []event
-	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(s), "\n") {
 		if line == "" {
 			continue
 		}
@@ -450,7 +450,7 @@ var logLayout = regexp.MustCompile(`^(\d\d:\d\d:\d\d) \| (DEBUG|INFO |WARN |ERRO
 // error and its hint) is skipped.
 func (h *harness) logLines() []logLine {
 	var out []logLine
-	for _, l := range strings.Split(h.stderr.String(), "\n") {
+	for l := range strings.SplitSeq(h.stderr.String(), "\n") {
 		if m := logLayout.FindStringSubmatch(l); m != nil {
 			out = append(out, logLine{m[1], strings.TrimSpace(m[2]), l[len(m[0]):]})
 		}

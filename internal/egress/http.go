@@ -367,6 +367,7 @@ func (p *Policy) webScopeRefusal(host string, lit netip.Addr, isIP bool) (Refuse
 			return Refused{"host is excluded: " + c.Reason}, true
 		case scope.Candidate:
 			return Refused{"host is not in scope"}, true
+		case scope.InScope:
 		}
 		return Refused{}, false
 	}
@@ -508,7 +509,7 @@ func requestFailure(parent, ctx context.Context, err error) (HTTPResult, error) 
 	switch perr := parent.Err(); {
 	case perr != nil && !errors.Is(perr, context.DeadlineExceeded):
 		return nil, perr
-	case context.Cause(ctx) == errHTTPTimeout:
+	case errors.Is(context.Cause(ctx), errHTTPTimeout):
 		return NoService{NoServiceTimeout}, nil
 	case localFailure(err):
 		return nil, err
@@ -522,7 +523,7 @@ func bodyFailure(parent, ctx context.Context, host string, err error) error {
 	if perr := parent.Err(); perr != nil {
 		return perr
 	}
-	if context.Cause(ctx) == errHTTPTimeout {
+	if errors.Is(context.Cause(ctx), errHTTPTimeout) {
 		err = errHTTPTimeout
 	}
 	return fmt.Errorf("reading response body from %s: %w", host, err)

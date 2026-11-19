@@ -75,7 +75,7 @@ func TestIdentifiers_ProbeAndCrawlUnion(t *testing.T) {
 	x.mustRun()
 
 	wantHeader := "version_disclosure,analytics_ids,pixel_ids,favicon_hash,copyright,current,first_seen,last_seen"
-	if hdr := strings.SplitN(x.file(eng, "web-services.csv"), "\n", 2)[0]; !strings.Contains(hdr, wantHeader) {
+	if hdr, _, _ := strings.Cut(x.file(eng, "web-services.csv"), "\n"); !strings.Contains(hdr, wantHeader) {
 		t.Errorf("web-services.csv header = %q, want it to contain %q", hdr, wantHeader)
 	}
 	a, p, f, c := x.ids("http://www.example.com")
@@ -287,7 +287,7 @@ func TestFavicon_NoHashFromAnAnswerThatIsNotAnIcon(t *testing.T) {
 		"html page":        page("<html><body>Not found, honest</body></html>"),
 		"html as an image": icon("image/x-icon", []byte("  <html>soft 404</html>")),
 		"text":             icon("text/plain", iconOf(100)),
-		"server error":     func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", 500) },
+		"server error":     func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", http.StatusInternalServerError) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			x, s := faviconCase(t, page("<p>home</p>"), map[string]http.HandlerFunc{"/favicon.ico": h})

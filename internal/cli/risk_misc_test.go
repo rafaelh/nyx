@@ -314,7 +314,7 @@ func TestRiskPlumbing_Help(t *testing.T) {
 		if code := h.execRoot(args...); code != 0 {
 			t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
 		}
-		for _, line := range strings.Split(strings.TrimSpace(findings.HelpTable()), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(findings.HelpTable()), "\n") {
 			if !strings.Contains(h.stdout.String(), strings.TrimSpace(line)) {
 				t.Errorf("%v lacks the severity table line %q", args, line)
 			}

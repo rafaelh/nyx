@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -86,9 +87,7 @@ func (e rdapEntity) networks() map[string]any {
 func (e rdapEntity) json(embed bool) map[string]any {
 	m := map[string]any{"objectClassName": "entity", "handle": e.handle, "vcardArray": vcard(e.name)}
 	if embed {
-		for k, v := range e.networks() {
-			m[k] = v
-		}
+		maps.Copy(m, e.networks())
 	}
 	return m
 }
@@ -316,7 +315,7 @@ func TestRDAP_AddressLookupAtBootstrapRegistry(t *testing.T) {
 			t.Errorf("%s got %d requests", h, n)
 		}
 	}
-	if hdr := strings.SplitN(x.file(eng, "ips.csv"), "\n", 2)[0]; hdr !=
+	if hdr, _, _ := strings.Cut(x.file(eng, "ips.csv"), "\n"); hdr !=
 		"ip,asn,owner,provider,service,in_scope,port_eligible,hostnames,registrant,registrant_netblock,registry,srv_ports,current,first_seen,last_seen" {
 		t.Errorf("ips.csv header = %q", hdr)
 	}
@@ -519,7 +518,7 @@ func TestRDAP_SearchKeepsFiftyPerRegistry(t *testing.T) {
 	t.Parallel()
 	x := newRDAP(t)
 	var nets []rdapNet
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		nets = append(nets, rdapNet{fmt.Sprintf("100.%d.0.0", i), fmt.Sprintf("100.%d.0.255", i), fmt.Sprintf("N%d", i), ""})
 	}
 	x.entities(hostAPNIC, true, rdapEntity{handle: "ORG-AW1-AP", name: "Acme Widgets", nets: nets})
@@ -578,6 +577,7 @@ func TestRDAP_OrganisationWithNoWordsMatchesNothing(t *testing.T) {
 // --- registrants ---
 
 func registrantWorld(t *testing.T, hosts ...string) *rdapWorld {
+	t.Helper()
 	x := newRDAP(t, hosts...)
 	r1, r2, r3 := globexNets()
 	x.net(hostARIN, r1)

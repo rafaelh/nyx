@@ -60,7 +60,7 @@ func TestRedirect_OutOfScopeRedirectIsACandidateAndNotRequested(t *testing.T) {
 	x.plain("203.0.113.5", 80, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Header().Set("Location", "http://evil.example.net/x")
-		w.WriteHeader(302)
+		w.WriteHeader(http.StatusFound)
 		_, _ = w.Write([]byte("<title>Moved</title>"))
 	})
 	evil := x.plain("203.0.113.99", 80, page("<title>evil</title>"))
@@ -121,7 +121,7 @@ func TestRedirect_LoopAndHopCapTerminate(t *testing.T) {
 			n = 0
 		}
 		w.Header().Set("Location", fmt.Sprintf("/n/%d", n+1))
-		w.WriteHeader(302)
+		w.WriteHeader(http.StatusFound)
 	})
 	x.mustRun("--crawl-pages", "0")
 

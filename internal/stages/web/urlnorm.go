@@ -67,7 +67,7 @@ func HostOfURL(raw string) string {
 var staticExt = map[string]bool{}
 
 func init() {
-	for _, e := range strings.Fields(`
+	for e := range strings.FieldsSeq(`
 		png jpg jpeg gif svg ico webp bmp tif tiff avif apng heic
 		css
 		woff woff2 ttf otf eot

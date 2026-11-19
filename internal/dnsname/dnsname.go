@@ -122,7 +122,7 @@ func Permute(label string, words []string, max int) []string {
 		if seen[s] {
 			return true
 		}
-		for _, part := range strings.Split(s, ".") {
+		for part := range strings.SplitSeq(s, ".") {
 			if !ValidLabel(part) {
 				return true
 			}

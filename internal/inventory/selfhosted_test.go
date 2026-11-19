@@ -13,6 +13,7 @@ import (
 // port-eligible. A known provider's domain, a shared address and an address of
 // unknown owner are never a sign, whatever else is true of the host.
 func TestSelfHosted(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	// www.example.com is an in-scope host on dedicated, shared and unknown-owner addresses.
 	resolve(&d, "www.example.com", "203.0.113.50", "104.16.0.5", "192.0.2.77")
@@ -66,6 +67,7 @@ func TestSelfHosted(t *testing.T) {
 // A looked-up server address is not an address the inventory resolves: the
 // server never becomes resolved, probed or port-eligible because of it.
 func TestServerAddressesChangeNothing(t *testing.T) {
+	t.Parallel()
 	var base inventory.Data
 	resolve(&base, "www.example.com", "203.0.113.50")
 	base.Owners = map[netip.Addr]provider.Owner{ip("203.0.113.50"): {ASN: 64500, Holder: "ACME-NET", Known: true},

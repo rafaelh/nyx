@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -39,9 +40,7 @@ func jsFixture(t *testing.T, srcs []string, scripts map[string]http.HandlerFunc)
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
 	m := map[string]http.HandlerFunc{"/": page(scriptPage(srcs...))}
-	for p, h := range scripts {
-		m[p] = h
-	}
+	maps.Copy(m, scripts)
 	return x, x.plain("203.0.113.5", 80, routes(m))
 }
 
@@ -136,8 +135,10 @@ func TestJSParse_RedirectsAndFailures(t *testing.T) {
 		"/old.js":  redirectTo(301, "/new.js"),
 		"/new.js":  js(`x("/api/from-new")`),
 		"/away.js": redirectTo(302, "http://b.example.com/target.js"),
-		"/gone.js": func(w http.ResponseWriter, r *http.Request) { http.Error(w, `x("/api/gone")`, 404) },
-		"/boom.js": func(w http.ResponseWriter, r *http.Request) { http.Error(w, `x("/api/boom")`, 500) },
+		"/gone.js": func(w http.ResponseWriter, r *http.Request) { http.Error(w, `x("/api/gone")`, http.StatusNotFound) },
+		"/boom.js": func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, `x("/api/boom")`, http.StatusInternalServerError)
+		},
 		"/slow.js": func(w http.ResponseWriter, r *http.Request) {
 			slow.Add(1)
 			// Answer only after the client has given up, without holding the server's Close.
@@ -260,7 +261,7 @@ func TestJSParse_DefaultCapIsFifty(t *testing.T) {
 	t.Parallel()
 	var srcs []string
 	routesMap := map[string]http.HandlerFunc{}
-	for i := 0; i < 55; i++ {
+	for i := range 55 {
 		p := fmt.Sprintf("/s%02d.js", i)
 		srcs = append(srcs, p)
 		routesMap[p] = js("1")
@@ -367,7 +368,7 @@ func TestJSParse_TruncatedBundle(t *testing.T) {
 func TestJSParse_URLCap(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
-	for i := 0; i < 600; i++ {
+	for i := range 600 {
 		fmt.Fprintf(&b, "x(\"/api/%03d\");", i)
 	}
 	x, _ := jsFixture(t, []string{"/many.js", "/few.js"}, map[string]http.HandlerFunc{

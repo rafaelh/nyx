@@ -78,7 +78,7 @@ func (f *stHistory) serve(rw http.ResponseWriter, r *http.Request) {
 			field = "ipv6"
 		}
 		records = append(records, map[string]any{"first_seen": rec.first, "last_seen": rec.last, "type": parts[4],
-			"organizations": []string{"ACME-NET"}, "values": []map[string]any{{field: rec.addr}}})
+			"organisations": []string{"ACME-NET"}, "values": []map[string]any{{field: rec.addr}}})
 	}
 	_ = json.NewEncoder(rw).Encode(map[string]any{"records": records, "pages": 1, "type": parts[4]})
 }
@@ -251,7 +251,7 @@ func (x *oworld) wantRow(addr, severity, foundBy, confirmedBy, confirmed, curren
 func wwwGets(s *site, scheme string) int {
 	n := 0
 	for _, r := range s.requests() {
-		if strings.HasPrefix(r.Host, originWWW) && r.URI == "/" && r.Method == "GET" && r.TLS == (scheme == "https") {
+		if strings.HasPrefix(r.Host, originWWW) && r.URI == "/" && r.Method == http.MethodGet && r.TLS == (scheme == "https") {
 			n++
 		}
 	}
@@ -280,7 +280,7 @@ func TestOrigin_HistoricalOriginConfirmedByTitle(t *testing.T) {
 	if got := wwwGets(origin, "https"); got != 1 {
 		t.Errorf("the origin got %d GETs for the fronted host over https, want 1", got)
 	}
-	if got := origin.requests()[0]; got.Method != "GET" || got.URI != "/" || got.Host != originWWW || !got.TLS {
+	if got := origin.requests()[0]; got.Method != http.MethodGet || got.URI != "/" || got.Host != originWWW || !got.TLS {
 		t.Errorf("request = %+v", got)
 	}
 	if sni := origin.sniSeen(); len(sni) == 0 || sni[0] != originWWW {
@@ -302,7 +302,7 @@ func TestOrigin_HistoricalOriginConfirmedByTitle(t *testing.T) {
 	if !slices.Equal(hist, want) {
 		t.Errorf("historical rows = %v, want %v", hist, want)
 	}
-	if hdr := strings.SplitN(x.file(eng, "resolutions.csv"), "\n", 2)[0]; hdr != "name,type,value,source,self_hosted,historical_first_seen,historical_last_seen,current,first_seen,last_seen" {
+	if hdr, _, _ := strings.Cut(x.file(eng, "resolutions.csv"), "\n"); hdr != "name,type,value,source,self_hosted,historical_first_seen,historical_last_seen,current,first_seen,last_seen" {
 		t.Errorf("resolutions.csv header = %q", hdr)
 	}
 	if r := find(x.table(eng, "ips.csv"), "ip", histInNet); r == nil || r["hostnames"] != "" {
@@ -503,6 +503,7 @@ func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) *oworld {
+		t.Helper()
 		x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
 		x.hist.set(originWWW, "a", histRec{histInNet, "2023-01-01", "2024-02-02"})
 		return x

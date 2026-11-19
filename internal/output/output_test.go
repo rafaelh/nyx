@@ -34,6 +34,7 @@ func readCSV(t *testing.T, dir, name string) [][]string {
 }
 
 func newDir(t *testing.T) string {
+	t.Helper()
 	d := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(d, ".nyx"), 0o700); err != nil {
 		t.Fatal(err)

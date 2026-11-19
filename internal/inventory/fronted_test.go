@@ -16,6 +16,7 @@ func cname(d *inventory.Data, name, target string) {
 // class cdn or waf, or an address that classifies as cdn (a published range or an ASN entry). A
 // SaaS or PaaS platform, a hyperscaler's address or an ordinary host is not.
 func TestFronted(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	for name, v := range map[string]struct {
 		cname string

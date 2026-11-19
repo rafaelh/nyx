@@ -92,7 +92,7 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 func (l list) observations(body []byte) ([]run.Observation, error) {
 	entries, err := l.parse(body)
 	if err != nil {
-		return nil, fmt.Errorf("%s ranges: unreadable response: %v", l.provider, err)
+		return nil, fmt.Errorf("%s ranges: unreadable response: %w", l.provider, err)
 	}
 	var obs []run.Observation
 	for _, e := range entries {

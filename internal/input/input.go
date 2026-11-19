@@ -71,12 +71,12 @@ func ParseDomain(s string) (string, error) {
 	}
 	ascii, err := idna.Lookup.ToASCII(d)
 	if err != nil {
-		return "", fmt.Errorf("invalid domain %q: %v", s, err)
+		return "", fmt.Errorf("invalid domain %q: %w", s, err)
 	}
 	if len(ascii) > 253 {
 		return "", fmt.Errorf("invalid domain %q: too long", s)
 	}
-	for _, label := range strings.Split(ascii, ".") {
+	for label := range strings.SplitSeq(ascii, ".") {
 		if !dnsname.ValidLabel(label) {
 			return "", fmt.Errorf("invalid domain %q: bad label %q", s, label)
 		}
@@ -150,7 +150,7 @@ func last(p netip.Prefix) netip.Addr {
 func ParseCIDR(s string) (netip.Prefix, error) {
 	p, err := netip.ParsePrefix(strings.TrimSpace(s))
 	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("invalid CIDR %q: %v", s, err)
+		return netip.Prefix{}, fmt.Errorf("invalid CIDR %q: %w", s, err)
 	}
 	return p.Masked(), nil
 }
@@ -175,7 +175,7 @@ func ParseExclusion(s string) (Exclusion, error) {
 	if strings.Contains(t, "/") {
 		p, err := netip.ParsePrefix(t)
 		if err != nil {
-			return Exclusion{}, fmt.Errorf("invalid exclusion %q: %v", s, err)
+			return Exclusion{}, fmt.Errorf("invalid exclusion %q: %w", s, err)
 		}
 		p = p.Masked()
 		return Exclusion{Entry: p.String(), prefix: p}, nil
@@ -188,7 +188,7 @@ func ParseExclusion(s string) (Exclusion, error) {
 	if name == "" || strings.Contains(name, "*") {
 		return Exclusion{}, fmt.Errorf("invalid exclusion %q: wildcards are only allowed as a leading \"*.\"", s)
 	}
-	for _, label := range strings.Split(name, ".") {
+	for label := range strings.SplitSeq(name, ".") {
 		if len(label) > 63 || label == "" || strings.ContainsAny(label, " /:@") || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
 			return Exclusion{}, fmt.Errorf("invalid exclusion %q: bad hostname", s)
 		}
@@ -238,7 +238,7 @@ func (e Exclusion) Prefix() (netip.Prefix, bool) { return e.prefix, e.prefix.IsV
 func ReadList(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %v", path, errors.Unwrap(err))
+		return nil, fmt.Errorf("cannot read %s: %w", path, errors.Unwrap(err))
 	}
 	defer f.Close()
 	return ParseList(f)

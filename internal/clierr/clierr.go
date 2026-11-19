@@ -94,8 +94,7 @@ func (p *Problems) Merge(err error) {
 	if err == nil {
 		return
 	}
-	var q Problems
-	if errors.As(err, &q) {
+	if q, ok := errors.AsType[Problems](err); ok {
 		*p = append(*p, q...)
 		return
 	}

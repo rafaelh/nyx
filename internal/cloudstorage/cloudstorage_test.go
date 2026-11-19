@@ -10,6 +10,7 @@ import (
 
 // ParseRef recognises S3, GCS and Azure hosts and URLs.
 func TestParseRef(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in   string
 		want cloudstorage.Ref
@@ -52,6 +53,7 @@ func TestParseRef(t *testing.T) {
 
 // The c.storage.googleapis.com CNAME takes the bucket from the alias name.
 func TestParseCNAME(t *testing.T) {
+	t.Parallel()
 	got, ok := cloudstorage.ParseCNAME("assets.example.com", "c.storage.googleapis.com")
 	if !ok || got != (cloudstorage.Ref{Provider: "gcs", Name: "assets.example.com"}) {
 		t.Errorf("gcs alias = %+v %v", got, ok)
@@ -67,6 +69,7 @@ func TestParseCNAME(t *testing.T) {
 
 // Bases, order, cap and provider rules.
 func TestBases(t *testing.T) {
+	t.Parallel()
 	if got := cloudstorage.RootBases("example.com"); !slices.Equal(got, []string{"example", "example-com", "example.com"}) {
 		t.Errorf("RootBases = %v", got)
 	}
@@ -79,6 +82,7 @@ func TestBases(t *testing.T) {
 }
 
 func TestGuessOrderAndCap(t *testing.T) {
+	t.Parallel()
 	bases := cloudstorage.RootBases("example.com")
 	all := cloudstorage.Guess(bases, 1000)
 	if !slices.Equal(all[:3], bases) {
@@ -107,6 +111,7 @@ func TestGuessOrderAndCap(t *testing.T) {
 }
 
 func TestProviderName(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		provider, name, want string
 		ok                   bool
@@ -134,6 +139,7 @@ func TestProviderName(t *testing.T) {
 }
 
 func TestKeyAndURL(t *testing.T) {
+	t.Parallel()
 	if k := cloudstorage.Key("s3", "b", ""); k != "s3|b" {
 		t.Errorf("key = %q", k)
 	}
@@ -156,6 +162,7 @@ func TestKeyAndURL(t *testing.T) {
 
 // "public" is an anonymous HEAD of a known object succeeding; unknown without one.
 func TestPublicState(t *testing.T) {
+	t.Parallel()
 	if got := cloudstorage.PublicState(nil); got != "unknown" {
 		t.Errorf("no objects = %q", got)
 	}

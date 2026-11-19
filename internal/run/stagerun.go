@@ -93,14 +93,12 @@ func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 func (sr *stageRun) execute() {
 	sr.work = make(chan Check)
 	var wg sync.WaitGroup
-	for i := 0; i < sr.workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range sr.workers {
+		wg.Go(func() {
 			for c := range sr.work {
 				sr.runOne(c)
 			}
-		}()
+		})
 	}
 	sr.produce()
 	close(sr.work)

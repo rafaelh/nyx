@@ -148,8 +148,7 @@ func withWarning(err error, warning, help string, wrote bool) error {
 	if err == nil || warning == "" {
 		return err
 	}
-	var probs clierr.Problems
-	if errors.As(err, &probs) {
+	if probs, ok := errors.AsType[clierr.Problems](err); ok {
 		err = probs.Usage(help)
 	}
 	var e *clierr.Error

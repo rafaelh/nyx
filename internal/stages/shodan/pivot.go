@@ -129,7 +129,7 @@ func (*Pivot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	}
 	var r search
 	if err := json.Unmarshal(body, &r); err != nil {
-		return nil, fmt.Errorf("identifier-pivot %s: unreadable response: %v", in.id, err)
+		return nil, fmt.Errorf("identifier-pivot %s: unreadable response: %w", in.id, err)
 	}
 	if r.Total > maxPivotHosts {
 		run.Warnf(ctx, "identifier-pivot %s: %s matches %d hosts, more than %d: a shared identifier, so nothing is recorded",

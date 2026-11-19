@@ -56,13 +56,13 @@ func TestBuiltinWordlistAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	header := strings.SplitN(string(b), "\n\n", 2)[0]
+	header, _, _ := strings.Cut(string(b), "\n\n")
 	for _, want := range []string{"SecLists", "MIT", "Daniel Miessler", "subdomains-top1million-5000"} {
 		if !strings.Contains(header, want) {
 			t.Errorf("wordlist header does not mention %q:\n%s", want, header)
 		}
 	}
-	for _, line := range strings.Split(header, "\n") {
+	for line := range strings.SplitSeq(header, "\n") {
 		if !strings.HasPrefix(line, "#") {
 			t.Errorf("header line %q is not a comment", line)
 		}

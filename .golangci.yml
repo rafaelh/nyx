@@ -4,11 +4,69 @@ linters:
   enable:
     # A ceiling on cognitive complexity, which weighs nesting more than flat branches.
     - gocognit
+    # Comparisons and type assertions on errors that would miss a wrapped error.
+    - errorlint
+    # Switches on an enum type that miss one of its values without a default.
+    - exhaustive
+    # Calls that bypass the injected environment or write to stdout behind cli.Execute's back.
+    - forbidigo
+    # American spellings: docs, comments and messages use Australian English.
+    - misspell
+    # Every test calls t.Parallel first (subtests may run in order: they often share a world).
+    - paralleltest
+    # Test helpers call t.Helper, so a failure points at the test that called them.
+    - thelper
+    # Every //nolint names its linter and says why.
+    - nolintlint
+    # Small correctness and simplification checks.
+    - copyloopvar
+    - gocritic
+    - intrange
+    - modernize
+    - unconvert
+    - usestdlibvars
+    - wastedassign
   settings:
     gocognit:
       min-complexity: 30
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^os\.(Getenv|LookupEnv|Environ)$
+          msg: read the environment through config.Env (cli.Deps.Env), so each test can give a run its own
+        - pattern: ^(os\.(Setenv|Unsetenv)|\(\*testing\.T\)\.Setenv)$
+          msg: set a variable with the harness's h.setenv; Go forbids t.Setenv in a parallel test
+        - pattern: ^(viper\.AutomaticEnv|\(\*github\.com/spf13/viper\.Viper\)\.AutomaticEnv)$
+          msg: config reads NYX_* variables only from the config.Env passed in
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: write to the command's writer; only cli.Execute writes errors and picks the exit code
+    misspell:
+      locale: UK
+      ignore-rules:
+        # The sanitize package and its functions, the NO_COLOR convention, and NVD's "Analyzed"
+        # status are names nyx doesn't own.
+        - sanitize
+        - color
+        - analyzed
+        - center
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    paralleltest:
+      ignore-missing-subtests: true
   exclusions:
     # Skip errcheck on Close, Flush, fmt.Print* and os.(Un)Setenv, where the
     # error is idiomatically ignored.
     presets:
       - std-error-handling
+    rules:
+      # These tests start child processes (the crash tests' nyx, the boundary test's go list), which
+      # need the process environment, not a run's.
+      - path: internal/(cli/crash_test|egress/boundary_test)\.go
+        linters: [forbidigo]
+      # A named subtest body, or a test callback passed to a table or a forEach helper, is the test
+      # itself: t.Helper there would point a failure at the loop that calls it.
+      - linters: [thelper]
+        source: ^func test[A-Z]\w*\(t \*testing\.T\)|[,(]\s*func\(t \*testing\.T

@@ -337,7 +337,7 @@ func sameRegistrable(a, b string) bool {
 // mailto: URIs name a mailbox; any other scheme is ignored.
 func reportDomains(value string) []string {
 	var out []string
-	for _, uri := range strings.Split(value, ",") {
+	for uri := range strings.SplitSeq(value, ",") {
 		rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(uri)), "mailto:")
 		if !ok {
 			continue
@@ -375,7 +375,7 @@ func isDKIMKey(rec string) bool {
 // dmarcTags parses a tag=value list (DMARC, DKIM), lower-casing the tag names.
 func dmarcTags(rec string) map[string]string {
 	tags := map[string]string{}
-	for _, part := range strings.Split(rec, ";") {
+	for part := range strings.SplitSeq(rec, ";") {
 		if k, v, ok := strings.Cut(strings.TrimSpace(part), "="); ok {
 			tags[strings.ToLower(strings.TrimSpace(k))] = strings.TrimSpace(v)
 		}

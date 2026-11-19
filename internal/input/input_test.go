@@ -15,6 +15,7 @@ import (
 
 // Domain forms.
 func TestParseDomain(t *testing.T) {
+	t.Parallel()
 	ok := map[string]string{
 		"Example.COM":       "example.com",
 		"example.com.":      "example.com",
@@ -38,6 +39,7 @@ func TestParseDomain(t *testing.T) {
 }
 
 func TestParseASN(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"AS123": "AS123", "as123": "AS123", "123": "AS123", "4294967295": "AS4294967295"} {
 		got, err := input.ParseASN(in)
 		if err != nil || got != want {
@@ -52,6 +54,7 @@ func TestParseASN(t *testing.T) {
 }
 
 func TestParseCIDR(t *testing.T) {
+	t.Parallel()
 	got, err := input.ParseCIDR("10.0.0.77/24")
 	if err != nil || got != netip.MustParsePrefix("10.0.0.0/24") {
 		t.Errorf("got %v %v", got, err)
@@ -64,6 +67,7 @@ func TestParseCIDR(t *testing.T) {
 }
 
 func TestParseOrg(t *testing.T) {
+	t.Parallel()
 	if got, err := input.ParseOrg("  Acme Corp "); err != nil || got != "Acme Corp" {
 		t.Errorf("got %q %v", got, err)
 	}
@@ -74,6 +78,7 @@ func TestParseOrg(t *testing.T) {
 
 // Exclusion matching table (also pinned at scope level).
 func TestExclusions(t *testing.T) {
+	t.Parallel()
 	type tc struct {
 		entry, host string
 		want        bool
@@ -110,6 +115,7 @@ func TestExclusions(t *testing.T) {
 
 // Engagement name precedence and sanitisation.
 func TestEngagementName(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"example.com":      "example.com",
 		"Acme Corp, Inc.":  "acme-corp-inc",
@@ -134,6 +140,7 @@ func TestEngagementName(t *testing.T) {
 }
 
 func writeList(t *testing.T, body string) string {
+	t.Helper()
 	p := filepath.Join(t.TempDir(), "list.txt")
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -143,6 +150,7 @@ func writeList(t *testing.T, body string) string {
 
 // Each input form; files ignore comments and blank lines.
 func TestParse(t *testing.T) {
+	t.Parallel()
 	df := writeList(t, "# targets\n\nfile.example.org\n  other.example.net  # trailing\n")
 	xf := writeList(t, "# skip\n*.dev.example.com\n\n192.0.2.0/24\n")
 	p, err := input.Parse(input.Raw{
@@ -173,6 +181,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestParseFirstPrecedence(t *testing.T) {
+	t.Parallel()
 	df := writeList(t, "# c\nfile.example.org\n")
 	for _, c := range []struct {
 		raw  input.Raw
@@ -193,6 +202,7 @@ func TestParseFirstPrecedence(t *testing.T) {
 
 // Every invalid form names the bad value.
 func TestParseRejects(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		raw  input.Raw
 		want string
@@ -214,6 +224,7 @@ func TestParseRejects(t *testing.T) {
 
 // A registry's range is split into the fewest CIDRs that cover it exactly.
 func TestRangeCIDRs(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		start, end string
 		want       []string
@@ -241,6 +252,7 @@ func TestRangeCIDRs(t *testing.T) {
 // Every problem is reported, each under the name of the argument it came from
 // with the value as given.
 func TestParseProblemsNameTheirArgument(t *testing.T) {
+	t.Parallel()
 	_, err := input.Parse(input.Raw{
 		Domains: []string{"co.uk", "ok.example.com"}, DomainsFile: writeList(t, "bad domain.org\n"),
 		Orgs: []string{" "}, ASNs: []string{"ASxyz"}, CIDRs: []string{"1.2.3.4/99"},

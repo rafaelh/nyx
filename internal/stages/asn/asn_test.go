@@ -61,7 +61,7 @@ func TestRunErrors(t *testing.T) {
 	t.Parallel()
 	for name, h := range map[string]http.HandlerFunc{
 		"status":   func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"status":"error","data":{}}`)) },
-		"http 500": func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", 500) },
+		"http 500": func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", http.StatusInternalServerError) },
 		"http 404": func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) },
 		"bad json": func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`<html>`)) },
 		"http 429": func(w http.ResponseWriter, r *http.Request) { http.Error(w, "slow down", http.StatusTooManyRequests) },

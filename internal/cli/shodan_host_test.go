@@ -217,7 +217,7 @@ func TestShodanHost_PassiveShowsOpenAndRiskyPorts(t *testing.T) {
 	if st, _ := p.stageState("shodan-host"); st != "done" {
 		t.Errorf("shodan-host = %s, want done", st)
 	}
-	if hdr := strings.SplitN(p.file(eng, "open-ports.csv"), "\n", 2)[0]; hdr != "ip,port,banner,hostnames,source,confirmed,shodan_last_seen,product,version,current,first_seen,last_seen" {
+	if hdr, _, _ := strings.Cut(p.file(eng, "open-ports.csv"), "\n"); hdr != "ip,port,banner,hostnames,source,confirmed,shodan_last_seen,product,version,current,first_seen,last_seen" {
 		t.Errorf("open-ports.csv header = %q", hdr)
 	}
 	rdp := p.openRow(appHost, 3389)

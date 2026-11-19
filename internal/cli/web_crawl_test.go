@@ -153,7 +153,7 @@ func TestCrawl_RecordedURLsAreCappedAt20TimesPages(t *testing.T) {
 	x.names("a.example.com")
 	x.host("a.example.com", "203.0.113.5")
 	var links strings.Builder
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		fmt.Fprintf(&links, `<a href="/l%d">l</a>`, i)
 	}
 	x.plain("203.0.113.5", 80, page(links.String()))

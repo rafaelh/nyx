@@ -237,7 +237,7 @@ func TestBatchingAndOnNew(t *testing.T) {
 		defer mu.Unlock()
 		news = append(news, kind+"/"+key)
 	})
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		s.Complete("st", fmt.Sprintf("k%03d", i), []store.Obs{{Kind: "x", Key: fmt.Sprintf("r%03d", i%250)}})
 	}
 	mustFlush(t, s)
@@ -319,14 +319,12 @@ func TestSendDuringClose(t *testing.T) {
 	s, _ := open(t, newClock(), nil)
 	var wg sync.WaitGroup
 	for i := range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range 200 {
 				s.Complete("st", fmt.Sprintf("%d-%d", i, j), nil)
 				s.Flush()
 			}
-		}()
+		})
 	}
 	s.Close()
 	wg.Wait()

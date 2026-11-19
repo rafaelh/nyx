@@ -25,8 +25,8 @@ func candidateRow(value, promote string, n int) report.CandidateRow {
 
 func headlineRows() []report.FindingRow {
 	return []report.FindingRow{
-		{Severity: "high", Category: "exposed-admin", Target: "https://a.example.com/admin", Detail: strPtr("login page")},
-		{Severity: "medium", Category: "banner", Target: "10.0.0.1:21", Detail: strPtr("ftp")},
+		{Severity: "high", Category: "exposed-admin", Target: "https://a.example.com/admin", Detail: new("login page")},
+		{Severity: "medium", Category: "banner", Target: "10.0.0.1:21", Detail: new("ftp")},
 	}
 }
 
@@ -163,10 +163,10 @@ func TestWriteSummary_EmptyBlocksAreLeftOut(t *testing.T) {
 func TestWriteSummary_FindingsWithAndWithoutDetail(t *testing.T) {
 	t.Parallel()
 	out := writeSummary(palette.None, withData(report.Summary{Findings: []report.FindingRow{
-		{Severity: "high", Category: "exposed-admin", Target: "https://a/admin", Detail: strPtr("login page")},
+		{Severity: "high", Category: "exposed-admin", Target: "https://a/admin", Detail: new("login page")},
 		{Severity: "medium", Category: "banner", Target: "10.0.0.1:21"},
-		{Severity: "medium", Category: "empty", Target: "t", Detail: strPtr("")},
-		{Severity: "medium", Category: "escape", Target: "t", Detail: strPtr("\x1b[31m")},
+		{Severity: "medium", Category: "empty", Target: "t", Detail: new("")},
+		{Severity: "medium", Category: "escape", Target: "t", Detail: new("\x1b[31m")},
 	}}))
 	want := "Findings (high and medium)\n" +
 		"  high     exposed-admin https://a/admin - login page\n" +
@@ -290,7 +290,7 @@ func TestWriteSummary_SinceLastRun(t *testing.T) {
 				{Kind: "open port", Change: "returned", N: 5},
 				{Kind: "address", Change: "gone", N: 9}, // gone is shown for findings only
 			},
-			Findings: []report.FindingRow{{Severity: "medium", Category: "certificates", Target: "https://a.example.com", Detail: strPtr("expired certificate")}},
+			Findings: []report.FindingRow{{Severity: "medium", Category: "certificates", Target: "https://a.example.com", Detail: new("expired certificate")}},
 		},
 	})
 	out := writeSummary(palette.None, env)

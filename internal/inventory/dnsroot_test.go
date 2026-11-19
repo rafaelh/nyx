@@ -14,6 +14,7 @@ import (
 // even with values that look like addresses or provider hosts, changes
 // nothing the inventory reports.
 func TestRootRecordRowsChangeNothing(t *testing.T) {
+	t.Parallel()
 	var base inventory.Data
 	base.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1")}}
 	resolve(&base, "www.example.com", "203.0.113.50")

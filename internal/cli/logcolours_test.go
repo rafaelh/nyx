@@ -33,6 +33,8 @@ func colourAt(t *testing.T, h *harness, d palette.Depth) {
 		h.setenv("COLORTERM", "truecolor")
 	case palette.Color256:
 		h.setenv("TERM", "xterm-256color")
+	case palette.Color16, palette.None:
+		// A terminal with neither variable set gets 16 colours.
 	}
 }
 
@@ -76,7 +78,7 @@ func summaryOnly(t *testing.T, h *harness) {
 	if !strings.HasPrefix(out, "Summary\n") {
 		t.Fatalf("stdout does not start with the summary:\n%s", out)
 	}
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if logLayout.MatchString(l) || strings.HasPrefix(l, "nyx ") || strings.HasPrefix(l, "+ ") || strings.HasPrefix(l, "error:") {
 			t.Errorf("a log line on stdout: %q", l)
 		}
@@ -541,7 +543,7 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 			rest = strings.ReplaceAll(rest, d.Badge(palette.Level, l), "")
 		}
 		rest = strings.ReplaceAll(rest, d.Text(palette.Chrome, "SEPARATOR", " │ "), "")
-		for _, ln := range strings.Split(rest, "\n") {
+		for ln := range strings.SplitSeq(rest, "\n") {
 			if len(ln) >= 8 && strings.Contains(ln, esc) {
 				ts := ln[:strings.Index(ln, "m")+1+8+len("\x1b[0m")]
 				if rest := strings.Replace(ln, ts, "", 1); strings.Contains(rest, esc) {
@@ -603,6 +605,7 @@ func TestLog_Summary(t *testing.T) {
 func TestLog_ColourDecision(t *testing.T) {
 	t.Parallel()
 	run1 := func(t *testing.T, stdout, stderr bool, env map[string]string) *harness {
+		t.Helper()
 		h := newHarness(t, someFindings())
 		h.setenv("COLORTERM", "truecolor")
 		for k, v := range env {
@@ -773,7 +776,7 @@ func TestLog_MessageHandling(t *testing.T) {
 		if !strings.Contains(rest, strings.Repeat("w", 800)) {
 			t.Errorf("coloured=%v: the long warning is not on one line", coloured)
 		}
-		for _, l := range strings.Split(strings.TrimSpace(h.stderr.String()), "\n") {
+		for l := range strings.SplitSeq(strings.TrimSpace(h.stderr.String()), "\n") {
 			// After the log, the error and its lines: the failed check makes the run partial.
 			if !anyLayout.MatchString(stripSGR(l)) && !strings.HasPrefix(stripSGR(l), "error:") &&
 				!strings.HasPrefix(l, "hint:") && l != "retry: may succeed after a wait" {
@@ -812,7 +815,7 @@ func TestLog_Palette(t *testing.T) {
 		}
 	}
 	levels := 0
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if logLayout.MatchString(l) {
 			levels++
 		}

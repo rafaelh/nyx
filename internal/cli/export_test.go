@@ -332,7 +332,7 @@ func TestExport_FieldOrder(t *testing.T) {
 	if e.code != 0 {
 		t.Fatalf("exit %d: %s", e.code, e.stderr)
 	}
-	for _, raw := range strings.Split(strings.TrimSpace(e.stdout), "\n") {
+	for raw := range strings.SplitSeq(strings.TrimSpace(e.stdout), "\n") {
 		if strings.HasPrefix(raw, `{"kind":"hostname","key":`) {
 			for _, f := range []string{`,"attrs":`, `,"current":`, `,"first_seen":`, `,"last_seen":`, `,"stages":`, `,"scope":`} {
 				i := strings.Index(raw, f)
@@ -761,7 +761,7 @@ func inode(fi fs.FileInfo) uint64 {
 	if st == nil {
 		return 0
 	}
-	return uint64(st.Ino)
+	return st.Ino
 }
 
 // The engagement is found under output_dir from the configuration, as for a run.

@@ -32,6 +32,7 @@ func cellMap(f findings.File, r findings.FileRow) map[string]string {
 }
 
 func TestFiles(t *testing.T) {
+	t.Parallel()
 	var names []string
 	for _, f := range findings.Files() {
 		names = append(names, f.Name)
@@ -46,6 +47,7 @@ func TestFiles(t *testing.T) {
 
 // Keys are "takeover|<target>" and "<category>|<type>|<target>"; ParseKey reverses Key.
 func TestKeyRoundTrip(t *testing.T) {
+	t.Parallel()
 	for _, f := range []findings.Finding{
 		{Category: findings.Takeover, Type: "dns-nxdomain", Target: "shop.example.com"},
 		{Category: findings.Ports, Type: "risky-port", Target: "198.51.100.5:3389"},
@@ -63,6 +65,7 @@ func TestKeyRoundTrip(t *testing.T) {
 }
 
 func TestFromRecord(t *testing.T) {
+	t.Parallel()
 	f := findings.FromRecord(srec("finding", "email|spf-missing|example.com", true,
 		"category", "email", "type", "spf-missing", "severity", "medium", "target", "example.com", "detail", "no SPF record"))
 	if f.Category != "email" || f.Type != "spf-missing" || f.Severity != "medium" || f.Target != "example.com" || f.Detail != "no SPF record" {
@@ -77,6 +80,7 @@ func TestFromRecord(t *testing.T) {
 
 // The summary lists current high and medium findings, high first, then by target.
 func TestHeadline(t *testing.T) {
+	t.Parallel()
 	fnd := func(key, sev, target string, current bool) store.Record {
 		return srec("finding", key, current, "severity", sev, "target", target)
 	}
@@ -100,6 +104,7 @@ func TestHeadline(t *testing.T) {
 
 // The risk files list every finding of their category, current or not, with their columns.
 func TestRiskFiles(t *testing.T) {
+	t.Parallel()
 	fnd := func(category, typ, target string, current bool, kv ...any) store.Record {
 		attrs := append([]any{"category", category, "type", typ, "severity", "medium", "target", target, "detail", "d"}, kv...)
 		return srec("finding", category+"|"+typ+"|"+target, current, attrs...)
@@ -158,6 +163,7 @@ func TestRiskFiles(t *testing.T) {
 
 // A finding no longer derived keeps no attributes; its row is filled from its key.
 func TestRiskFileRowFromKey(t *testing.T) {
+	t.Parallel()
 	l := findings.Listing{Records: map[string][]store.Record{"finding": {
 		srec("finding", "ports|risky-port|203.0.113.9:445", false),
 		srec("finding", "sensitive-paths|/.git/config|https://www.example.com/.git/config", false),
@@ -185,6 +191,7 @@ func TestRiskFileRowFromKey(t *testing.T) {
 
 // storage-unattributed.csv lists existing names that no current reference attributes.
 func TestStorageUnattributedFile(t *testing.T) {
+	t.Parallel()
 	st := func(key string, kv ...any) store.Record { return srec("storage", key, true, kv...) }
 	l := findings.Listing{Records: map[string][]store.Record{
 		"storage": {

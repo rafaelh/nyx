@@ -150,7 +150,8 @@ func (c *Console) Emit(ev Event) {
 	defer c.mu.Unlock()
 	f := ev.Fields
 	d := c.o.LogDepth
-	level, msg := Info, ""
+	level := Info
+	var msg string
 	switch ev.Type {
 	case "run_start":
 		msg = "nyx " + str(f, "engagement")

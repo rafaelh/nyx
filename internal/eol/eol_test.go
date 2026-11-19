@@ -24,6 +24,7 @@ func cyclesOf(t *testing.T, doc string) []cycleRecord {
 // A version belongs to the cycle named by its first parts, as many as the product names
 // its cycles by, and a product with cycles of two shapes falls back to the shorter.
 func TestFind_CycleShapes(t *testing.T) {
+	t.Parallel()
 	mixed := cyclesOf(t, `[{"cycle":"12.1","eol":"2030-01-01"},{"cycle":"11","eol":"2025-01-01"},{"cycle":"9.4","eol":"2020-02-02"}]`)
 	for _, tc := range []struct {
 		name    string
@@ -59,6 +60,7 @@ func TestFind_CycleShapes(t *testing.T) {
 // Lookup reads the embedded data: a name matches ignoring case, a product it does not
 // know or a version it has no cycle for gives nothing.
 func TestLookup_EmbeddedData(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, version, cycle, end string
 		ok                        bool
@@ -96,6 +98,7 @@ func TestLookup_EmbeddedData(t *testing.T) {
 // product, and uses a known cycle length; no name is claimed twice; and no data file is
 // left over from a product the list dropped.
 func TestProducts_EveryEntryHasData(t *testing.T) {
+	t.Parallel()
 	var entries []entry
 	if err := yaml.Unmarshal(productsYAML, &entries); err != nil {
 		t.Fatal(err)
@@ -145,6 +148,7 @@ func TestProducts_EveryEntryHasData(t *testing.T) {
 
 // DataDate is the day the data was taken, a date; the Makefile target rewrites it.
 func TestDataDate_IsADate(t *testing.T) {
+	t.Parallel()
 	if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`).MatchString(DataDate()) {
 		t.Errorf("DataDate = %q", DataDate())
 	}
@@ -152,6 +156,7 @@ func TestDataDate_IsADate(t *testing.T) {
 
 // The Makefile downloads exactly the products products.yaml lists, with curl and no Go code.
 func TestMakefile_DownloadsTheListedProducts(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("../../Makefile")
 	if err != nil {
 		t.Fatal(err)

@@ -60,8 +60,8 @@ type wildcard struct {
 }
 
 // NewDNS starts a server that is shut down when the test ends.
-func NewDNS(t testing.TB) *DNS {
-	t.Helper()
+func NewDNS(tb testing.TB) *DNS {
+	tb.Helper()
 	d := &DNS{
 		addrs: map[string][]netip.Addr{}, cnames: map[string]string{}, rcodes: map[string]int{},
 		sufRcode: map[string]int{}, drop: map[string]bool{}, wild: map[string]wildcard{},
@@ -70,14 +70,14 @@ func NewDNS(t testing.TB) *DNS {
 	}
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	srv := &mdns.Server{PacketConn: pc, Handler: mdns.HandlerFunc(d.serve)}
 	started := make(chan struct{})
 	srv.NotifyStartedFunc = func() { close(started) }
 	go func() { _ = srv.ActivateAndServe() }()
 	<-started
-	t.Cleanup(func() { _ = srv.Shutdown() })
+	tb.Cleanup(func() { _ = srv.Shutdown() })
 	d.Addr = pc.LocalAddr().String()
 	return d
 }
@@ -341,7 +341,7 @@ func (d *DNS) forcedRcode(name string, qtype uint16) (int, bool) {
 // to m and returns the name the chain ends at.
 func (d *DNS) followCNAMEs(m *mdns.Msg, name string) string {
 	cur := name
-	for hop := 0; hop < 8; hop++ {
+	for range 8 {
 		target, ok := d.cnames[cur]
 		if !ok {
 			if w, wok := d.wildTarget(cur); wok && w.cname != "" {

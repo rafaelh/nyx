@@ -88,7 +88,7 @@ func (g *ghFake) set(root string, files []ghFile) {
 }
 
 func (g *ghFake) serve(rw http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/search/code" || r.Method != "GET" || r.Header.Get("Authorization") != "Bearer "+githubKey {
+	if r.URL.Path != "/search/code" || r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer "+githubKey {
 		http.Error(rw, "bad credentials", http.StatusUnauthorized)
 		return
 	}
@@ -294,7 +294,7 @@ func TestGitHub_RequestShape(t *testing.T) {
 	}
 	r := w.requests("api.github.com")[0]
 	q := ghQueries(w)[0]
-	if r.Method != "GET" || !strings.HasPrefix(r.URI, "/search/code?") || q.Get("q") != `"example.com"` || q.Get("per_page") != "100" {
+	if r.Method != http.MethodGet || !strings.HasPrefix(r.URI, "/search/code?") || q.Get("q") != `"example.com"` || q.Get("per_page") != "100" {
 		t.Errorf("request = %s %s", r.Method, r.URI)
 	}
 	if got := r.Header.Get("Authorization"); got != "Bearer "+githubKey {
@@ -669,7 +669,7 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 	t.Parallel()
 	for name, serve := range map[string]func(rw http.ResponseWriter){
-		"server error": func(rw http.ResponseWriter) { http.Error(rw, "oops", 500) },
+		"server error": func(rw http.ResponseWriter) { http.Error(rw, "oops", http.StatusInternalServerError) },
 		"not json":     func(rw http.ResponseWriter) { _, _ = rw.Write([]byte("<html>")) },
 		"wrong shape":  func(rw http.ResponseWriter) { _, _ = rw.Write([]byte(`{"message":"nope"}`)) },
 		"truncated body": func(rw http.ResponseWriter) {

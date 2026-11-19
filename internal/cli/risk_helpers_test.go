@@ -132,7 +132,7 @@ func bucketHandler(bs map[string]bucket) http.HandlerFunc {
 		}
 		if b.redirect != "" {
 			w.Header().Set("x-amz-bucket-region", b.redirect)
-			w.WriteHeader(301)
+			w.WriteHeader(http.StatusMovedPermanently)
 			_, _ = w.Write([]byte(`<Error><Code>PermanentRedirect</Code></Error>`))
 			return
 		}

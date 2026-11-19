@@ -1072,7 +1072,7 @@ func TestCVE_RerunIsTheSame(t *testing.T) {
 
 // nyx cve contacts only the NVD and creates nothing, in the output directory
 // or the working directory.
-func TestCVE_TouchesNothing(t *testing.T) {
+func TestCVE_TouchesNothing(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	h := newHarness(t)
 	nvd := newNVD(t, h)
 	cwd := emptyDir(t)

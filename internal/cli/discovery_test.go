@@ -160,7 +160,7 @@ func TestSources_KeyedSources(t *testing.T) {
 		}
 	}
 	wx := w.requests("reverse-whois.whoisxmlapi.com")
-	if len(wx) == 0 || !strings.Contains(wx[0].Body, "wx-SECRET-4") || !strings.Contains(wx[0].Body, "purchase") || wx[0].Method != "POST" {
+	if len(wx) == 0 || !strings.Contains(wx[0].Body, "wx-SECRET-4") || !strings.Contains(wx[0].Body, "purchase") || wx[0].Method != http.MethodPost {
 		t.Errorf("whoisxml request must carry the key in the body: %+v", wx)
 	}
 	for _, v := range keys {
@@ -222,7 +222,7 @@ func TestSources_NotFoundIsNoData(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "collinfo.json"):
 			_, _ = rw.Write([]byte(`[{"id":"CC-MAIN-2026-01"}]`))
 		case q.Get("page") == "0":
-			http.Error(rw, "No Captures found for: *.example.com", 404)
+			http.Error(rw, "No Captures found for: *.example.com", http.StatusNotFound)
 		case q.Get("page") == "1":
 			_, _ = rw.Write([]byte(`{"url":"https://cc.example.com/"}` + "\n"))
 		default:
@@ -309,6 +309,7 @@ func TestSources_CrtshHasALongerTimeout(t *testing.T) {
 // --- Permutations ---
 
 func permWorld(t *testing.T, words string) (*world, string) {
+	t.Helper()
 	w := newWorld(t)
 	wl := writeFile(t, t.TempDir(), "words.txt", words)
 	w.crtsh(map[string][]string{"example.com": {"api.example.com", "api-both.example.com"}}, nil)
@@ -768,7 +769,7 @@ func TestOrganisationPivots(t *testing.T) {
 	w.handle("reverse-whois.whoisxmlapi.com", jsonBody(`{"domainsCount":1,"domainsList":["acme-brands.com"]}`))
 	var cats []string
 	cats = append(cats, `{"value":"AS64500","description":"ACME-NET - Acme Corp"}`, `{"value":"AS64999","description":"UNRELATED - Other Co"}`)
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		cats = append(cats, fmt.Sprintf(`{"value":"AS%d","description":"ACME-X%d - Acme Corp Ltd"}`, 65000+i, i))
 	}
 	w.handle("stat.ripe.net", func(rw http.ResponseWriter, r *http.Request) {
@@ -921,14 +922,14 @@ func TestPlumbing_FilesAndCounts(t *testing.T) {
 	if !strings.HasPrefix(snapshot["subdomains.txt"], "a.example.com\nb.example.com\n") {
 		t.Errorf("subdomains.txt must be sorted: %q", snapshot["subdomains.txt"])
 	}
-	hdr := strings.SplitN(snapshot["ips.csv"], "\n", 2)[0]
+	hdr, _, _ := strings.Cut(snapshot["ips.csv"], "\n")
 	if hdr != "ip,asn,owner,provider,service,in_scope,port_eligible,hostnames,registrant,registrant_netblock,registry,srv_ports,current,first_seen,last_seen" {
 		t.Errorf("ips.csv header = %q", hdr)
 	}
 	if snapshot["provider-hosts.csv"] != "" || snapshot["wildcard-excluded.txt"] != "" {
 		t.Errorf("files with no rows were written: %q %q", snapshot["provider-hosts.csv"], snapshot["wildcard-excluded.txt"])
 	}
-	if hdr := strings.SplitN(snapshot["resolutions.csv"], "\n", 2)[0]; hdr != "name,type,value,source,self_hosted,historical_first_seen,historical_last_seen,current,first_seen,last_seen" {
+	if hdr, _, _ := strings.Cut(snapshot["resolutions.csv"], "\n"); hdr != "name,type,value,source,self_hosted,historical_first_seen,historical_last_seen,current,first_seen,last_seen" {
 		t.Errorf("resolutions.csv header = %q", hdr)
 	}
 	if r := find(w.table(eng, "ips.csv"), "ip", "203.0.113.5"); r == nil || r["first_seen"] != "2026-11-01" || r["asn"] != "AS64500" {

@@ -426,6 +426,7 @@ func redoStages(behaviour *int) (*testkit.Stage, *testkit.Stage) {
 }
 
 func currentOf(t *testing.T, h *harness, kind string) map[string]string {
+	t.Helper()
 	rows, err := h.openDB("a.com").Query("SELECT key, current FROM records WHERE kind=?", kind)
 	if err != nil {
 		t.Fatal(err)
@@ -662,6 +663,7 @@ func TestAckFlag(t *testing.T) {
 
 // asnServer answers RIPEstat announced-prefixes with the current *prefix.
 func asnServer(t *testing.T, h *harness, prefix *string) {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"status":"ok","data":{"prefixes":[{"prefix":%q}]}}`, *prefix)
 	}))
@@ -1080,7 +1082,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 					return []run.Observation{obs("web_service", "https://a.com/?k="+key, "token", key)}, nil
 				case "c001":
 					_, err := e.ThirdParty.Do(ctx, egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/x?key=" + key})
-					return nil, fmt.Errorf("request failed: %v (key %s)", err, key)
+					return nil, fmt.Errorf("request failed: %w (key %s)", err, key)
 				}
 				return nil, fmt.Errorf("auth %s rejected", key)
 			}}

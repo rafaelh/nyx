@@ -8,6 +8,7 @@ import (
 
 // The evidence kinds are internal, with no category, so totals count findings only.
 func TestEvidenceKinds(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"takeover_http", "storage", "storage_account", "storage_object", "storage_ref", "sensitive_hit", "email_posture", "web_posture"} {
 		k, ok := kinds.Get(name)
 		if !ok {

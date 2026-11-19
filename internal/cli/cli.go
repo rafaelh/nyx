@@ -81,7 +81,7 @@ func DefaultDeps() Deps {
 		StdoutIsTTY: func() bool { return term.IsTerminal(int(os.Stdout.Fd())) },
 		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
 		Clock:       time.Now,
-		Env:         os.Environ(),
+		Env:         os.Environ(), //nolint:forbidigo // main reads the process environment once, into Deps.Env
 		Stdin:       os.Stdin,
 	}
 }

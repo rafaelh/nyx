@@ -9,6 +9,7 @@ import (
 // The discovery kinds (addresses, owners, wildcards, resolutions) and which of
 // them are counted.
 func TestDiscoveryKinds(t *testing.T) {
+	t.Parallel()
 	want := map[string]string{ // name to category; one with a category and not printed is only counted
 		"ip": "ips", "unresolved": "unresolved names",
 		"wildcard": "", "ip_owner": "", "ip_hostname": "", "provider_range": "", "resolution": "",

@@ -11,6 +11,7 @@ import (
 // The ports nyx found closed are part of the inventory data; an IPv4-mapped
 // address is the same address.
 func TestPortClosed(t *testing.T) {
+	t.Parallel()
 	inv := inventory.New(inventory.Data{ClosedPorts: []netip.AddrPort{
 		netip.MustParseAddrPort("203.0.113.5:3306"), netip.MustParseAddrPort("[2001:db8::1]:22"),
 	}}, provider.Default())

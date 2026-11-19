@@ -141,7 +141,7 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 		var r search
 		if err := json.Unmarshal(body, &r); err != nil {
-			return nil, fmt.Errorf("shodan %s: unreadable response: %v", c.Key, err)
+			return nil, fmt.Errorf("shodan %s: unreadable response: %w", c.Key, err)
 		}
 		for _, m := range r.Matches {
 			if m.IPStr != "" && !seen["ip|"+m.IPStr] {

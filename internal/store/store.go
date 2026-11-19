@@ -501,11 +501,11 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		}
 		var one int
 		err = tx.QueryRow("SELECT 1 FROM records WHERE kind=? AND key=?", k.kind, k.key).Scan(&one)
-		switch err {
-		case sql.ErrNoRows:
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
 			news = append(news, Obs{k.kind, k.key, attrs})
 			_, err = tx.Exec("INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1)", k.kind, k.key, today, today)
-		case nil:
+		case err == nil:
 			_, err = tx.Exec("UPDATE records SET last_seen=? WHERE kind=? AND key=?", today, k.kind, k.key)
 		}
 		if err != nil {

@@ -33,6 +33,7 @@ func portWorld(closed ...string) *kinds.Visibility {
 // A reported port is shown while its address is port-eligible and nyx has not
 // found it closed; an open_port is not hidden by a closed report.
 func TestReportedPortShown(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, key string
 		closed    []string
@@ -57,6 +58,7 @@ func TestReportedPortShown(t *testing.T) {
 // The open-port count is split: nyx's own handshakes, and the ports others
 // reported that nyx has neither confirmed nor found closed.
 func TestTotalsSplitOpenPorts(t *testing.T) {
+	t.Parallel()
 	gone := rec("203.0.113.5:9999")
 	gone.Current = false
 	got := portWorld("203.0.113.5:8082").Totals(map[string][]store.Record{
@@ -83,6 +85,7 @@ func TestTotalsSplitOpenPorts(t *testing.T) {
 }
 
 func TestEncodeBanner(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"SSH-2.0-x":      "SSH-2.0-x",
 		"a\x1b[31mb\r\n": `a\x1b[31mb\r\n`,
@@ -96,6 +99,7 @@ func TestEncodeBanner(t *testing.T) {
 }
 
 func TestFirstLine(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", 300)
 	for _, c := range []struct{ in, want string }{
 		{"HTTP/1.1 200 OK\r\nServer: x", "HTTP/1.1 200 OK"},

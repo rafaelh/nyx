@@ -37,7 +37,7 @@ type keyedSource struct {
 var keyedSources = []keyedSource{
 	{
 		stage: "shodan-dns", host: "api.shodan.io", env: "NYX_KEYS_SHODAN", key: shodanKey,
-		auth: func(r *http.Request) bool { return r.URL.Query().Get("key") == shodanKey && r.Method == "GET" },
+		auth: func(r *http.Request) bool { return r.URL.Query().Get("key") == shodanKey && r.Method == http.MethodGet },
 		ok: `{"domain":"example.com","tags":[],"subdomains":["sd","only"],"more":false,"data":[
 			{"subdomain":"sd","type":"A","value":"198.51.100.7","last_seen":"2026-01-01T00:00:00"},
 			{"subdomain":"sd","type":"TXT","value":"v=spf1 -all"}]}`,
@@ -46,7 +46,7 @@ var keyedSources = []keyedSource{
 	{
 		stage: "censys", host: "api.platform.censys.io", env: "NYX_KEYS_CENSYS", key: censysKey,
 		auth: func(r *http.Request) bool {
-			return r.Header.Get("Authorization") == "Bearer "+censysKey && r.Method == "POST"
+			return r.Header.Get("Authorization") == "Bearer "+censysKey && r.Method == http.MethodPost
 		},
 		ok: `{"result":{"total_hits":2,"next_page_token":"","hits":[
 			{"certificate_v1":{"resource":{"names":["cs.example.com","*.wild.example.com","off.example.org","198.51.100.9","https://url.example.com/x"]}}},
@@ -55,8 +55,10 @@ var keyedSources = []keyedSource{
 	},
 	{
 		stage: "chaos", host: "dns.projectdiscovery.io", env: "NYX_KEYS_CHAOS", key: chaosKey,
-		auth: func(r *http.Request) bool { return r.Header.Get("Authorization") == chaosKey && r.Method == "GET" },
-		ok:   `{"domain":"example.com","subdomains":["ch","*.wild","*",""],"count":4}`,
+		auth: func(r *http.Request) bool {
+			return r.Header.Get("Authorization") == chaosKey && r.Method == http.MethodGet
+		},
+		ok: `{"domain":"example.com","subdomains":["ch","*.wild","*",""],"count":4}`,
 		// "*" is the root itself and "" is nothing: neither is a new name.
 		names: []string{"ch.example.com", "wild.example.com"},
 	},

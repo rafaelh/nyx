@@ -109,7 +109,7 @@ func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 	}
 	var r hostAnswer
 	if err := json.Unmarshal(body, &r); err != nil {
-		return nil, fmt.Errorf("shodan-host %s: unreadable response: %v", in.addr, err)
+		return nil, fmt.Errorf("shodan-host %s: unreadable response: %w", in.addr, err)
 	}
 	var obs []run.Observation
 	seen := map[string]bool{}

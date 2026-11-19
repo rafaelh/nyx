@@ -12,11 +12,9 @@ import (
 	"github.com/rafaelh/nyx/internal/report"
 )
 
-func strPtr(s string) *string { return &s }
-
 // fixedEnvelope is a run with something in every key.
 func fixedEnvelope() report.Envelope {
-	finding := report.FindingRow{Severity: "high", Category: "exposed-admin", Target: "https://a.example.com/admin", Detail: strPtr("login <page> & more")}
+	finding := report.FindingRow{Severity: "high", Category: "exposed-admin", Target: "https://a.example.com/admin", Detail: new("login <page> & more")}
 	return report.Envelope{
 		Data: report.Summary{
 			Engagement:    "acme",
@@ -142,7 +140,7 @@ func TestEnvelope_WriteReturnsTheWriteError(t *testing.T) {
 // secretEnvelope has the secret in every string position.
 func secretEnvelope() report.Envelope {
 	s := "SEKRET"
-	row := report.FindingRow{Severity: s, Category: s, Target: s, Detail: strPtr(s)}
+	row := report.FindingRow{Severity: s, Category: s, Target: s, Detail: new(s)}
 	return report.Envelope{
 		Data: report.Summary{
 			Engagement:    s,

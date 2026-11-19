@@ -29,6 +29,7 @@ func (x *web) certTypes() []string { return typeURLs(x.certRows()) }
 
 // selfFor is a self-signed certificate naming host.
 func selfFor(t *testing.T, host string) tls.Certificate {
+	t.Helper()
 	return selfSigned(t, leafSpec{cn: host, dns: []string{host}})
 }
 

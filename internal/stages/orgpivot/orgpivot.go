@@ -84,7 +84,7 @@ func (*CTOrg) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		CommonName string `json:"common_name"`
 	}
 	if err := json.Unmarshal(body, &rows); err != nil {
-		return nil, fmt.Errorf("ct-org %s: unreadable crt.sh response: %v", c.Key, err)
+		return nil, fmt.Errorf("ct-org %s: unreadable crt.sh response: %w", c.Key, err)
 	}
 	var names []string
 	for _, r := range rows {
@@ -121,7 +121,7 @@ func (*WhoisXML) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.
 		DomainsList []string `json:"domainsList"`
 	}
 	if err := json.Unmarshal(out, &r); err != nil {
-		return nil, fmt.Errorf("whoisxml %s: unreadable response: %v", c.Key, err)
+		return nil, fmt.Errorf("whoisxml %s: unreadable response: %w", c.Key, err)
 	}
 	return rootObs(r.DomainsList), nil
 }

@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	target  = os.Getenv("NYX_FAULT")
-	file    = os.Getenv("NYX_FAULT_FILE")
+	target  = os.Getenv("NYX_FAULT") //nolint:forbidigo // set only by crash tests, in a child process
+	file    = os.Getenv("NYX_FAULT_FILE") //nolint:forbidigo // as above
 	tripped atomic.Bool
 )
 

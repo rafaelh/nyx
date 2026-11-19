@@ -44,6 +44,7 @@ func rec(key string, kv ...string) store.Record {
 
 // An open_port is shown only while its address is port-eligible.
 func TestPortShown(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, key string
 		excl      []string
@@ -67,6 +68,7 @@ func TestPortShown(t *testing.T) {
 // A web record is shown while its host is in scope; without a host
 // attribute the host comes from its key.
 func TestWebShown(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		r    store.Record
@@ -89,6 +91,7 @@ func TestWebShown(t *testing.T) {
 }
 
 func TestOtherKindsShown(t *testing.T) {
+	t.Parallel()
 	v := world(t)
 	if !v.Shown(kinds.Finding, rec("ports|risky-port|192.0.2.9:445")) || !v.Shown(kinds.Hostname, rec("www.other.org")) {
 		t.Error("kinds without a showing rule, and entities, are always shown")
@@ -100,6 +103,7 @@ func TestOtherKindsShown(t *testing.T) {
 }
 
 func TestCategory(t *testing.T) {
+	t.Parallel()
 	v := world(t, "old.example.com")
 	for _, c := range []struct {
 		kind      kinds.Named
@@ -125,6 +129,7 @@ func TestCategory(t *testing.T) {
 }
 
 func TestPrinted(t *testing.T) {
+	t.Parallel()
 	v := world(t)
 	for _, c := range []struct {
 		kind, key string
@@ -151,6 +156,7 @@ func TestPrinted(t *testing.T) {
 
 // Totals count current, shown records, and list empty categories.
 func TestTotals(t *testing.T) {
+	t.Parallel()
 	gone := rec("https://www.example.com/b")
 	gone.Current = false
 	got := world(t).Totals(map[string][]store.Record{
@@ -171,6 +177,7 @@ func TestTotals(t *testing.T) {
 // An asn is a candidate until it is an input; an organisation is counted only
 // while three of its netblocks are known and no --org input names it.
 func TestVisibility_ASNAndOrganisation(t *testing.T) {
+	t.Parallel()
 	regs := []inventory.Registration{}
 	for i, n := range []string{"203.0.113.0", "203.0.114.0", "203.0.115.0"} {
 		regs = append(regs, inventory.Registration{Key: string(rune('a' + i)), Start: netip.MustParseAddr(n), End: netip.MustParseAddr(n).Next(), Registrant: "Globex Holdings Ltd", Registry: "arin"})

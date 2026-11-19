@@ -103,7 +103,7 @@ func TestCandidates_ColumnsAndOrder(t *testing.T) {
 	if code := h.exec("a.com", "--org", "Acme"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	if hdr := strings.SplitN(h.readOut("a.com", "candidates.csv"), "\n", 2)[0]; hdr != "type,value,sources,evidence_count,confidence,current,first_seen,last_seen" {
+	if hdr, _, _ := strings.Cut(h.readOut("a.com", "candidates.csv"), "\n"); hdr != "type,value,sources,evidence_count,confidence,current,first_seen,last_seen" {
 		t.Errorf("header = %s", hdr)
 	}
 	rows := h.table("a.com", "candidates.csv")
@@ -319,7 +319,7 @@ func TestCandidates_FindingsStillDerivedWhenOnlyEvidenceChanges(t *testing.T) {
 // one low root.
 func highSet() []*src {
 	roots := list()
-	for i := 0; i < 22; i++ {
+	for i := range 22 {
 		roots = append(roots, root(fmt.Sprintf("r%02d.org", i)))
 	}
 	return []*src{
@@ -331,6 +331,7 @@ func highSet() []*src {
 }
 
 func highHarness(t *testing.T) *harness {
+	t.Helper()
 	var stages []run.Stage
 	for _, s := range highSet() {
 		stages = append(stages, s)

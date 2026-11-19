@@ -10,6 +10,7 @@ import (
 
 // SaaSServed is true when a CNAME on the chain, an address's ASN or an address range is SaaS.
 func TestSaaSServed(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Resolutions = []inventory.Resolution{
 		{Name: "help.example.com", Type: "CNAME", Value: "acme.zendesk.com"},
@@ -47,6 +48,7 @@ func TestSaaSServed(t *testing.T) {
 // ProviderServed is wider than SaaSServed: any provider CNAME on the chain, or an
 // address in shared provider space, counts.
 func TestProviderServed(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Resolutions = []inventory.Resolution{
 		{Name: "help.example.com", Type: "CNAME", Value: "acme.zendesk.com"},
@@ -84,6 +86,7 @@ func TestProviderServed(t *testing.T) {
 
 // ProviderHosts carries the matched entry, with its fingerprint.
 func TestProviderHostEntry(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Hosts = []inventory.Host{{Name: "shop.example.com", Stages: []string{"crtsh"}}, {Name: "app.example.com", Stages: []string{"crtsh"}}}
 	d.Resolutions = []inventory.Resolution{

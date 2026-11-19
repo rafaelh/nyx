@@ -8,6 +8,7 @@ import (
 
 // The stored tls_trust values are the strings egress reports.
 func TestTrustValuesMatchEgress(t *testing.T) {
+	t.Parallel()
 	for _, p := range [][2]string{
 		{TrustExpired, egress.TrustExpired},
 		{TrustHostnameMismatch, egress.TrustHostnameMismatch},
@@ -24,6 +25,7 @@ func TestTrustValuesMatchEgress(t *testing.T) {
 // TLSTrust is the stored tls_trust, or the same value worked out from the
 // tls_error text and tls_self_signed of a record stored before it existed.
 func TestTLSTrust(t *testing.T) {
+	t.Parallel()
 	yes, no := true, false
 	for _, tc := range []struct {
 		name string

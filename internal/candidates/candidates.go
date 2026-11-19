@@ -34,8 +34,9 @@ func (c Confidence) rank() int {
 		return 0
 	case Medium:
 		return 1
+	default:
+		return 2
 	}
-	return 2
 }
 
 // Evidence is one source and the item that linked the candidate.
@@ -162,8 +163,7 @@ type Entry struct {
 // then high before medium before low, then more evidence, then by value. A row
 // that is not current keeps the confidence it last had, and sorts last.
 func Compare(a, b Entry) int {
-	switch {
-	case a.Current != b.Current:
+	if a.Current != b.Current {
 		if a.Current {
 			return -1
 		}

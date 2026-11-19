@@ -13,6 +13,7 @@ import (
 // step lower and unconfirmed; once nyx has opened it, the same key is at full
 // severity and confirmed. A port nyx found closed is no finding.
 func TestRiskyPortsReportedByAThirdParty(t *testing.T) {
+	t.Parallel()
 	reported := func(f *fixture) {
 		f.add(rec("reported_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389.0, "banner", "rdp", "last_seen", "2026-10-30"))
 	}
@@ -64,6 +65,7 @@ func TestRiskyPortsReportedByAThirdParty(t *testing.T) {
 }
 
 func TestStepDown(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{findings.High: findings.Medium, findings.Medium: findings.Low, findings.Low: findings.Low} {
 		if got := findings.StepDown(in); got != want {
 			t.Errorf("StepDown(%s) = %s, want %s", in, got, want)

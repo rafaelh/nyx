@@ -64,6 +64,7 @@ func probeEngagement(probs *clierr.Problems, outputDir, name, given string) (abs
 		foreignProblem(probs, given, dir)
 	case engagement.Absent:
 		return true, nil
+	case engagement.Exists:
 	}
 	return false, nil
 }

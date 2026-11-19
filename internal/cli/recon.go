@@ -259,10 +259,9 @@ func prepareEngagement(eng *engagement.Engagement, parsed input.Parsed, name str
 // a failure to save state, then a signal during the deadline's wrap-up, after
 // which nothing is written. It is nil when the run reached its summary.
 func reconFailure(ctx context.Context, inv *invocation, runErr, closeErr error, deadline bool) error {
-	var nl *run.NetblockLimitError
 	switch {
 	case runErr != nil && !deadline:
-		if errors.As(runErr, &nl) {
+		if nl, ok := errors.AsType[*run.NetblockLimitError](runErr); ok {
 			return &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: invocationHint(inv.args, "--allow-large-netblocks")} // approves the netblocks without repeating a stage
 		}
 		return runErr

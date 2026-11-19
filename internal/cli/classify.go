@@ -212,7 +212,7 @@ func describeFlag(tok string, cmds []*cobra.Command) (owners []*cobra.Command, n
 		return owners, needsNext
 	}
 	shorts := tok[1:]
-	for i := 0; i < len(shorts); i++ {
+	for i := range len(shorts) {
 		ch := shorts[i : i+1]
 		if strings.Contains(sharedShorts, ch) {
 			continue

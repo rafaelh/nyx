@@ -147,7 +147,7 @@ func TestEnvelope_NoEventLinesAndDebugOnlyAddsDebugLines(t *testing.T) {
 	if dbgOut != out {
 		t.Errorf("--debug changed stdout:\n%s\n%s", out, dbgOut)
 	}
-	for _, l := range strings.Split(strings.TrimSpace(dbgErr), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(dbgErr), "\n") {
 		if l != "" && !strings.Contains(l, "| DEBUG |") {
 			t.Errorf("a line that is not DEBUG on stderr under --json --debug: %q", l)
 		}
@@ -237,7 +237,7 @@ func TestEnvelope_CandidatesAreCappedAndSourcesAreAList(t *testing.T) {
 	t.Parallel()
 	// Each root is found through three families, so it is a high-confidence candidate.
 	m := map[string][]run.Observation{}
-	for i := 0; i < 23; i++ {
+	for i := range 23 {
 		for _, fam := range []string{"crtsh", "wayback", "otx"} {
 			m[fmt.Sprintf("%s:r%02d", fam, i)] = list(root(fmt.Sprintf("r%02d.org", i)))
 		}

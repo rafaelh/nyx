@@ -147,7 +147,7 @@ func TestContract_TerminalCharactersStripped(t *testing.T) {
 
 // Every problem with the values and the settings is reported in one error,
 // and nothing is created or contacted.
-func TestContract_EveryProblemInOneError(t *testing.T) {
+func TestContract_EveryProblemInOneError(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	for _, jsonMode := range []bool{false, true} {
 		h := newHarness(t, defaultStageList()...)
 		cwd := emptyDir(t)

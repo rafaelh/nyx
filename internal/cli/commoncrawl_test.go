@@ -162,7 +162,7 @@ func TestCommonCrawl_AnyOther400IsAFailure(t *testing.T) {
 			_, _ = rw.Write([]byte(`[{"id":"CC-MAIN-2026-01"}]`))
 			return
 		}
-		rw.WriteHeader(400)
+		rw.WriteHeader(http.StatusBadRequest)
 		_, _ = rw.Write([]byte(`{"message": "Invalid query"}`))
 	})
 	w.h.partial(w.run("--passive", "example.com"), true)

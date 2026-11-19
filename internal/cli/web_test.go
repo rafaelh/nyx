@@ -54,7 +54,7 @@ func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
 	x.mustRun("--crawl-pages", "0") // the crawl would add a GET of its own
 
 	x.wantServices("http://a.example.com", "https://b.example.com")
-	if r := a80.requests(); len(r) == 0 || r[0].Method != "GET" || r[0].URI != "/" || r[0].Host != "a.example.com" {
+	if r := a80.requests(); len(r) == 0 || r[0].Method != http.MethodGet || r[0].URI != "/" || r[0].Host != "a.example.com" {
 		t.Errorf("a:80 requests = %+v", r)
 	}
 	if !b443.requests()[0].TLS {
@@ -449,7 +449,7 @@ func TestWebService_TitleIsTrimmedAndCapped(t *testing.T) {
 		ip := fmt.Sprintf("203.0.113.%d", 40+i)
 		i++
 		x.host(host, ip)
-		c := c
+
 		x.plain(ip, 80, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", c.ctype)
 			_, _ = w.Write([]byte(c.body))
@@ -483,10 +483,10 @@ func TestWebService_AnyStatusIsALiveService(t *testing.T) {
 	x.host("broken.example.com", "203.0.113.6")
 	x.plain("203.0.113.5", 80, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(404)
+		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte("<title>Not Found</title>"))
 	})
-	x.plain("203.0.113.6", 80, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", 500) })
+	x.plain("203.0.113.6", 80, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "boom", http.StatusInternalServerError) })
 	x.mustRun()
 	if r := x.service("http://gone.example.com"); r["status"] != "404" || r["title"] != "Not Found" {
 		t.Errorf("404: %v", r)

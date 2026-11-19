@@ -132,7 +132,7 @@ func TestNormaliseID(t *testing.T) {
 		ok bool
 	}{
 		"CVE-2021-44228":          {"CVE-2021-44228", true},
-		" cve-2021-44228 ":        {"CVE-2021-44228", true},
+		" cve-2021-44228 ":        {"CVE-2021-44228", true}, //nolint:gocritic // the surrounding space is the input under test
 		"CVE-2021-1234567890123":  {"CVE-2021-1234567890123", true},
 		"CVE-0999-1234":           {"CVE-0999-1234", true},
 		"CVE-2021-123":            {"CVE-2021-123", false},

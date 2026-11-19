@@ -13,6 +13,7 @@ func (f *fixture) tlsService(host string, kv ...any) {
 
 // A service that negotiated TLS 1.0 or 1.1 is a low legacy-tls finding; 1.2 and 1.3 are not.
 func TestLegacyTLSFinding(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	for _, h := range []string{"v10", "v11", "v12", "v13", "none"} {
 		f.host(h+".example.com", "203.0.113.5")
@@ -36,6 +37,7 @@ func TestLegacyTLSFinding(t *testing.T) {
 
 // A certificate that does not name the probed host is a low finding, except for an IP literal or a provider-served host.
 func TestHostnameMismatchFinding(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.host("help.example.com", "203.0.113.6")
@@ -62,6 +64,7 @@ func TestHostnameMismatchFinding(t *testing.T) {
 
 // Findings of one service share one row with a ";"-joined type, in alphabetical order.
 func TestTLSFindingsCombine(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("a.example.com", "203.0.113.5")
 	f.host("b.example.com", "203.0.113.6")
@@ -73,6 +76,7 @@ func TestTLSFindingsCombine(t *testing.T) {
 
 // A record stored before tls_trust existed gets its trust from tls_error and tls_self_signed.
 func TestHostnameMismatchFromOldRecord(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.add(rec("web_service", "https://www.example.com", "host", "www.example.com", "scheme", "https",

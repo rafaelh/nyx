@@ -200,7 +200,7 @@ func New(d Data, db *provider.DB) *Inventory {
 // until yield returns false.
 func (i *Inventory) chainProviders(name string, yield func(target string, e provider.Entry) bool) {
 	cur := name
-	for hop := 0; hop < 8; hop++ {
+	for range 8 {
 		targets := i.cn[cur]
 		if len(targets) == 0 {
 			return

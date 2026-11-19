@@ -10,7 +10,10 @@ import (
 )
 
 // emailWorld is a passive world with the email stage kept in the stage list.
-func emailWorld(t *testing.T) *world { return newWorldWith(t, "email") }
+func emailWorld(t *testing.T) *world {
+	t.Helper()
+	return newWorldWith(t, "email")
+}
 
 // tpRows are the third-parties.csv rows of one mechanism, by domain.
 func tpRows(w *world, mechanism string) map[string]map[string]string {

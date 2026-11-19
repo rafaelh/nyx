@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -620,22 +621,24 @@ func (c settingChecker) ports(key string, items []string, dst *[]int) {
 
 func (c settingChecker) posInt(key, val string, min int, dst *int) {
 	n, err := strconv.Atoi(strings.TrimSpace(val))
-	if err != nil {
+	switch {
+	case err != nil:
 		c.bad(key, val, "not an integer")
-	} else if n < min {
+	case n < min:
 		c.bad(key, val, fmt.Sprintf("must be at least %d", min))
-	} else {
+	default:
 		*dst = n
 	}
 }
 
 func (c settingChecker) posFloat(key, val string, dst *float64) {
 	f, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
-	if err != nil {
+	switch {
+	case err != nil:
 		c.bad(key, val, "not a number")
-	} else if f <= 0 {
+	case f <= 0:
 		c.bad(key, val, "must be greater than 0")
-	} else {
+	default:
 		*dst = f
 	}
 }
@@ -777,7 +780,7 @@ func expandHome(p, home string) string {
 }
 
 func errText(err error) string {
-	if pe, ok := err.(*os.PathError); ok {
+	if pe, ok := errors.AsType[*os.PathError](err); ok {
 		return pe.Err.Error()
 	}
 	return err.Error()

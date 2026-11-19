@@ -102,10 +102,11 @@ func startChild(t *testing.T, out string, o childOpts) *child {
 	c.cmd = exec.Command(os.Args[0], "-test.run=NoSuchTestEver")
 	// The developer's NYX_* settings must not reach the child.
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "NYX_") })
-	c.cmd.Env = append(env,
+	env = append(env,
 		"NYX_TEST_CHILD=1", "NYX_TEST_N="+strconv.Itoa(o.n), "NYX_TEST_DELAY="+o.delay.String(),
 		"NYX_TEST_LOG="+c.log, "NYX_TEST_ARGS="+strings.Join(args, "\x1f"),
 		"XDG_CONFIG_HOME="+t.TempDir(), "HOME="+t.TempDir())
+	c.cmd.Env = env
 	if o.fault != "" {
 		c.cmd.Env = append(c.cmd.Env, "NYX_FAULT="+o.fault, "NYX_FAULT_FILE="+o.faultFile)
 	}
@@ -266,7 +267,7 @@ func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 // flock still held and fail with LOCKED. Go starts the parallel top-level tests
 // only once every other top-level test has finished, so no child is forked
 // while they run.
-func TestChildProcesses(t *testing.T) {
+func TestChildProcesses(t *testing.T) { //nolint:paralleltest // its subtests fork child processes, so it runs after every parallel test
 	for _, tc := range []struct {
 		name string
 		test func(*testing.T)

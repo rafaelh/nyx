@@ -10,6 +10,7 @@ import (
 // web_service and url name the attribute holding their host so
 // the summary and the CSVs filter them identically; http_port is internal.
 func TestWebKinds(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"web_service", "url"} {
 		k, ok := kinds.Get(name)
 		if !ok || k.HostAttr != "host" {
@@ -37,6 +38,7 @@ func TestWebKinds(t *testing.T) {
 // web_identifier is shown while its service's host is in scope, and is internal:
 // never counted or printed.
 func TestWebIdentifierKind(t *testing.T) {
+	t.Parallel()
 	k, ok := kinds.Get("web_identifier")
 	if !ok {
 		t.Fatal("web_identifier is not registered")

@@ -44,7 +44,7 @@ func (d *deriver) references() []cloudstorage.Reference {
 		}
 		a := kinds.StorageRef.Attrs(r)
 		out = append(out, cloudstorage.Reference{
-			Ref: cloudstorage.Ref{Provider: a.Provider, Name: a.Name, Container: a.Container, Object: a.Object},
+			Provider: a.Provider, Name: a.Name, Container: a.Container, Object: a.Object,
 			Via: a.Via, From: a.Page,
 		})
 	}

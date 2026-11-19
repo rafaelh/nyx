@@ -95,7 +95,7 @@ func TestResolverTimeoutIsError(t *testing.T) {
 
 func TestResolverHasNoZoneTransfer(t *testing.T) {
 	t.Parallel()
-	tt := reflect.TypeOf((*egress.Resolver)(nil)).Elem()
+	tt := reflect.TypeFor[egress.Resolver]()
 	if tt.NumMethod() != 1 || tt.Method(0).Name != "Query" {
 		t.Errorf("Resolver has methods beyond Query")
 	}
@@ -488,36 +488,36 @@ func TestHTTPDialMap(t *testing.T) {
 // API shape. No method other than Get/Head, no raw URLs, no connections.
 func TestTargetAPIShape(t *testing.T) {
 	t.Parallel()
-	ht := reflect.TypeOf((*egress.TargetHTTP)(nil)).Elem()
+	ht := reflect.TypeFor[egress.TargetHTTP]()
 	var names []string
-	for i := 0; i < ht.NumMethod(); i++ {
-		names = append(names, ht.Method(i).Name)
+	for method := range ht.Methods() {
+		names = append(names, method.Name)
 	}
 	if strings.Join(names, ",") != "Get,Head" {
 		t.Errorf("TargetHTTP methods = %v", names)
 	}
-	reqT := reflect.TypeOf((*egress.Request)(nil)).Elem()
-	for i := 0; i < ht.NumMethod(); i++ {
-		if ht.Method(i).Type.In(1) != reqT {
-			t.Errorf("%s must take the typed Request", ht.Method(i).Name)
+	reqT := reflect.TypeFor[egress.Request]()
+	for method := range ht.Methods() {
+		if method.Type.In(1) != reqT {
+			t.Errorf("%s must take the typed Request", method.Name)
 		}
 	}
 	// Request can't be implemented outside the package.
-	for i := 0; i < reqT.NumMethod(); i++ {
-		if reqT.Method(i).IsExported() {
-			t.Errorf("Request has exported method %s; it must not be implementable externally", reqT.Method(i).Name)
+	for method := range reqT.Methods() {
+		if method.IsExported() {
+			t.Errorf("Request has exported method %s; it must not be implementable externally", method.Name)
 		}
 	}
-	tt := reflect.TypeOf((*egress.TargetTCP)(nil)).Elem()
+	tt := reflect.TypeFor[egress.TargetTCP]()
 	if tt.NumMethod() != 1 || tt.Method(0).Name != "Connect" {
 		t.Error("TargetTCP must expose only Connect")
 	}
 	for _, v := range []any{egress.Open{}, egress.Closed{}, egress.Filtered{}, egress.Refused{}} {
 		ty := reflect.TypeOf(v)
-		for i := 0; i < ty.NumField(); i++ {
-			ft := ty.Field(i).Type
-			if ft.Implements(reflect.TypeOf((*net.Conn)(nil)).Elem()) || ft.Kind() == reflect.Interface {
-				t.Errorf("%s exposes a connection-like field %s", ty, ty.Field(i).Name)
+		for field := range ty.Fields() {
+			ft := field.Type
+			if ft.Implements(reflect.TypeFor[net.Conn]()) || ft.Kind() == reflect.Interface {
+				t.Errorf("%s exposes a connection-like field %s", ty, field.Name)
 			}
 		}
 		if reflect.PointerTo(ty).Implements(reflect.TypeOf((*interface{ Write([]byte) (int, error) })(nil)).Elem()) {
@@ -526,11 +526,11 @@ func TestTargetAPIShape(t *testing.T) {
 	}
 	c := egress.Clients{}
 	ct := reflect.TypeOf(c)
-	for i := 0; i < ct.NumField(); i++ {
-		switch ct.Field(i).Name {
+	for field := range ct.Fields() {
+		switch field.Name {
 		case "DNS", "ThirdParty", "HTTP", "TCP":
 		default:
-			t.Errorf("unexpected Clients field %s", ct.Field(i).Name)
+			t.Errorf("unexpected Clients field %s", field.Name)
 		}
 	}
 }
@@ -640,7 +640,7 @@ func TestPerIPRateLimit(t *testing.T) {
 	eg.SetPolicy(tcpPolicy(port))
 	tcp := eg.Clients(true, nil).TCP
 	start := time.Now()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, _ = tcp.Connect(context.Background(), addr("127.0.0.1"), port)
 	}
 	if el := time.Since(start); el < 180*time.Millisecond {
@@ -653,7 +653,7 @@ func TestVhostsShareALimiter(t *testing.T) {
 	f := newHTTPFixture(t, egress.Options{RatePerHost: 20}, func(w http.ResponseWriter, r *http.Request) {})
 	c := f.client()
 	start := time.Now()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, _ = c.Get(context.Background(), egress.Root("a.example.com", "http", f.port))
 		_, _ = c.Get(context.Background(), egress.Root("b.example.com", "http", f.port))
 	}
@@ -668,7 +668,7 @@ func TestRateLimitWaitOutsideHTTPTimeout(t *testing.T) {
 	f := newHTTPFixture(t, egress.Options{RatePerHost: 4, HTTPTimeout: 150 * time.Millisecond},
 		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	c := f.client()
-	for i := 0; i < 2; i++ { // the second request waits ~250ms for its token
+	for i := range 2 { // the second request waits ~250ms for its token
 		res, err := c.Get(context.Background(), egress.Root("www.example.com", "http", f.port))
 		if r, ok := res.(egress.Response); err != nil || !ok || string(r.Body) != "ok" {
 			t.Fatalf("request %d: %#v %v", i, res, err)

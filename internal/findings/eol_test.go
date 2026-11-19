@@ -33,7 +33,10 @@ func eolFindings(fs []findings.Finding) []findings.Finding {
 	return out
 }
 
-func (f *fixture) eol(t *testing.T) []findings.Finding { return eolFindings(f.derive(t)) }
+func (f *fixture) eol(t *testing.T) []findings.Finding {
+	t.Helper()
+	return eolFindings(f.derive(t))
+}
 
 // date moves a YYYY-MM-DD date by n days.
 func date(t *testing.T, d string, n int) string {
@@ -48,6 +51,7 @@ func date(t *testing.T, d string, n int) string {
 // A technology whose version is past the end of security support is a medium finding of
 // type eol, one for each product on the service, with the columns of risk-eol-software.csv.
 func TestEOL_WebTechnologiesPastTheEnd(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.eolService("www.example.com", "Nginx:1.18.0;PHP:5.6.40;Apache HTTP Server:2.4.58;jQuery;Unknown Thing:1.0")
@@ -82,6 +86,7 @@ func TestEOL_WebTechnologiesPastTheEnd(t *testing.T) {
 
 // A cycle that ended on no known date is past its end: a finding with no end date.
 func TestEOL_CycleWithNoKnownEndDate(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.eolService("www.example.com", "jQuery:1.12.4")
@@ -96,6 +101,7 @@ func TestEOL_CycleWithNoKnownEndDate(t *testing.T) {
 // end of life; the day before it is approaching, within eol_warn_days; and beyond the window
 // there is nothing. A warning window of 0 turns the approaching type off and leaves eol.
 func TestEOL_DateBoundaryAndWarnWindow(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		today string
@@ -125,6 +131,7 @@ func TestEOL_DateBoundaryAndWarnWindow(t *testing.T) {
 // A cycle with no end announced, a version no cycle matches and a technology with no
 // version give no finding.
 func TestEOL_NoFindingWithoutAMatch(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.eolService("www.example.com", "Apache HTTP Server:2.4.58;Nginx:0.1.0;PHP;Nginx 2:3")
@@ -134,6 +141,7 @@ func TestEOL_NoFindingWithoutAMatch(t *testing.T) {
 // A version carrying a distribution suffix is one step lower, with distribution build in
 // the detail; low stays low.
 func TestEOL_DistributionBuildIsOneStepLower(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.eolService("www.example.com", "PHP:7.4.3-4ubuntu2.19;Nginx:1.18.0")
@@ -156,6 +164,7 @@ func TestEOL_DistributionBuildIsOneStepLower(t *testing.T) {
 // Wappalyzer reports a header's version without its distribution suffix, so the Server and
 // X-Powered-By values that carry the version decide whether it is a distribution build.
 func TestEOL_DistributionBuildFromTheHeaders(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, server, poweredBy, techs string
 		want                           map[string]string // product: severity
@@ -197,6 +206,7 @@ func TestEOL_DistributionBuildFromTheHeaders(t *testing.T) {
 // A banner in open-ports is assessed by its parsed product and version, with the address and
 // port as the target and the hostnames behind the address.
 func TestEOL_PortBanners(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("ftp.example.com", "198.51.100.5")
 	f.add(rec("open_port", "198.51.100.5:21", "ip", "198.51.100.5", "port", 21.0, "banner", `220 ProFTPD 1.3.5e Server (ProFTPD) [198.51.100.5]\r\n`))
@@ -227,6 +237,7 @@ func TestEOL_PortBanners(t *testing.T) {
 
 // A distribution build on a banner is one step lower too.
 func TestEOL_PortBannerDistributionBuild(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.add(rec("open_port", "198.51.100.5:21", "ip", "198.51.100.5", "port", 21.0, "banner", `220 ProFTPD 1.3.5e Server (Debian) [::ffff:198.51.100.5]`))
 	got := f.eol(t)
@@ -240,6 +251,7 @@ func TestEOL_PortBannerDistributionBuild(t *testing.T) {
 // nyx opens the port with a banner it is the full severity and confirmed. A banner nyx
 // received that names no version does not hide the one Shodan reports.
 func TestEOL_VersionReportedByAThirdParty(t *testing.T) {
+	t.Parallel()
 	const shodan = `220 ProFTPD 1.3.5e Server (ProFTPD)`
 	reported := func(f *fixture) {
 		f.add(rec("reported_port", "198.51.100.5:21", "ip", "198.51.100.5", "port", 21.0, "banner", shodan, "last_seen", "2026-10-30"))
@@ -292,6 +304,7 @@ func TestEOL_VersionReportedByAThirdParty(t *testing.T) {
 // Only in-scope web services and port-eligible addresses are assessed, and only current
 // records.
 func TestEOL_OnlyShownServicesAndEligibleAddresses(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.host("www.other.net", "203.0.113.6") // not in scope
@@ -311,6 +324,7 @@ func TestEOL_OnlyShownServicesAndEligibleAddresses(t *testing.T) {
 
 // A service excluded from scope is not assessed.
 func TestEOL_ExcludedServiceIsNotAssessed(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.excl = []string{"www.example.com"}
 	f.host("www.example.com", "203.0.113.5")
@@ -321,6 +335,7 @@ func TestEOL_ExcludedServiceIsNotAssessed(t *testing.T) {
 // The key is eol-software|<type>|<target>|<product>; ParseKey gives the category, type and
 // target, and a finding no longer derived still lists its type, target and product from the key.
 func TestEOL_KeyAndFile(t *testing.T) {
+	t.Parallel()
 	x := findings.Finding{Category: findings.EOLSoftware, Type: "eol-approaching", Target: "198.51.100.5:25",
 		Attrs: map[string]any{"product": "Postfix"}}
 	if x.Key() != "eol-software|eol-approaching|198.51.100.5:25|Postfix" {
@@ -346,6 +361,7 @@ func TestEOL_KeyAndFile(t *testing.T) {
 
 // Both types are in the severity table and the help, with the documented severities.
 func TestEOL_SeverityTable(t *testing.T) {
+	t.Parallel()
 	if findings.Severity(findings.EOLSoftware, "eol") != "medium" || findings.Severity(findings.EOLSoftware, "eol-approaching") != "low" {
 		t.Error("severities of eol and eol-approaching")
 	}
@@ -360,6 +376,7 @@ func TestEOL_SeverityTable(t *testing.T) {
 // The console names the product and version of a new end-of-life finding, so two products on
 // one service are not two identical lines.
 func TestEOL_FoundText(t *testing.T) {
+	t.Parallel()
 	x := findings.Finding{Category: findings.EOLSoftware, Type: "eol", Target: "https://www.example.com",
 		Attrs: map[string]any{"product": "Nginx", "version": "1.18.0"}}
 	if got := x.FoundText(); got != "end-of-life Nginx 1.18.0 on https://www.example.com" {

@@ -115,6 +115,8 @@ func (p page) visibleLines() []string {
 				flush()
 				defer flush()
 			}
+		default:
+			// Other nodes hold no text of their own, only children.
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)

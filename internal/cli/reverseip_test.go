@@ -102,11 +102,11 @@ type stReverse struct {
 func (f *stReverse) serve(rw http.ResponseWriter, r *http.Request) {
 	// The subdomain source asks for a root's subdomains; it finds none, so that a failure of the
 	// stage a test is about is the only one in the run.
-	if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v1/domain/") && strings.HasSuffix(r.URL.Path, "/subdomains") {
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/domain/") && strings.HasSuffix(r.URL.Path, "/subdomains") {
 		_, _ = rw.Write([]byte(`{"subdomains":[]}`))
 		return
 	}
-	if r.URL.Path != "/v1/domains/list" || r.Method != "POST" {
+	if r.URL.Path != "/v1/domains/list" || r.Method != http.MethodPost {
 		http.NotFound(rw, r)
 		return
 	}
@@ -192,7 +192,7 @@ func (x *web) hostnameKeys() []string { return slices.Sorted(maps.Keys(x.obsAttr
 // manyDomains lists n names, each under its own registrable domain.
 func manyDomains(n int) []string {
 	var out []string
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out = append(out, fmt.Sprintf("www.site%03d.org", i))
 	}
 	return out

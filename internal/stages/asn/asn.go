@@ -57,7 +57,7 @@ func Announced(ctx context.Context, e egress.Clients, asn string) ([]string, err
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return nil, fmt.Errorf("unreadable RIPEstat response: %v", err)
+		return nil, fmt.Errorf("unreadable RIPEstat response: %w", err)
 	}
 	if body.Status != "ok" {
 		return nil, fmt.Errorf("RIPEstat status %q", body.Status)

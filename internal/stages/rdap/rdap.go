@@ -285,7 +285,7 @@ func searchEntities(ctx context.Context, e egress.Clients, in orgInput, word str
 		Results []entity `json:"entitySearchResults"`
 	}
 	if err := json.Unmarshal(raw, &found); err != nil {
-		return nil, fmt.Errorf("unreadable response: %v", err)
+		return nil, fmt.Errorf("unreadable response: %w", err)
 	}
 	return found.Results, nil
 }
@@ -437,7 +437,7 @@ func fetchBootstrap(ctx context.Context, e egress.Clients, v4 bool) *bootstrap {
 		Services [][][]string `json:"services"`
 	}
 	if err := json.Unmarshal(raw, &file); err != nil {
-		return fail(fmt.Errorf("unreadable: %v", err))
+		return fail(fmt.Errorf("unreadable: %w", err))
 	}
 	b := &bootstrap{}
 	for _, svc := range file.Services {
@@ -484,7 +484,7 @@ func lookup(ctx context.Context, e egress.Clients, addr netip.Addr) ([]run.Obser
 		Entities []entity `json:"entities"`
 	}
 	if err := json.Unmarshal(raw, &ans); err != nil {
-		return nil, fmt.Errorf("unreadable response: %v", err)
+		return nil, fmt.Errorf("unreadable response: %w", err)
 	}
 	start, e1 := netip.ParseAddr(ans.StartAddress)
 	end, e2 := netip.ParseAddr(ans.EndAddress)

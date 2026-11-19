@@ -137,7 +137,7 @@ func TestUnkeyed_NamesAreRecorded(t *testing.T) {
 		if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{s.checkKey}) {
 			t.Errorf("completed checks = %v, want the root's check %q", done, s.checkKey)
 		}
-		if reqs := w.requests(s.host); len(reqs) == 0 || reqs[0].Method != "GET" || !strings.Contains(reqs[0].URI, "example.com") {
+		if reqs := w.requests(s.host); len(reqs) == 0 || reqs[0].Method != http.MethodGet || !strings.Contains(reqs[0].URI, "example.com") {
 			t.Errorf("requests = %+v, want a GET naming the root", reqs)
 		}
 	})

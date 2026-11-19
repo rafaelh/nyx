@@ -9,8 +9,6 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-func str(v string) *string { return &v }
-
 func log4shell() Record {
 	score := 10.0
 	return Record{
@@ -18,16 +16,16 @@ func log4shell() Record {
 		Status:       "Analyzed",
 		Published:    Timestamp{time.Date(2021, 12, 10, 10, 15, 9, 0, time.UTC)},
 		LastModified: Timestamp{time.Date(2025, 10, 27, 17, 40, 33, 0, time.UTC)},
-		Description:  str("Apache Log4j2 JNDI features do not protect against attacker controlled LDAP."),
-		CVSSVersion:  str("3.1"),
+		Description:  new("Apache Log4j2 JNDI features do not protect against attacker controlled LDAP."),
+		CVSSVersion:  new("3.1"),
 		CVSSScore:    &score,
-		CVSSSeverity: str("CRITICAL"),
-		CVSSVector:   str("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"),
-		CVSSSource:   str("nvd@nist.gov"),
+		CVSSSeverity: new("CRITICAL"),
+		CVSSVector:   new("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"),
+		CVSSSource:   new("nvd@nist.gov"),
 		Weaknesses:   []string{"CWE-502"},
 		AffectedProducts: []AffectedProduct{{
-			CPE: "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*", Vendor: str("apache"), Product: str("log4j"),
-			VersionStartIncluding: str("2.0.1"), VersionEndExcluding: str("2.3.1"),
+			CPE: "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*", Vendor: new("apache"), Product: new("log4j"),
+			VersionStartIncluding: new("2.0.1"), VersionEndExcluding: new("2.3.1"),
 		}},
 		References: []Reference{{URL: "https://logging.apache.org/log4j/2.x/security.html", Tags: []string{"Vendor Advisory"}}},
 	}
@@ -150,7 +148,7 @@ func TestRender_RecordsAreSeparatedByABlankLine(t *testing.T) {
 // Text wraps at spaces to the width, and a bullet's continuation lines are indented.
 func TestRender_Wraps(t *testing.T) {
 	t.Parallel()
-	r := Record{ID: "CVE-2026-0001", Description: str(strings.Repeat("abcd ", 15)), Weaknesses: []string{strings.Repeat("wxyz ", 15)}}
+	r := Record{ID: "CVE-2026-0001", Description: new(strings.Repeat("abcd ", 15)), Weaknesses: []string{strings.Repeat("wxyz ", 15)}}
 	got := render(t, []Record{r}, "description,weaknesses", palette.None, 60)
 	want := "CVE-2026-0001\n\nDescription\n" +
 		strings.TrimSpace(strings.Repeat("abcd ", 12)) + "\nabcd abcd abcd\n\nWeaknesses\n" +
@@ -170,7 +168,7 @@ var injected = strings.Repeat("\x1b[31mword\x1b[0m ", 30)
 func TestRender_CleansBeforeWrapping(t *testing.T) {
 	t.Parallel()
 	r := log4shell()
-	r.Description = str(injected)
+	r.Description = new(injected)
 	r.Weaknesses = []string{"CWE-79\nInjected:\tline"}
 	r.References = []Reference{{URL: "https://example.com/\x1b]8;;https://evil.example/\x07x", Tags: []string{"Pa\x1b[2Jtch"}}}
 	line12 := strings.TrimSpace(strings.Repeat("word ", 12))
@@ -224,7 +222,7 @@ func TestRender_ColourKeysAndBadges(t *testing.T) {
 
 func TestWidth(t *testing.T) {
 	t.Parallel()
-	for in, want := range map[string]int{"": 100, "80": 80, " 120 ": 120, "40": 60, "0": 100, "-5": 100, "wide": 100} {
+	for in, want := range map[string]int{"": 100, "80": 80, " 120 ": 120, "40": 60, "0": 100, "-5": 100, "wide": 100} { //nolint:gocritic // " 120 " tests trimming
 		if got := Width(in); got != want {
 			t.Errorf("Width(%q) = %d, want %d", in, got, want)
 		}

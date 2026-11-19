@@ -49,6 +49,7 @@ func newScope(inv *inventory.Inventory, excl ...string) *scope.Scope {
 
 // Wildcard-only names are computed on read, by CNAME or by overlapping addresses.
 func TestWildcardOnly(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1", "203.0.113.2")}}
 	resolve(&d, "zz.example.com", "203.0.113.1")                                                          // overlaps the probe addresses
@@ -69,6 +70,7 @@ func TestWildcardOnly(t *testing.T) {
 }
 
 func TestWildcardOnlyByCNAME(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1"), CNAME: "lb.cdn.example.net"}}
 	// A rotating CDN: this name's addresses differ from the probes', but the CNAME target is the same.
@@ -88,6 +90,7 @@ func TestWildcardOnlyByCNAME(t *testing.T) {
 
 // One representative per wildcard reaches ProbeHostnames; wildcard-only names do not.
 func TestProbeHostnames(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1")}}
 	resolve(&d, "zz.example.com", "203.0.113.1")
@@ -110,6 +113,7 @@ func TestProbeHostnames(t *testing.T) {
 // The representative is chosen among probeable names, so an excluded or
 // address-less wildcard-only name never costs the zone its only probe.
 func TestRepresentativeIsProbeable(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1"), CNAME: "wild.example.net"}}
 	resolve(&d, "admin.example.com", "203.0.113.1") // smallest, but excluded
@@ -126,6 +130,7 @@ func TestRepresentativeIsProbeable(t *testing.T) {
 // Only names seen by a stage other than permutations are seeds, and none
 // directly under a wildcard zone: every name there exists, so permuting it finds nothing.
 func TestSeeds(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1")}}
 	d.Hosts = []inventory.Host{
@@ -149,6 +154,7 @@ func TestSeeds(t *testing.T) {
 
 // CNAME-to-provider rows, with resolves=false for dangling chains.
 func TestProviderHosts(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Hosts = []inventory.Host{
 		{Name: "cdn.example.com", Stages: []string{"crtsh"}}, {Name: "dangling.example.com", Stages: []string{"crtsh"}},
@@ -190,6 +196,7 @@ func TestProviderHosts(t *testing.T) {
 
 // IP rows, owners, eligibility; unknown owner fails closed.
 func TestIPRows(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	resolve(&d, "www.example.com", "203.0.113.5")
 	resolve(&d, "cdn.example.com", "104.16.0.1")
@@ -223,6 +230,7 @@ func TestIPRows(t *testing.T) {
 
 // The ips.csv port_eligible column equals egress's decision for the same address.
 func TestIPRowsMatchEgress(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	resolve(&d, "www.example.com", "203.0.113.5")
 	resolve(&d, "cdn.example.com", "104.16.0.1")
@@ -294,6 +302,7 @@ func TestIPRowsMatchEgress(t *testing.T) {
 
 // A hyperscaler address with no range data is shared; EC2-only is not.
 func TestSharedFromRanges(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	d.Ranges = provider.NewRanges([]provider.Range{
 		{Prefix: netip.MustParsePrefix("203.0.113.0/24"), Provider: "aws", Service: "EC2"},
@@ -314,6 +323,7 @@ func TestSharedFromRanges(t *testing.T) {
 // Outputs are stable: when names CNAMEd to different providers share an
 // address, the address's label comes from the first such name, on every run.
 func TestCNAMESharedLabelIsStable(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	resolve(&d, "a.example.com", "203.0.113.80")
 	resolve(&d, "b.example.com", "203.0.113.80")
@@ -331,6 +341,7 @@ func TestCNAMESharedLabelIsStable(t *testing.T) {
 
 // One eligibility function for the sweep, egress and ips.csv.
 func TestPortEligibleMatchesIPRows(t *testing.T) {
+	t.Parallel()
 	var d inventory.Data
 	resolve(&d, "www.example.com", "203.0.113.5")
 	resolve(&d, "cdn.example.com", "104.16.0.1")
@@ -369,6 +380,7 @@ func reg(key, start, end, registrant string) inventory.Registration {
 
 // The narrowest registered netblock that holds an address fills its row.
 func TestIPRows_RegistrationIsTheNarrowestRange(t *testing.T) {
+	t.Parallel()
 	d := inventory.Data{
 		IPs: ips("203.0.113.7", "203.0.113.200", "192.0.2.1"),
 		Registrations: []inventory.Registration{
@@ -397,6 +409,7 @@ func TestIPRows_RegistrationIsTheNarrowestRange(t *testing.T) {
 // A registrant is a candidate organisation on three distinct netblocks, unless
 // a shared address is inside one of them or an --org input matches its name.
 func TestRegistrantCandidate(t *testing.T) {
+	t.Parallel()
 	ranges := []inventory.Registration{
 		reg("arin|1", "203.0.113.0", "203.0.113.255", "Globex Holdings Ltd"),
 		reg("arin|2", "203.0.114.0", "203.0.114.255", "Globex Holdings Ltd"),

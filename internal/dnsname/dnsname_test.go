@@ -11,6 +11,7 @@ import (
 
 // Reverse names for PTR sweeps and Team Cymru lookups.
 func TestReverseNames(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ addr, ptr, cymru string }{
 		{"192.0.2.10", "10.2.0.192.in-addr.arpa", "10.2.0.192.origin.asn.cymru.com"},
 		{"2001:db8::1", "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa",
@@ -29,6 +30,7 @@ func TestReverseNames(t *testing.T) {
 
 // Wildcard zones are the registrable parents of a name, nearest first.
 func TestParents(t *testing.T) {
+	t.Parallel()
 	got := dnsname.Parents("a.b.example.com")
 	if !slices.Equal(got, []string{"b.example.com", "example.com"}) {
 		t.Errorf("Parents = %v", got)
@@ -43,6 +45,7 @@ func TestParents(t *testing.T) {
 
 // Names reduce to their registrable domain.
 func TestETLDPlusOne(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"www.example.com": "example.com", "a.b.example.co.uk": "example.co.uk"} {
 		if got, ok := dnsname.ETLDPlusOne(in); !ok || got != want {
 			t.Errorf("ETLDPlusOne(%s) = %q, %v", in, got, ok)
@@ -55,6 +58,7 @@ func TestETLDPlusOne(t *testing.T) {
 
 // Permutations are deterministic, valid, unique, never the seed, and capped.
 func TestPermute(t *testing.T) {
+	t.Parallel()
 	words := []string{"dev", "staging"}
 	got := dnsname.Permute("api", words, 200)
 	for _, want := range []string{"api-dev", "dev-api", "api.dev", "dev.api", "apidev", "devapi", "api1", "api2"} {
@@ -82,7 +86,7 @@ func TestPermute(t *testing.T) {
 		t.Errorf("digit increments keep padding: %v", n)
 	}
 	for _, g := range dnsname.Permute(strings.Repeat("a", 60), []string{"long-word"}, 200) {
-		for _, part := range strings.Split(g, ".") {
+		for part := range strings.SplitSeq(g, ".") {
 			if !dnsname.ValidLabel(part) {
 				t.Errorf("invalid label generated: %q", g)
 			}

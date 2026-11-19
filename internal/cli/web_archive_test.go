@@ -81,6 +81,7 @@ func TestArchive_ArchivedURLsUnderPassive(t *testing.T) {
 }
 
 func archiveWorld(t *testing.T) *web {
+	t.Helper()
 	x := newWeb(t)
 	var urls []string
 	for _, h := range []string{"a", "b"} {

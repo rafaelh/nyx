@@ -582,8 +582,7 @@ func (r *Runner) count(stage string, f func(*stageStats)) {
 func (r *Runner) failCheck(stage, key string, err error) {
 	r.recordFailure(stage, key, false)
 	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, err)})
-	var p *checkPanic
-	if errors.As(err, &p) {
+	if p, ok := errors.AsType[*checkPanic](err); ok {
 		for line := range strings.SplitSeq(strings.TrimRight(string(p.stack), "\n"), "\n") {
 			r.emit("debug", map[string]any{"message": line})
 		}

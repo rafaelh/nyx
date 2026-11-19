@@ -41,7 +41,8 @@ func (c *crawler) readLists(robots, sitemap string) {
 			}
 		}
 	}
-	for i := 0; i < len(sitemaps); i++ {
+	for i := 0; i < len(sitemaps); i++ { //nolint:intrange // a sitemap index appends to sitemaps as the loop runs
+
 		body, ok := c.fetchList(sitemaps[i])
 		if !ok {
 			continue

@@ -107,7 +107,7 @@ func TestClassifyIndexMatchesLinearScan(t *testing.T) {
 	}
 	idx := provider.NewRanges(ranges)
 	var addrs []netip.Addr
-	for i := 0; i < 1024; i++ {
+	for i := range 1024 {
 		addrs = append(addrs, netip.AddrFrom4([4]byte{203, 0, byte(112 + i/256), byte(i)}))
 	}
 	for _, s := range []string{"2001:db8::1", "2001:db8:1::1", "2001:db8:1:2::1", "2001:db8:ff::9", "2001:db9::1", "::ffff:203.0.113.200", "8.8.8.8"} {

@@ -15,6 +15,7 @@ func (f *fixture) posture(service, host string, kv ...any) {
 // The four conditions are each one low finding per service, and a service with
 // none of them has none.
 func TestWebPostureFindings(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	for _, h := range []string{"www", "ls", "old", "ck", "ok"} {
 		f.host(h+".example.com", "203.0.113.5")
@@ -54,6 +55,7 @@ func TestWebPostureFindings(t *testing.T) {
 // One row per service and condition: several conditions of one service are
 // separate findings, and an insecure-cookie row carries every cookie.
 func TestWebPostureOneFindingPerServiceAndCondition(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.posture("https://www.example.com", "www.example.com", "hsts", false, "cookies_no_secure", "a;b;c",
@@ -67,6 +69,7 @@ func TestWebPostureOneFindingPerServiceAndCondition(t *testing.T) {
 
 // HSTS means nothing over HTTP, and Secure is judged only over HTTPS.
 func TestWebPostureHTTPServiceHasNoHSTSOrSecureFinding(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.posture("http://www.example.com", "www.example.com") // hsts unset
@@ -87,6 +90,7 @@ func TestWebPostureHTTPServiceHasNoHSTSOrSecureFinding(t *testing.T) {
 
 // A cookie without HttpOnly is evidence only.
 func TestWebPostureHTTPOnlyAloneMakesNoFinding(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.posture("https://www.example.com", "www.example.com", "hsts", true, "cookies_no_httponly", "sid")
@@ -96,6 +100,7 @@ func TestWebPostureHTTPOnlyAloneMakesNoFinding(t *testing.T) {
 
 // No posture finding for a service addressed by IP literal or served by a SaaS platform.
 func TestWebPostureSkipsIPLiteralAndSaaSServices(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.host("help.example.com", "203.0.113.20")
@@ -115,6 +120,7 @@ func TestWebPostureSkipsIPLiteralAndSaaSServices(t *testing.T) {
 
 // A posture record is shown only while its host is in scope and it is current.
 func TestWebPostureFollowsScopeAndCurrency(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.host("ex.example.com", "203.0.113.6")

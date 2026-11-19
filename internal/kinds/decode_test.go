@@ -51,8 +51,8 @@ func viaJSON(t reflect.Type, attrs map[string]any) any {
 func unknownPointers(a any) any {
 	v := reflect.New(reflect.TypeOf(a)).Elem()
 	v.Set(reflect.ValueOf(a))
-	for i := range v.NumField() {
-		if f := v.Field(i); f.Kind() == reflect.Pointer {
+	for _, f := range v.Fields() {
+		if f.Kind() == reflect.Pointer {
 			f.Set(reflect.Zero(f.Type()))
 		}
 	}
@@ -68,6 +68,7 @@ func direct(t reflect.Type, attrs map[string]any) any {
 // The direct decoder must agree with JSON: for a full record, an empty one,
 // and one whose values have the wrong types.
 func TestDecodeMatchesJSON(t *testing.T) {
+	t.Parallel()
 	wrong := map[string]any{}
 	for _, a := range attrTypes {
 		typ := reflect.TypeOf(a)
@@ -101,6 +102,7 @@ func TestDecodeMatchesJSON(t *testing.T) {
 
 // Encoding stores what was set and leaves out what omitempty says is unset.
 func TestEncodeRoundTrip(t *testing.T) {
+	t.Parallel()
 	for _, a := range attrTypes {
 		typ := reflect.TypeOf(a)
 		v := filled(typ).Interface()

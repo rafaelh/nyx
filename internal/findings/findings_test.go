@@ -76,7 +76,10 @@ func (f *fixture) input(t *testing.T) findings.Input {
 		Records: func(k kinds.Named) []store.Record { return recs[k.Name()] }}
 }
 
-func (f *fixture) derive(t *testing.T) []findings.Finding { return derive(f.input(t)) }
+func (f *fixture) derive(t *testing.T) []findings.Finding {
+	t.Helper()
+	return derive(f.input(t))
+}
 
 func derive(in findings.Input) []findings.Finding {
 	fs, _ := findings.DeriveAll(in)
@@ -103,6 +106,7 @@ func wantSet(t *testing.T, got []findings.Finding, want ...string) {
 
 // Every finding type has a documented severity and each is exactly this.
 func TestSeverityTable(t *testing.T) {
+	t.Parallel()
 	want := map[string]string{
 		"takeover/dns-nxdomain":          "high",
 		"takeover/http-fingerprint":      "high",
@@ -179,6 +183,7 @@ func TestSeverityTable(t *testing.T) {
 
 // SPF, DMARC and MX cases.
 func TestEmailFindings(t *testing.T) {
+	t.Parallel()
 	good := map[string]any{
 		"mx": "mail.example.com", "spf": "v=spf1 include:_spf.example.net -all", "spf_records": 1.0, "spf_all": "-all", "spf_lookups": 2.0,
 		"dmarc": "v=DMARC1; p=reject", "dmarc_policy": "reject", "dmarc_source": "root",
@@ -238,6 +243,7 @@ func TestEmailFindings(t *testing.T) {
 
 // Risky open ports are medium, filtered by port visibility.
 func TestRiskyPorts(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.add(rec("open_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389.0, "banner", ""))
 	f.add(rec("open_port", "198.51.100.5:8080", "ip", "198.51.100.5", "port", 8080.0, "banner", ""))
@@ -255,6 +261,7 @@ func TestRiskyPorts(t *testing.T) {
 
 // Certificate findings follow the date.
 func TestCertificates(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("old.example.com")
 	f.host("soon.example.com")
@@ -323,6 +330,7 @@ func byKey(fs []findings.Finding) map[string]findings.Finding {
 
 // A sensitive hit is a finding only while its service is current and visible.
 func TestSensitiveHits(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com")
 	f.add(rec("web_service", "https://www.example.com", "host", "www.example.com", "scheme", "https"))
@@ -362,6 +370,7 @@ func storageRec(provider, name, container string, kv ...any) store.Record {
 
 // Attributed storage findings.
 func TestAttributedStorage(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		recs  []store.Record
@@ -409,6 +418,7 @@ func TestAttributedStorage(t *testing.T) {
 
 // Attribution by reference; guessed names that are also referenced are attributed.
 func TestStorageAttribution(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("static.example.com")
 	f.cname("static.example.com", "acme-assets.s3.amazonaws.com")
@@ -453,6 +463,7 @@ func TestStorageAttribution(t *testing.T) {
 
 // Azure references attribute the account's containers.
 func TestAzureAttribution(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.add(rec("storage_ref", "https://www.example.com/|https://acctone.blob.core.windows.net/media/a.png",
 		"provider", "azure", "name", "acctone", "container", "media", "object", "a.png",
@@ -466,6 +477,7 @@ func TestAzureAttribution(t *testing.T) {
 
 // One takeover finding per hostname, merging every kind of evidence.
 func TestTakeoverDNS(t *testing.T) {
+	t.Parallel()
 	t.Run("dangling cname into an nxdomain provider", func(t *testing.T) {
 		f := newFixture()
 		f.host("shop.example.com")
@@ -531,6 +543,7 @@ func TestTakeoverDNS(t *testing.T) {
 
 // A missing bucket referenced only by a link is low; by an asset, high.
 func TestMissingBucketReferences(t *testing.T) {
+	t.Parallel()
 	ref := func(via, key string) store.Record {
 		return rec("storage_ref", key, "provider", "s3", "name", "lost-bucket", "container", "", "object", "x.js",
 			"page", "https://www.example.com/", "page_host", "www.example.com", "via", via)
@@ -558,6 +571,7 @@ func TestMissingBucketReferences(t *testing.T) {
 // A missing container in an existing Azure account cannot be claimed, so it
 // is not a takeover; a missing account is.
 func TestMissingAzureContainerIsNotTakeover(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.host("www.example.com")
 	f.add(rec("storage_ref", "https://www.example.com/|a", "provider", "azure", "name", "acctone", "container", "gone",
@@ -572,6 +586,7 @@ func TestMissingAzureContainerIsNotTakeover(t *testing.T) {
 
 // Derivation is deterministic: the same input gives the same findings in the same order.
 func TestDeriveDeterministic(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.add(rec("open_port", "198.51.100.5:3389", "banner", ""))
 	f.add(rec("open_port", "198.51.100.5:445", "banner", ""))
@@ -591,6 +606,7 @@ func TestDeriveDeterministic(t *testing.T) {
 // a deriver writes, out of what makes the findings derive again, so a finding
 // that read it could go stale.
 func TestDerivationNeverReadsThirdParties(t *testing.T) {
+	t.Parallel()
 	f := newFixture()
 	f.add(rec("email_posture", "example.com", "mx", "m", "spf", "", "dmarc", "", "spf_records", 0.0, "mta_sts", "absent"))
 	f.add(rec("third_party", "example.com|mx|vendor.test", "root", "example.com", "mechanism", "mx", "domain", "vendor.test"))

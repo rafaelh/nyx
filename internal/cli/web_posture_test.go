@@ -18,7 +18,7 @@ const listingPage = `<html><head><title>Index of /</title></head><body><h1>Index
 func posturePage(body string, header map[string]string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		for k, v := range header {
-			for _, line := range strings.Split(v, "\n") {
+			for line := range strings.SplitSeq(v, "\n") {
 				w.Header().Add(k, line)
 			}
 		}

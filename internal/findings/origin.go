@@ -37,7 +37,8 @@ func (d *deriver) originExposure() []Finding {
 			by, confirmed = origin.Confirmed(p.Probe, a)
 		}
 		found := strings.Join(p.Found, ";")
-		typ, confirmedCol, detail := "possible", "no", ""
+		typ, confirmedCol := "possible", "no"
+		var detail string
 		switch {
 		case confirmed:
 			typ, confirmedCol = "confirmed", "yes"
