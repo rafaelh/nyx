@@ -9,6 +9,22 @@
   If a domain has been reconned recently, should it resolve from those files?
 
 
+# Linters that need configuration before they are worth enabling
+
+- `gosec`: 124 issues, mostly noise. Exclude `_test.go` files (the TLS tests use weak ciphers on
+  purpose), G104 (repeats errcheck) and probably G304 (file paths from variables). That leaves
+  about a dozen in non-test code: integer-overflow conversions (G115) in `run/runner.go`,
+  `scope/scope.go`, `stages/ports/ports.go` and `stages/web/favicon.go`, and the deliberate
+  `InsecureSkipVerify` in `egress/tls.go`, which needs a `//nolint:gosec` that says why.
+- `nilerr`: 9 issues. Most are deliberate: a negative result is a completed check with a nil
+  error, as when a redirect can't be followed in `stages/web/crawl.go`. Enabling it means a
+  `//nolint:nilerr` with a reason on each, which documents the intent; also check `run/runner.go`,
+  `stages/rdap/rdap.go`, `stages/web/{favicon,jsparse,probe}.go`.
+- `musttag`: 2 issues. `stages/orgpivot/orgpivot.go` marshals a struct with no `json` tags, so
+  renaming a field would change the JSON. Find out whether that JSON is stored or part of a check
+  key (renaming would then break resume) and tag it; the other issue is in `egress/boundary_test.go`.
+
+
 # internal/cloudstorage, internal/config, internal/dnsname, internal/egress, and internal/engagement
 One table driving all settings in config: the biggest maintenance win, since each integer setting is listed in five places, but it's a redesign of `Load`. Flag help order is fixed, so the table would need to cover every flag, not just the integers.
 
