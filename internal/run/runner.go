@@ -21,7 +21,6 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/engagement"
 	"github.com/rafaelh/nyx/internal/eol"
-	"github.com/rafaelh/nyx/internal/fault"
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
@@ -234,39 +233,14 @@ func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	return r.result(), err
 }
 
-//nolint:gocognit // TODO: split; predates the complexity ceiling
+// passes runs passes over every stage until one does no work, rendering the
+// files and emitting the counts after each.
 func (r *Runner) passes(ctx context.Context) error {
 	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {
-		if err := r.buildScope(); err != nil {
+		worked, err := r.pass(ctx, pass == 1)
+		if err != nil {
 			return err
-		}
-		worked := false
-		for _, s := range r.cfg.Stages {
-			if ctx.Err() != nil {
-				return interrupted(ctx)
-			}
-			did, err := r.runStage(ctx, s, pass == 1)
-			if err != nil {
-				return err
-			}
-			worked = worked || did
-			if ctx.Err() != nil {
-				return interrupted(ctx)
-			}
-			if did {
-				if err := r.st.Flush(); err != nil {
-					return err
-				}
-				if err := r.buildScope(); err != nil {
-					return err
-				}
-				// Findings follow every stage that did work, so a finding's
-				// found line is printed as soon as its evidence is stored.
-				if err := r.derive(); err != nil {
-					return err
-				}
-			}
 		}
 		rendered, err := r.render()
 		if err != nil {
@@ -282,6 +256,47 @@ func (r *Runner) passes(ctx context.Context) error {
 			return interrupted(ctx)
 		}
 	}
+}
+
+// pass runs every stage once, in registry order, and reports whether any of
+// them did work.
+func (r *Runner) pass(ctx context.Context, first bool) (bool, error) {
+	if err := r.buildScope(); err != nil {
+		return false, err
+	}
+	worked := false
+	for _, s := range r.cfg.Stages {
+		if ctx.Err() != nil {
+			return false, interrupted(ctx)
+		}
+		did, err := r.runStage(ctx, s, first)
+		if err != nil {
+			return false, err
+		}
+		worked = worked || did
+		if ctx.Err() != nil {
+			return false, interrupted(ctx)
+		}
+		if did {
+			if err := r.afterWork(); err != nil {
+				return false, err
+			}
+		}
+	}
+	return worked, nil
+}
+
+// afterWork follows a stage that did work: it flushes the store, rebuilds the
+// scope and derives again. Findings follow every stage that did work, so a
+// finding's found line is printed as soon as its evidence is stored.
+func (r *Runner) afterWork() error {
+	if err := r.st.Flush(); err != nil {
+		return err
+	}
+	if err := r.buildScope(); err != nil {
+		return err
+	}
+	return r.derive()
 }
 
 // buildScope builds the Scope and the egress Policy from stored inputs and
@@ -485,8 +500,6 @@ func (r *Runner) setState(name, state, reason string, checks, failed int) {
 // another stage, may read the records it changed: after --redo rdap the
 // registrations the redo forgot stop being current only at the sweep, and the
 // addresses they held are looked up on the next pass.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error) {
 	name := s.Name()
 	if ok, reason := r.gate(s); !ok {
@@ -496,191 +509,37 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	if r.abortErr(name) != nil {
 		return false, nil
 	}
-	done, err := r.st.Completed(name)
+	sr, err := r.newStageRun(ctx, s)
 	if err != nil {
 		return false, err
 	}
-	pend, _ := r.st.PendingRedo()
-	redoPending := slices.Contains(pend, name)
-	failedSet := r.failedSet(name)
-	var exempt []string
-	if ce, ok := s.(CandidateExempt); ok {
-		exempt = ce.CandidateExemptSources()
-	}
-	clients := r.cfg.Egress.ClientsWith(s.Contact() == Target, s.Sources(), exempt)
-	view := View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
-
-	workers := r.cfg.Settings.Concurrency
-	if wc, ok := s.(WorkerCounter); ok {
-		workers = wc.Workers(r.cfg.Settings)
-	}
-	// With no workers the first send on work would block forever.
-	workers = max(workers, 1)
-	work := make(chan Check)
-	var wg sync.WaitGroup
-	var attempted, aborted atomic.Int64 // aborted: checks failed by the stage's abort
-	runCtx := withWarner(ctx, r.warn)
-	// abortFail fails a check because its stage aborted with cause. The stage warns
-	// once for all of them (below), not once per check.
-	abortFail := func(key, msg string, cause error) {
-		r.recordFailure(name, key, msg, errors.Is(cause, ErrKeyRejected))
-		aborted.Add(1)
-	}
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for c := range work {
-				if ctx.Err() != nil {
-					continue
-				}
-				if cause := r.abortErr(name); cause != nil {
-					abortFail(c.Key, "stage aborted earlier in this run", cause)
-					attempted.Add(1)
-					continue
-				}
-				fault.PointDetail("in-flight", c.Key)
-				obs, err := runCheck(runCtx, s, c, clients)
-				if ctx.Err() != nil {
-					r.count(name, func(s *stageStats) { s.cancelled++ }) // abandoned, and redone next run
-					continue
-				}
-				r.count(name, func(s *stageStats) {
-					s.completed++
-					if err == nil {
-						s.succeeded++
-					}
-				})
-				attempted.Add(1)
-				if errors.Is(err, ErrAbortStage) {
-					r.mu.Lock()
-					if r.aborted[name] == nil {
-						r.aborted[name] = err
-					}
-					r.mu.Unlock()
-					abortFail(c.Key, err.Error(), err)
-					continue
-				}
-				if err != nil {
-					r.failCheck(name, c.Key, err)
-					continue
-				}
-				r.st.Complete(name, c.Key, obs)
-			}
-		}()
-	}
-
-	// all holds the keys yielded, in stored (redacted) form like done, to skip a
-	// key a stage yields more than once. Only a redo or a retire needs every
-	// key; otherwise a completed key is skipped by done and is not kept.
-	_, retiring := s.(Retiring)
-	keepAll := redoPending || retiring
-	all := map[string]struct{}{}
-	// A budgeted stage spends its budget on the pending checks in the order it
-	// yields them. The first one that would pass it, and every pending one after
-	// it, is deferred: not sent, not failed, not attempted. The check is already
-	// in all, so a redo or a retire still counts it as valid and its earlier
-	// evidence stays current. The first pending check of the run is always taken.
-	budget := 0 // 0: the stage is not budgeted
-	if b, ok := s.(Budgeted); ok {
-		budget = max(b.Budget(r.cfg.Settings), 1)
-	}
-	r.mu.Lock()
-	spent := r.stat(name).spent
-	r.mu.Unlock()
-	deferredCost := 0
-	enumFailed := false
-	running := false // whether the stage has been shown as running
-	// enumFail fails the stage's enumeration, counted once per run like any
-	// failed check, so passes still terminate.
-	enumFail := func(err error) {
-		enumFailed = true
-		const enumKey = "(enumeration)"
-		r.mu.Lock()
-		again := failedSet[enumKey]
-		r.mu.Unlock()
-		// An enumeration the cancel cut short is not a failure: the stage is listed again next run.
-		if !again && ctx.Err() == nil {
-			r.failCheck(name, enumKey, err)
-			r.count(name, func(s *stageStats) { s.completed++ })
-			attempted.Add(1)
-		}
-	}
-	// produce sends the pending checks to the workers. A panic in the stage's
-	// own Checks is an enumeration failure: the work channel is still closed
-	// and the workers waited for.
-	produce := func() {
-		defer func() {
-			if v := recover(); v != nil {
-				enumFail(&checkPanic{value: v, stack: debug.Stack()})
-			}
-		}()
-	send:
-		for c, cerr := range s.Checks(ctx, view) {
-			if ctx.Err() != nil {
-				break send // stop producing: the checks that follow would only be cancelled
-			}
-			if cerr != nil {
-				enumFail(cerr)
-				continue
-			}
-			stored := r.st.CheckKey(c.Key)
-			if _, dup := all[stored]; dup { // a stage may yield a key more than once
-				continue
-			}
-			if _, ok := done[stored]; ok {
-				if keepAll {
-					all[stored] = struct{}{}
-				}
-				continue
-			}
-			all[stored] = struct{}{}
-			r.mu.Lock()
-			skip := failedSet[c.Key]
-			r.mu.Unlock()
-			if skip {
-				continue
-			}
-			if cause := r.abortErr(name); cause != nil {
-				running = true
-				attempted.Add(1)
-				abortFail(c.Key, "stage aborted earlier in this run", cause)
-				continue
-			}
-			if budget > 0 {
-				cost := max(c.Cost, 1)
-				if deferredCost > 0 || (spent > 0 && spent+cost > budget) {
-					deferredCost += cost
-					continue
-				}
-				spent += cost
-			}
-			if !running {
-				r.setState(name, "running", "", 0, 0)
-				running = true
-			}
-			select {
-			case work <- c:
-			case <-ctx.Done():
-				break send
-			}
-		}
-	}
-	produce()
-	close(work)
-	wg.Wait()
+	sr.execute()
 	if ctx.Err() != nil {
-		return attempted.Load() > 0, nil
+		return sr.attempted.Load() > 0, nil
 	}
-	if n := aborted.Load(); n > 0 {
+	if n := sr.aborted.Load(); n > 0 {
 		r.warn("%s: quota spent or key rejected; %d checks will be retried next run", name, n)
 	}
 
-	n := int(attempted.Load())
+	n := int(sr.attempted.Load())
+	if err := r.showOutcome(name, n, sr.spent, sr.deferredCost, first); err != nil {
+		return false, err
+	}
+	swept, err := sr.sweep()
+	if err != nil {
+		return n > 0, err
+	}
+	return n > 0 || swept, nil
+}
+
+// showOutcome adds a pass's n attempted checks and its budget to the stage's
+// counters and shows the stage's state. A first pass that attempted nothing
+// shows whether an earlier run did the work.
+func (r *Runner) showOutcome(name string, n, spent, deferred int, first bool) error {
 	r.mu.Lock()
 	ss := r.stat(name)
 	ss.attempted += n
-	ss.spent, ss.deferred = spent, deferredCost
+	ss.spent, ss.deferred = spent, deferred
 	total, failed := ss.attempted, ss.failed
 	r.mu.Unlock()
 	switch {
@@ -691,7 +550,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	case first:
 		cnt, err := r.st.CompletedCount(name)
 		if err != nil {
-			return false, err
+			return err
 		}
 		if cnt > 0 {
 			r.setState(name, "done-previously", "", 0, 0)
@@ -699,37 +558,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 			r.setState(name, "done", "", 0, 0)
 		}
 	}
-	// The sweep needs every valid check; after an enumeration error it would
-	// delete the observations of checks that were never listed, so the redo
-	// stays pending until a pass enumerates cleanly.
-	swept := false
-	if redoPending && !enumFailed {
-		if err := r.st.Flush(); err != nil {
-			return n > 0, err
-		}
-		if swept, err = r.st.FinishRedo(name, all); err != nil {
-			return n > 0, err
-		}
-	}
-	// Only completed checks have observations, so there is nothing to retire
-	// unless one of them was not yielded this pass.
-	if retiring && !enumFailed {
-		unlisted := false
-		for k := range done {
-			if _, ok := all[k]; !ok {
-				unlisted = true
-				break
-			}
-		}
-		if unlisted {
-			retired, err := r.st.Retire(name, all)
-			if err != nil {
-				return n > 0, err
-			}
-			swept = swept || retired
-		}
-	}
-	return n > 0 || swept, nil
+	return nil
 }
 
 // abortErr is the error that aborted the stage in this run, or nil.

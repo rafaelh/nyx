@@ -290,23 +290,23 @@ func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
 	}
 }
 
+// notAuthorisedWarnings are the WARN lines of the authorisation warning.
+func notAuthorisedWarnings(h *harness) []string {
+	var out []string
+	for _, w := range h.logMsgs("WARN") {
+		if strings.HasPrefix(w, "not authorised") {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 // The authorisation warning names the stages left out, once, before any stage line.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestLog_AuthorisationWarning(t *testing.T) {
 	t.Parallel()
 	const tail = "; --authorised confirms authorisation"
 	mk := func() []run.Stage {
 		return []run.Stage{finder("src"), targetStage("probe"), targetStage("crawl2")}
-	}
-	warned := func(h *harness) []string {
-		var out []string
-		for _, w := range h.logMsgs("WARN") {
-			if strings.HasPrefix(w, "not authorised") {
-				out = append(out, w)
-			}
-		}
-		return out
 	}
 
 	t.Run("names the stages, after the header and before any stage line", func(t *testing.T) {
@@ -314,7 +314,7 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 		if code := h.exec("a.com"); code != 0 {
 			t.Fatal(h.stderr.String())
 		}
-		if got := warned(h); len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe, crawl2"+tail {
+		if got := notAuthorisedWarnings(h); len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe, crawl2"+tail {
 			t.Fatalf("warnings = %q", got)
 		}
 		lines := h.logLines()
@@ -325,7 +325,7 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 	t.Run("a stage left out by --skip is not named", func(t *testing.T) {
 		h := newHarness(t, mk()...)
 		h.exec("a.com", "--skip", "crawl2")
-		if got := warned(h); len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe"+tail {
+		if got := notAuthorisedWarnings(h); len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe"+tail {
 			t.Errorf("warnings = %q", got)
 		}
 		if !strings.Contains(h.stderr.String(), "crawl2         not-configured (skipped)") {
@@ -340,37 +340,21 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 		} {
 			h := newHarness(t, mk()...)
 			h.exec(args...)
-			if got := warned(h); len(got) != 0 {
+			if got := notAuthorisedWarnings(h); len(got) != 0 {
 				t.Errorf("%s: warnings = %q", name, got)
 			}
 		}
 	})
-	t.Run("an interrupted run still shows it", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		first := &testkit.Stage{StageName: "src", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-			RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
-				cancel()
-				<-ctx.Done()
-				return nil, ctx.Err()
-			}}
-		h := newHarness(t, first, targetStage("probe"))
-		if code := h.execCtx(ctx, "a.com"); code != 130 {
-			t.Fatalf("exit %d", code)
-		}
-		if got := warned(h); len(got) != 1 {
-			t.Errorf("warnings = %q", got)
-		}
-	})
+	t.Run("an interrupted run still shows it", checkInterruptedRunWarns)
 	t.Run("every unauthorised run shows it; --authorised removes it", func(t *testing.T) {
 		h := newHarness(t, mk()...)
 		h.exec("a.com")
 		h.exec("-e", "a.com")
-		if got := warned(h); len(got) != 1 {
+		if got := notAuthorisedWarnings(h); len(got) != 1 {
 			t.Errorf("second run: warnings = %q", got)
 		}
 		h.exec("-e", "a.com", "--authorised")
-		if got := warned(h); len(got) != 0 {
+		if got := notAuthorisedWarnings(h); len(got) != 0 {
 			t.Errorf("after --authorised: warnings = %q", got)
 		}
 	})
@@ -382,6 +366,26 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 			t.Errorf("warning events = %q", got)
 		}
 	})
+}
+
+// checkInterruptedRunWarns checks that a run interrupted during its first
+// check still shows the authorisation warning.
+func checkInterruptedRunWarns(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first := &testkit.Stage{StageName: "src", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
+		RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+			cancel()
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}
+	h := newHarness(t, first, targetStage("probe"))
+	if code := h.execCtx(ctx, "a.com"); code != 130 {
+		t.Fatalf("exit %d", code)
+	}
+	if got := notAuthorisedWarnings(h); len(got) != 1 {
+		t.Errorf("warnings = %q", got)
+	}
 }
 
 // With the default registry the warning names exactly the stages whose line

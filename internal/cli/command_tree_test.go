@@ -31,8 +31,6 @@ func emptyDir(t *testing.T) func() {
 
 // A call in the form nyx took before it had commands exits 2 with the caller's
 // own arguments as the hint, recon inserted, and does nothing else.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) {
 	cases := []struct {
 		args     []string
@@ -51,38 +49,54 @@ func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) {
 	}
 	for _, c := range cases {
 		for _, jsonMode := range []bool{false, true} {
-			args, hint := c.args, c.hint
-			switch {
-			case slices.Contains(args, "--json"):
-				if !jsonMode {
-					continue // the call is in JSON mode whatever this loop says
-				}
-			case jsonMode:
-				args, hint = append(slices.Clone(args), "--json"), hint+" --json"
+			args, hint, ok := oldFormInMode(c.args, c.hint, jsonMode)
+			if !ok {
+				continue
 			}
 			t.Run(strings.Join(args, " "), func(t *testing.T) {
-				h := newHarness(t, noop())
-				cwd := emptyDir(t)
-				f := h.failed(h.execRoot(args...), 2, jsonMode)
-				if f.code != "INVALID_INPUT" || f.hint != hint {
-					t.Errorf("code %s, hint %q; want INVALID_INPUT and %q", f.code, f.hint, hint)
-				}
-				if !strings.Contains(f.msg, "command") {
-					t.Errorf("the message does not say nyx takes a command: %q", f.msg)
-				}
-				if jsonMode {
-					if got := f.inputOf("argument"); len(got) != 1 || got[0] != c.argument {
-						t.Errorf("input = %v, want the argument %q", f.input, c.argument)
-					}
-				}
-				h.untouched()
-				cwd()
-				// The same call again gives the same error.
-				if again := h.failed(h.execRoot(args...), 2, jsonMode); fmt.Sprint(again) != fmt.Sprint(f) {
-					t.Errorf("a second call differs: %+v, then %+v", f, again)
-				}
+				checkOldFormCall(t, args, hint, c.argument, jsonMode)
 			})
 		}
+	}
+}
+
+// oldFormInMode is an old-form call and its hint in JSON mode or not: --json
+// is added when jsonMode asks for it. ok is false for a call that already
+// passes --json when jsonMode does not, as the call is in JSON mode whatever
+// jsonMode says.
+func oldFormInMode(args []string, hint string, jsonMode bool) (_ []string, _ string, ok bool) {
+	switch {
+	case slices.Contains(args, "--json"):
+		return args, hint, jsonMode
+	case jsonMode:
+		return append(slices.Clone(args), "--json"), hint + " --json", true
+	}
+	return args, hint, true
+}
+
+// checkOldFormCall checks that an old-form call is a usage error with the
+// corrected command as its hint, names the argument under --json, touches
+// nothing, and gives the same error when repeated.
+func checkOldFormCall(t *testing.T, args []string, hint, argument string, jsonMode bool) {
+	h := newHarness(t, noop())
+	cwd := emptyDir(t)
+	f := h.failed(h.execRoot(args...), 2, jsonMode)
+	if f.code != "INVALID_INPUT" || f.hint != hint {
+		t.Errorf("code %s, hint %q; want INVALID_INPUT and %q", f.code, f.hint, hint)
+	}
+	if !strings.Contains(f.msg, "command") {
+		t.Errorf("the message does not say nyx takes a command: %q", f.msg)
+	}
+	if jsonMode {
+		if got := f.inputOf("argument"); len(got) != 1 || got[0] != argument {
+			t.Errorf("input = %v, want the argument %q", f.input, argument)
+		}
+	}
+	h.untouched()
+	cwd()
+	// The same call again gives the same error.
+	if again := h.failed(h.execRoot(args...), 2, jsonMode); fmt.Sprint(again) != fmt.Sprint(f) {
+		t.Errorf("a second call differs: %+v, then %+v", f, again)
 	}
 }
 
@@ -261,16 +275,17 @@ func TestTree_CommandHelpOpensWithExamplesAndEndsWithExitCodes(t *testing.T) {
 	}
 }
 
+// reconWithFlags runs recon for a.com with the given arguments before and
+// after the command, and returns its exit code.
+func reconWithFlags(h *harness, before, after []string) int {
+	args := append(slices.Clone(before), "recon", "--output-dir", h.out, "a.com")
+	return h.execRoot(append(args, after...)...)
+}
+
 // --json, --quiet and --debug are taken before and after the command, by
 // every command.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 	t.Parallel()
-	recon := func(h *harness, before, after []string) int {
-		args := append(slices.Clone(before), "recon", "--output-dir", h.out, "a.com")
-		return h.execRoot(append(args, after...)...)
-	}
 	for _, c := range []struct {
 		flag  string
 		check func(t *testing.T, h *harness)
@@ -306,9 +321,9 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 			h := newHarness(t, failingCheck("boom"))
 			var code int
 			if before {
-				code = recon(h, []string{c.flag}, nil)
+				code = reconWithFlags(h, []string{c.flag}, nil)
 			} else {
-				code = recon(h, nil, []string{c.flag})
+				code = reconWithFlags(h, nil, []string{c.flag})
 			}
 			if code != 7 { // failingCheck's failed check makes the run partial
 				t.Fatalf("%s (before the command: %v): exit %d\n%s", c.flag, before, code, h.stderr.String())
@@ -317,7 +332,19 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 		}
 	}
 
-	// export takes them in both places too, and they do not change what it writes.
+	checkExportTakesSharedFlags(t)
+
+	// --json with --debug is allowed: the DEBUG line is on stderr.
+	h := newHarness(t, failingCheck("boom"))
+	if code := reconWithFlags(h, []string{"--json"}, []string{"--debug"}); code != 7 || len(h.debugLines()) != 1 {
+		t.Errorf("--json --debug: exit %d, DEBUG lines %q", code, h.debugLines())
+	}
+}
+
+// checkExportTakesSharedFlags checks that export takes the shared flags in
+// both places too, and that they do not change what it writes.
+func checkExportTakesSharedFlags(t *testing.T) {
+	t.Helper()
 	w := newExportWorld(t)
 	plain := export(w.h, "-e", "a.com")
 	if plain.code != 0 || plain.stdout == "" {
@@ -333,12 +360,6 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 				t.Errorf("nyx %v: exit %d, stderr %q, same lines: %v", args, code, w.h.stderr.String(), w.h.stdout.String() == plain.stdout)
 			}
 		}
-	}
-
-	// --json with --debug is allowed: the DEBUG line is on stderr.
-	h := newHarness(t, failingCheck("boom"))
-	if code := recon(h, []string{"--json"}, []string{"--debug"}); code != 7 || len(h.debugLines()) != 1 {
-		t.Errorf("--json --debug: exit %d, DEBUG lines %q", code, h.debugLines())
 	}
 }
 

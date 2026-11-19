@@ -55,9 +55,15 @@ func includes(n int) string {
 	return "v=spf1 " + strings.Join(parts, " ") + " -all"
 }
 
+// serveIncludes serves i1.t.test to i<n>.t.test, the includes of includes(n),
+// each an SPF record with no lookups of its own.
+func serveIncludes(d *egresstest.DNS, n int) {
+	for i := 1; i <= n; i++ {
+		d.TXT(fmt.Sprintf("i%d.t.test", i), "v=spf1 ip4:192.0.2.1 -all")
+	}
+}
+
 // SPF, DMARC and MX cases, each producing exactly the findings listed.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestEmail_Posture(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -75,19 +81,11 @@ func TestEmail_Posture(t *testing.T) {
 		{"an unrelated txt is not spf", func(m *mail) { m.spf = []string{"google-site-verification=abc"} }, []string{"spf-missing"}, nil},
 		{"ten lookups", func(m *mail) {
 			m.spf = []string{includes(10)}
-			m.extra = func(d *egresstest.DNS) {
-				for i := 1; i <= 10; i++ {
-					d.TXT(fmt.Sprintf("i%d.t.test", i), "v=spf1 ip4:192.0.2.1 -all")
-				}
-			}
+			m.extra = func(d *egresstest.DNS) { serveIncludes(d, 10) }
 		}, nil, map[string]string{"spf_lookups": "10"}},
 		{"include chain over 10", func(m *mail) {
 			m.spf = []string{includes(11)}
-			m.extra = func(d *egresstest.DNS) {
-				for i := 1; i <= 11; i++ {
-					d.TXT(fmt.Sprintf("i%d.t.test", i), "v=spf1 ip4:192.0.2.1 -all")
-				}
-			}
+			m.extra = func(d *egresstest.DNS) { serveIncludes(d, 11) }
 		}, []string{"spf-lookups"}, map[string]string{"spf_lookups": "11"}},
 		{"nested lookups count: a, mx, ptr, exists and redirect", func(m *mail) {
 			m.spf = []string{"v=spf1 a mx ptr exists:x.t.test include:i1.t.test redirect=r.t.test"}
@@ -110,9 +108,7 @@ func TestEmail_Posture(t *testing.T) {
 		{"a redirect is not counted when the record has an all", func(m *mail) {
 			m.spf = []string{strings.Replace(includes(10), " -all", " ~all redirect=r.t.test", 1)}
 			m.extra = func(d *egresstest.DNS) {
-				for i := 1; i <= 10; i++ {
-					d.TXT(fmt.Sprintf("i%d.t.test", i), "v=spf1 ip4:192.0.2.1 -all")
-				}
+				serveIncludes(d, 10)
 				d.TXT("r.t.test", "v=spf1 a -all")
 			}
 		}, nil, map[string]string{"spf_lookups": "10"}},
@@ -152,25 +148,33 @@ func TestEmail_Posture(t *testing.T) {
 			c.edit(&m)
 			m.apply(x.dns, "example.com")
 			x.mustRun()
-			got := col(current(x.rows("risk-email.csv")), "type")
-			if !slices.Equal(got, c.want) {
-				t.Errorf("risk-email.csv types = %v, want %v\n%s", got, c.want, x.file(eng, "risk-email.csv"))
-			}
-			posture := x.rows("email-posture.csv")
-			if len(posture) != 1 || posture[0]["root"] != "example.com" {
-				t.Fatalf("email-posture.csv = %v", posture)
-			}
-			for k, v := range c.cols {
-				if posture[0][k] != v {
-					t.Errorf("email-posture.csv %s = %q, want %q", k, posture[0][k], v)
-				}
-			}
-			for _, r := range current(x.rows("risk-email.csv")) {
-				if r["root"] != "example.com" || r["severity"] == "" {
-					t.Errorf("row = %v", r)
-				}
-			}
+			checkEmailPosture(t, x, c.want, c.cols)
 		})
+	}
+}
+
+// checkEmailPosture checks that risk-email.csv has exactly the finding types
+// in want, each a row for the root with a severity, and that email-posture.csv
+// is one row for the root with the columns in cols.
+func checkEmailPosture(t *testing.T, x *risk, want []string, cols map[string]string) {
+	t.Helper()
+	got := col(current(x.rows("risk-email.csv")), "type")
+	if !slices.Equal(got, want) {
+		t.Errorf("risk-email.csv types = %v, want %v\n%s", got, want, x.file(eng, "risk-email.csv"))
+	}
+	posture := x.rows("email-posture.csv")
+	if len(posture) != 1 || posture[0]["root"] != "example.com" {
+		t.Fatalf("email-posture.csv = %v", posture)
+	}
+	for k, v := range cols {
+		if posture[0][k] != v {
+			t.Errorf("email-posture.csv %s = %q, want %q", k, posture[0][k], v)
+		}
+	}
+	for _, r := range current(x.rows("risk-email.csv")) {
+		if r["root"] != "example.com" || r["severity"] == "" {
+			t.Errorf("row = %v", r)
+		}
 	}
 }
 

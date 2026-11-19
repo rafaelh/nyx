@@ -308,45 +308,56 @@ func TestOnlyAndTee(t *testing.T) {
 
 // The palette sheet has every entry of every table, a line per level and a
 // continuation line, through the formatter.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestSheet(t *testing.T) {
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		var buf bytes.Buffer
 		report.Sheet(&buf, d, clk().In(time.UTC))
 		out := buf.String()
 		plainOut := stripEscapes(out)
-		for _, c := range palette.Categories() {
-			for _, l := range palette.Labels(c) {
-				if !strings.Contains(plainOut, l) {
-					t.Errorf("depth %d: sheet lacks %s %s", d, c, l)
-				}
-			}
-		}
-		for _, g := range palette.Groups() {
-			for _, n := range palette.Names(g) {
-				if !strings.Contains(plainOut, n) {
-					t.Errorf("depth %d: sheet lacks %s %s", d, g, n)
-				}
-			}
-		}
+		checkSheetEntries(t, d, plainOut)
+		checkSheetLevels(t, d, plainOut)
 		indent := map[palette.Depth]int{palette.None: 19, palette.TrueColor: 21}[d]
-		for _, l := range []string{"DEBUG", "INFO", "WARN", "ERROR", "CRIT"} {
-			found := false
-			for _, line := range strings.Split(plainOut, "\n") {
-				if strings.HasPrefix(line, "12:00:00 ") && strings.Contains(line, l) {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("depth %d: no sample %s line", d, l)
-			}
-		}
 		if !strings.Contains(plainOut, "\n"+strings.Repeat(" ", indent)+"continued") {
 			t.Errorf("depth %d: no continuation line indented %d:\n%s", d, indent, plainOut)
 		}
 		if (d == palette.None) == strings.Contains(out, "\x1b") {
 			t.Errorf("depth %d: escapes = %v", d, strings.Contains(out, "\x1b"))
+		}
+	}
+}
+
+// checkSheetEntries checks that the sheet, without escapes, has every label of every category
+// and every name of every group.
+func checkSheetEntries(t *testing.T, d palette.Depth, plainOut string) {
+	t.Helper()
+	for _, c := range palette.Categories() {
+		for _, l := range palette.Labels(c) {
+			if !strings.Contains(plainOut, l) {
+				t.Errorf("depth %d: sheet lacks %s %s", d, c, l)
+			}
+		}
+	}
+	for _, g := range palette.Groups() {
+		for _, n := range palette.Names(g) {
+			if !strings.Contains(plainOut, n) {
+				t.Errorf("depth %d: sheet lacks %s %s", d, g, n)
+			}
+		}
+	}
+}
+
+// checkSheetLevels checks that the sheet, without escapes, has a sample line for each level.
+func checkSheetLevels(t *testing.T, d palette.Depth, plainOut string) {
+	t.Helper()
+	for _, l := range []string{"DEBUG", "INFO", "WARN", "ERROR", "CRIT"} {
+		found := false
+		for _, line := range strings.Split(plainOut, "\n") {
+			if strings.HasPrefix(line, "12:00:00 ") && strings.Contains(line, l) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("depth %d: no sample %s line", d, l)
 		}
 	}
 }

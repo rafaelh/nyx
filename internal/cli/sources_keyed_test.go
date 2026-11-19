@@ -196,8 +196,6 @@ func TestKeyed_RequestShapes(t *testing.T) {
 }
 
 // A rejected key or a spent quota stops that stage for the run, and only that stage.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 	t.Parallel()
 	for _, s := range keyedSources {
@@ -220,31 +218,38 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 				if !strings.Contains(f.msg, s.stage) {
 					t.Errorf("the error does not name %s: %q", s.stage, f.msg)
 				}
-				if st, _ := stateOf(w, s.stage); st != "failed" {
-					t.Errorf("%s state = %s, want failed", s.stage, st)
-				}
-				// shodan-host asks api.shodan.io too, about addresses, with the same key.
-				n := 0
-				for _, r := range w.requests(s.host) {
-					if !strings.HasPrefix(r.URI, "/shodan/host/") {
-						n++
-					}
-				}
-				if n != 1 {
-					t.Errorf("the stage should stop after the rejection, saw %d requests", n)
-				}
-				for _, o := range keyedSources {
-					if o.host == s.host {
-						continue
-					}
-					if st, _ := stateOf(w, o.stage); st != "done" {
-						t.Errorf("%s = %s: another stage must not stop", o.stage, st)
-					}
-				}
+				checkOnlyStageStopped(t, w, s)
 				if hits := leaks(w); len(hits) > 0 {
 					t.Errorf("key leaked into %v", hits)
 				}
 			})
+		}
+	}
+}
+
+// checkOnlyStageStopped checks that the rejected source's stage failed after
+// its one request and that every other keyed stage finished.
+func checkOnlyStageStopped(t *testing.T, w *world, s keyedSource) {
+	t.Helper()
+	if st, _ := stateOf(w, s.stage); st != "failed" {
+		t.Errorf("%s state = %s, want failed", s.stage, st)
+	}
+	// shodan-host asks api.shodan.io too, about addresses, with the same key.
+	n := 0
+	for _, r := range w.requests(s.host) {
+		if !strings.HasPrefix(r.URI, "/shodan/host/") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("the stage should stop after the rejection, saw %d requests", n)
+	}
+	for _, o := range keyedSources {
+		if o.host == s.host {
+			continue
+		}
+		if st, _ := stateOf(w, o.stage); st != "done" {
+			t.Errorf("%s = %s: another stage must not stop", o.stage, st)
 		}
 	}
 }
@@ -360,8 +365,6 @@ func pagedSources() []pagedSource {
 
 // Paging stops at <stage>.max_pages with a warning when the source has more;
 // the cap is part of the check, so raising it repeats the check.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestKeyed_PageCap(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
@@ -374,28 +377,7 @@ func TestKeyed_PageCap(t *testing.T) {
 			if code := w.run("--passive", "--no-permutations", s.flag, "2", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
-			if st, _ := stateOf(w, s.stage); st != "done" {
-				t.Errorf("reaching the cap completes the check: state = %s", st)
-			}
-			if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{"example.com|pages=2"}) {
-				t.Errorf("completed = %v", done)
-			}
-			var asked int
-			for _, r := range w.requests(s.host) {
-				if strings.Contains(r.URI, "/dns/domain/") || strings.Contains(r.URI, "/v3/global/") {
-					asked++
-				}
-			}
-			if asked != 2 {
-				t.Errorf("want exactly 2 pages requested, got %d", asked)
-			}
-			got := w.lines(eng, "subdomains.txt")
-			if !slices.Contains(got, "p2.example.com") || slices.Contains(got, "p3.example.com") {
-				t.Errorf("subdomains.txt = %v, want the first two pages only", got)
-			}
-			if warns := w.h.messages("warning", s.stage); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
-				t.Errorf("want one truncation warning, got %q", warns)
-			}
+			checkCappedRun(t, w, s)
 
 			if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
 				t.Fatalf("exit %d", code)
@@ -410,6 +392,35 @@ func TestKeyed_PageCap(t *testing.T) {
 				t.Errorf("an untruncated result must not warn: %q", warns)
 			}
 		})
+	}
+}
+
+// checkCappedRun checks a run capped at two pages: the check completed with the
+// cap in its key after asking for exactly two pages, recorded only their names,
+// and warned once that the result was truncated.
+func checkCappedRun(t *testing.T, w *world, s pagedSource) {
+	t.Helper()
+	if st, _ := stateOf(w, s.stage); st != "done" {
+		t.Errorf("reaching the cap completes the check: state = %s", st)
+	}
+	if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{"example.com|pages=2"}) {
+		t.Errorf("completed = %v", done)
+	}
+	var asked int
+	for _, r := range w.requests(s.host) {
+		if strings.Contains(r.URI, "/dns/domain/") || strings.Contains(r.URI, "/v3/global/") {
+			asked++
+		}
+	}
+	if asked != 2 {
+		t.Errorf("want exactly 2 pages requested, got %d", asked)
+	}
+	got := w.lines(eng, "subdomains.txt")
+	if !slices.Contains(got, "p2.example.com") || slices.Contains(got, "p3.example.com") {
+		t.Errorf("subdomains.txt = %v, want the first two pages only", got)
+	}
+	if warns := w.h.messages("warning", s.stage); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
+		t.Errorf("want one truncation warning, got %q", warns)
 	}
 }
 

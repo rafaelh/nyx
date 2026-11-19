@@ -55,97 +55,125 @@ type Candidate struct {
 // sibling is another in-scope, non-wildcard-only hostname that is not itself behind a CDN or WAF
 // and has a service whose certificate names the fronted host, or whose title is the fronted host's
 // (neither empty nor on the list of CDN, WAF and default-server titles).
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func Candidates(fronts []Front, hist []HistoricalAddr, services []Service, inv *inventory.Inventory, sc *scope.Scope, max int) []Candidate {
 	fronts = slices.SortedFunc(slices.Values(fronts), func(a, b Front) int { return strings.Compare(a.Host, b.Host) })
 	addrs := inv.Addrs()
-	// The siblings: every in-scope, non-wildcard-only host with an address that is not itself fronted.
-	var siblings []string
-	for _, name := range slices.Sorted(maps.Keys(addrs)) {
-		if inv.WildcardOnly()[name] || sc.ClassifyHost(name).Class != scope.InScope {
-			continue
-		}
-		if _, fronted := inv.Fronted(name); !fronted {
-			siblings = append(siblings, name)
-		}
-	}
-	// The siblings (by index, so in name order) that each certificate name and each title points at.
-	sibling := make(map[string]int, len(siblings))
-	for i, name := range siblings {
-		sibling[name] = i
-	}
-	bySAN, byTitle := map[string][]int{}, map[string][]int{}
-	for _, s := range services {
-		i, ok := sibling[s.Host]
-		if !ok {
-			continue
-		}
-		for _, n := range s.Names {
-			bySAN[strings.ToLower(n)] = append(bySAN[strings.ToLower(n)], i)
-		}
-		byTitle[s.Title] = append(byTitle[s.Title], i)
-	}
+	sibs := newSiblings(addrs, services, inv, sc)
 	histOf := map[string][]HistoricalAddr{}
 	for _, h := range hist {
 		histOf[h.Host] = append(histOf[h.Host], h)
 	}
-	qualifies := func(a netip.Addr) bool { return inv.OwnerKnown(a, sc) && !inv.Shared(a) }
 
 	var out []Candidate
 	for _, f := range fronts {
-		var found []Candidate
-		at := map[netip.Addr]int{}
-		add := func(a netip.Addr, how string) {
-			a = a.Unmap()
-			if i, ok := at[a]; ok {
-				if !slices.Contains(found[i].Found, how) {
-					found[i].Found = append(found[i].Found, how)
-				}
-				return
-			}
-			// Past the cap a new address is dropped; one already kept may still gain a way.
-			if len(found) >= max || !qualifies(a) {
-				return
-			}
-			at[a] = len(found)
-			found = append(found, Candidate{Host: f.Host, Provider: f.Provider, Addr: a, Found: []string{how}, Contactable: inv.PortEligible(a, sc)})
-		}
+		c := &candidateSet{front: f, max: max, inv: inv, sc: sc, at: map[netip.Addr]int{}}
 		mine := slices.Clone(histOf[f.Host])
 		slices.SortStableFunc(mine, func(a, b HistoricalAddr) int {
 			return cmp.Or(cmp.Compare(b.LastSeen, a.LastSeen), a.Addr.Compare(b.Addr))
 		})
 		for _, h := range mine {
-			add(h.Addr, historical)
+			c.add(h.Addr, historical)
 		}
-		const byCert, byTitl = 1, 2
-		match := map[int]int{}
-		for _, n := range CertNames(f.Host) {
-			for _, i := range bySAN[n] {
-				match[i] |= byCert
-			}
-		}
-		if f.Title != "" && !DefaultTitle(f.Title) {
-			for _, i := range byTitle[f.Title] {
-				match[i] |= byTitl
-			}
-		}
+		match := sibs.matches(f)
 		for _, i := range slices.Sorted(maps.Keys(match)) {
-			for _, a := range addrs[siblings[i]] {
+			for _, a := range addrs[sibs.names[i]] {
 				if match[i]&byCert != 0 {
-					add(a, siblingCertificate)
+					c.add(a, siblingCertificate)
 				}
 				if match[i]&byTitl != 0 {
-					add(a, siblingTitle)
+					c.add(a, siblingTitle)
 				}
 			}
 		}
-		for i := range found {
-			slices.SortStableFunc(found[i].Found, func(a, b string) int { return howRank(a) - howRank(b) })
+		for i := range c.found {
+			slices.SortStableFunc(c.found[i].Found, func(a, b string) int { return howRank(a) - howRank(b) })
 		}
-		out = append(out, found...)
+		out = append(out, c.found...)
 	}
 	return out
+}
+
+// The ways a sibling matches a fronted host, as bits.
+const byCert, byTitl = 1, 2
+
+// siblings are the in-scope, non-wildcard-only hosts with an address that are not themselves
+// fronted, in name order, and the siblings (by index, so in name order) that each certificate
+// name and each title points at.
+type siblings struct {
+	names          []string
+	bySAN, byTitle map[string][]int
+}
+
+func newSiblings(addrs map[string][]netip.Addr, services []Service, inv *inventory.Inventory, sc *scope.Scope) *siblings {
+	s := &siblings{bySAN: map[string][]int{}, byTitle: map[string][]int{}}
+	for _, name := range slices.Sorted(maps.Keys(addrs)) {
+		if inv.WildcardOnly()[name] || sc.ClassifyHost(name).Class != scope.InScope {
+			continue
+		}
+		if _, fronted := inv.Fronted(name); !fronted {
+			s.names = append(s.names, name)
+		}
+	}
+	index := make(map[string]int, len(s.names))
+	for i, name := range s.names {
+		index[name] = i
+	}
+	for _, svc := range services {
+		i, ok := index[svc.Host]
+		if !ok {
+			continue
+		}
+		for _, n := range svc.Names {
+			s.bySAN[strings.ToLower(n)] = append(s.bySAN[strings.ToLower(n)], i)
+		}
+		s.byTitle[svc.Title] = append(s.byTitle[svc.Title], i)
+	}
+	return s
+}
+
+// matches maps the index of each sibling that matches the fronted host to how it matches: a
+// certificate that names the host, or the host's title (neither empty nor a default title).
+func (s *siblings) matches(f Front) map[int]int {
+	match := map[int]int{}
+	for _, n := range CertNames(f.Host) {
+		for _, i := range s.bySAN[n] {
+			match[i] |= byCert
+		}
+	}
+	if f.Title != "" && !DefaultTitle(f.Title) {
+		for _, i := range s.byTitle[f.Title] {
+			match[i] |= byTitl
+		}
+	}
+	return match
+}
+
+// candidateSet collects the candidates of one fronted host, in the order they were found.
+type candidateSet struct {
+	front Front
+	max   int
+	inv   *inventory.Inventory
+	sc    *scope.Scope
+	found []Candidate
+	at    map[netip.Addr]int // the index in found of each address
+}
+
+// add records that an address was found a way. An address qualifies only if its owner is known
+// and it is not shared provider infrastructure.
+func (c *candidateSet) add(a netip.Addr, how string) {
+	a = a.Unmap()
+	if i, ok := c.at[a]; ok {
+		if !slices.Contains(c.found[i].Found, how) {
+			c.found[i].Found = append(c.found[i].Found, how)
+		}
+		return
+	}
+	// Past the cap a new address is dropped; one already kept may still gain a way.
+	if len(c.found) >= c.max || !c.inv.OwnerKnown(a, c.sc) || c.inv.Shared(a) {
+		return
+	}
+	c.at[a] = len(c.found)
+	c.found = append(c.found, Candidate{Host: c.front.Host, Provider: c.front.Provider, Addr: a, Found: []string{how}, Contactable: c.inv.PortEligible(a, c.sc)})
 }
 
 func howRank(how string) int {

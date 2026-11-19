@@ -171,12 +171,13 @@ func TestDNSRoot_NameServers(t *testing.T) {
 	}
 }
 
+// verificationTXT is a verification TXT record and the platform it names.
+type verificationTXT struct{ txt, platform string }
+
 // Every listed prefix, in any case, is one row per platform and root, without the token.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestDNSRoot_VerificationPlatforms(t *testing.T) {
 	t.Parallel()
-	cases := []struct{ txt, platform string }{
+	cases := []verificationTXT{
 		{"google-site-verification=g0ogleTOKEN", "Google"},
 		{"MS=ms12345678", "Microsoft 365"},
 		{"atlassian-domain-verification=atlTOKEN", "Atlassian"},
@@ -209,23 +210,31 @@ func TestDNSRoot_VerificationPlatforms(t *testing.T) {
 			}
 			runRoot(t, w)
 
-			tp := w.table(eng, "third-parties.csv")
-			if len(tp) != len(chunk) {
-				t.Errorf("upper=%v: %d rows, want one per platform (%d):\n%s", upper, len(tp), len(chunk), w.file(eng, "third-parties.csv"))
-			}
-			for _, c := range chunk {
-				r := find(tp, "provider", c.platform)
-				if r == nil || r["mechanism"] != "txt-verification" || r["root"] != "example.com" || r["domain"] != "" {
-					t.Errorf("upper=%v: platform %s row = %v", upper, c.platform, r)
-				}
-				token := strings.ToLower(c.txt[strings.IndexAny(c.txt, "=.")+1:])
-				if strings.Contains(strings.ToLower(w.file(eng, "third-parties.csv")), token) {
-					t.Errorf("the token of %s reached third-parties.csv:\n%s", c.platform, w.file(eng, "third-parties.csv"))
-				}
-				if !strings.Contains(strings.ToLower(w.file(eng, "resolutions.csv")), token) {
-					t.Errorf("upper=%v: the token of %s is public DNS and belongs in resolutions.csv", upper, c.platform)
-				}
-			}
+			checkVerificationRows(t, w, chunk, upper)
+		}
+	}
+}
+
+// checkVerificationRows checks that each platform of the chunk is one
+// third-parties.csv row for the root, whose token is kept out of that file and
+// is in resolutions.csv.
+func checkVerificationRows(t *testing.T, w *world, chunk []verificationTXT, upper bool) {
+	t.Helper()
+	tp := w.table(eng, "third-parties.csv")
+	if len(tp) != len(chunk) {
+		t.Errorf("upper=%v: %d rows, want one per platform (%d):\n%s", upper, len(tp), len(chunk), w.file(eng, "third-parties.csv"))
+	}
+	for _, c := range chunk {
+		r := find(tp, "provider", c.platform)
+		if r == nil || r["mechanism"] != "txt-verification" || r["root"] != "example.com" || r["domain"] != "" {
+			t.Errorf("upper=%v: platform %s row = %v", upper, c.platform, r)
+		}
+		token := strings.ToLower(c.txt[strings.IndexAny(c.txt, "=.")+1:])
+		if strings.Contains(strings.ToLower(w.file(eng, "third-parties.csv")), token) {
+			t.Errorf("the token of %s reached third-parties.csv:\n%s", c.platform, w.file(eng, "third-parties.csv"))
+		}
+		if !strings.Contains(strings.ToLower(w.file(eng, "resolutions.csv")), token) {
+			t.Errorf("upper=%v: the token of %s is public DNS and belongs in resolutions.csv", upper, c.platform)
 		}
 	}
 }

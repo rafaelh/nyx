@@ -130,7 +130,6 @@ func exportLine(t *testing.T, lines []exLine, kind, key string) exLine {
 	return got[0]
 }
 
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestExport_EveryRecordOnce(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)
@@ -142,25 +141,42 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 	}
 	lines := e.lines(t)
 
-	// Every record of the state database is exported once: the same set of kind
-	// and key, not-current ones included.
+	checkExportedRecordSet(t, h, lines)
+	checkExportOrder(t, lines)
+	checkExportPlacement(t, lines)
+	checkExportRecordFields(t, lines)
+	checkExportInputs(t, lines)
+	checkExportNothingElse(t, e.stdout, lines)
+}
+
+// isInputLine reports whether an exported line is an input or an exclusion rather than a record.
+func isInputLine(l exLine) bool { return l.str("kind") == "input" || l.str("kind") == "exclusion" }
+
+// checkExportedRecordSet checks that every record of the state database is
+// exported once: the same set of kind and key, not-current ones included.
+func checkExportedRecordSet(t *testing.T, h *harness, lines []exLine) {
+	t.Helper()
 	want := queryStrings(t, h.openDB("a.com"), "SELECT kind||'|'||key FROM records")
 	var got []string
 	for _, l := range lines {
-		if k := l.str("kind"); k != "input" && k != "exclusion" {
-			got = append(got, k+"|"+l.str("key"))
+		if !isInputLine(l) {
+			got = append(got, l.str("kind")+"|"+l.str("key"))
 		}
 	}
 	sort.Strings(got)
 	if !slices.Equal(got, want) {
 		t.Fatalf("exported records differ from the database\n got %v\nwant %v", got, want)
 	}
+}
 
-	// Records are written in kind order, then key order, after the inputs.
+// checkExportOrder checks that records are written in kind order, then key
+// order, after the inputs.
+func checkExportOrder(t *testing.T, lines []exLine) {
+	t.Helper()
 	var order []string
 	for _, l := range lines {
-		if k := l.str("kind"); k != "input" && k != "exclusion" {
-			order = append(order, k+"\x00"+l.str("key"))
+		if !isInputLine(l) {
+			order = append(order, l.str("kind")+"\x00"+l.str("key"))
 		}
 	}
 	if !sort.StringsAreSorted(order) {
@@ -168,15 +184,18 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 	}
 	seenRecord := false
 	for _, l := range lines {
-		isInput := l.str("kind") == "input" || l.str("kind") == "exclusion"
-		if !isInput {
+		if !isInputLine(l) {
 			seenRecord = true
 		} else if seenRecord {
 			t.Errorf("input line %v after a record", l)
 		}
 	}
+}
 
-	// Entities carry scope and every other kind carries shown, never both.
+// checkExportPlacement checks that entities carry scope and every other kind
+// carries shown, never both.
+func checkExportPlacement(t *testing.T, lines []exLine) {
+	t.Helper()
 	for _, c := range []struct{ kind, key, scope string }{
 		{"hostname", "www.a.com", "in-scope"},
 		{"hostname", "old.a.com", "in-scope"},
@@ -212,9 +231,13 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 			t.Errorf("%s %s has scope as well as shown", c.kind, c.key)
 		}
 	}
+}
 
-	// A record that is current names the stages observing it and carries its
-	// merged attributes and dates; one that is not has neither.
+// checkExportRecordFields checks that a record that is current names the
+// stages observing it and carries its merged attributes and dates, that one
+// that is not has neither, and that derived records come from their pseudo-stage.
+func checkExportRecordFields(t *testing.T, lines []exLine) {
+	t.Helper()
 	www := exportLine(t, lines, "hostname", "www.a.com")
 	if www["current"] != true || !slices.Equal(www.stages(), []string{"disc"}) ||
 		www.str("first_seen") != "2026-11-01" || www.str("last_seen") != "2026-11-01" {
@@ -242,8 +265,11 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 	if !slices.Equal(rank.stages(), []string{"candidate-rank"}) {
 		t.Errorf("candidate rank stages = %v", rank.stages())
 	}
+}
 
-	// Inputs and exclusions are lines of their own.
+// checkExportInputs checks that inputs and exclusions are lines of their own.
+func checkExportInputs(t *testing.T, lines []exLine) {
+	t.Helper()
 	in := map[string]exLine{}
 	for _, l := range lines {
 		if l.str("kind") == "input" {
@@ -257,19 +283,24 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 	}
 	var excl []string
 	for _, l := range lines {
-		if l.str("kind") == "exclusion" {
-			excl = append(excl, l.str("value"))
-			if l.str("added") != "2026-11-01" {
-				t.Errorf("exclusion %v has no added date", l)
-			}
+		if l.str("kind") != "exclusion" {
+			continue
+		}
+		excl = append(excl, l.str("value"))
+		if l.str("added") != "2026-11-01" {
+			t.Errorf("exclusion %v has no added date", l)
 		}
 	}
 	if !slices.Equal(excl, []string{"192.0.2.0/24", "admin.a.com"}) {
 		t.Errorf("exclusions = %v", excl)
 	}
+}
 
-	// The acknowledgement, netblock approval and settings are not exported, and
-	// nothing else is: every line is a known kind with the fields it is documented to have.
+// checkExportNothingElse checks that the acknowledgement, netblock approval
+// and settings are not exported, and nothing else is: every line is a known
+// kind with the fields it is documented to have.
+func checkExportNothingElse(t *testing.T, stdout string, lines []exLine) {
+	t.Helper()
 	known := map[string]bool{"input": true, "exclusion": true}
 	for _, k := range kinds.All() {
 		known[k.Name] = true
@@ -280,12 +311,12 @@ func TestExport_EveryRecordOnce(t *testing.T) {
 		}
 	}
 	for _, s := range []string{"ack_at", "netblock_approved", "concurrency", "authorised"} {
-		if strings.Contains(e.stdout, s) {
+		if strings.Contains(stdout, s) {
 			t.Errorf("the export mentions %q", s)
 		}
 	}
 	for _, l := range lines {
-		if l.str("kind") == "input" || l.str("kind") == "exclusion" {
+		if isInputLine(l) {
 			continue
 		}
 		if keys := slices.Sorted(maps.Keys(l)); len(keys) != 8 {

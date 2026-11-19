@@ -245,8 +245,6 @@ func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 }
 
 // A spent quota stops that stage alone: one warning, the checks fail and are retried.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 	t.Parallel()
 	type variant struct {
@@ -276,25 +274,7 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				if !f.transient || f.msg != "2 checks failed: "+s.stage+" 2" {
 					t.Errorf("a spent quota is transient and fails both checks: %+v", f)
 				}
-				if st, _ := stateOf(w, s.stage); st != "failed" {
-					t.Errorf("state = %s, want failed", st)
-				}
-				if done := w.h.completed(eng, s.stage); len(done) != 0 {
-					t.Errorf("a spent quota must not be recorded as done: %v", done)
-				}
-				if n := len(w.requests(s.host)); n != 1 {
-					t.Errorf("the stage should stop after the first answer, saw %d requests", n)
-				}
-				warns := w.h.messages("warning", s.stage)
-				if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
-					t.Errorf("want one quota warning naming %s, got %q", s.stage, warns)
-				}
-				if st, _ := stateOf(w, "crtsh"); st != "done" {
-					t.Errorf("other stages must be unaffected: crtsh = %s", st)
-				}
-				if !slices.Contains(w.lines(eng, "subdomains.txt"), "c.example.com") {
-					t.Errorf("other sources' names must still be recorded: %v", w.lines(eng, "subdomains.txt"))
-				}
+				checkQuotaSpentStage(t, w, s)
 
 				// The warning needs no flag: a repeat run warns again.
 				w.run("--passive", "--concurrency", "1", "--redo", s.stage, "example.com", "example.org")
@@ -303,18 +283,51 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				}
 
 				// The next run retries every check.
-				s.serve(w, s.ok)
-				if code := w.run("--passive", "example.com", "example.org"); code != 0 {
-					t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
-				}
-				if done := w.h.completed(eng, s.stage); len(done) != 2 {
-					t.Errorf("both roots should complete on the next run: %v", done)
-				}
-				if got := w.lines(eng, "subdomains.txt"); !slices.Contains(got, s.names[0]) {
-					t.Errorf("subdomains.txt missing %s after the retry: %v", s.names[0], got)
-				}
+				checkQuotaRetried(t, w, s)
 			})
 		}
+	}
+}
+
+// checkQuotaRetried checks that once the source answers again, the next run
+// retries and completes both checks and records the source's names.
+func checkQuotaRetried(t *testing.T, w *world, s unkeyedSource) {
+	t.Helper()
+	s.serve(w, s.ok)
+	if code := w.run("--passive", "example.com", "example.org"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
+	}
+	if done := w.h.completed(eng, s.stage); len(done) != 2 {
+		t.Errorf("both roots should complete on the next run: %v", done)
+	}
+	if got := w.lines(eng, "subdomains.txt"); !slices.Contains(got, s.names[0]) {
+		t.Errorf("subdomains.txt missing %s after the retry: %v", s.names[0], got)
+	}
+}
+
+// checkQuotaSpentStage checks a run in which the source's quota was spent: its
+// stage failed after one request with nothing done and one quota warning, and
+// the other stages and their names were unaffected.
+func checkQuotaSpentStage(t *testing.T, w *world, s unkeyedSource) {
+	t.Helper()
+	if st, _ := stateOf(w, s.stage); st != "failed" {
+		t.Errorf("state = %s, want failed", st)
+	}
+	if done := w.h.completed(eng, s.stage); len(done) != 0 {
+		t.Errorf("a spent quota must not be recorded as done: %v", done)
+	}
+	if n := len(w.requests(s.host)); n != 1 {
+		t.Errorf("the stage should stop after the first answer, saw %d requests", n)
+	}
+	warns := w.h.messages("warning", s.stage)
+	if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
+		t.Errorf("want one quota warning naming %s, got %q", s.stage, warns)
+	}
+	if st, _ := stateOf(w, "crtsh"); st != "done" {
+		t.Errorf("other stages must be unaffected: crtsh = %s", st)
+	}
+	if !slices.Contains(w.lines(eng, "subdomains.txt"), "c.example.com") {
+		t.Errorf("other sources' names must still be recorded: %v", w.lines(eng, "subdomains.txt"))
 	}
 }
 

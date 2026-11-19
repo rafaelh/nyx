@@ -110,18 +110,10 @@ func Sweep(dir string) error {
 // lists only current rows), so an empty file is never left in the engagement.
 // This is deliberate: a file with only a header row tells the operator nothing,
 // so a file's presence is itself the signal that there is something to read.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
 	rows := f.Rows(snap)
 	if f.Format == TXT {
-		var listed []Row
-		for _, r := range rows {
-			if r.Current && len(r.Cells) > 0 {
-				listed = append(listed, r)
-			}
-		}
-		rows = listed
+		rows = listedRows(rows)
 	}
 	if len(rows) == 0 {
 		if err := os.Remove(filepath.Join(dir, f.Name)); err != nil && !os.IsNotExist(err) {
@@ -142,31 +134,53 @@ func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
 			buf.WriteByte('\n')
 		}
 	case CSV:
-		w := csv.NewWriter(&buf)
-		if err := w.Write(append(append([]string(nil), f.Columns...), "current", "first_seen", "last_seen")); err != nil {
-			return err
-		}
-		for _, r := range rows {
-			rec := make([]string, 0, len(r.Cells)+3)
-			for _, c := range r.Cells {
-				rec = append(rec, csvSafe(c))
-			}
-			rec = append(rec, fmt.Sprint(r.Current), r.FirstSeen, r.LastSeen)
-			if err := w.Write(rec); err != nil {
-				return err
-			}
-		}
-		w.Flush()
-		if err := w.Error(); err != nil {
+		if err := writeCSV(&buf, f.Columns, rows); err != nil {
 			return err
 		}
 	}
-	tmpPath := filepath.Join(tmp, f.Name)
+	return writeAtomic(dir, tmp, f.Name, buf.Bytes(), fsync)
+}
+
+// listedRows are the rows a TXT file lists: the current ones with a value.
+func listedRows(rows []Row) []Row {
+	var listed []Row
+	for _, r := range rows {
+		if r.Current && len(r.Cells) > 0 {
+			listed = append(listed, r)
+		}
+	}
+	return listed
+}
+
+// writeCSV writes a header of columns followed by current, first_seen and last_seen, then one
+// record per row with its cells made safe for a spreadsheet.
+func writeCSV(buf *bytes.Buffer, columns []string, rows []Row) error {
+	w := csv.NewWriter(buf)
+	if err := w.Write(append(append([]string(nil), columns...), "current", "first_seen", "last_seen")); err != nil {
+		return err
+	}
+	for _, r := range rows {
+		rec := make([]string, 0, len(r.Cells)+3)
+		for _, c := range r.Cells {
+			rec = append(rec, csvSafe(c))
+		}
+		rec = append(rec, fmt.Sprint(r.Current), r.FirstSeen, r.LastSeen)
+		if err := w.Write(rec); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
+
+// writeAtomic writes data to name in tmp, syncing it when fsync is set, then renames it to name
+// in dir, so a reader never sees a part-written file.
+func writeAtomic(dir, tmp, name string, data []byte, fsync bool) error {
+	tmpPath := filepath.Join(tmp, name)
 	out, err := os.Create(tmpPath)
 	if err != nil {
 		return err
 	}
-	data := buf.Bytes()
 	half := len(data) / 2
 	if _, err := out.Write(data[:half]); err != nil {
 		out.Close()
@@ -186,7 +200,7 @@ func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, filepath.Join(dir, f.Name))
+	return os.Rename(tmpPath, filepath.Join(dir, name))
 }
 
 // csvSafe sanitises s, then neutralises spreadsheet formulas. Sanitising

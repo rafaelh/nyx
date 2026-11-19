@@ -138,63 +138,14 @@ func (r *Runner) evidence(stage, check string) candidates.Evidence {
 // can corroborate each other; the hostnames keep their own rank. A candidate
 // that is no longer current, or whose only support awaits a redo, keeps the
 // rank it last had.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (r *Runner) rankCandidates(in DeriveInput) []store.Obs {
-	vis := kinds.NewVisibility(in.Scope, in.Inv)
 	last := map[string]kinds.CandidateRankAttrs{} // by rank key
 	for _, rec := range in.Records(kinds.CandidateRank) {
 		if rec.Current {
 			last[rec.Key] = kinds.CandidateRank.Attrs(rec)
 		}
 	}
-
-	type candidate struct {
-		typ, value string
-		current    bool
-		evidence   []candidates.Evidence
-		own        int // the evidence of its own completed checks, before any roll-up
-	}
-	var all []*candidate
-	roots := map[string]*candidate{} // current candidate roots, by value
-	var hostnames []*candidate
-	for _, kind := range kinds.CandidateKinds {
-		observers := in.Observers(kind)
-		for _, rec := range in.Records(kind) {
-			if vis.Category(kind, rec) != kinds.Candidates {
-				continue
-			}
-			c := &candidate{typ: kind.Name(), value: rec.Key, current: rec.Current}
-			for _, o := range observers[rec.Key] {
-				c.evidence = append(c.evidence, r.evidence(o.Stage, o.CheckKey))
-			}
-			c.own = len(c.evidence)
-			all = append(all, c)
-			if !c.current {
-				continue
-			}
-			switch kind.Name() {
-			case kinds.Root.Name():
-				roots[rec.Key] = c
-			case kinds.Hostname.Name():
-				hostnames = append(hostnames, c)
-			}
-		}
-	}
-	// A hostname's evidence counts for every candidate root above it (or equal to it).
-	for _, h := range hostnames {
-		for name := h.value; ; {
-			if c, ok := roots[name]; ok {
-				c.evidence = append(c.evidence, h.evidence...)
-			}
-			_, rest, found := strings.Cut(name, ".")
-			if !found {
-				break
-			}
-			name = rest
-		}
-	}
-
+	all := r.gatherCandidates(in)
 	var obs []store.Obs
 	for _, c := range all {
 		key := kinds.CandidateRankKey(c.typ, c.value)
@@ -215,4 +166,63 @@ func (r *Runner) rankCandidates(in DeriveInput) []store.Obs {
 		obs = append(obs, kinds.CandidateRank.Obs(key, attrs))
 	}
 	return obs
+}
+
+// rankedCandidate is a candidate record and the evidence it is ranked on.
+type rankedCandidate struct {
+	typ, value string
+	current    bool
+	evidence   []candidates.Evidence
+	own        int // the evidence of its own completed checks, before any roll-up
+}
+
+// gatherCandidates lists the candidate records of every candidate kind, each
+// with the evidence of the checks that observe it, and rolls the evidence of
+// each current candidate hostname up into the current candidate roots above
+// it (or equal to it).
+func (r *Runner) gatherCandidates(in DeriveInput) []*rankedCandidate {
+	vis := kinds.NewVisibility(in.Scope, in.Inv)
+	var all []*rankedCandidate
+	roots := map[string]*rankedCandidate{} // current candidate roots, by value
+	var hostnames []*rankedCandidate
+	for _, kind := range kinds.CandidateKinds {
+		observers := in.Observers(kind)
+		for _, rec := range in.Records(kind) {
+			if vis.Category(kind, rec) != kinds.Candidates {
+				continue
+			}
+			c := &rankedCandidate{typ: kind.Name(), value: rec.Key, current: rec.Current}
+			for _, o := range observers[rec.Key] {
+				c.evidence = append(c.evidence, r.evidence(o.Stage, o.CheckKey))
+			}
+			c.own = len(c.evidence)
+			all = append(all, c)
+			switch {
+			case !c.current:
+			case kind.Name() == kinds.Root.Name():
+				roots[rec.Key] = c
+			case kind.Name() == kinds.Hostname.Name():
+				hostnames = append(hostnames, c)
+			}
+		}
+	}
+	for _, h := range hostnames {
+		rollUp(h, roots)
+	}
+	return all
+}
+
+// rollUp adds a hostname's evidence to every root in roots above it, or equal
+// to it.
+func rollUp(h *rankedCandidate, roots map[string]*rankedCandidate) {
+	for name := h.value; ; {
+		if c, ok := roots[name]; ok {
+			c.evidence = append(c.evidence, h.evidence...)
+		}
+		_, rest, found := strings.Cut(name, ".")
+		if !found {
+			return
+		}
+		name = rest
+	}
 }

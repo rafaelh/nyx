@@ -35,8 +35,6 @@ type entryKey struct{ label, key string }
 // candidate or excluded value counted once however many records carry it.
 // Evidence and internal kinds have no label and are skipped. The entries are
 // sorted by label and key.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func entriesOf(snap output.Snapshot) []entry {
 	vis := snap.Vis
 	wildcardOnly := snap.Inv.WildcardOnly()
@@ -68,18 +66,7 @@ func entriesOf(snap output.Snapshot) []entry {
 				e = &entry{label: label, key: r.Key, scope: place}
 				byKey[entryKey{label, r.Key}] = e
 			}
-			if r.FirstSeen != "" && (e.first == "" || r.FirstSeen < e.first) {
-				e.first = r.FirstSeen
-			}
-			e.last = max(e.last, r.LastSeen)
-			if !shown {
-				continue
-			}
-			e.shown = true
-			e.stages = append(e.stages, r.Stages...)
-			if label == kinds.LabelFinding {
-				e.severity = findings.FromRecord(r).Severity
-			}
+			e.add(r, shown)
 		}
 	}
 	out := make([]entry, 0, len(byKey))
@@ -90,6 +77,23 @@ func entriesOf(snap output.Snapshot) []entry {
 	}
 	slices.SortFunc(out, func(a, b entry) int { return cmp.Or(cmp.Compare(a.label, b.label), cmp.Compare(a.key, b.key)) })
 	return out
+}
+
+// add counts a record of the entry, shown or not, in its first_seen and
+// last_seen, and a shown one in its stages and severity.
+func (e *entry) add(r store.Record, shown bool) {
+	if r.FirstSeen != "" && (e.first == "" || r.FirstSeen < e.first) {
+		e.first = r.FirstSeen
+	}
+	e.last = max(e.last, r.LastSeen)
+	if !shown {
+		return
+	}
+	e.shown = true
+	e.stages = append(e.stages, r.Stages...)
+	if e.label == kinds.LabelFinding {
+		e.severity = findings.FromRecord(r).Severity
+	}
 }
 
 // shownRows are the entries shown now, as the baseline the next render, or the

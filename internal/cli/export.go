@@ -174,12 +174,9 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 // JSON lines to write, inputs and exclusions first and then the records in
 // kind and key order, each classified as a run would. Each line is encoded as
 // it is built, so the cleaned copy of a record's attributes is not kept.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *config.Redactor) ([]byte, error) {
-	want := func(kind string) bool { return len(o.kinds) == 0 || slices.Contains(o.kinds, kind) }
 	var out, exclusions bytes.Buffer
-	enc, excl := lineEncoder(&out), lineEncoder(&exclusions)
+	x := &exporter{o: o, order: order, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
 	err := db.View(func(r store.Reader) error {
 		out.Reset() // View may call again, for a run that started while it read
 		exclusions.Reset()
@@ -187,70 +184,104 @@ func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *c
 		if err != nil {
 			return err
 		}
-		// Inputs come first and then exclusions, each in stored order.
-		for _, in := range rows {
-			value := cleanText(in.Value, red)
-			switch {
-			case in.Kind == engagement.InputExclusion:
-				if want(exportExclusion) {
-					if err := excl.Encode(exportInputLine{Kind: exportExclusion, Value: value, Added: in.AddedAt}); err != nil {
-						return err
-					}
-				}
-			case want(exportInput):
-				if err := enc.Encode(exportInputLine{Kind: exportInput, Type: in.Kind, Value: value, Added: in.AddedAt}); err != nil {
+		if err := x.inputs(rows); err != nil {
+			return err
+		}
+		out.Write(exclusions.Bytes())
+		return x.records(r, rows)
+	})
+	return out.Bytes(), err
+}
+
+// exporter encodes the lines of one snapshot: records and inputs to enc, and
+// exclusions to excl, which is written after the inputs.
+type exporter struct {
+	o         *exportOptions
+	order     []string
+	red       *config.Redactor
+	enc, excl *json.Encoder
+}
+
+// want reports whether --kind selects kind (no --kind selects every kind).
+func (x *exporter) want(kind string) bool {
+	return len(x.o.kinds) == 0 || slices.Contains(x.o.kinds, kind)
+}
+
+// inputs encodes the inputs and the exclusions, each in stored order.
+func (x *exporter) inputs(rows []store.Input) error {
+	for _, in := range rows {
+		value := cleanText(in.Value, x.red)
+		switch {
+		case in.Kind == engagement.InputExclusion:
+			if x.want(exportExclusion) {
+				if err := x.excl.Encode(exportInputLine{Kind: exportExclusion, Value: value, Added: in.AddedAt}); err != nil {
 					return err
 				}
 			}
-		}
-		out.Write(exclusions.Bytes())
-
-		var wanted []kinds.Kind
-		for _, k := range kinds.All() {
-			if want(k.Name) {
-				wanted = append(wanted, k)
+		case x.want(exportInput):
+			if err := x.enc.Encode(exportInputLine{Kind: exportInput, Type: in.Kind, Value: value, Added: in.AddedAt}); err != nil {
+				return err
 			}
 		}
-		if len(wanted) == 0 {
-			return nil // only inputs and exclusions: no scope to build
+	}
+	return nil
+}
+
+// records encodes the records of every wanted kind, in kind and key order,
+// classified by the scope built from the snapshot.
+func (x *exporter) records(r store.Reader, rows []store.Input) error {
+	var wanted []kinds.Kind
+	for _, k := range kinds.All() {
+		if x.want(k.Name) {
+			wanted = append(wanted, k)
 		}
-		src := &snapshotSource{r: r, order: order, all: map[string][]store.Record{}}
-		built, err := run.BuildScope(engagement.ParseInputs(rows), src)
+	}
+	if len(wanted) == 0 {
+		return nil // only inputs and exclusions: no scope to build
+	}
+	src := &snapshotSource{r: r, order: x.order, all: map[string][]store.Record{}}
+	built, err := run.BuildScope(engagement.ParseInputs(rows), src)
+	if err != nil {
+		return err
+	}
+	for _, k := range wanted {
+		recs, err := src.records(k.Name)
 		if err != nil {
 			return err
 		}
-		for _, k := range wanted {
-			h, _ := kinds.Lookup(k.Name)
-			recs, err := src.records(k.Name)
-			if err != nil {
-				return err
-			}
-			delete(src.all, k.Name) // the scope is built, so nothing reads them again
-			for _, rec := range recs {
-				if o.current && !rec.Current {
-					continue
-				}
-				l := exportLine{
-					Kind: k.Name, Key: cleanText(rec.Key, red), Attrs: cleanAttrs(rec.Attrs, red),
-					Current: rec.Current, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen, Stages: rec.Stages,
-				}
-				if l.Stages == nil {
-					l.Stages = []string{}
-				}
-				if k.Entity {
-					l.Scope = built.Vis.Placement(h, rec).String()
-				} else {
-					shown := built.Vis.Shown(h, rec)
-					l.Shown = &shown
-				}
-				if err := enc.Encode(l); err != nil { // Encode ends the line
-					return err
-				}
-			}
+		delete(src.all, k.Name) // the scope is built, so nothing reads them again
+		if err := x.kind(k, recs, built.Vis); err != nil {
+			return err
 		}
-		return nil
-	})
-	return out.Bytes(), err
+	}
+	return nil
+}
+
+// kind encodes the records of one kind, skipping any not current under --current.
+func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility) error {
+	h, _ := kinds.Lookup(k.Name)
+	for _, rec := range recs {
+		if x.o.current && !rec.Current {
+			continue
+		}
+		l := exportLine{
+			Kind: k.Name, Key: cleanText(rec.Key, x.red), Attrs: cleanAttrs(rec.Attrs, x.red),
+			Current: rec.Current, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen, Stages: rec.Stages,
+		}
+		if l.Stages == nil {
+			l.Stages = []string{}
+		}
+		if k.Entity {
+			l.Scope = vis.Placement(h, rec).String()
+		} else {
+			shown := vis.Shown(h, rec)
+			l.Shown = &shown
+		}
+		if err := x.enc.Encode(l); err != nil { // Encode ends the line
+			return err
+		}
+	}
+	return nil
 }
 
 // lineEncoder encodes one JSON value per line to w.

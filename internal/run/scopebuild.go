@@ -126,100 +126,130 @@ func asnNetblocks(src ScopeSource, in input.Parsed) (map[string]string, error) {
 }
 
 // inventoryData reads the current records the inventory is computed from.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func inventoryData(src ScopeSource) (inventory.Data, error) {
 	var d inventory.Data
-	hosts, err := src.CurrentRecords(kinds.Hostname)
-	if err != nil {
+	var err error
+	if d.Hosts, err = currentAs(src, kinds.Hostname, hostOf); err != nil {
 		return d, err
 	}
-	for _, rec := range hosts {
-		d.Hosts = append(d.Hosts, inventory.Host{Name: input.NormaliseHost(rec.Key), Stages: rec.Stages})
-	}
-	recs, err := src.CurrentRecords(kinds.Resolution)
-	if err != nil {
+	if d.Resolutions, err = currentAs(src, kinds.Resolution, resolutionOf); err != nil {
 		return d, err
 	}
-	for _, rec := range recs {
-		a := kinds.Resolution.Attrs(rec)
-		if name := input.NormaliseHost(a.Name); name != "" {
-			d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: name, Type: a.Type, Value: a.Value})
-		}
-	}
-	if recs, err = src.CurrentRecords(kinds.Wildcard); err != nil {
+	if d.Wildcards, err = currentAs(src, kinds.Wildcard, wildcardOf); err != nil {
 		return d, err
 	}
-	for _, rec := range recs {
-		a := kinds.Wildcard.Attrs(rec)
-		w := inventory.Wildcard{Zone: rec.Key, CNAME: a.CNAME}
-		for _, s := range a.Addrs {
-			if addr, err := netip.ParseAddr(s); err == nil {
-				w.Addrs = append(w.Addrs, addr)
-			}
-		}
-		d.Wildcards = append(d.Wildcards, w)
-	}
-	if recs, err = src.CurrentRecords(kinds.IP); err != nil {
+	if d.IPs, err = currentAs(src, kinds.IP, ipOf); err != nil {
 		return d, err
 	}
-	for _, rec := range recs {
-		if a, err := netip.ParseAddr(rec.Key); err == nil {
-			d.IPs = append(d.IPs, a.Unmap())
-		}
-	}
-	if recs, err = src.CurrentRecords(kinds.IPOwner); err != nil {
+	if d.Owners, err = ipOwners(src); err != nil {
 		return d, err
-	}
-	d.Owners = map[netip.Addr]provider.Owner{}
-	for _, rec := range recs {
-		if addr, err := netip.ParseAddr(rec.Key); err == nil {
-			a := kinds.IPOwner.Attrs(rec)
-			d.Owners[addr.Unmap()] = provider.Owner{ASN: a.ASN, Holder: a.Holder, Known: true}
-		}
 	}
 	if d.Ranges, err = providerRanges(src); err != nil {
 		return d, err
 	}
-	if recs, err = src.CurrentRecords(kinds.PortCheck); err != nil {
+	if d.ClosedPorts, err = currentAs(src, kinds.PortCheck, closedPortOf); err != nil {
 		return d, err
 	}
-	for _, rec := range recs {
-		if ap, ok := kinds.ParsePortKey(rec.Key); ok && kinds.PortCheck.Attrs(rec).Result == kinds.PortClosed {
-			d.ClosedPorts = append(d.ClosedPorts, ap)
-		}
-	}
-	if recs, err = src.CurrentRecords(kinds.IPHostname); err != nil {
+	if d.IPHostnames, err = currentAs(src, kinds.IPHostname, ipHostnameOf); err != nil {
 		return d, err
 	}
-	for _, rec := range recs {
-		a := kinds.IPHostname.Attrs(rec)
-		if addr, err := netip.ParseAddr(a.IP); err == nil {
-			d.IPHostnames = append(d.IPHostnames, inventory.IPHostname{IP: addr.Unmap(), Hostname: input.NormaliseHost(a.Hostname), Source: a.Source})
-		}
-	}
-	if recs, err = src.CurrentRecords(kinds.Registration); err != nil {
+	if d.Registrations, err = currentAs(src, kinds.Registration, registrationOf); err != nil {
 		return d, err
 	}
-	for _, rec := range recs {
-		a := kinds.Registration.Attrs(rec)
-		start, e1 := netip.ParseAddr(a.Start)
-		end, e2 := netip.ParseAddr(a.End)
-		if e1 == nil && e2 == nil {
-			d.Registrations = append(d.Registrations, inventory.Registration{Key: rec.Key, Start: start.Unmap(), End: end.Unmap(),
-				Registrant: a.Registrant, Registry: a.Registry})
-		}
-	}
-	if recs, err = src.CurrentRecords(kinds.ServerAddress); err != nil {
+	if d.ServerAddresses, err = currentAs(src, kinds.ServerAddress, serverAddressOf); err != nil {
 		return d, err
-	}
-	for _, rec := range recs {
-		a := kinds.ServerAddress.Attrs(rec)
-		if addr, err := netip.ParseAddr(a.Addr); err == nil {
-			d.ServerAddresses = append(d.ServerAddresses, inventory.ServerAddress{Host: a.Host, Addr: addr})
-		}
 	}
 	return d, nil
+}
+
+// currentAs converts the current records of a kind with conv, keeping the
+// values it accepts, in record order.
+func currentAs[T any](src ScopeSource, k kinds.Named, conv func(store.Record) (T, bool)) ([]T, error) {
+	recs, err := src.CurrentRecords(k)
+	if err != nil {
+		return nil, err
+	}
+	var out []T
+	for _, rec := range recs {
+		if v, ok := conv(rec); ok {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+func hostOf(rec store.Record) (inventory.Host, bool) {
+	return inventory.Host{Name: input.NormaliseHost(rec.Key), Stages: rec.Stages}, true
+}
+
+func resolutionOf(rec store.Record) (inventory.Resolution, bool) {
+	a := kinds.Resolution.Attrs(rec)
+	name := input.NormaliseHost(a.Name)
+	return inventory.Resolution{Name: name, Type: a.Type, Value: a.Value}, name != ""
+}
+
+func wildcardOf(rec store.Record) (inventory.Wildcard, bool) {
+	a := kinds.Wildcard.Attrs(rec)
+	w := inventory.Wildcard{Zone: rec.Key, CNAME: a.CNAME}
+	for _, s := range a.Addrs {
+		if addr, err := netip.ParseAddr(s); err == nil {
+			w.Addrs = append(w.Addrs, addr)
+		}
+	}
+	return w, true
+}
+
+func ipOf(rec store.Record) (netip.Addr, bool) {
+	a, err := netip.ParseAddr(rec.Key)
+	return a.Unmap(), err == nil
+}
+
+// ipOwners are the owners of addresses the ip_owner records name. The map is
+// never nil.
+func ipOwners(src ScopeSource) (map[netip.Addr]provider.Owner, error) {
+	recs, err := src.CurrentRecords(kinds.IPOwner)
+	if err != nil {
+		return nil, err
+	}
+	owners := map[netip.Addr]provider.Owner{}
+	for _, rec := range recs {
+		if addr, err := netip.ParseAddr(rec.Key); err == nil {
+			a := kinds.IPOwner.Attrs(rec)
+			owners[addr.Unmap()] = provider.Owner{ASN: a.ASN, Holder: a.Holder, Known: true}
+		}
+	}
+	return owners, nil
+}
+
+func closedPortOf(rec store.Record) (netip.AddrPort, bool) {
+	ap, ok := kinds.ParsePortKey(rec.Key)
+	return ap, ok && kinds.PortCheck.Attrs(rec).Result == kinds.PortClosed
+}
+
+func ipHostnameOf(rec store.Record) (inventory.IPHostname, bool) {
+	a := kinds.IPHostname.Attrs(rec)
+	addr, err := netip.ParseAddr(a.IP)
+	if err != nil {
+		return inventory.IPHostname{}, false
+	}
+	return inventory.IPHostname{IP: addr.Unmap(), Hostname: input.NormaliseHost(a.Hostname), Source: a.Source}, true
+}
+
+func registrationOf(rec store.Record) (inventory.Registration, bool) {
+	a := kinds.Registration.Attrs(rec)
+	start, e1 := netip.ParseAddr(a.Start)
+	end, e2 := netip.ParseAddr(a.End)
+	if e1 != nil || e2 != nil {
+		return inventory.Registration{}, false
+	}
+	return inventory.Registration{Key: rec.Key, Start: start.Unmap(), End: end.Unmap(),
+		Registrant: a.Registrant, Registry: a.Registry}, true
+}
+
+func serverAddressOf(rec store.Record) (inventory.ServerAddress, bool) {
+	a := kinds.ServerAddress.Attrs(rec)
+	addr, err := netip.ParseAddr(a.Addr)
+	return inventory.ServerAddress{Host: a.Host, Addr: addr}, err == nil
 }
 
 // providerRanges is the index of the current provider_range records, from the

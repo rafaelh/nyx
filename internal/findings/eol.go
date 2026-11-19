@@ -17,49 +17,61 @@ import (
 // release cycle's security support has ended (medium, type eol) or ends within eol_warn_days
 // (low, type eol-approaching). A version that is a distribution build, or that only Shodan's
 // report of a port names, is one step lower. A version that matches no cycle is no finding.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (d *deriver) eolSoftware() []Finding {
 	today, err := time.Parse(time.DateOnly, d.in.Today)
 	if err != nil {
 		return nil
 	}
 	// With a window of 0 the horizon is today, which the eol case already takes.
-	horizon := today.AddDate(0, 0, d.in.Settings.EOLWarnDays).Format(time.DateOnly)
-	var out []Finding
-	// add assesses one product and version seen at a target: a web service's URL, or the
-	// address and port of a banner (port is the zero value for a web service). A sighting
-	// known only from a third party's report is unconfirmed.
-	add := func(target string, port netip.AddrPort, product, version string, distro, unconfirmed bool) {
-		cycle, end, ok := eol.Lookup(product, version)
-		if !ok {
-			return
-		}
-		var typ string
-		switch {
-		case end == "" || end <= d.in.Today:
-			typ = "eol"
-		case end <= horizon:
-			typ = "eol-approaching"
-		default:
-			return
-		}
-		seen, hostnames := "web", ""
-		if port.IsValid() {
-			seen, hostnames = "banner", strings.Join(d.hostnamesByIP()[port.Addr()], ";")
-		}
-		severity := Severity(EOLSoftware, typ)
-		if distro || unconfirmed {
-			severity = StepDown(severity)
-		}
-		confirmed := "yes"
-		if unconfirmed {
-			confirmed = "no"
-		}
-		out = append(out, newFinding(EOLSoftware, typ, severity, target, eolDetail(typ, product, version, cycle, end, distro, unconfirmed),
-			map[string]any{"hostnames": hostnames, "product": product, "version": version, "end_date": end, "seen": seen, "confirmed": confirmed}))
-	}
+	a := &eolAssessor{d: d, horizon: today.AddDate(0, 0, d.in.Settings.EOLWarnDays).Format(time.DateOnly)}
+	a.webServices()
+	a.ports()
+	return a.out
+}
 
+// eolAssessor collects the end-of-life findings of one derivation.
+type eolAssessor struct {
+	d       *deriver
+	horizon string // the last end date that is eol-approaching
+	out     []Finding
+}
+
+// add assesses one product and version seen at a target: a web service's URL, or the
+// address and port of a banner (port is the zero value for a web service). A sighting
+// known only from a third party's report is unconfirmed.
+func (a *eolAssessor) add(target string, port netip.AddrPort, product, version string, distro, unconfirmed bool) {
+	cycle, end, ok := eol.Lookup(product, version)
+	if !ok {
+		return
+	}
+	var typ string
+	switch {
+	case end == "" || end <= a.d.in.Today:
+		typ = "eol"
+	case end <= a.horizon:
+		typ = "eol-approaching"
+	default:
+		return
+	}
+	seen, hostnames := "web", ""
+	if port.IsValid() {
+		seen, hostnames = "banner", strings.Join(a.d.hostnamesByIP()[port.Addr()], ";")
+	}
+	severity := Severity(EOLSoftware, typ)
+	if distro || unconfirmed {
+		severity = StepDown(severity)
+	}
+	confirmed := "yes"
+	if unconfirmed {
+		confirmed = "no"
+	}
+	a.out = append(a.out, newFinding(EOLSoftware, typ, severity, target, eolDetail(typ, product, version, cycle, end, distro, unconfirmed),
+		map[string]any{"hostnames": hostnames, "product": product, "version": version, "end_date": end, "seen": seen, "confirmed": confirmed}))
+}
+
+// webServices assesses the versioned technologies of each shown web service.
+func (a *eolAssessor) webServices() {
+	d := a.d
 	// The Server and X-Powered-By values of each service, which say whether a version Wappalyzer
 	// read from them is a distribution build.
 	headers := map[string][]string{}
@@ -69,30 +81,26 @@ func (d *deriver) eolSoftware() []Finding {
 		}
 	}
 	for key, r := range d.services() {
-		a := kinds.WebService.Attrs(r)
-		values := append([]string{a.Server}, headers[key]...)
-		for tech := range strings.SplitSeq(a.Technologies, ";") {
+		attrs := kinds.WebService.Attrs(r)
+		values := append([]string{attrs.Server}, headers[key]...)
+		for tech := range strings.SplitSeq(attrs.Technologies, ";") {
 			if name, version, ok := strings.Cut(tech, ":"); ok && version != "" {
-				add(key, netip.AddrPort{}, name, version, banner.Distro(version) || headerDistro(version, values), false)
+				a.add(key, netip.AddrPort{}, name, version, banner.Distro(version) || headerDistro(version, values), false)
 			}
 		}
 	}
+}
 
-	// A port nyx opened is read from its own banner. A port only Shodan reports, or one whose
-	// banner named no version that Shodan's does, is read from Shodan's and is unconfirmed.
+// ports assesses the banner of each shown port. A port nyx opened is read from its own
+// banner. A port only Shodan reports, or one whose banner named no version that Shodan's
+// does, is read from Shodan's and is unconfirmed.
+func (a *eolAssessor) ports() {
+	d := a.d
 	reported := map[netip.AddrPort]store.Record{}
 	for _, r := range d.current(kinds.ReportedPort) {
 		if addr, ok := kinds.ParsePortKey(r.Key); ok && d.vis.Shown(kinds.ReportedPort, r) {
 			reported[addr] = r
 		}
-	}
-	portBanner := func(addr netip.AddrPort, stored string, unconfirmed bool) bool {
-		product, version, distro := banner.Parse(kinds.DecodeBanner(stored))
-		if product == "" || version == "" {
-			return false
-		}
-		add(addr.String(), addr, product, version, distro, unconfirmed)
-		return true
 	}
 	opened := map[netip.AddrPort]bool{}
 	for _, r := range d.current(kinds.OpenPort) {
@@ -104,18 +112,28 @@ func (d *deriver) eolSoftware() []Finding {
 		if !d.vis.Shown(kinds.OpenPort, r) {
 			continue
 		}
-		if !portBanner(addr, kinds.OpenPort.Attrs(r).Banner, false) {
+		if !a.portBanner(addr, kinds.OpenPort.Attrs(r).Banner, false) {
 			if rep, ok := reported[addr]; ok {
-				portBanner(addr, kinds.ReportedPort.Attrs(rep).Banner, true)
+				a.portBanner(addr, kinds.ReportedPort.Attrs(rep).Banner, true)
 			}
 		}
 	}
 	for addr, rep := range reported {
 		if !opened[addr] {
-			portBanner(addr, kinds.ReportedPort.Attrs(rep).Banner, true)
+			a.portBanner(addr, kinds.ReportedPort.Attrs(rep).Banner, true)
 		}
 	}
-	return out
+}
+
+// portBanner assesses the product and version a stored banner names, and reports
+// whether it named both.
+func (a *eolAssessor) portBanner(addr netip.AddrPort, stored string, unconfirmed bool) bool {
+	product, version, distro := banner.Parse(kinds.DecodeBanner(stored))
+	if product == "" || version == "" {
+		return false
+	}
+	a.add(addr.String(), addr, product, version, distro, unconfirmed)
+	return true
 }
 
 // headerDistro reports whether a header value names version as a distribution build. Wappalyzer

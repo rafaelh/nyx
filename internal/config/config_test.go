@@ -392,15 +392,9 @@ func yamlFor(key, val string) string {
 // Each whole-number setting has its default (shown in its flag's help), takes the config file,
 // the environment and a flag in rising order of precedence, and accepts its least value. A value
 // below that, or not a whole number, is an error naming the key from any of the three.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestIntSettings(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		key, flag string
-		def, min  int
-		get       func(config.Settings) int
-	}{
+	for _, c := range []intSetting{
 		{"port_concurrency", "--port-concurrency", 100, 1, func(s config.Settings) int { return s.PortConcurrency }},
 		{"storage.max_names", "--storage-max-names", 50, 1, func(s config.Settings) int { return s.Storage.MaxNames }},
 		{"cert_expiry_days", "--cert-expiry-days", 30, 0, func(s config.Settings) int { return s.CertExpiryDays }},
@@ -416,37 +410,65 @@ func TestIntSettings(t *testing.T) {
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			t.Parallel()
-			if s, err := load(t, nil, ""); err != nil || c.get(s) != c.def {
-				t.Fatalf("default = %d, %v; want %d", c.get(s), err, c.def)
-			}
-			if f := newFlagSetForHelp().Lookup(strings.TrimPrefix(c.flag, "--")); f == nil || f.DefValue != strconv.Itoa(c.def) {
-				t.Errorf("%s in help = %+v, want default %d", c.flag, f, c.def)
-			}
-			file := writeFile(t, yamlFor(c.key, "70"))
-			env := config.Env{envName(c.key) + "=80"}
-			if s, err := load(t, nil, file); err != nil || c.get(s) != 70 {
-				t.Errorf("file: %d %v", c.get(s), err)
-			}
-			if s, err := load(t, env, file); err != nil || c.get(s) != 80 {
-				t.Errorf("env over file: %d %v", c.get(s), err)
-			}
-			if s, err := load(t, env, file, c.flag, "90"); err != nil || c.get(s) != 90 {
-				t.Errorf("flag over env: %d %v", c.get(s), err)
-			}
-			if s, err := load(t, nil, "", c.flag, strconv.Itoa(c.min)); err != nil || c.get(s) != c.min {
-				t.Errorf("least value %d: %d %v", c.min, c.get(s), err)
-			}
-			for _, bad := range []string{strconv.Itoa(c.min - 1), "many"} {
-				for from, run := range map[string]func() (config.Settings, error){
-					"flag": func() (config.Settings, error) { return load(t, nil, "", c.flag, bad) },
-					"env":  func() (config.Settings, error) { return load(t, config.Env{envName(c.key) + "=" + bad}, "") },
-					"file": func() (config.Settings, error) { return load(t, nil, writeFile(t, yamlFor(c.key, bad))) },
-				} {
-					if _, err := run(); err == nil || !strings.Contains(err.Error(), c.key) {
-						t.Errorf("%s %s: error %v should name %s", from, bad, err, c.key)
-					}
-				}
-			}
+			checkIntDefault(t, c)
+			checkIntPrecedence(t, c)
+			checkIntRejected(t, c)
 		})
+	}
+}
+
+// intSetting is a whole-number setting: its key and flag, its default and least value, and how
+// to read it from Settings.
+type intSetting struct {
+	key, flag string
+	def, min  int
+	get       func(config.Settings) int
+}
+
+// checkIntDefault checks the setting's default, and that its flag's help shows it.
+func checkIntDefault(t *testing.T, c intSetting) {
+	t.Helper()
+	if s, err := load(t, nil, ""); err != nil || c.get(s) != c.def {
+		t.Fatalf("default = %d, %v; want %d", c.get(s), err, c.def)
+	}
+	if f := newFlagSetForHelp().Lookup(strings.TrimPrefix(c.flag, "--")); f == nil || f.DefValue != strconv.Itoa(c.def) {
+		t.Errorf("%s in help = %+v, want default %d", c.flag, f, c.def)
+	}
+}
+
+// checkIntPrecedence checks that the file, the environment and a flag each set the setting, in
+// rising order of precedence, and that the least value is accepted.
+func checkIntPrecedence(t *testing.T, c intSetting) {
+	t.Helper()
+	file := writeFile(t, yamlFor(c.key, "70"))
+	env := config.Env{envName(c.key) + "=80"}
+	if s, err := load(t, nil, file); err != nil || c.get(s) != 70 {
+		t.Errorf("file: %d %v", c.get(s), err)
+	}
+	if s, err := load(t, env, file); err != nil || c.get(s) != 80 {
+		t.Errorf("env over file: %d %v", c.get(s), err)
+	}
+	if s, err := load(t, env, file, c.flag, "90"); err != nil || c.get(s) != 90 {
+		t.Errorf("flag over env: %d %v", c.get(s), err)
+	}
+	if s, err := load(t, nil, "", c.flag, strconv.Itoa(c.min)); err != nil || c.get(s) != c.min {
+		t.Errorf("least value %d: %d %v", c.min, c.get(s), err)
+	}
+}
+
+// checkIntRejected checks that a value below the least, or not a whole number, is an error
+// naming the key, whether it comes from a flag, the environment or the file.
+func checkIntRejected(t *testing.T, c intSetting) {
+	t.Helper()
+	for _, bad := range []string{strconv.Itoa(c.min - 1), "many"} {
+		for from, run := range map[string]func() (config.Settings, error){
+			"flag": func() (config.Settings, error) { return load(t, nil, "", c.flag, bad) },
+			"env":  func() (config.Settings, error) { return load(t, config.Env{envName(c.key) + "=" + bad}, "") },
+			"file": func() (config.Settings, error) { return load(t, nil, writeFile(t, yamlFor(c.key, bad))) },
+		} {
+			if _, err := run(); err == nil || !strings.Contains(err.Error(), c.key) {
+				t.Errorf("%s %s: error %v should name %s", from, bad, err, c.key)
+			}
+		}
 	}
 }

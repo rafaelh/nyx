@@ -30,9 +30,23 @@ type portSources struct {
 // current: the showing rule hides it from the counts and findings, and the file
 // keeps what was once reported. A row for an address that may not be port-checked
 // is not listed at all.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func openPortRows(s Snapshot) []Row {
+	vis := s.vis()
+	byKey := portsByKey(s, vis)
+	if len(byKey) == 0 {
+		return nil
+	}
+	hostnames := s.Inv.HostnamesByIP(s.Scope)
+	rows := make([]Row, 0, len(byKey))
+	for ap, e := range byKey {
+		rows = append(rows, e.row(ap, vis, hostnames[ap.Addr()]))
+	}
+	return rows
+}
+
+// portsByKey gathers, by address and port, the open ports that are shown and the reported ports
+// whose address may be port-checked.
+func portsByKey(s Snapshot, vis *kinds.Visibility) map[netip.AddrPort]*portSources {
 	byKey := map[netip.AddrPort]*portSources{}
 	entry := func(ap netip.AddrPort) *portSources {
 		e := byKey[ap]
@@ -42,7 +56,6 @@ func openPortRows(s Snapshot) []Row {
 		}
 		return e
 	}
-	vis := s.vis()
 	for _, r := range s.of(kinds.OpenPort) {
 		if ap, ok := kinds.ParsePortKey(r.Key); ok && vis.Shown(kinds.OpenPort, r) {
 			entry(ap).open = &r
@@ -55,47 +68,44 @@ func openPortRows(s Snapshot) []Row {
 			entry(ap).reports = &r
 		}
 	}
-	if len(byKey) == 0 {
-		return nil
+	return byKey
+}
+
+// row is the open-ports.csv row for ap, whose known hostnames are hostnames.
+func (e *portSources) row(ap netip.AddrPort, vis *kinds.Visibility, hostnames []string) Row {
+	var banner, seen string
+	var sources []string
+	current := false
+	var first, last string
+	note := func(r *store.Record) {
+		if first == "" || r.FirstSeen < first {
+			first = r.FirstSeen
+		}
+		if r.LastSeen > last {
+			last = r.LastSeen
+		}
 	}
-	hostnames := s.Inv.HostnamesByIP(s.Scope)
-	rows := make([]Row, 0, len(byKey))
-	for ap, e := range byKey {
-		var banner, seen string
-		var sources []string
-		current := false
-		var first, last string
-		note := func(r *store.Record) {
-			if first == "" || r.FirstSeen < first {
-				first = r.FirstSeen
-			}
-			if r.LastSeen > last {
-				last = r.LastSeen
-			}
+	if e.reports != nil {
+		sources = append(sources, "shodan")
+		note(e.reports)
+		if e.reports.Current {
+			a := kinds.ReportedPort.Attrs(*e.reports)
+			banner, seen = a.Banner, a.LastSeen
+			current = vis.Shown(kinds.ReportedPort, *e.reports)
 		}
-		if e.reports != nil {
-			sources = append(sources, "shodan")
-			note(e.reports)
-			if e.reports.Current {
-				a := kinds.ReportedPort.Attrs(*e.reports)
-				banner, seen = a.Banner, a.LastSeen
-				current = vis.Shown(kinds.ReportedPort, *e.reports)
-			}
-		}
-		if e.open != nil {
-			sources = append([]string{"nyx"}, sources...)
-			note(e.open)
-			current = current || e.open.Current
-			if b := kinds.OpenPort.Attrs(*e.open).Banner; b != "" {
-				banner = b
-			}
-		}
-		product, version, _ := bannerparse.Parse(kinds.DecodeBanner(banner))
-		rows = append(rows, Row{
-			Cells: []string{ap.Addr().String(), strconv.Itoa(int(ap.Port())), banner, strings.Join(hostnames[ap.Addr()], ";"),
-				strings.Join(sources, ";"), yesNo(e.open != nil && e.open.Current), seen, product, version},
-			Current: current, FirstSeen: first, LastSeen: last,
-		})
 	}
-	return rows
+	if e.open != nil {
+		sources = append([]string{"nyx"}, sources...)
+		note(e.open)
+		current = current || e.open.Current
+		if b := kinds.OpenPort.Attrs(*e.open).Banner; b != "" {
+			banner = b
+		}
+	}
+	product, version, _ := bannerparse.Parse(kinds.DecodeBanner(banner))
+	return Row{
+		Cells: []string{ap.Addr().String(), strconv.Itoa(int(ap.Port())), banner, strings.Join(hostnames, ";"),
+			strings.Join(sources, ";"), yesNo(e.open != nil && e.open.Current), seen, product, version},
+		Current: current, FirstSeen: first, LastSeen: last,
+	}
 }

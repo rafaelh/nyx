@@ -81,13 +81,9 @@ type history struct {
 // Run asks for the A and then the AAAA history. A host SecurityTrails does not know (404) is a
 // completed check with nothing found. An address seen in several periods is one record, from the
 // earliest first_seen to the latest last_seen.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	host := c.Input.(string)
-	type span struct{ first, last string }
-	spans := map[netip.Addr]*span{}
-	var order []netip.Addr
+	sp := &spans{byAddr: map[netip.Addr]*span{}}
 	for _, typ := range []string{"a", "aaaa"} {
 		recs, err := fetch(ctx, e, host, typ)
 		if err != nil {
@@ -95,32 +91,15 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 		for _, r := range recs {
 			for _, v := range r.Values {
-				a, err := netip.ParseAddr(cmp.Or(v.IP, v.IPv6))
-				if err != nil || !a.IsGlobalUnicast() {
-					continue
-				}
-				a = a.Unmap()
-				if (typ == "a") != a.Is4() {
-					continue
-				}
-				s, ok := spans[a]
-				if !ok {
-					s = &span{}
-					spans[a] = s
-					order = append(order, a)
-				}
-				if first := date(r.FirstSeen); first != "" && (s.first == "" || first < s.first) {
-					s.first = first
-				}
-				if last := date(r.LastSeen); last != "" && last > s.last {
-					s.last = last
+				if a, ok := historyAddr(typ, cmp.Or(v.IP, v.IPv6)); ok {
+					sp.add(a, date(r.FirstSeen), date(r.LastSeen))
 				}
 			}
 		}
 	}
 	var obs []run.Observation
-	for _, a := range order {
-		s, typ := spans[a], "A"
+	for _, a := range sp.order {
+		s, typ := sp.byAddr[a], "A"
 		if a.Is6() {
 			typ = "AAAA"
 		}
@@ -130,6 +109,47 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			kinds.IP.Obs(a.String()))
 	}
 	return obs, nil
+}
+
+// historyAddr parses an address of a history of record type typ ("a" or
+// "aaaa"). ok is false for an address that does not parse, is not global
+// unicast, or is not of that type.
+func historyAddr(typ, s string) (netip.Addr, bool) {
+	a, err := netip.ParseAddr(s)
+	if err != nil || !a.IsGlobalUnicast() {
+		return netip.Addr{}, false
+	}
+	a = a.Unmap()
+	if (typ == "a") != a.Is4() {
+		return netip.Addr{}, false
+	}
+	return a, true
+}
+
+// span is when an address was seen: the earliest first_seen and the latest last_seen.
+type span struct{ first, last string }
+
+// spans collects one span per address, in the order the addresses were first seen.
+type spans struct {
+	byAddr map[netip.Addr]*span
+	order  []netip.Addr
+}
+
+// add widens the address's span to cover a period from first to last; an
+// empty date is ignored.
+func (sp *spans) add(a netip.Addr, first, last string) {
+	s, ok := sp.byAddr[a]
+	if !ok {
+		s = &span{}
+		sp.byAddr[a] = s
+		sp.order = append(sp.order, a)
+	}
+	if first != "" && (s.first == "" || first < s.first) {
+		s.first = first
+	}
+	if last != "" && last > s.last {
+		s.last = last
+	}
 }
 
 // date is a YYYY-MM-DD date, or "" for anything else.

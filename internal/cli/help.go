@@ -149,8 +149,6 @@ func firstExample(c *cobra.Command) string {
 // --json, the shared flags, then every command with its usage, one example,
 // its everyday flags and the valid values of its fixed-set flags, the help
 // commands, and the exit codes.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func rootHelp(root *cobra.Command, depth palette.Depth) string {
 	cmds := runnable(root)
 	var b strings.Builder
@@ -162,39 +160,63 @@ func rootHelp(root *cobra.Command, depth palette.Depth) string {
 	}
 	b.WriteString("\n" + root.Long + "\n\n")
 	b.WriteString("Shared flags (every command takes them; they alone may also come before the command):\n")
-	b.WriteString(root.PersistentFlags().FlagUsages())
-	shared := root.PersistentFlags()
+	b.WriteString(flagUsages(root.PersistentFlags()))
 	for _, c := range cmds {
-		b.WriteString("\n" + c.UseLine() + "\n")
-		b.WriteString("  " + c.Short + "\n")
-		if ex := firstExample(c); ex != "" {
-			b.WriteString("  Example: " + ex + "\n")
-		}
-		fs := pflag.NewFlagSet(c.Name(), pflag.ContinueOnError)
-		fs.SortFlags = false
-		add := func(f *pflag.Flag) {
-			if f != nil && f.Name != "help" && !f.Hidden && shared.Lookup(f.Name) == nil {
-				fs.AddFlag(f)
-			}
-		}
-		if names, ok := c.Annotations[annotationEveryday]; ok {
-			for n := range strings.SplitSeq(names, ",") {
-				add(c.Flags().Lookup(n))
-			}
-		} else {
-			c.Flags().VisitAll(add)
-		}
-		if fs.HasAvailableFlags() {
-			b.WriteString(strings.TrimPrefix(c.CommandPath(), root.Name()+" ") + " flags:\n")
-			b.WriteString(fs.FlagUsages())
-		}
-		for _, key := range []string{annotationValues, annotationNote} {
-			if v := c.Annotations[key]; v != "" {
-				b.WriteString(v + "\n")
-			}
+		writeCommandReference(&b, root, c)
+	}
+	writeHelpCommands(&b, root)
+	own := pflag.NewFlagSet("nyx", pflag.ContinueOnError)
+	own.SortFlags = false
+	own.AddFlag(root.Flags().Lookup("version"))
+	own.AddFlag(root.Flags().Lookup("help"))
+	b.WriteString("\nFlags:\n" + flagUsages(own))
+	b.WriteString("\n" + exitCodesLine + "\n")
+	return colourHelp(depth, b.String())
+}
+
+// writeCommandReference writes one command's entry in the reference: its
+// usage, its summary, one example, its everyday flags and its notes.
+func writeCommandReference(b *strings.Builder, root, c *cobra.Command) {
+	b.WriteString("\n" + c.UseLine() + "\n")
+	b.WriteString("  " + c.Short + "\n")
+	if ex := firstExample(c); ex != "" {
+		b.WriteString("  Example: " + ex + "\n")
+	}
+	if fs := everydayFlags(c, root.PersistentFlags()); fs.HasAvailableFlags() {
+		b.WriteString(strings.TrimPrefix(c.CommandPath(), root.Name()+" ") + " flags:\n")
+		b.WriteString(flagUsages(fs))
+	}
+	for _, key := range []string{annotationValues, annotationNote} {
+		if v := c.Annotations[key]; v != "" {
+			b.WriteString(v + "\n")
 		}
 	}
+}
 
+// everydayFlags are the flags the reference shows for c: those its everyday
+// annotation names, in that order, or else all of them, leaving out help,
+// hidden flags and the shared flags.
+func everydayFlags(c *cobra.Command, shared *pflag.FlagSet) *pflag.FlagSet {
+	fs := pflag.NewFlagSet(c.Name(), pflag.ContinueOnError)
+	fs.SortFlags = false
+	add := func(f *pflag.Flag) {
+		if f != nil && f.Name != "help" && !f.Hidden && shared.Lookup(f.Name) == nil {
+			fs.AddFlag(f)
+		}
+	}
+	if names, ok := c.Annotations[annotationEveryday]; ok {
+		for n := range strings.SplitSeq(names, ",") {
+			add(c.Flags().Lookup(n))
+		}
+	} else {
+		c.Flags().VisitAll(add)
+	}
+	return fs
+}
+
+// writeHelpCommands writes the reference's list of help commands: help itself
+// and each help topic, with their summaries in one aligned column.
+func writeHelpCommands(b *strings.Builder, root *cobra.Command) {
 	b.WriteString("\nHelp:\n")
 	type row struct{ use, short string }
 	var rows []row
@@ -213,16 +235,29 @@ func rootHelp(root *cobra.Command, depth palette.Depth) string {
 		width = max(width, len(r.use))
 	}
 	for _, r := range rows {
-		fmt.Fprintf(&b, "  %-*s   %s\n", width, r.use, r.short)
+		fmt.Fprintf(b, "  %-*s   %s\n", width, r.use, r.short)
 	}
-	own := pflag.NewFlagSet("nyx", pflag.ContinueOnError)
-	own.SortFlags = false
-	own.AddFlag(root.Flags().Lookup("version"))
-	own.AddFlag(root.Flags().Lookup("help"))
-	b.WriteString("\nFlags:\n" + own.FlagUsages())
-	b.WriteString("\n" + exitCodesLine + "\n")
-	return colourHelp(depth, b.String())
 }
+
+// flagUsages is fs's flag list as help shows it: a switch reads "--passive",
+// not pflag's "--passive[=true|false]". It renders a copy of fs, leaving the
+// flags that parsing uses unchanged.
+func flagUsages(fs *pflag.FlagSet) string {
+	shown := pflag.NewFlagSet(fs.Name(), pflag.ContinueOnError)
+	shown.SortFlags = fs.SortFlags
+	fs.VisitAll(func(f *pflag.Flag) {
+		c := *f
+		if c.Value.Type() == "bool" {
+			c.Value = plainSwitch{c.Value} // NoOptDefVal is already "true", set when f was added
+		}
+		shown.AddFlag(&c)
+	})
+	return shown.FlagUsages()
+}
+
+// plainSwitch hides a bool flag value's IsBoolFlag method, which pflag's usage
+// text marks with "[=true|false]".
+type plainSwitch struct{ pflag.Value }
 
 // commandHelp is a command's own help: its examples, its description, its
 // usage, its subcommands, every flag, its footer and the exit codes.
@@ -244,10 +279,10 @@ func commandHelp(c *cobra.Command, depth palette.Depth) string {
 		}
 	}
 	if local := c.LocalFlags(); local.HasAvailableFlags() {
-		b.WriteString("\nFlags:\n" + local.FlagUsages())
+		b.WriteString("\nFlags:\n" + flagUsages(local))
 	}
 	if inherited := c.InheritedFlags(); inherited.HasAvailableFlags() {
-		b.WriteString("\nShared flags:\n" + inherited.FlagUsages())
+		b.WriteString("\nShared flags:\n" + flagUsages(inherited))
 	}
 	if footer := c.Annotations[annotationFooter]; footer != "" {
 		b.WriteString("\n" + footer)

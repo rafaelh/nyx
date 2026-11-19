@@ -291,86 +291,146 @@ func (t *targetHTTP) Head(ctx context.Context, r Request) (HTTPResult, error) {
 	return t.do(ctx, http.MethodHead, r)
 }
 
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResult, error) {
-	e := t.e
-	p := e.policy()
 	tg := r.target()
+	pl, refusal, refused := t.e.policy().planHTTP(tg)
+	if refused {
+		return refusal, nil
+	}
+	return t.e.fetch(ctx, method, tg, pl)
+}
+
+// httpPlan is a target request that passed every policy check: the host it names, the request
+// URI and the addresses that may be dialled for it, in order.
+type httpPlan struct {
+	host  string
+	uri   string
+	addrs []netip.Addr
+}
+
+// planHTTP applies the policy to a target request, in order: the shared target gate, the
+// recorded scripts, the shape of the URL, the scope of the host or address, the port, the
+// request path and the addresses that may be dialled. A refusal says why.
+func (p *Policy) planHTTP(tg target) (httpPlan, Refused, bool) {
 	if r, ok := p.targetRefusal(); ok {
-		return r, nil
+		return httpPlan{}, r, true
 	}
 	if tg.script != "" && !p.Scripts[tg.script] {
-		return Refused{"script URL is not one the crawl recorded"}, nil
+		return httpPlan{}, Refused{"script URL is not one the crawl recorded"}, true
 	}
 	host := input.NormaliseHost(tg.host)
 	lit, isIP := input.IPLiteral(host)
-	switch {
-	case tg.scheme != "http" && tg.scheme != "https":
-		return Refused{"scheme " + strconv.Quote(tg.scheme) + " is not http or https"}, nil
-	case tg.host == "" || tg.port < 1 || tg.port > 65535 || (!isIP && strings.ContainsAny(tg.host, "@/?#: \\[]%")):
-		return Refused{"malformed host or port"}, nil
-	}
-	if tg.origin && isIP {
-		return Refused{"an origin check names a hostname, not an address"}, nil
+	if r, refused := shapeRefusal(tg, isIP); refused {
+		return httpPlan{}, r, true
 	}
 	if isIP {
 		host = lit.String()
-		// An address is a web target iff it is in an in-scope netblock and not
-		// excluded; a hostname that resolves there is probed by name instead.
-		if !p.Scope.InScopeIP(lit) {
-			return Refused{"address is not in scope"}, nil
-		}
-		if ex, why := p.Scope.ExcludedFor(lit, p.isShared(lit)); ex {
-			p.reportExcluded(lit.String(), why)
-			return Refused{"address is excluded: " + why}, nil
-		}
-	} else {
-		switch c := p.Scope.ClassifyHost(host); c.Class {
-		case scope.Excluded:
-			return Refused{"host is excluded: " + c.Reason}, nil
-		case scope.Candidate:
-			return Refused{"host is not in scope"}, nil
-		}
+	}
+	if r, refused := p.webScopeRefusal(host, lit, isIP); refused {
+		return httpPlan{}, r, true
 	}
 	if !p.portAllowed(tg.port, true) {
-		return Refused{"port " + strconv.Itoa(tg.port) + " not allowed"}, nil
+		return httpPlan{}, Refused{"port " + strconv.Itoa(tg.port) + " not allowed"}, true
 	}
+	uri, r, refused := p.requestURI(tg)
+	if refused {
+		return httpPlan{}, r, true
+	}
+	addrs, r, refused := p.dialAddrs(tg, host, lit, isIP)
+	if refused {
+		return httpPlan{}, r, true
+	}
+	return httpPlan{host: host, uri: uri, addrs: addrs}, Refused{}, false
+}
+
+// shapeRefusal refuses a scheme other than http or https, a malformed host or port, and an
+// origin check that names an address.
+func shapeRefusal(tg target, isIP bool) (Refused, bool) {
+	switch {
+	case tg.scheme != "http" && tg.scheme != "https":
+		return Refused{"scheme " + strconv.Quote(tg.scheme) + " is not http or https"}, true
+	case tg.host == "" || tg.port < 1 || tg.port > 65535 || (!isIP && strings.ContainsAny(tg.host, "@/?#: \\[]%")):
+		return Refused{"malformed host or port"}, true
+	case tg.origin && isIP:
+		return Refused{"an origin check names a hostname, not an address"}, true
+	}
+	return Refused{}, false
+}
+
+// webScopeRefusal refuses a web target that is out of scope or excluded, reporting an excluded
+// address. host is the normalised hostname, or the address's string when isIP.
+func (p *Policy) webScopeRefusal(host string, lit netip.Addr, isIP bool) (Refused, bool) {
+	if !isIP {
+		switch c := p.Scope.ClassifyHost(host); c.Class {
+		case scope.Excluded:
+			return Refused{"host is excluded: " + c.Reason}, true
+		case scope.Candidate:
+			return Refused{"host is not in scope"}, true
+		}
+		return Refused{}, false
+	}
+	// An address is a web target iff it is in an in-scope netblock and not
+	// excluded; a hostname that resolves there is probed by name instead.
+	if !p.Scope.InScopeIP(lit) {
+		return Refused{"address is not in scope"}, true
+	}
+	if ex, why := p.Scope.ExcludedFor(lit, p.isShared(lit)); ex {
+		p.reportExcluded(lit.String(), why)
+		return Refused{"address is excluded: " + why}, true
+	}
+	return Refused{}, false
+}
+
+// requestURI is the URI to request: the target's own, or the configured sensitive path it
+// names. It must start with "/".
+func (p *Policy) requestURI(tg target) (string, Refused, bool) {
 	uri := tg.requestURI
 	if tg.sensitive != 0 {
 		i := tg.sensitive - 1
 		if i < 0 || i >= len(p.SensitivePaths) {
-			return Refused{"sensitive path index out of range"}, nil
+			return "", Refused{"sensitive path index out of range"}, true
 		}
 		uri = p.SensitivePaths[i]
 	}
 	if !strings.HasPrefix(uri, "/") {
-		return Refused{"request path " + strconv.Quote(uri) + " does not start with /"}, nil
+		return "", Refused{"request path " + strconv.Quote(uri) + " does not start with /"}, true
 	}
+	return uri, Refused{}, false
+}
+
+// dialAddrs are the addresses a request may dial: the literal address, the origin check's
+// candidate address, or the host's vetted addresses, narrowed to the pinned address if any.
+func (p *Policy) dialAddrs(tg target, host string, lit netip.Addr, isIP bool) ([]netip.Addr, Refused, bool) {
 	addrs := []netip.Addr{lit}
 	switch {
 	case tg.origin:
 		// The address is a candidate origin, so it is not one of the host's. It must be one that
 		// may be port-checked: not excluded, and in an in-scope netblock or dedicated and known.
 		if !tg.pin.IsValid() {
-			return Refused{"no address"}, nil
+			return nil, Refused{"no address"}, true
 		}
 		if r, refused := p.portIneligible(tg.pin); refused {
-			return r, nil
+			return nil, r, true
 		}
 		addrs = []netip.Addr{tg.pin}
 	case !isIP:
 		addrs = p.vetted(host)
 	}
 	if len(addrs) == 0 {
-		return Refused{"no permitted address for " + host}, nil
+		return nil, Refused{"no permitted address for " + host}, true
 	}
 	if tg.pin.IsValid() {
 		if !slices.Contains(addrs, tg.pin) {
-			return Refused{"address " + tg.pin.String() + " is not a permitted address of " + host}, nil
+			return nil, Refused{"address " + tg.pin.String() + " is not a permitted address of " + host}, true
 		}
 		addrs = []netip.Addr{tg.pin}
 	}
+	return addrs, Refused{}, false
+}
 
+// fetch sends a planned request, without following redirects, and reads the response body up to
+// the target's cap.
+func (e *Egress) fetch(ctx context.Context, method string, tg target, pl httpPlan) (HTTPResult, error) {
 	// HTTPTimeout runs from when the rate limiter lets the first dial through,
 	// so waiting for a token never makes a service look unresponsive.
 	parent := ctx
@@ -380,7 +440,7 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		return time.AfterFunc(e.opts.HTTPTimeout, func() { cancel(errHTTPTimeout) })
 	})
 	defer func() { deadline().Stop() }()
-	reqURL := (&url.URL{Scheme: tg.scheme, Host: HostPort(tg.scheme, host, strconv.Itoa(tg.port))}).String() + uri
+	reqURL := (&url.URL{Scheme: tg.scheme, Host: HostPort(tg.scheme, pl.host, strconv.Itoa(tg.port))}).String() + pl.uri
 	hreq, err := http.NewRequestWithContext(ctx, method, reqURL, nil)
 	if err != nil {
 		return Refused{"bad request: " + err.Error()}, nil
@@ -391,48 +451,19 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 		Proxy:              nil,
 		DisableKeepAlives:  true,
 		DisableCompression: true,
-		TLSClientConfig:    targetTLSConfig(host),
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var last error
-			for _, a := range addrs {
-				if err := e.hostLimiter(a).Wait(ctx); err != nil {
-					return nil, err
-				}
-				deadline()
-				d := net.Dialer{Timeout: e.opts.ConnectTimeout}
-				c, err := d.DialContext(ctx, "tcp", e.dialAddr(a, tg.port))
-				if err == nil {
-					return c, nil
-				}
-				last = localRoute(err, a, e.routeLookup())
-			}
-			return nil, last
-		},
+		TLSClientConfig:    targetTLSConfig(pl.host),
+		DialContext:        e.dialFirst(pl.addrs, tg.port, deadline),
 	}
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(hreq)
 	if err != nil {
-		switch perr := parent.Err(); {
-		case perr != nil && !errors.Is(perr, context.DeadlineExceeded):
-			return nil, perr
-		case context.Cause(ctx) == errHTTPTimeout:
-			return NoService{NoServiceTimeout}, nil
-		case localFailure(err):
-			return nil, err
-		}
-		return NoService{classify(err)}, nil
+		return requestFailure(parent, ctx, err)
 	}
 	defer resp.Body.Close()
 	body, truncated, err := readCapped(resp.Body, tg.bodyCap())
 	if err != nil { // a body that fails mid-read is not a result; retry it next run
-		if perr := parent.Err(); perr != nil {
-			return nil, perr
-		}
-		if context.Cause(ctx) == errHTTPTimeout {
-			err = errHTTPTimeout
-		}
-		return nil, fmt.Errorf("reading response body from %s: %w", host, err)
+		return nil, bodyFailure(parent, ctx, pl.host, err)
 	}
 	if method == http.MethodHead {
 		body, truncated = nil, false
@@ -440,13 +471,60 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 	out := Response{
 		Status: resp.StatusCode, Header: resp.Header, Body: body, Truncated: truncated,
 		Location: resp.Header.Get("Location"),
-		origin:   &origin{scheme: tg.scheme, host: host, port: tg.port, uri: uri, maxBody: tg.maxBody},
+		origin:   &origin{scheme: tg.scheme, host: pl.host, port: tg.port, uri: pl.uri, maxBody: tg.maxBody},
 	}
 	if resp.TLS != nil {
 		out.PeerCerts, out.tlsAt = resp.TLS.PeerCertificates, e.opts.Now()
 		out.TLSVersion, out.TLSCipher = tls.VersionName(resp.TLS.Version), tls.CipherSuiteName(resp.TLS.CipherSuite)
 	}
 	return out, nil
+}
+
+// dialFirst is a DialContext that tries addrs in order on port, each after its host's rate
+// limiter, and returns the first connection. The first dial starts the HTTP deadline.
+func (e *Egress) dialFirst(addrs []netip.Addr, port int, deadline func() *time.Timer) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var last error
+		for _, a := range addrs {
+			if err := e.hostLimiter(a).Wait(ctx); err != nil {
+				return nil, err
+			}
+			deadline()
+			d := net.Dialer{Timeout: e.opts.ConnectTimeout}
+			c, err := d.DialContext(ctx, "tcp", e.dialAddr(a, port))
+			if err == nil {
+				return c, nil
+			}
+			last = localRoute(err, a, e.routeLookup())
+		}
+		return nil, last
+	}
+}
+
+// requestFailure classifies a request that got no response. Cancelling the run, and a failure
+// on this side, are errors; anything else means no service answered.
+func requestFailure(parent, ctx context.Context, err error) (HTTPResult, error) {
+	switch perr := parent.Err(); {
+	case perr != nil && !errors.Is(perr, context.DeadlineExceeded):
+		return nil, perr
+	case context.Cause(ctx) == errHTTPTimeout:
+		return NoService{NoServiceTimeout}, nil
+	case localFailure(err):
+		return nil, err
+	}
+	return NoService{classify(err)}, nil
+}
+
+// bodyFailure is the error for a response body that failed mid-read: the run's own error if it
+// was cancelled, otherwise the read error (errHTTPTimeout if the deadline cut it) naming host.
+func bodyFailure(parent, ctx context.Context, host string, err error) error {
+	if perr := parent.Err(); perr != nil {
+		return perr
+	}
+	if context.Cause(ctx) == errHTTPTimeout {
+		err = errHTTPTimeout
+	}
+	return fmt.Errorf("reading response body from %s: %w", host, err)
 }
 
 // readCapped reads r up to n bytes. It reads one byte past the cap, to tell a

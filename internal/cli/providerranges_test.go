@@ -164,8 +164,6 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 
 // A list that cannot be read is a failed check named in a --debug line;
 // the ranges fetched before still apply and nothing is reported as a finding.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -198,31 +196,46 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 			if f.msg != "1 checks failed: providerranges 1" || !f.transient {
 				t.Errorf("error = %+v, want one failed providerranges check, transient", f)
 			}
-			done := w.h.completed(eng, "providerranges")
-			if want := allRangeChecksBut("digitalocean"); !slices.Equal(done, want) {
-				t.Errorf("completed = %v, want every list but digitalocean", done)
-			}
-			if !slices.ContainsFunc(w.h.debugLines(), func(m string) bool {
-				return strings.Contains(m, "providerranges") && strings.Contains(m, "digitalocean")
-			}) {
-				t.Errorf("no --debug line names digitalocean: %q", w.h.debugLines())
-			}
-			if s := lastState(w.h.events(), "providerranges"); s.num("failed") != 1 {
-				t.Errorf("state = %v, want one failed check", s)
-			}
-			after := find(w.table(eng, "ips.csv"), "ip", "100.67.0.9")
-			if after == nil || after["provider"] != "digitalocean" || after["service"] != before["service"] || after["port_eligible"] != "true" {
-				t.Errorf("the earlier ranges must still apply: %v, was %v", after, before)
-			}
-			for _, f := range []string{"risk-takeover.csv", "risk-storage.csv", "risk-sensitive-paths.csv", "risk-email.csv", "risk-ports.csv", "risk-certificates.csv"} {
-				if w.file(eng, f) != "" {
-					t.Errorf("%s was written after a list failed", f)
-				}
-			}
-			for _, f := range w.h.envelope().Data.Findings {
-				t.Errorf("a missing list produced a finding: %+v", f)
-			}
+			checkFailedRangeList(t, w)
+			checkEarlierRangesApply(t, w, before)
 		})
+	}
+}
+
+// checkFailedRangeList checks that every list but DigitalOcean's completed, and
+// that its failure is a failed check named in a --debug line.
+func checkFailedRangeList(t *testing.T, w *world) {
+	t.Helper()
+	done := w.h.completed(eng, "providerranges")
+	if want := allRangeChecksBut("digitalocean"); !slices.Equal(done, want) {
+		t.Errorf("completed = %v, want every list but digitalocean", done)
+	}
+	if !slices.ContainsFunc(w.h.debugLines(), func(m string) bool {
+		return strings.Contains(m, "providerranges") && strings.Contains(m, "digitalocean")
+	}) {
+		t.Errorf("no --debug line names digitalocean: %q", w.h.debugLines())
+	}
+	if s := lastState(w.h.events(), "providerranges"); s.num("failed") != 1 {
+		t.Errorf("state = %v, want one failed check", s)
+	}
+}
+
+// checkEarlierRangesApply checks that the DigitalOcean address keeps the
+// placement it had before the list failed, and that nothing is reported as a
+// finding.
+func checkEarlierRangesApply(t *testing.T, w *world, before map[string]string) {
+	t.Helper()
+	after := find(w.table(eng, "ips.csv"), "ip", "100.67.0.9")
+	if after == nil || after["provider"] != "digitalocean" || after["service"] != before["service"] || after["port_eligible"] != "true" {
+		t.Errorf("the earlier ranges must still apply: %v, was %v", after, before)
+	}
+	for _, f := range []string{"risk-takeover.csv", "risk-storage.csv", "risk-sensitive-paths.csv", "risk-email.csv", "risk-ports.csv", "risk-certificates.csv"} {
+		if w.file(eng, f) != "" {
+			t.Errorf("%s was written after a list failed", f)
+		}
+	}
+	for _, f := range w.h.envelope().Data.Findings {
+		t.Errorf("a missing list produced a finding: %+v", f)
 	}
 }
 

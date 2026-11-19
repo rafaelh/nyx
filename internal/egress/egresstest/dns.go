@@ -300,23 +300,46 @@ func rrHeader(name string, t uint16) mdns.RR_Header {
 }
 
 // answer fills m. The caller holds d.mu.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16) {
-	if rc, ok := d.rcodes[name]; ok {
+	if rc, ok := d.forcedRcode(name, qtype); ok {
 		m.Rcode = rc
 		return
 	}
-	if rc, ok := d.typeRC[name+"|"+mdns.TypeToString[qtype]]; ok {
-		m.Rcode = rc
+	cur := d.followCNAMEs(m, name)
+	known := d.known(cur)
+	var wild *wildcard
+	if !known {
+		if w, ok := d.wildTarget(cur); ok && w.cname == "" {
+			wild, known = &w, true
+		}
+	}
+	if !known {
+		m.Rcode = mdns.RcodeNameError // no such name, or a dangling chain
 		return
+	}
+	m.Answer = append(m.Answer, d.records(cur, qtype, wild)...)
+}
+
+// forcedRcode is the rcode set for name, for name and qtype, or for a suffix name is under,
+// checked in that order.
+func (d *DNS) forcedRcode(name string, qtype uint16) (int, bool) {
+	if rc, ok := d.rcodes[name]; ok {
+		return rc, true
+	}
+	if rc, ok := d.typeRC[name+"|"+mdns.TypeToString[qtype]]; ok {
+		return rc, true
 	}
 	for suf, rc := range d.sufRcode {
 		if dnsname.Under(name, suf) {
-			m.Rcode = rc
-			return
+			return rc, true
 		}
 	}
+	return 0, false
+}
+
+// followCNAMEs appends the CNAME chain from name (explicit or from a wildcard), at most 8 hops,
+// to m and returns the name the chain ends at.
+func (d *DNS) followCNAMEs(m *mdns.Msg, name string) string {
 	cur := name
 	for hop := 0; hop < 8; hop++ {
 		target, ok := d.cnames[cur]
@@ -331,69 +354,72 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16) {
 		m.Answer = append(m.Answer, &mdns.CNAME{Hdr: rrHeader(cur, mdns.TypeCNAME), Target: mdns.Fqdn(target)})
 		cur = target
 	}
-	known := d.known(cur)
-	var wild *wildcard
-	if !known {
-		if w, ok := d.wildTarget(cur); ok && w.cname == "" {
-			wild, known = &w, true
-		}
-	}
-	if !known {
-		m.Rcode = mdns.RcodeNameError // no such name, or a dangling chain
-		return
-	}
+	return cur
+}
+
+// records are the qtype records of the known name cur. A non-nil wild gives its addresses.
+func (d *DNS) records(cur string, qtype uint16, wild *wildcard) []mdns.RR {
 	h := rrHeader(cur, qtype)
+	var rrs []mdns.RR
 	switch qtype {
 	case mdns.TypeA, mdns.TypeAAAA:
 		addrs := d.addrs[cur]
 		if wild != nil {
 			addrs = wild.addrs
 		}
-		for _, a := range addrs {
-			if a.Is4() && qtype == mdns.TypeA {
-				m.Answer = append(m.Answer, &mdns.A{Hdr: h, A: net.IP(a.AsSlice())})
-			} else if a.Is6() && qtype == mdns.TypeAAAA {
-				m.Answer = append(m.Answer, &mdns.AAAA{Hdr: h, AAAA: net.IP(a.AsSlice())})
-			}
-		}
+		rrs = addrRecords(h, qtype, addrs)
 	case mdns.TypePTR:
 		for _, p := range d.ptr[cur] {
-			m.Answer = append(m.Answer, &mdns.PTR{Hdr: h, Ptr: mdns.Fqdn(p)})
+			rrs = append(rrs, &mdns.PTR{Hdr: h, Ptr: mdns.Fqdn(p)})
 		}
 	case mdns.TypeTXT:
 		for _, t := range d.txt[cur] {
-			m.Answer = append(m.Answer, &mdns.TXT{Hdr: h, Txt: []string{t}})
+			rrs = append(rrs, &mdns.TXT{Hdr: h, Txt: []string{t}})
 		}
 	case mdns.TypeMX:
 		for _, x := range d.mx[cur] {
-			host := x.host
-			if host != "." {
-				host = mdns.Fqdn(host)
-			}
-			m.Answer = append(m.Answer, &mdns.MX{Hdr: h, Preference: x.pref, Mx: host})
+			rrs = append(rrs, &mdns.MX{Hdr: h, Preference: x.pref, Mx: rootOrFqdn(x.host)})
 		}
 	case mdns.TypeNS:
 		for _, n := range d.ns[cur] {
-			m.Answer = append(m.Answer, &mdns.NS{Hdr: h, Ns: mdns.Fqdn(n)})
+			rrs = append(rrs, &mdns.NS{Hdr: h, Ns: mdns.Fqdn(n)})
 		}
 	case mdns.TypeSOA:
 		if s, ok := d.soa[cur]; ok {
-			m.Answer = append(m.Answer, &mdns.SOA{Hdr: h, Ns: mdns.Fqdn(s.mname), Mbox: mdns.Fqdn(s.rname),
+			rrs = append(rrs, &mdns.SOA{Hdr: h, Ns: mdns.Fqdn(s.mname), Mbox: mdns.Fqdn(s.rname),
 				Serial: 1, Refresh: 7200, Retry: 3600, Expire: 1209600, Minttl: 300})
 		}
 	case mdns.TypeCAA:
 		for _, c := range d.caa[cur] {
-			m.Answer = append(m.Answer, &mdns.CAA{Hdr: h, Flag: c.flags, Tag: c.tag, Value: c.value})
+			rrs = append(rrs, &mdns.CAA{Hdr: h, Flag: c.flags, Tag: c.tag, Value: c.value})
 		}
 	case mdns.TypeSRV:
 		for _, v := range d.srv[cur] {
-			target := v.target
-			if target != "." {
-				target = mdns.Fqdn(target)
-			}
-			m.Answer = append(m.Answer, &mdns.SRV{Hdr: h, Priority: v.priority, Weight: v.weight, Port: v.port, Target: target})
+			rrs = append(rrs, &mdns.SRV{Hdr: h, Priority: v.priority, Weight: v.weight, Port: v.port, Target: rootOrFqdn(v.target)})
 		}
 	}
+	return rrs
+}
+
+// addrRecords are the A (or AAAA) records for the IPv4 (or IPv6) addresses among addrs.
+func addrRecords(h mdns.RR_Header, qtype uint16, addrs []netip.Addr) []mdns.RR {
+	var rrs []mdns.RR
+	for _, a := range addrs {
+		if a.Is4() && qtype == mdns.TypeA {
+			rrs = append(rrs, &mdns.A{Hdr: h, A: net.IP(a.AsSlice())})
+		} else if a.Is6() && qtype == mdns.TypeAAAA {
+			rrs = append(rrs, &mdns.AAAA{Hdr: h, AAAA: net.IP(a.AsSlice())})
+		}
+	}
+	return rrs
+}
+
+// rootOrFqdn is host as a fully qualified name, leaving the root "." (a null MX or SRV target) alone.
+func rootOrFqdn(host string) string {
+	if host == "." {
+		return host
+	}
+	return mdns.Fqdn(host)
 }
 
 func (d *DNS) wildTarget(name string) (wildcard, bool) {

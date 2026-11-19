@@ -100,8 +100,6 @@ var sensitiveFields = map[string]bool{"path": true, "signature": true, "magic": 
 // status, severity}. A plain string, an entry with neither signature nor magic
 // and an unknown field are errors. Each path is appended to a service's origin,
 // so it must be an absolute path.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func parseSensitivePaths(b []byte) ([]SensitivePath, error) {
 	var nodes []yaml.Node
 	if err := yaml.Unmarshal(b, &nodes); err != nil {
@@ -109,57 +107,76 @@ func parseSensitivePaths(b []byte) ([]SensitivePath, error) {
 	}
 	var out []SensitivePath
 	for i, n := range nodes {
-		if n.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("entry %d (%q) is not a mapping: each entry needs a path and a signature or magic", i+1, strings.TrimSpace(n.Value))
-		}
-		for j := 0; j+1 < len(n.Content); j += 2 {
-			if k := n.Content[j].Value; !sensitiveFields[k] {
-				return nil, fmt.Errorf("entry %d: unknown field %q", i+1, k)
-			}
-		}
-		var raw struct {
-			Path      string `yaml:"path"`
-			Signature string `yaml:"signature"`
-			Magic     *string
-			Status    int    `yaml:"status"`
-			Severity  string `yaml:"severity"`
-		}
-		if err := n.Decode(&raw); err != nil {
-			return nil, fmt.Errorf("entry %d: %w", i+1, err)
-		}
-		p := SensitivePath{Path: raw.Path, Signature: raw.Signature, Status: raw.Status, Severity: raw.Severity}
-		if _, err := url.ParseRequestURI(p.Path); err != nil || !strings.HasPrefix(p.Path, "/") {
-			return nil, fmt.Errorf("entry %q is not a path starting with /", p.Path)
-		}
-		if p.Status == 0 {
-			p.Status = 200
-		}
-		if p.Status < 100 || p.Status > 599 {
-			return nil, fmt.Errorf("entry %q: status %d is not an HTTP status", p.Path, p.Status)
-		}
-		switch p.Severity {
-		case "":
-			p.Severity = "medium"
-		case "high", "medium", "low":
-		default:
-			return nil, fmt.Errorf("entry %q: severity %q is not high, medium or low", p.Path, p.Severity)
-		}
-		if p.Signature != "" {
-			if _, err := regexp.Compile(p.Signature); err != nil {
-				return nil, fmt.Errorf("entry %q: signature %q: %w", p.Path, p.Signature, err)
-			}
-		}
-		if raw.Magic != nil {
-			m, err := hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(*raw.Magic), " ", ""))
-			if err != nil || len(m) == 0 {
-				return nil, fmt.Errorf("entry %q: magic %q is not a hex byte prefix", p.Path, *raw.Magic)
-			}
-			p.Magic = m
-		}
-		if p.Signature == "" && len(p.Magic) == 0 {
-			return nil, fmt.Errorf("entry %q has neither a signature nor magic; every entry needs one so a catch-all 200 is not flagged", p.Path)
+		p, err := decodeSensitivePath(i+1, n)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// rawSensitivePath is one entry of a sensitive-path list as written.
+type rawSensitivePath struct {
+	Path      string `yaml:"path"`
+	Signature string `yaml:"signature"`
+	Magic     *string
+	Status    int    `yaml:"status"`
+	Severity  string `yaml:"severity"`
+}
+
+// decodeSensitivePath decodes entry number num of a sensitive-path list, which must be a mapping
+// of known fields, and checks it.
+func decodeSensitivePath(num int, n yaml.Node) (SensitivePath, error) {
+	if n.Kind != yaml.MappingNode {
+		return SensitivePath{}, fmt.Errorf("entry %d (%q) is not a mapping: each entry needs a path and a signature or magic", num, strings.TrimSpace(n.Value))
+	}
+	for j := 0; j+1 < len(n.Content); j += 2 {
+		if k := n.Content[j].Value; !sensitiveFields[k] {
+			return SensitivePath{}, fmt.Errorf("entry %d: unknown field %q", num, k)
+		}
+	}
+	var raw rawSensitivePath
+	if err := n.Decode(&raw); err != nil {
+		return SensitivePath{}, fmt.Errorf("entry %d: %w", num, err)
+	}
+	return raw.check()
+}
+
+// check validates an entry and fills in its defaults: status 200 and severity medium. The path
+// must be absolute, the signature a valid RE2 and the magic hex, and one of the two is needed.
+func (raw rawSensitivePath) check() (SensitivePath, error) {
+	p := SensitivePath{Path: raw.Path, Signature: raw.Signature, Status: raw.Status, Severity: raw.Severity}
+	if _, err := url.ParseRequestURI(p.Path); err != nil || !strings.HasPrefix(p.Path, "/") {
+		return SensitivePath{}, fmt.Errorf("entry %q is not a path starting with /", p.Path)
+	}
+	if p.Status == 0 {
+		p.Status = 200
+	}
+	if p.Status < 100 || p.Status > 599 {
+		return SensitivePath{}, fmt.Errorf("entry %q: status %d is not an HTTP status", p.Path, p.Status)
+	}
+	switch p.Severity {
+	case "":
+		p.Severity = "medium"
+	case "high", "medium", "low":
+	default:
+		return SensitivePath{}, fmt.Errorf("entry %q: severity %q is not high, medium or low", p.Path, p.Severity)
+	}
+	if p.Signature != "" {
+		if _, err := regexp.Compile(p.Signature); err != nil {
+			return SensitivePath{}, fmt.Errorf("entry %q: signature %q: %w", p.Path, p.Signature, err)
+		}
+	}
+	if raw.Magic != nil {
+		m, err := hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(*raw.Magic), " ", ""))
+		if err != nil || len(m) == 0 {
+			return SensitivePath{}, fmt.Errorf("entry %q: magic %q is not a hex byte prefix", p.Path, *raw.Magic)
+		}
+		p.Magic = m
+	}
+	if p.Signature == "" && len(p.Magic) == 0 {
+		return SensitivePath{}, fmt.Errorf("entry %q has neither a signature nor magic; every entry needs one so a catch-all 200 is not flagged", p.Path)
+	}
+	return p, nil
 }

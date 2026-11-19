@@ -54,81 +54,111 @@ var (
 
 // Checks yields the checks of this pass; a later pass picks up what these
 // found (an existing Azure account's containers, a listed bucket's first key).
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Storage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		emit := func(key string, in storageInput) bool { return yield(run.Check{Key: key, Input: in}, nil) }
-		bucket := func(provider, name string) bool {
-			if !safeName.MatchString(name) {
-				return true
-			}
-			if provider == cloudstorage.Azure {
-				return emit(cloudstorage.AccountKey(name), storageInput{kind: "account", provider: provider, name: name})
-			}
-			return emit(cloudstorage.Key(provider, name, ""), storageInput{kind: "bucket", provider: provider, name: name})
-		}
-
 		refs := v.StorageRefs()
-		for _, r := range refs {
-			if !bucket(r.Provider, r.Name) {
-				return
-			}
+		if !bucketChecks(v, refs, emit) || !containerChecks(v, refs, emit) {
+			return
 		}
-		in := v.Inputs()
-		for _, g := range cloudstorage.InputGuesses(in.Roots, in.Orgs, v.Settings().Storage.MaxNames) {
-			if !bucket(g.Provider, g.Name) {
-				return
-			}
-		}
+		objectChecks(v, refs, emit)
+	}
+}
 
-		// Containers of Azure accounts known to exist: the fixed list, and every one a reference names.
-		var accounts []string
-		for _, rec := range v.Records(kinds.StorageAccount) {
-			if e := kinds.StorageAccount.Attrs(rec).Exists; e != nil && *e {
-				accounts = append(accounts, rec.Key)
-			}
-		}
-		for _, acct := range accounts {
-			containers := slices.Clone(cloudstorage.AzureContainers)
-			for _, r := range refs {
-				if r.Provider == cloudstorage.Azure && r.Name == acct && r.Container != "" && !slices.Contains(containers, r.Container) {
-					containers = append(containers, r.Container)
-				}
-			}
-			for _, c := range containers {
-				if safeContainer.MatchString(c) && !emit(cloudstorage.Key(cloudstorage.Azure, acct, c), storageInput{kind: "container", provider: cloudstorage.Azure, name: acct, container: c}) {
-					return
-				}
-			}
-		}
+// storageEmit yields one check, reporting whether to go on.
+type storageEmit func(key string, in storageInput) bool
 
-		// One HEAD for the first listed key and for every referenced object of a bucket that exists.
-		existing := map[string]storageInput{} // object inputs without the object
-		objs := map[string]storageInput{}
-		for _, rec := range v.Records(kinds.Storage) {
-			a := kinds.Storage.Attrs(rec)
-			if a.Exists == nil || !*a.Exists {
-				continue
-			}
-			b := storageInput{kind: "object", provider: a.Provider, name: a.Name, container: a.Container, region: a.Region}
-			existing[rec.Key] = b
-			if len(a.FirstKeys) > 0 && a.FirstKeys[0] != "" {
-				b.object = a.FirstKeys[0]
-				objs[rec.Key+"/"+b.object] = b
+// bucketChecks yields a check for each bucket or Azure account a reference
+// names, then for each guessed from the roots and organisations. It reports
+// whether to go on.
+func bucketChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) bool {
+	bucket := func(provider, name string) bool {
+		if !safeName.MatchString(name) {
+			return true
+		}
+		if provider == cloudstorage.Azure {
+			return emit(cloudstorage.AccountKey(name), storageInput{kind: "account", provider: provider, name: name})
+		}
+		return emit(cloudstorage.Key(provider, name, ""), storageInput{kind: "bucket", provider: provider, name: name})
+	}
+	for _, r := range refs {
+		if !bucket(r.Provider, r.Name) {
+			return false
+		}
+	}
+	in := v.Inputs()
+	for _, g := range cloudstorage.InputGuesses(in.Roots, in.Orgs, v.Settings().Storage.MaxNames) {
+		if !bucket(g.Provider, g.Name) {
+			return false
+		}
+	}
+	return true
+}
+
+// containerChecks yields a check for each container of each Azure account
+// known to exist: the fixed list, and every one a reference names. It reports
+// whether to go on.
+func containerChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) bool {
+	for _, acct := range existingAccounts(v) {
+		for _, c := range accountContainers(acct, refs) {
+			if safeContainer.MatchString(c) && !emit(cloudstorage.Key(cloudstorage.Azure, acct, c), storageInput{kind: "container", provider: cloudstorage.Azure, name: acct, container: c}) {
+				return false
 			}
 		}
-		for _, r := range refs {
-			key := cloudstorage.Key(r.Provider, r.Name, r.Container)
-			if b, ok := existing[key]; ok && r.Object != "" {
-				b.object = r.Object
-				objs[key+"/"+r.Object] = b
-			}
+	}
+	return true
+}
+
+// existingAccounts are the Azure accounts known to exist.
+func existingAccounts(v run.View) []string {
+	var accounts []string
+	for _, rec := range v.Records(kinds.StorageAccount) {
+		if e := kinds.StorageAccount.Attrs(rec).Exists; e != nil && *e {
+			accounts = append(accounts, rec.Key)
 		}
-		for _, key := range slices.Sorted(maps.Keys(objs)) {
-			if !emit(strings.Replace(key, "|", "-obj|", 1), objs[key]) {
-				return
-			}
+	}
+	return accounts
+}
+
+// accountContainers are the fixed container names, then every other one a
+// reference to the account names.
+func accountContainers(acct string, refs []cloudstorage.Reference) []string {
+	containers := slices.Clone(cloudstorage.AzureContainers)
+	for _, r := range refs {
+		if r.Provider == cloudstorage.Azure && r.Name == acct && r.Container != "" && !slices.Contains(containers, r.Container) {
+			containers = append(containers, r.Container)
+		}
+	}
+	return containers
+}
+
+// objectChecks yields one HEAD for the first listed key and for every
+// referenced object of a bucket that exists, in key order.
+func objectChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) {
+	existing := map[string]storageInput{} // object inputs without the object
+	objs := map[string]storageInput{}
+	for _, rec := range v.Records(kinds.Storage) {
+		a := kinds.Storage.Attrs(rec)
+		if a.Exists == nil || !*a.Exists {
+			continue
+		}
+		b := storageInput{kind: "object", provider: a.Provider, name: a.Name, container: a.Container, region: a.Region}
+		existing[rec.Key] = b
+		if len(a.FirstKeys) > 0 && a.FirstKeys[0] != "" {
+			b.object = a.FirstKeys[0]
+			objs[rec.Key+"/"+b.object] = b
+		}
+	}
+	for _, r := range refs {
+		key := cloudstorage.Key(r.Provider, r.Name, r.Container)
+		if b, ok := existing[key]; ok && r.Object != "" {
+			b.object = r.Object
+			objs[key+"/"+r.Object] = b
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(objs)) {
+		if !emit(strings.Replace(key, "|", "-obj|", 1), objs[key]) {
+			return
 		}
 	}
 }

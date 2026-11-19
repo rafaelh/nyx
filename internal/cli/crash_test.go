@@ -90,6 +90,8 @@ type childOpts struct {
 	hosts     bool // each check finds a hostname in scope of a.com
 }
 
+// startChild starts the test binary as nyx in a child process. Only the
+// subtests of TestChildProcesses call it.
 func startChild(t *testing.T, out string, o childOpts) *child {
 	t.Helper()
 	c := &child{t: t, log: filepath.Join(t.TempDir(), "log"), out: out, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
@@ -256,9 +258,38 @@ func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 	assertOutputsIntact(t, out)
 }
 
+// TestChildProcesses runs the tests that start nyx in a child process, in
+// parallel with each other but with nothing else.
+//
+// It is not parallel itself. Between fork and exec a child holds a copy of
+// every open descriptor, including the engagement lock of any in-process run,
+// so an in-process run that closes its engagement and reopens it could find the
+// flock still held and fail with LOCKED. Go starts the parallel top-level tests
+// only once every other top-level test has finished, so no child is forked
+// while they run.
+func TestChildProcesses(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		test func(*testing.T)
+	}{
+		{"CrashRenderMidFile", testCrashRenderMidFile},
+		{"CrashPoints", testCrashPoints},
+		{"CrashDuringRedo", testCrashDuringRedo},
+		{"Signals", testSignals},
+		{"Signals_SecondExitsAtOnce", testSignalsSecondExitsAtOnce},
+		{"StdinIsNotRead", testStdinIsNotRead},
+		{"Signals_InterruptedRunWritesChanges", testSignalsInterruptedRunWritesChanges},
+		{"TimeoutInAChildProcess", testTimeoutInAChildProcess},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.test(t)
+		})
+	}
+}
+
 // A kill -9 while an output file is mid-write.
-func TestCrashRenderMidFile(t *testing.T) {
-	t.Parallel()
+func testCrashRenderMidFile(t *testing.T) {
 	out := t.TempDir()
 	c1 := startChild(t, out, childOpts{n: nChecks, args: []string{"a.com"}})
 	if code := c1.wait(); code != 0 {
@@ -290,8 +321,7 @@ func TestCrashRenderMidFile(t *testing.T) {
 }
 
 // A kill -9 at in-check-tx, in-flight and after-commit.
-func TestCrashPoints(t *testing.T) {
-	t.Parallel()
+func testCrashPoints(t *testing.T) {
 	for _, point := range []string{"in-check-tx", "in-flight", "after-commit"} {
 		t.Run(point, func(t *testing.T) {
 			t.Parallel()
@@ -324,8 +354,7 @@ func TestCrashPoints(t *testing.T) {
 }
 
 // A redo interrupted after a commit is finished by the next plain run.
-func TestCrashDuringRedo(t *testing.T) {
-	t.Parallel()
+func testCrashDuringRedo(t *testing.T) {
 	out := t.TempDir()
 	c1 := startChild(t, out, childOpts{n: nChecks, args: []string{"a.com"}})
 	if code := c1.wait(); code != 0 {
@@ -356,8 +385,7 @@ func TestCrashDuringRedo(t *testing.T) {
 // Each signal ends the run with its own exit code and one INTERRUPTED error,
 // with the completed checks saved and the outputs rendered; a re-run finishes
 // the rest. In human mode stdout is empty.
-func TestSignals(t *testing.T) {
-	t.Parallel()
+func testSignals(t *testing.T) {
 	for name, c := range map[string]struct {
 		sig  syscall.Signal
 		code int
@@ -408,8 +436,7 @@ func (c *child) checkInterrupted(jsonMode bool) {
 
 // A second signal exits at once with the first one's code, and the error is
 // still written once.
-func TestSignals_SecondExitsAtOnce(t *testing.T) {
-	t.Parallel()
+func testSignalsSecondExitsAtOnce(t *testing.T) {
 	for name, c := range map[string]struct {
 		first, second syscall.Signal
 		code          int
@@ -439,8 +466,7 @@ func TestSignals_SecondExitsAtOnce(t *testing.T) {
 }
 
 // A run whose stdin is a pipe that never closes still finishes: nothing reads it.
-func TestStdinIsNotRead(t *testing.T) {
-	t.Parallel()
+func testStdinIsNotRead(t *testing.T) {
 	out := t.TempDir()
 	c := startChild(t, out, childOpts{n: 3, args: []string{"a.com"}, openStdin: true, human: true})
 	if code := c.wait(); code != 0 {
@@ -468,8 +494,7 @@ func changedHosts(t *testing.T, out string) []string {
 // An interrupted run writes changes.csv for the work it completed before it
 // exited 130, and the run that resumes it compares against where that run
 // stopped, so the two files together list each new hostname once.
-func TestSignals_InterruptedRunWritesChanges(t *testing.T) {
-	t.Parallel()
+func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"a.com", "--concurrency", "2"}
 	c0 := startChild(t, out, childOpts{n: 3, hosts: true, args: args})
@@ -515,8 +540,7 @@ func TestSignals_InterruptedRunWritesChanges(t *testing.T) {
 
 // A real process given --timeout exits 7 by the deadline plus a wide margin (the suite runs under
 // -race), leaves its files intact and writes the envelope, and the run after it finishes the rest.
-func TestTimeoutInAChildProcess(t *testing.T) {
-	t.Parallel()
+func testTimeoutInAChildProcess(t *testing.T) {
 	out := t.TempDir()
 	start := time.Now()
 	// The checks wait for an hour unless cancelled: the deadline is what ends them.

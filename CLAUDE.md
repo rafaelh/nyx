@@ -141,7 +141,8 @@ when it has rows, and is removed once it has none.
   with `h.setenv`, never `t.Setenv` or `os.Setenv` (Go forbids `t.Setenv` in a parallel test). The
   harness also sets `Deps.NoFsync`, as an fsync on macOS flushes the whole drive cache and
   serialises the suite. A test that changes the working directory (`emptyDir`, `t.Chdir`) cannot
-  be parallel. Give a slow table test's subtests `t.Parallel()` when each builds its own world.
+  be parallel. A test that starts a child process (`startChild`) is a subtest of the
+  non-parallel `TestChildProcesses`, because a fork can briefly hold another test's engagement lock. Give a slow table test's subtests `t.Parallel()` when each builds its own world.
 - `crash_test.go` re-executes the test binary as a child process (`NYX_TEST_CHILD=1`) and uses
   `internal/fault` crash points (`NYX_FAULT=<point>`, such as `in-check-tx`, `after-commit`,
   `in-flight` or `render-mid-file`) to kill the process at known moments and verify resume and atomic output.

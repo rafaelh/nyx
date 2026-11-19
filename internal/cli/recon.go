@@ -107,8 +107,6 @@ const reconFooter = `Configuration:
 // runRecon checks every value and combination, reporting all problems in one
 // usage error before anything is created or contacted, then runs the
 // engagement.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, positional, names []string, o *reconOptions) error {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d
@@ -120,13 +118,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	}
 	probs := inv.problems()
 	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, probs)
-	var timeout time.Duration
-	if cmd.Flags().Changed("timeout") {
-		var err error
-		if timeout, err = time.ParseDuration(o.timeout); err != nil || timeout <= 0 {
-			probs.Add("timeout", o.timeout, fmt.Sprintf("timeout: invalid value %q: not a positive duration", o.timeout), "--timeout 30m")
-		}
-	}
+	timeout := reconTimeout(probs, cmd, o.timeout)
 
 	parsed, perr := input.Parse(input.Raw{
 		Domains: positional, DomainsFile: o.domainsFile, Orgs: o.orgs, ASNs: o.asns, CIDRs: o.cidrs,
@@ -134,24 +126,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	})
 	probs.Merge(perr)
 	noInputs := len(positional) == 0 && o.domainsFile == "" && len(o.orgs)+len(o.asns)+len(o.cidrs) == 0
-	var name string
-	switch {
-	case o.engagement != "":
-		n, err := input.EngagementName(o.engagement)
-		if err != nil {
-			probs.Add("engagement", o.engagement, err.Error(), "")
-			break
-		}
-		name = n
-	case noInputs:
-		probs.Add("", "", "no inputs: give domains, --org, --asn or --cidr, or -e <engagement> to resume one", "")
-	case perr == nil:
-		n, err := input.EngagementName(parsed.First)
-		if err != nil {
-			probs.Add("engagement", parsed.First, err.Error()+"; name the engagement with -e", "")
-		}
-		name = n
-	}
+	name := reconEngagementName(probs, o.engagement, parsed.First, noInputs, perr == nil)
 	// Opening an engagement creates it, so the directory is probed first: one that is not
 	// an engagement is refused, and one that does not exist is refused when there is
 	// nothing to start it with.
@@ -186,30 +161,12 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 			eng.Close() // the error that ended the run is the one reported
 		}
 	}()
-	if err := eng.MergeInputs(parsed); err != nil {
+	if err := prepareEngagement(eng, parsed, name, o); err != nil {
 		return err
-	}
-	stored, err := eng.Inputs()
-	if err != nil {
-		return err
-	}
-	if stored.Empty() {
-		return &clierr.Error{Code: clierr.InvalidInput,
-			Message: fmt.Sprintf("engagement %s has no scope; give domains, --org, --asn or --cidr", name),
-			Hint:    "nyx recon --help", Input: map[string][]string{"engagement": {o.engagement}}}
-	}
-	if o.authorised {
-		if err := eng.SetAck(); err != nil {
-			return err
-		}
 	}
 	inv.setInterruptHint(interruptedRecon)
 
-	base, warnings := newEmitter(d, inv.sh, inv.dp)
-	if d.Events != nil {
-		base = report.Tee(base, d.Events)
-	}
-	em := report.WithRedactor(base, red)
+	em, warnings := reconEmitter(inv, red)
 	eopts := d.Egress.WithSettings(settings, red)
 	if eopts.Now == nil {
 		eopts.Now = d.Clock
@@ -237,11 +194,90 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	// failed checks.
 	engOpen = false
 	closeErr := eng.Close()
+	if err := reconFailure(ctx, inv, runErr, closeErr, deadline); err != nil {
+		return err
+	}
+	return reportRecon(inv, o, red, res, warnings, deadline)
+}
+
+// reconTimeout is --timeout as a duration, or zero when it was not given. A
+// value that is not a positive duration is recorded as a problem.
+func reconTimeout(probs *clierr.Problems, cmd *cobra.Command, value string) time.Duration {
+	if !cmd.Flags().Changed("timeout") {
+		return 0
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		probs.Add("timeout", value, fmt.Sprintf("timeout: invalid value %q: not a positive duration", value), "--timeout 30m")
+	}
+	return timeout
+}
+
+// reconEngagementName is the engagement's directory name: -e when given,
+// otherwise the first input once the inputs parsed. A run with neither -e nor
+// inputs is recorded as a problem.
+func reconEngagementName(probs *clierr.Problems, engagement, first string, noInputs, parsed bool) string {
+	switch {
+	case engagement != "":
+		n, err := input.EngagementName(engagement)
+		if err != nil {
+			probs.Add("engagement", engagement, err.Error(), "")
+			return ""
+		}
+		return n
+	case noInputs:
+		probs.Add("", "", "no inputs: give domains, --org, --asn or --cidr, or -e <engagement> to resume one", "")
+	case parsed:
+		n, err := input.EngagementName(first)
+		if err != nil {
+			probs.Add("engagement", first, err.Error()+"; name the engagement with -e", "")
+		}
+		return n
+	}
+	return ""
+}
+
+// prepareEngagement merges this run's inputs into the engagement, refuses one
+// left with no scope, and records the --authorised acknowledgement.
+func prepareEngagement(eng *engagement.Engagement, parsed input.Parsed, name string, o *reconOptions) error {
+	if err := eng.MergeInputs(parsed); err != nil {
+		return err
+	}
+	stored, err := eng.Inputs()
+	if err != nil {
+		return err
+	}
+	if stored.Empty() {
+		return &clierr.Error{Code: clierr.InvalidInput,
+			Message: fmt.Sprintf("engagement %s has no scope; give domains, --org, --asn or --cidr", name),
+			Hint:    "nyx recon --help", Input: map[string][]string{"engagement": {o.engagement}}}
+	}
+	if o.authorised {
+		return eng.SetAck()
+	}
+	return nil
+}
+
+// reconEmitter is the run's event emitter, teed to Deps.Events when set and
+// redacting API keys, and the warnings it collects for the envelope.
+func reconEmitter(inv *invocation, red *config.Redactor) (report.Emitter, *report.Warnings) {
+	base, warnings := newEmitter(inv.d, inv.sh, inv.dp)
+	if inv.d.Events != nil {
+		base = report.Tee(base, inv.d.Events)
+	}
+	return report.WithRedactor(base, red), warnings
+}
+
+// reconFailure is the error that ends a run before its summary, in order of
+// precedence: a fatal error or signal (the netblock limit as a usage error),
+// a failure to save state, then a signal during the deadline's wrap-up, after
+// which nothing is written. It is nil when the run reached its summary.
+func reconFailure(ctx context.Context, inv *invocation, runErr, closeErr error, deadline bool) error {
 	var nl *run.NetblockLimitError
 	switch {
 	case runErr != nil && !deadline:
 		if errors.As(runErr, &nl) {
-			runErr = &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: invocationHint(inv.args, "--allow-large-netblocks")} // approves the netblocks without repeating a stage
+			return &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: invocationHint(inv.args, "--allow-large-netblocks")} // approves the netblocks without repeating a stage
 		}
 		return runErr
 	case closeErr != nil:
@@ -249,7 +285,13 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	case deadline && ctx.Err() != nil:
 		return context.Cause(ctx) // a signal arrived during the deadline's wrap-up: nothing is written
 	}
+	return nil
+}
 
+// reportRecon writes the run's summary, as the --json envelope or as text, and
+// returns the partial error for a run that ended at its deadline or with failed checks.
+func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run.Result, warnings *report.Warnings, deadline bool) error {
+	d := inv.d
 	env := report.Envelope{Data: res.Summary, Meta: report.Meta{Count: 1, DeadlineExceeded: deadline,
 		ChecksCompleted: res.Completed, ChecksCancelled: sumCounts(res.Cancelled)}}
 	if warnings != nil {

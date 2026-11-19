@@ -97,14 +97,50 @@ func withPrefix(records []string, prefix string) []string {
 // retried next run, and records no third parties); one on a DKIM selector is
 // recorded in dkim_errors, and one on a mail host's own address is ignored. An
 // include that does not exist or has no single SPF record makes the SPF invalid.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(input)
 	root := in.root
 	var attrs kinds.EmailPostureAttrs
 	tp := &thirdParties{root: root, found: map[string]int{}}
 
+	hosts, err := mxHosts(ctx, e, root)
+	if err != nil {
+		return nil, err
+	}
+	attrs.MX = strings.Join(hosts, ";")
+	for _, h := range hosts {
+		tp.add(kinds.MechanismMX, dnsname.Registrable(h), 0)
+	}
+	if err := readSPF(ctx, e, root, tp, &attrs); err != nil {
+		return nil, err
+	}
+	if err := readDMARC(ctx, e, root, tp, &attrs); err != nil {
+		return nil, err
+	}
+
+	l := lookUpConcurrently(ctx, e, in, hosts)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if l.mtaSTS.err != nil {
+		return nil, l.mtaSTS.err
+	}
+	if len(hosts) > 0 {
+		attrs.MTASTS = "absent"
+		if len(withPrefix(l.mtaSTS.recs, "v=STSv1")) == 1 {
+			attrs.MTASTS = "present"
+		}
+	}
+	attrs.DKIMSelectors, attrs.DKIMErrors = l.dkimResults()
+	obs := append([]run.Observation{kinds.EmailPosture.Obs(root, attrs)}, tp.observations()...)
+	for _, addrs := range l.mailAddrs {
+		obs = append(obs, addrs...)
+	}
+	return obs, nil
+}
+
+// mxHosts returns the root's mail hosts, sorted. A timeout or SERVFAIL is an error.
+func mxHosts(ctx context.Context, e egress.Clients, root string) ([]string, error) {
 	mx, err := e.DNS.Query(ctx, root, egress.TypeMX)
 	if err != nil {
 		return nil, err
@@ -122,14 +158,15 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		}
 	}
 	slices.Sort(hosts)
-	attrs.MX = strings.Join(hosts, ";")
-	for _, h := range hosts {
-		tp.add(kinds.MechanismMX, dnsname.Registrable(h), 0)
-	}
+	return hosts, nil
+}
 
+// readSPF reads the root's SPF record into attrs, following its includes and
+// redirects when there is exactly one.
+func readSPF(ctx context.Context, e egress.Clients, root string, tp *thirdParties, attrs *kinds.EmailPostureAttrs) error {
 	rootTXT, err := txt(ctx, e, root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	spfs := withPrefix(rootTXT, "v=spf1")
 	attrs.SPFRecords = len(spfs)
@@ -143,59 +180,78 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 		ev := &spfEval{ctx: ctx, e: e, tp: tp}
 		all := ev.walk(spfs[0], map[string]bool{root: true}, 0)
 		if ev.tempErr != nil {
-			return nil, ev.tempErr
+			return ev.tempErr
 		}
 		attrs.SPFAll, attrs.SPFLookups, attrs.SPFError = all, ev.lookups, ev.err
 	}
+	return nil
+}
 
-	// DMARC: the root's own record, else the organisational domain's.
+// readDMARC reads the DMARC record into attrs: the root's own record, else the
+// organisational domain's.
+func readDMARC(ctx context.Context, e egress.Clients, root string, tp *thirdParties, attrs *kinds.EmailPostureAttrs) error {
 	rec, err := dmarc(ctx, e, "_dmarc."+root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	source, sub := "root", false
 	if org, ok := dnsname.ETLDPlusOne(root); ok && org != root {
 		sub = true
 		if rec == "" {
 			if rec, err = dmarc(ctx, e, "_dmarc."+org); err != nil {
-				return nil, err
+				return err
 			}
 			source = "org"
 		}
 	}
-	if rec != "" {
-		tags := dmarcTags(rec)
-		policy := tags["p"]
-		if sub && source == "org" && tags["sp"] != "" {
-			policy = tags["sp"]
-		}
-		attrs.DMARC, attrs.DMARCPolicy, attrs.DMARCSource = rec, strings.ToLower(policy), source
-		for _, tag := range []string{"rua", "ruf"} {
-			for _, domain := range reportDomains(tags[tag]) {
-				tp.add(kinds.MechanismDMARC, domain, 0)
-			}
+	if rec == "" {
+		return nil
+	}
+	tags := dmarcTags(rec)
+	policy := tags["p"]
+	if sub && source == "org" && tags["sp"] != "" {
+		policy = tags["sp"]
+	}
+	attrs.DMARC, attrs.DMARCPolicy, attrs.DMARCSource = rec, strings.ToLower(policy), source
+	for _, tag := range []string{"rua", "ruf"} {
+		for _, domain := range reportDomains(tags[tag]) {
+			tp.add(kinds.MechanismDMARC, domain, 0)
 		}
 	}
+	return nil
+}
 
-	// The selectors, _mta-sts and the mail hosts' addresses are independent
-	// lookups, so they are asked at once (egress still rate-limits them); the
-	// results keep the selectors' and the hosts' order. The addresses are
-	// best-effort: a failed lookup leaves the host without one, and never fails or
-	// retires the check (a cancelled context is caught below).
+// txtLookup is the result of one TXT lookup.
+type txtLookup struct {
+	recs []string
+	err  error
+}
+
+// concurrentLookups are the results of the lookups Run asks at once, in the
+// selectors' and the mail hosts' order.
+type concurrentLookups struct {
+	sels      []string
+	dkim      []txtLookup
+	mtaSTS    txtLookup
+	mailAddrs [][]run.Observation
+}
+
+// lookUpConcurrently asks the DKIM selectors, _mta-sts and the mail hosts'
+// addresses. They are independent lookups, so they are asked at once (egress
+// still rate-limits them); the results keep the selectors' and the hosts'
+// order. The addresses are best-effort: a failed lookup leaves the host
+// without one, and never fails or retires the check (the caller catches a
+// cancelled context).
+func lookUpConcurrently(ctx context.Context, e egress.Clients, in input, hosts []string) *concurrentLookups {
+	root := in.root
 	mailHosts := slices.Compact(slices.Clone(hosts))
-	mailAddrs := make([][]run.Observation, len(mailHosts))
-	sels := config.DKIMSelectors()
-	type lookup struct {
-		recs []string
-		err  error
-	}
-	res := make([]lookup, len(sels))
-	var mtaSTS lookup
+	l := &concurrentLookups{sels: config.DKIMSelectors(), mailAddrs: make([][]run.Observation, len(mailHosts))}
+	l.dkim = make([]txtLookup, len(l.sels))
 	var wg sync.WaitGroup
-	for i, sel := range sels {
+	for i, sel := range l.sels {
 		wg.Go(func() {
-			defer run.RecoverInto(&res[i].err)
-			res[i].recs, res[i].err = txt(ctx, e, sel+"._domainkey."+root)
+			defer run.RecoverInto(&l.dkim[i].err)
+			l.dkim[i].recs, l.dkim[i].err = txt(ctx, e, sel+"._domainkey."+root)
 		})
 	}
 	// MTA-STS: only a root that receives mail has a policy to publish. Its own
@@ -203,46 +259,35 @@ func (*Email) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	// HTTPS is never fetched.
 	if len(hosts) > 0 {
 		wg.Go(func() {
-			defer run.RecoverInto(&mtaSTS.err)
-			mtaSTS.recs, mtaSTS.err = txt(ctx, e, "_mta-sts."+root)
+			defer run.RecoverInto(&l.mtaSTS.err)
+			l.mtaSTS.recs, l.mtaSTS.err = txt(ctx, e, "_mta-sts."+root)
 		})
 	}
 	for i, h := range mailHosts {
 		wg.Go(func() {
-			var ignored error // the addresses are best-effort, as below
+			var ignored error // the addresses are best-effort, as above
 			defer run.RecoverInto(&ignored)
-			mailAddrs[i], _ = serveraddr.Observations(ctx, e, in.sc, h)
+			l.mailAddrs[i], _ = serveraddr.Observations(ctx, e, in.sc, h)
 		})
 	}
 	wg.Wait()
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	if mtaSTS.err != nil {
-		return nil, mtaSTS.err
-	}
-	if len(hosts) > 0 {
-		attrs.MTASTS = "absent"
-		if len(withPrefix(mtaSTS.recs, "v=STSv1")) == 1 {
-			attrs.MTASTS = "present"
-		}
-	}
-	var found, failed []string
-	for i, sel := range sels {
-		if res[i].err != nil {
-			failed = append(failed, sel)
+	return l
+}
+
+// dkimResults are the selectors with a usable key and those whose lookup
+// failed, each joined with ";".
+func (l *concurrentLookups) dkimResults() (found, failed string) {
+	var ok, bad []string
+	for i, sel := range l.sels {
+		if l.dkim[i].err != nil {
+			bad = append(bad, sel)
 			continue
 		}
-		if slices.ContainsFunc(res[i].recs, isDKIMKey) {
-			found = append(found, sel)
+		if slices.ContainsFunc(l.dkim[i].recs, isDKIMKey) {
+			ok = append(ok, sel)
 		}
 	}
-	attrs.DKIMSelectors, attrs.DKIMErrors = strings.Join(found, ";"), strings.Join(failed, ";")
-	obs := append([]run.Observation{kinds.EmailPosture.Obs(root, attrs)}, tp.observations()...)
-	for _, addrs := range mailAddrs {
-		obs = append(obs, addrs...)
-	}
-	return obs, nil
+	return strings.Join(ok, ";"), strings.Join(bad, ";")
 }
 
 // thirdParties collects the third parties one check found, one per mechanism and

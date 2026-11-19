@@ -471,54 +471,13 @@ type rawSettings struct {
 // cannot be read or holds an unknown key does not stop the other settings being checked. The
 // settings are returned even then, holding what was valid (the keys among it, so they can be
 // masked); a caller must not use them for a run.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	var probs clierr.Problems
 	d := Defaults()
 	v := viper.New()
-	defaults := map[string]any{
-		"ports": FormatPorts(d.Ports), "risky_ports": FormatPorts(d.RiskyPorts),
-		"sensitive_paths": "", "wordlist": "", "concurrency": d.Concurrency,
-		"port_concurrency": d.PortConcurrency,
-		"rate.per_host":    d.Rate.PerHost, "rate.per_source": d.Rate.PerSource, "rate.dns": d.Rate.DNS,
-		"crawl.max_depth": d.Crawl.MaxDepth, "crawl.max_pages": d.Crawl.MaxPages, "archive.max_urls": d.Archive.MaxURLs,
-		"output_dir": d.OutputDir, "netblock_limit": d.NetblockLimit,
-		"storage.max_names": d.Storage.MaxNames, "cert_expiry_days": d.CertExpiryDays,
-		"permutations.enabled": d.Permutations.Enabled, "permutations.max_per_seed": d.Permutations.MaxPerSeed, "permutations.max_names": d.Permutations.MaxNames,
-		"certspotter.max_pages": d.Certspotter.MaxPages, "skip": []string{},
-		"shodan_dns.max_pages": d.ShodanDNS.MaxPages, "censys.max_pages": d.Censys.MaxPages, "chaos.max_pages": d.Chaos.MaxPages,
-		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
-		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
-		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
-		"github.max_results":           d.GitHub.MaxResults,
-		"dnshistory.max_hosts":         d.DNSHistory.MaxHosts, "origincheck.max_candidates": d.OriginCheck.MaxCandidates,
-		"eol_warn_days": d.EOLWarnDays, "nsreverse.max_domains": d.NSReverse.MaxDomains,
-	}
-	for k, val := range defaults {
-		v.SetDefault(k, val)
-	}
-
-	path, explicit := configPath, configPath != ""
-	if !explicit {
-		path = DefaultConfigPath(env)
-	}
-	if _, err := os.Stat(path); explicit || (path != "" && err == nil) {
-		v.SetConfigFile(path)
-		v.SetConfigType("yaml")
-		if err := v.ReadInConfig(); err != nil {
-			probs.Add("config", path, fmt.Sprintf("config file %s: %v", path, errText(err)), "")
-		}
-	}
-	if fs != nil {
-		for _, s := range settingTable {
-			if f := fs.Lookup(s.flag); f != nil {
-				if err := v.BindPFlag(s.key, f); err != nil {
-					probs.Add(s.flag, "", err.Error(), "")
-				}
-			}
-		}
-	}
+	setDefaults(v, d)
+	path := readConfigFile(v, configPath, env, &probs)
+	bindFlags(v, fs, &probs)
 	// Viper ranks its config layer above the file it read and below the flags, which is where the
 	// NYX_* variables go.
 	if err := v.MergeConfigMap(envSettings(v.AllKeys(), env)); err != nil {
@@ -543,76 +502,154 @@ func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	}
 	maps.Copy(s.Keys, envKeys(env))
 
-	bad := func(key, val string, why string) {
-		probs.Add(key, val, fmt.Sprintf("%s: invalid value %q: %s", key, val, why), "")
+	c := settingChecker{probs: &probs}
+	c.ports("ports", raw.Ports, &s.Ports)
+	c.ports("risky_ports", raw.RiskyPorts, &s.RiskyPorts)
+	c.numbers(raw, &s)
+	c.choices(raw, &s, fs)
+	c.files(raw, &s, env.home())
+	return s, probs.Err()
+}
+
+// setDefaults gives v the default of every setting, from d.
+func setDefaults(v *viper.Viper, d Settings) {
+	defaults := map[string]any{
+		"ports": FormatPorts(d.Ports), "risky_ports": FormatPorts(d.RiskyPorts),
+		"sensitive_paths": "", "wordlist": "", "concurrency": d.Concurrency,
+		"port_concurrency": d.PortConcurrency,
+		"rate.per_host":    d.Rate.PerHost, "rate.per_source": d.Rate.PerSource, "rate.dns": d.Rate.DNS,
+		"crawl.max_depth": d.Crawl.MaxDepth, "crawl.max_pages": d.Crawl.MaxPages, "archive.max_urls": d.Archive.MaxURLs,
+		"output_dir": d.OutputDir, "netblock_limit": d.NetblockLimit,
+		"storage.max_names": d.Storage.MaxNames, "cert_expiry_days": d.CertExpiryDays,
+		"permutations.enabled": d.Permutations.Enabled, "permutations.max_per_seed": d.Permutations.MaxPerSeed, "permutations.max_names": d.Permutations.MaxNames,
+		"certspotter.max_pages": d.Certspotter.MaxPages, "skip": []string{},
+		"shodan_dns.max_pages": d.ShodanDNS.MaxPages, "censys.max_pages": d.Censys.MaxPages, "chaos.max_pages": d.Chaos.MaxPages,
+		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
+		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
+		"identifier_pivot.max_queries": d.IdentifierPivot.MaxQueries,
+		"github.max_results":           d.GitHub.MaxResults,
+		"dnshistory.max_hosts":         d.DNSHistory.MaxHosts, "origincheck.max_candidates": d.OriginCheck.MaxCandidates,
+		"eol_warn_days": d.EOLWarnDays, "nsreverse.max_domains": d.NSReverse.MaxDomains,
 	}
-	ports := func(key string, items []string, dst *[]int) {
-		ps, err := parsePortItems(items)
-		if err != nil {
-			bad(key, strings.Join(items, ","), err.Error())
-			return
+	for k, val := range defaults {
+		v.SetDefault(k, val)
+	}
+}
+
+// readConfigFile reads the config file into v and returns its path: configPath, or the default
+// location when it is "". The default file is optional; an explicit one must exist.
+func readConfigFile(v *viper.Viper, configPath string, env Env, probs *clierr.Problems) string {
+	path, explicit := configPath, configPath != ""
+	if !explicit {
+		path = DefaultConfigPath(env)
+	}
+	if _, err := os.Stat(path); explicit || (path != "" && err == nil) {
+		v.SetConfigFile(path)
+		v.SetConfigType("yaml")
+		if err := v.ReadInConfig(); err != nil {
+			probs.Add("config", path, fmt.Sprintf("config file %s: %v", path, errText(err)), "")
 		}
-		*dst = ps
 	}
-	ports("ports", raw.Ports, &s.Ports)
-	ports("risky_ports", raw.RiskyPorts, &s.RiskyPorts)
-	posInt := func(key, val string, min int, dst *int) {
-		n, err := strconv.Atoi(strings.TrimSpace(val))
-		if err != nil {
-			bad(key, val, "not an integer")
-		} else if n < min {
-			bad(key, val, fmt.Sprintf("must be at least %d", min))
-		} else {
-			*dst = n
+	return path
+}
+
+// bindFlags binds the flags in fs (nil for none) to their settings, so a flag that was set wins.
+func bindFlags(v *viper.Viper, fs *pflag.FlagSet, probs *clierr.Problems) {
+	if fs == nil {
+		return
+	}
+	for _, s := range settingTable {
+		if f := fs.Lookup(s.flag); f != nil {
+			if err := v.BindPFlag(s.key, f); err != nil {
+				probs.Add(s.flag, "", err.Error(), "")
+			}
 		}
 	}
-	posFloat := func(key, val string, dst *float64) {
-		f, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
-		if err != nil {
-			bad(key, val, "not a number")
-		} else if f <= 0 {
-			bad(key, val, "must be greater than 0")
-		} else {
-			*dst = f
-		}
+}
+
+// settingChecker parses raw setting values into Settings, recording each invalid one as a
+// problem named by its setting key.
+type settingChecker struct{ probs *clierr.Problems }
+
+func (c settingChecker) bad(key, val, why string) {
+	c.probs.Add(key, val, fmt.Sprintf("%s: invalid value %q: %s", key, val, why), "")
+}
+
+func (c settingChecker) ports(key string, items []string, dst *[]int) {
+	ps, err := parsePortItems(items)
+	if err != nil {
+		c.bad(key, strings.Join(items, ","), err.Error())
+		return
 	}
-	posInt("concurrency", raw.Concurrency, 1, &s.Concurrency)
-	posInt("port_concurrency", raw.PortConcurrency, 1, &s.PortConcurrency)
-	posFloat("rate.per_host", raw.Rate.PerHost, &s.Rate.PerHost)
-	posFloat("rate.per_source", raw.Rate.PerSource, &s.Rate.PerSource)
-	posFloat("rate.dns", raw.Rate.DNS, &s.Rate.DNS)
-	posInt("crawl.max_depth", raw.Crawl.MaxDepth, 0, &s.Crawl.MaxDepth)
-	posInt("crawl.max_pages", raw.Crawl.MaxPages, 0, &s.Crawl.MaxPages)
-	posInt("archive.max_urls", raw.Archive.MaxURLs, 1, &s.Archive.MaxURLs)
-	posInt("netblock_limit", raw.NetblockLimit, 1, &s.NetblockLimit)
-	posInt("storage.max_names", raw.Storage.MaxNames, 1, &s.Storage.MaxNames)
-	posInt("cert_expiry_days", raw.CertExpiryDays, 0, &s.CertExpiryDays)
-	posInt("permutations.max_per_seed", raw.Permutations.MaxPerSeed, 1, &s.Permutations.MaxPerSeed)
-	posInt("permutations.max_names", raw.Permutations.MaxNames, 1, &s.Permutations.MaxNames)
-	posInt("sensitive_path_max_requests", raw.SensitivePathMaxRequests, 1, &s.SensitivePathMaxRequests)
-	posInt("certspotter.max_pages", raw.Certspotter.MaxPages, 1, &s.Certspotter.MaxPages)
-	posInt("shodan_dns.max_pages", raw.ShodanDNS.MaxPages, 1, &s.ShodanDNS.MaxPages)
-	posInt("censys.max_pages", raw.Censys.MaxPages, 1, &s.Censys.MaxPages)
-	posInt("chaos.max_pages", raw.Chaos.MaxPages, 1, &s.Chaos.MaxPages)
-	posInt("shodan.max_hosts", raw.Shodan.MaxHosts, 1, &s.Shodan.MaxHosts)
-	posInt("reverseip.max_domains", raw.ReverseIP.MaxDomains, 1, &s.ReverseIP.MaxDomains)
-	posInt("jsparse.max_scripts", raw.JSParse.MaxScripts, 1, &s.JSParse.MaxScripts)
-	posInt("identifier_pivot.max_queries", raw.IdentifierPivot.MaxQueries, 1, &s.IdentifierPivot.MaxQueries)
-	posInt("github.max_results", raw.GitHub.MaxResults, 1, &s.GitHub.MaxResults)
-	posInt("dnshistory.max_hosts", raw.DNSHistory.MaxHosts, 1, &s.DNSHistory.MaxHosts)
-	posInt("origincheck.max_candidates", raw.OriginCheck.MaxCandidates, 1, &s.OriginCheck.MaxCandidates)
-	posInt("eol_warn_days", raw.EOLWarnDays, 0, &s.EOLWarnDays)
-	posInt("nsreverse.max_domains", raw.NSReverse.MaxDomains, 1, &s.NSReverse.MaxDomains)
+	*dst = ps
+}
+
+func (c settingChecker) posInt(key, val string, min int, dst *int) {
+	n, err := strconv.Atoi(strings.TrimSpace(val))
+	if err != nil {
+		c.bad(key, val, "not an integer")
+	} else if n < min {
+		c.bad(key, val, fmt.Sprintf("must be at least %d", min))
+	} else {
+		*dst = n
+	}
+}
+
+func (c settingChecker) posFloat(key, val string, dst *float64) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+	if err != nil {
+		c.bad(key, val, "not a number")
+	} else if f <= 0 {
+		c.bad(key, val, "must be greater than 0")
+	} else {
+		*dst = f
+	}
+}
+
+// numbers parses the numeric settings.
+func (c settingChecker) numbers(raw rawSettings, s *Settings) {
+	c.posInt("concurrency", raw.Concurrency, 1, &s.Concurrency)
+	c.posInt("port_concurrency", raw.PortConcurrency, 1, &s.PortConcurrency)
+	c.posFloat("rate.per_host", raw.Rate.PerHost, &s.Rate.PerHost)
+	c.posFloat("rate.per_source", raw.Rate.PerSource, &s.Rate.PerSource)
+	c.posFloat("rate.dns", raw.Rate.DNS, &s.Rate.DNS)
+	c.posInt("crawl.max_depth", raw.Crawl.MaxDepth, 0, &s.Crawl.MaxDepth)
+	c.posInt("crawl.max_pages", raw.Crawl.MaxPages, 0, &s.Crawl.MaxPages)
+	c.posInt("archive.max_urls", raw.Archive.MaxURLs, 1, &s.Archive.MaxURLs)
+	c.posInt("netblock_limit", raw.NetblockLimit, 1, &s.NetblockLimit)
+	c.posInt("storage.max_names", raw.Storage.MaxNames, 1, &s.Storage.MaxNames)
+	c.posInt("cert_expiry_days", raw.CertExpiryDays, 0, &s.CertExpiryDays)
+	c.posInt("permutations.max_per_seed", raw.Permutations.MaxPerSeed, 1, &s.Permutations.MaxPerSeed)
+	c.posInt("permutations.max_names", raw.Permutations.MaxNames, 1, &s.Permutations.MaxNames)
+	c.posInt("sensitive_path_max_requests", raw.SensitivePathMaxRequests, 1, &s.SensitivePathMaxRequests)
+	c.posInt("certspotter.max_pages", raw.Certspotter.MaxPages, 1, &s.Certspotter.MaxPages)
+	c.posInt("shodan_dns.max_pages", raw.ShodanDNS.MaxPages, 1, &s.ShodanDNS.MaxPages)
+	c.posInt("censys.max_pages", raw.Censys.MaxPages, 1, &s.Censys.MaxPages)
+	c.posInt("chaos.max_pages", raw.Chaos.MaxPages, 1, &s.Chaos.MaxPages)
+	c.posInt("shodan.max_hosts", raw.Shodan.MaxHosts, 1, &s.Shodan.MaxHosts)
+	c.posInt("reverseip.max_domains", raw.ReverseIP.MaxDomains, 1, &s.ReverseIP.MaxDomains)
+	c.posInt("jsparse.max_scripts", raw.JSParse.MaxScripts, 1, &s.JSParse.MaxScripts)
+	c.posInt("identifier_pivot.max_queries", raw.IdentifierPivot.MaxQueries, 1, &s.IdentifierPivot.MaxQueries)
+	c.posInt("github.max_results", raw.GitHub.MaxResults, 1, &s.GitHub.MaxResults)
+	c.posInt("dnshistory.max_hosts", raw.DNSHistory.MaxHosts, 1, &s.DNSHistory.MaxHosts)
+	c.posInt("origincheck.max_candidates", raw.OriginCheck.MaxCandidates, 1, &s.OriginCheck.MaxCandidates)
+	c.posInt("eol_warn_days", raw.EOLWarnDays, 0, &s.EOLWarnDays)
+	c.posInt("nsreverse.max_domains", raw.NSReverse.MaxDomains, 1, &s.NSReverse.MaxDomains)
 	if s.GitHub.MaxResults > maxGitHubResults {
-		bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
+		c.bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
 	}
+}
+
+// choices parses the skip list and whether permutations are enabled, which --no-permutations
+// (when fs sets it) turns off.
+func (c settingChecker) choices(raw rawSettings, s *Settings, fs *pflag.FlagSet) {
 	if skip, err := parseSkip(raw.Skip); err != nil {
-		bad("skip", strings.Join(raw.Skip, ","), err.Error())
+		c.bad("skip", strings.Join(raw.Skip, ","), err.Error())
 	} else {
 		s.Skip = skip
 	}
 	if enabled, err := strconv.ParseBool(strings.TrimSpace(raw.Permutations.Enabled)); err != nil {
-		bad("permutations.enabled", raw.Permutations.Enabled, "not true or false")
+		c.bad("permutations.enabled", raw.Permutations.Enabled, "not true or false")
 	} else {
 		s.Permutations.Enabled = enabled
 	}
@@ -621,27 +658,30 @@ func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 			s.Permutations.Enabled = false
 		}
 	}
-	home := env.home()
+}
+
+// files expands "~" in the path settings and reads the wordlist and sensitive-path list, or
+// takes the built-in ones when no file is set.
+func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 	s.OutputDir = expandHome(raw.OutputDir, home)
 	if s.OutputDir == "" {
-		bad("output_dir", "", "must not be empty")
+		c.bad("output_dir", "", "must not be empty")
 	}
 	s.Wordlist, s.SensitivePaths = expandHome(raw.Wordlist, home), expandHome(raw.SensitivePaths, home)
 	if s.Wordlist == "" {
 		s.WordlistWords = slices.Clone(builtinWordlist())
 	} else if b, err := os.ReadFile(s.Wordlist); err != nil {
-		bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
+		c.bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
 	} else if s.WordlistWords, err = input.ParseList(bytes.NewReader(b)); err != nil {
-		bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
+		c.bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
 	}
 	if s.SensitivePaths == "" {
 		s.SensitivePathEntries = slices.Clone(builtinSensitivePaths())
 	} else if b, err := os.ReadFile(s.SensitivePaths); err != nil {
-		bad("sensitive_paths", s.SensitivePaths, "cannot read file: "+errText(err))
+		c.bad("sensitive_paths", s.SensitivePaths, "cannot read file: "+errText(err))
 	} else if s.SensitivePathEntries, err = parseSensitivePaths(b); err != nil {
-		bad("sensitive_paths", s.SensitivePaths, err.Error())
+		c.bad("sensitive_paths", s.SensitivePaths, err.Error())
 	}
-	return s, probs.Err()
 }
 
 // parseSkip normalises the skip list: names are trimmed, lower-cased and de-duplicated, and "none"

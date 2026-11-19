@@ -2,8 +2,7 @@ version: "2"
 
 linters:
   enable:
-    # A ceiling on cognitive complexity, which weighs nesting more than flat branches. Functions
-    # that predate it carry //nolint:gocognit until they are split.
+    # A ceiling on cognitive complexity, which weighs nesting more than flat branches.
     - gocognit
   settings:
     gocognit:

@@ -73,43 +73,17 @@ type scriptInput struct {
 // a script that was fetched is never pushed out of the cap, and so never retired,
 // by a new script that sorts ahead of it. The key carries the parser, not the
 // scope: a root added later is picked up only by --redo jsparse.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func (*JSParse) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
-		probe := map[string]bool{}
-		for _, h := range v.ProbeHostnames() {
-			probe[h] = true
-		}
 		parsed := map[string]bool{}
 		for _, rec := range v.Records(kinds.ScriptParsed) {
 			parsed[rec.Key] = true
 		}
-		byOrigin := map[string][]string{}
-		for _, rec := range v.Records(kinds.Script) {
-			host := HostOfURL(rec.Key)
-			if !fetchableHost(v, probe, host) || v.SaaSServed(host) {
-				continue
-			}
-			o := originOf(rec.Key)
-			byOrigin[o] = append(byOrigin[o], rec.Key)
-		}
+		byOrigin := scriptsByOrigin(v)
 		limit := v.Settings().JSParse.MaxScripts
 		for _, origin := range slices.Sorted(maps.Keys(byOrigin)) {
-			urls := byOrigin[origin]
-			slices.Sort(urls)
-			if skipped := len(urls) - limit; skipped > 0 {
-				// Those already read come first, then the rest in URL order.
-				var read, unread []string
-				for _, u := range urls {
-					if parsed[u] {
-						read = append(read, u)
-					} else {
-						unread = append(unread, u)
-					}
-				}
-				urls = append(read, unread...)[:limit]
-				slices.Sort(urls)
+			urls, skipped := capScripts(byOrigin[origin], parsed, limit)
+			if skipped > 0 {
 				v.Warn("jsparse: %d %s of %s not read: at most %d are read per origin (jsparse.max_scripts)",
 					skipped, plural(skipped, "script", "scripts"), origin, limit)
 			}
@@ -120,6 +94,47 @@ func (*JSParse) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 			}
 		}
 	}
+}
+
+// scriptsByOrigin groups the current scripts on hosts that may be fetched, and
+// that no SaaS platform serves, by their origin.
+func scriptsByOrigin(v run.View) map[string][]string {
+	probe := map[string]bool{}
+	for _, h := range v.ProbeHostnames() {
+		probe[h] = true
+	}
+	byOrigin := map[string][]string{}
+	for _, rec := range v.Records(kinds.Script) {
+		host := HostOfURL(rec.Key)
+		if !fetchableHost(v, probe, host) || v.SaaSServed(host) {
+			continue
+		}
+		o := originOf(rec.Key)
+		byOrigin[o] = append(byOrigin[o], rec.Key)
+	}
+	return byOrigin
+}
+
+// capScripts sorts one origin's script URLs and keeps at most limit of them:
+// those already read first, then the rest in URL order. It returns the URLs
+// kept, sorted, and how many were left out.
+func capScripts(urls []string, parsed map[string]bool, limit int) ([]string, int) {
+	slices.Sort(urls)
+	skipped := len(urls) - limit
+	if skipped <= 0 {
+		return urls, 0
+	}
+	var read, unread []string
+	for _, u := range urls {
+		if parsed[u] {
+			read = append(read, u)
+		} else {
+			unread = append(unread, u)
+		}
+	}
+	urls = append(read, unread...)[:limit]
+	slices.Sort(urls)
+	return urls, skipped
 }
 
 func plural(n int, one, many string) string {

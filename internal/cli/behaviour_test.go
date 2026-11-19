@@ -734,8 +734,6 @@ func TestExcludedCSV(t *testing.T) {
 }
 
 // States, found lines, counts, summary.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func TestStageStatesAndFound(t *testing.T) {
 	t.Parallel()
 	prev := &testkit.Stage{StageName: "prev", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("p", 2) }}
@@ -766,6 +764,24 @@ func TestStageStatesAndFound(t *testing.T) {
 		t.Fatal(h.stderr.String())
 	}
 	evs := h.events()
+	checkStageStates(t, evs)
+	checkFoundLines(t, evs)
+	checkStatesSummary(t, evs)
+	// Re-run: nothing new is printed, previously-done stages say so.
+	h.exec("-e", "a.com", "--json")
+	evs = h.events()
+	if len(ofType(evs, "found")) != 0 {
+		t.Errorf("records already known must not be printed again: %v", ofType(evs, "found"))
+	}
+	if s := lastState(evs, "prev"); s.str("state") != "done-previously" {
+		t.Errorf("prev = %v", s)
+	}
+}
+
+// checkStageStates checks each stage's last state, reason and counts, and that
+// there is one line per state change: no consecutive duplicates for any stage.
+func checkStageStates(t *testing.T, evs []event) {
+	t.Helper()
 	want := map[string][2]string{ // state, reason
 		"failing": {"failed", ""}, "partial": {"done", ""}, "nokey": {"not-configured", "no key"},
 		"empty": {"done", ""}, "probe": {"not-configured", "no authorisation"}, "prev": {"done", ""},
@@ -782,7 +798,6 @@ func TestStageStatesAndFound(t *testing.T) {
 	if s := lastState(evs, "empty"); s.num("checks") != 0 {
 		t.Errorf("empty: %v", s)
 	}
-	// One line per state change: no consecutive duplicates for any stage.
 	for _, name := range []string{"prev", "failing", "partial", "nokey", "empty", "probe"} {
 		se := stageEvents(evs, name)
 		for i := 1; i < len(se); i++ {
@@ -791,7 +806,12 @@ func TestStageStatesAndFound(t *testing.T) {
 			}
 		}
 	}
-	// Found lines only for printed kinds; URLs counted, not printed.
+}
+
+// checkFoundLines checks that found lines come only for printed kinds, and
+// that URLs are counted, not printed.
+func checkFoundLines(t *testing.T, evs []event) {
+	t.Helper()
 	found := map[string]bool{}
 	for _, e := range ofType(evs, "found") {
 		found[e.str("category")+"|"+e.str("value")] = true
@@ -820,7 +840,12 @@ func TestStageStatesAndFound(t *testing.T) {
 	if urlCount != 2 {
 		t.Errorf("urls count = %d", urlCount)
 	}
-	// Summary: totals, failed counts, high and medium findings listed individually.
+}
+
+// checkStatesSummary checks the summary: totals, failed counts, and the high
+// and medium findings listed individually.
+func checkStatesSummary(t *testing.T, evs []event) {
+	t.Helper()
 	sum := ofType(evs, "summary")
 	if len(sum) != 1 {
 		t.Fatalf("summaries: %d", len(sum))
@@ -838,15 +863,6 @@ func TestStageStatesAndFound(t *testing.T) {
 	fs := sum[0]["findings"].([]any)
 	if len(fs) != 2 {
 		t.Errorf("findings = %v (want high and medium only)", fs)
-	}
-	// Re-run: nothing new is printed, previously-done stages say so.
-	h.exec("-e", "a.com", "--json")
-	evs = h.events()
-	if len(ofType(evs, "found")) != 0 {
-		t.Errorf("records already known must not be printed again: %v", ofType(evs, "found"))
-	}
-	if s := lastState(evs, "prev"); s.str("state") != "done-previously" {
-		t.Errorf("prev = %v", s)
 	}
 }
 

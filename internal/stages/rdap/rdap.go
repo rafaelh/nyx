@@ -236,8 +236,6 @@ type result struct {
 // searchOrg asks one registry for the organisation's netblocks and autonomous
 // systems. The registry's entities are searched by the organisation's first word
 // and kept when the word rule matches their name.
-//
-//nolint:gocognit // TODO: split; predates the complexity ceiling
 func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observation, error) {
 	words := orgname.Tokens(in.org)
 	if len(words) == 0 {
@@ -247,7 +245,36 @@ func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observ
 		run.Warnf(ctx, "rdap: %s (%s) does not return an organisation's netblocks, so %q is not searched there", in.reg.name, in.reg.host, in.org)
 		return nil, nil
 	}
-	raw, err := get(ctx, e, in.reg.base+"entities?fn="+url.QueryEscape(words[0])+"*")
+	found, err := searchEntities(ctx, e, in, words[0])
+	if err != nil {
+		return nil, err
+	}
+
+	c := &orgResults{in: in, seen: map[string]bool{}}
+	for _, ent := range found {
+		name := ent.name()
+		if !orgname.Matches(in.org, name) {
+			continue
+		}
+		full, ok, err := withNetworks(ctx, e, in, ent)
+		if err != nil {
+			return nil, err
+		}
+		if ok && !c.add(full, name) {
+			break
+		}
+	}
+	if c.truncated {
+		run.Warnf(ctx, "rdap: %s (%s) returned more than %d netblocks and autonomous systems for %q; the first %d are kept",
+			in.reg.name, in.reg.host, maxResults, in.org, maxResults)
+	}
+	return c.obs, nil
+}
+
+// searchEntities returns the registry's entities whose name starts with word.
+// A registry that answers not found has none.
+func searchEntities(ctx context.Context, e egress.Clients, in orgInput, word string) ([]entity, error) {
+	raw, err := get(ctx, e, in.reg.base+"entities?fn="+url.QueryEscape(word)+"*")
 	if errors.Is(err, httpsrc.ErrNotFound) {
 		return nil, nil
 	}
@@ -260,60 +287,68 @@ func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observ
 	if err := json.Unmarshal(raw, &found); err != nil {
 		return nil, fmt.Errorf("unreadable response: %v", err)
 	}
+	return found.Results, nil
+}
 
-	var obs []run.Observation
-	seen := map[string]bool{}
-	kept, truncated := 0, false
-search:
-	for _, ent := range found.Results {
-		name := ent.name()
-		if !orgname.Matches(in.org, name) {
+// withNetworks returns the entity with its networks and autonomous systems:
+// ARIN's search result names the entity, and its own record has its networks.
+// ok is false when that record is not found or cannot be read.
+func withNetworks(ctx context.Context, e egress.Clients, in orgInput, ent entity) (entity, bool, error) {
+	if ent.has() {
+		return ent, true, nil
+	}
+	raw, err := get(ctx, e, in.reg.base+"entity/"+url.PathEscape(ent.Handle))
+	if errors.Is(err, httpsrc.ErrNotFound) {
+		return ent, false, nil
+	}
+	if err != nil {
+		return ent, false, err
+	}
+	if json.Unmarshal(raw, &ent) != nil {
+		return ent, false, nil
+	}
+	return ent, true, nil
+}
+
+// orgResults collects the netblocks and autonomous systems of an
+// organisation's matching entities, at most maxResults of them.
+type orgResults struct {
+	in        orgInput
+	obs       []run.Observation
+	seen      map[string]bool
+	kept      int
+	truncated bool
+}
+
+// add records the results of one matching entity, named name. It reports false
+// once the cap is reached.
+func (c *orgResults) add(ent entity, name string) bool {
+	for _, r := range results(ent) {
+		// A result another matching entity already gave adds nothing, so it does
+		// not count toward the cap.
+		if !slices.ContainsFunc(r.prefixes, func(p netip.Prefix) bool { return !c.seen[p.String()] }) &&
+			!slices.ContainsFunc(r.asns, func(a string) bool { return !c.seen[a] }) {
 			continue
 		}
-		if !ent.has() {
-			// ARIN's search result names the entity; its own record has its networks.
-			raw, err := get(ctx, e, in.reg.base+"entity/"+url.PathEscape(ent.Handle))
-			if errors.Is(err, httpsrc.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			if json.Unmarshal(raw, &ent) != nil {
-				continue
+		if c.kept == maxResults {
+			c.truncated = true
+			return false
+		}
+		c.kept++
+		for _, p := range r.prefixes {
+			if !c.seen[p.String()] {
+				c.seen[p.String()] = true
+				c.obs = append(c.obs, kinds.Netblock.Obs(p.String(), kinds.NetblockAttrs{Org: c.in.org}))
 			}
 		}
-		for _, r := range results(ent) {
-			// A result another matching entity already gave adds nothing, so it does
-			// not count toward the cap.
-			if !slices.ContainsFunc(r.prefixes, func(p netip.Prefix) bool { return !seen[p.String()] }) &&
-				!slices.ContainsFunc(r.asns, func(a string) bool { return !seen[a] }) {
-				continue
-			}
-			if kept == maxResults {
-				truncated = true
-				break search
-			}
-			kept++
-			for _, p := range r.prefixes {
-				if !seen[p.String()] {
-					seen[p.String()] = true
-					obs = append(obs, kinds.Netblock.Obs(p.String(), kinds.NetblockAttrs{Org: in.org}))
-				}
-			}
-			for _, a := range r.asns {
-				if !seen[a] {
-					seen[a] = true
-					obs = append(obs, kinds.ASN.Obs(a, kinds.ASNAttrs{Org: in.org, Registrant: name, Registry: in.reg.name}))
-				}
+		for _, a := range r.asns {
+			if !c.seen[a] {
+				c.seen[a] = true
+				c.obs = append(c.obs, kinds.ASN.Obs(a, kinds.ASNAttrs{Org: c.in.org, Registrant: name, Registry: c.in.reg.name}))
 			}
 		}
 	}
-	if truncated {
-		run.Warnf(ctx, "rdap: %s (%s) returned more than %d netblocks and autonomous systems for %q; the first %d are kept",
-			in.reg.name, in.reg.host, maxResults, in.org, maxResults)
-	}
-	return obs, nil
+	return true
 }
 
 // results are the netblocks and autonomous systems of an entity that name something usable.
