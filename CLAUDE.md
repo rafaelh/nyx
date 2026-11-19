@@ -1,12 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-nyx is a passive-first reconnaissance CLI for authorised engagements: a single static Go binary
-for macOS and Linux (Windows is not supported). `README.md` is the user-facing behaviour contract
-(flags, output files, exit codes, the passive boundary). The domain vocabulary (engagement, scope
-input, stage, check, observation, record, record kind, shown, evidence, finding) is defined in the
-doc comments of the packages that own each term.
+nyx is a passive-first reconnaissance CLI: a single static Go binary for macOS, Linux, and WSL
+(Windows is not supported). `README.md` is the user-facing behaviour contract (flags, output files,
+exit codes, the passive boundary). The domain vocabulary (engagement, scope input, stage, check,
+observation, record, record kind, shown, evidence, finding) is defined in the doc comments of the
+packages that own each term.
 
 ## Commands
 
@@ -145,7 +143,8 @@ when it has rows, and is removed once it has none.
   with `h.setenv`, never `t.Setenv` or `os.Setenv` (Go forbids `t.Setenv` in a parallel test). The
   harness also sets `Deps.NoFsync`, as an fsync on macOS flushes the whole drive cache and
   serialises the suite. A test that changes the working directory (`emptyDir`, `t.Chdir`) cannot
-  be parallel. A test that starts a child process (`startChild`) is a subtest of the
+  be parallel, and says so with a `//nolint:paralleltest` and its reason (lint enforces the rest,
+  and forbids `os.Getenv`, `t.Setenv` and `os.Setenv`). A test that starts a child process (`startChild`) is a subtest of the
   non-parallel `TestChildProcesses`, because a fork can briefly hold another test's engagement lock. Give a slow table test's subtests `t.Parallel()` when each builds its own world.
 - `crash_test.go` re-executes the test binary as a child process (`NYX_TEST_CHILD=1`) and uses
   `internal/fault` crash points (`NYX_FAULT=<point>`, such as `in-check-tx`, `after-commit`,
@@ -153,23 +152,14 @@ when it has rows, and is removed once it has none.
 
 ## Conventions
 
-- Australian English in docs, comments and messages ("authorised", "behaviour", "sanitise").
-  `--authorized` is accepted only as a flag alias.
+- Australian English in docs, comments and messages ("authorised", "behaviour", "sanitise"). Support
+  for US English should be included for all input, e.g. `--authorized` is accepted as a flag alias.
 - Specs live in `docs/specs/` (the `.claude/skills/spec-*` workflow). Each has `## Goal` and
   `## Behaviours`, then a `# Design` section once planned. Code, comments, test names and file
   names must never cite spec numbers or spec IDs; describe the behaviour instead.
-- Before building any spec, read `docs/plans/2026-11-build-order.md`. It gives the order specs
-  can be built in, which spec owns each shared seam (a dependent spec uses the seam as built and
-  never writes its own), the final stage registry order and CSV column order, and where each kind
-  of addition goes so parallel branches don't collide: a new kind in its own
-  `internal/kinds/<kind>.go`, a new output file in its own `internal/output/<file>.go`, a new
-  findings category in its own file, new struct fields, settings and columns appended at the end,
-  and behaviour tests in a new `internal/cli/<feature>_test.go`. The seams it names (such as
-  `run.ErrQuota` or `run.BuildScope`) exist only once their owning spec has merged, so check the
-  code before relying on one.
 - CSV columns are read by people, not parsed by tools: change them freely, keeping `README.md`
-  accurate. Only the attribute JSON names in the state database must
-  stay stable (renaming one breaks resume; see `internal/kinds/kinds.go`).
+  accurate. Only the attribute JSON names in the state database must stay stable (renaming one
+  breaks resume; see `internal/kinds/kinds.go`).
 - Commit messages use conventional prefixes (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`,
   `style:`).
 - `docs/todo.md` lists known deferred work, such as store statement batching, HTTP connection

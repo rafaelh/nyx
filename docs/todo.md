@@ -1,119 +1,132 @@
+# Features to add
 
-- Add:
-  - Standalone IP enumeration as `ip` subcommand. Should take one or more IPs and return a table of
-    results for a human, or json output for an agent. example usage: `nyx ip --json 8.8.8.8 1.1.1.1`.
-    Internal IP addresses and invalid IP addresses should be caught by default.
-  - Standalone domain enumeration as `domain`. Find and print subdomains and other obtainable records,
-    print DMARC with any issues.
+- Standalone IP enumeration as `ip` subcommand. Should take one or more IPs and return a table of
+  results for a human, or json output for an agent. example usage: `nyx ip --json 8.8.8.8 1.1.1.1`.
+  Internal IP addresses and invalid IP addresses should be caught by default.
+
+- Standalone domain enumeration as `domain`. Find and print subdomains and other obtainable records,
+  print DMARC with any issues.
+
 - Add the capability to define an internal scope of assets, IPs, domains, etc to identify automatically.
   If a domain has been reconned recently, should it resolve from those files?
 
+# CI improvements/fixes
 
-# Linters that need configuration before they are worth enabling
+## Linters that need configuration before they are worth enabling
 
 - `gosec`: 124 issues, mostly noise. Exclude `_test.go` files (the TLS tests use weak ciphers on
   purpose), G104 (repeats errcheck) and probably G304 (file paths from variables). That leaves
   about a dozen in non-test code: integer-overflow conversions (G115) in `run/runner.go`,
   `scope/scope.go`, `stages/ports/ports.go` and `stages/web/favicon.go`, and the deliberate
   `InsecureSkipVerify` in `egress/tls.go`, which needs a `//nolint:gosec` that says why.
+
 - `nilerr`: 9 issues. Most are deliberate: a negative result is a completed check with a nil
   error, as when a redirect can't be followed in `stages/web/crawl.go`. Enabling it means a
   `//nolint:nilerr` with a reason on each, which documents the intent; also check `run/runner.go`,
   `stages/rdap/rdap.go`, `stages/web/{favicon,jsparse,probe}.go`.
+
 - `musttag`: 2 issues. `stages/orgpivot/orgpivot.go` marshals a struct with no `json` tags, so
   renaming a field would change the JSON. Find out whether that JSON is stored or part of a check
   key (renaming would then break resume) and tag it; the other issue is in `egress/boundary_test.go`.
 
+# Refactoring opportunities
 
-# internal/cloudstorage, internal/config, internal/dnsname, internal/egress, and internal/engagement
-One table driving all settings in config: the biggest maintenance win, since each integer setting is listed in five places, but it's a redesign of `Load`. Flag help order is fixed, so the table would need to cover every flag, not just the integers.
+Each item is one piece of work. Several output-side items (the showing rule, the "excluded"
+counting rule, source names, the provider rule) may change what users see, so check before treating
+them as pure refactors.
 
-Altitude items that are design changes reaching well outside these packages:
-- the script allowlist versus the crawler's anchor workaround;
-- giving each request kind its own check in targetHTTP.do;
-- bucket URLs worked out in both cloudstorage and the storage stage;
-- CandidateExempt plumbing that serves one stage;
-- API-key placement repeated at every call site instead of once per source;
-- a shared redaction walker with cli/export;
-- keeping the SRV/MX writer next to its parser in dnsname;
-- exporting ErrHTTPTimeout.
+## Suspected bugs
 
+Confirm each with `/code-review` before fixing.
 
+- **Organisation placement versus category.** Placement and category use different rules for
+  organisations, so `nyx recon export` can report an organisation as a candidate that
+  `candidates.csv` doesn't list. The kind placement redesign below would remove the cause.
 
+- **Blank row in `resolutions.csv`.** A DNS claim that is no longer current writes a blank row.
 
-Too big for a cleanup pass:
+- **Stale records skip the showing rule.** Historical addresses and code mentions that are no
+  longer current stay listed after their host or root is excluded.
 
-Prepared statements and fewer SQL statements per observation in the store.
-Reusing HTTP connections, which would need rate limiting reworked.
-Encoding observation attributes to JSON only once.
-Making how a finding is announced a property of the finding kind, and replacing the hard-coded "asn" stage name.
+## Design changes
 
+- **Kinds own their placement and keys.** Kinds classified against the scope decide their
+  placement and category by switching on kind names in `kinds/visibility.go`; make placement a
+  property of each kind. Give each record kind its own key decoder, and let a kind declare how to
+  rebuild its attributes from its key.
 
+- **One table per findings category.** Key format, key parsing, found text and how the finding is
+  announced, all held by the finding kind. Replaces the `foundFields` special case with a
+  `Kind.Found`, and moves the finding kind's found line inside the Found hook. The stored key
+  strings must stay byte-for-byte the same.
 
-# internal/eol, internal/fault, internal/findings, internal/input, internal/inventory, and internal/kinds
+- **Findings derivation as an ordinary deriver.** Run it through the deriver list in
+  `run/derive.go`, with hooks, instead of as a special case.
 
-Kinds that are classified against the scope decide their placement and category by switching on kind names (kinds/visibility.go). Moving that onto the kinds themselves is a redesign, not a cleanup. The review also found that placement and category use different rules for organisations. As a result, nyx recon export can report an organisation as a candidate that candidates.csv doesn't list. That may be a bug: worth running /code-review on it.
+- **One showing rule.** Make which entities the files list a single Visibility rule (today
+  `changes.go` copies the rules from `output`), and keep the "excluded" counting rule in one place.
 
-A per-category table for finding keys, parsing and found text: a larger refactor, and the stored key strings must stay byte-for-byte the same.
+- **Candidate rules in `internal/candidates`.** Move the candidate roll-up rules and the ranking
+  there. Revisit the `CandidateExempt` plumbing, which serves one stage.
 
-Renaming input.NormaliseHost to dnsname.Normalise: it touches about 30 files outside the scope.
+- **No hard-coded stage or source names.** Remove the hard-coded "asn" stage name from finding
+  announcements and from `BuildScope`, and take source names from stage data.
 
-Shared test scope builder in testkit: it would change test helpers in several packages outside the scope.
+- **Scope build.** Separate the egress Policy from the scope build, and derive `scopeKinds` from a
+  table.
 
-Efficiency changes left alone:
-A non-JSON fast path for encoding finding attributes: it risks changing stored values.
-Caching the inventory's CNAME chains and per-scope results: these touch shared infrastructure for about 5–10 ms per stage.
-Speeding up indexRegistrants: it runs once per inventory.
-Decoding each web service's attributes only once: a small gain at about 3 ms per 5k services.
-Storage reading CNAMEs that the inventory already indexes, and the finding kind building its found line outside the Found hook: both need new seams in other packages.
+- **Stage-owned behaviour.** Move the stage-specific `View` queries out to the stages that use
+  them, and make stage descriptions and the unskippable rule stage interfaces.
 
+- **Config settings table.** One table driving every setting in `config`: the biggest maintenance
+  win, since each integer setting is listed in five places. It's a redesign of `Load`, and because
+  flag help order is fixed the table must cover every flag, not just the integers.
 
-# internal/orgname, internal/origin, internal/output, internal/palette, internal/provider, and internal/report
+- **Egress HTTP.** Give each request kind its own check in `targetHTTP.do`, place API keys once per
+  source instead of at every call site, and export `ErrHTTPTimeout`.
 
-Skip rewriting output files whose bytes haven't changed. This is the biggest win the reviews found: up to about 33 fsyncs per pass. Comparing with the file on disk would stop the render-mid-file crash test from reaching its fault point. Doing it safely needs the runner to keep state between passes, so it should be its own change.
+- **Crawler script allowlist.** Reconcile the script allowlist with the crawler's anchor
+  workaround.
 
-Fixes in packages outside these six:
+- **Cloud storage in one place.** Bucket URLs are worked out in both `cloudstorage` and the storage
+  stage, and the storage stage reads CNAMEs the inventory already indexes (needs a new seam in
+  `inventory`).
 
-Caching the per-address hostname lookup that is computed three times per render (inventory).
-Letting a caller tokenise an organisation name once instead of on every match (orgname callers in scope and stages).
-Shared hash, atomic-write and test-fixture helpers.
-A copied test helper that strips escapes.
-Larger redesigns:
+- **Shared redaction.** One redaction walker shared by `config` and `cli/export`, possibly
+  reflection-based.
 
-Giving each record kind its own key decoder.
-Redaction by reflection.
-Presorted output rows.
-One place for the "excluded" counting rule.
-Taking source names from stage data instead of hard-coding them.
-Giving the provider data its own "fronts a site" rule.
-Several of these would change what users see, and two would actually fix bugs:
+- **Consolidate `dnsname`.** Rename `input.NormaliseHost` to `dnsname.Normalise` (about 30 files),
+  and move the SRV/MX writer next to its parser.
 
-A no-longer-current DNS claim writes a blank row to resolutions.csv.
-Historical addresses and code mentions that are no longer current skip the showing rule, so they stay listed after their host or root is excluded.
-/code-review is the better place to chase those.
+- **Provider "fronts a site" rule.** Give the provider data its own rule.
 
+- **Shared helpers.** Shared hash and atomic-write helpers; shared test fixtures, including a scope
+  builder in `testkit` and the copied test helper that strips escapes.
 
-# internal/run, internal/sanitize, internal/scope, internal/shellquote, internal/store, internal/testkit, and internal/thirdparty
+- **Numeric port order.** Sort `OpenPorts` with `AddrPort.Compare`. Changes the order users see
+  from text to numeric.
 
-Larger redesigns:
-Turning the findings derivation into an ordinary deriver with hooks.
-Making which entities the files list a single Visibility rule; today changes.go copies the rules from output.
-Moving the stage-specific View queries out to the stages that use them.
-Separating the egress policy from the scope build, and giving finding display its own Kind.Found instead of the special case in foundFields.
-Removing BuildScope's dependence on the asn stage's name.
-Moving the candidate roll-up rules into internal/candidates.
-Diffing SaveShown instead of rewriting every row.
-Caching each stage's completed checks between passes, and refreshing changed records incrementally.
-Would change behaviour: sorting OpenPorts with AddrPort.Compare would change the order from text to numeric.
+## Performance
 
+- **Skip rewriting unchanged output files.** The biggest win found: up to about 33 fsyncs per pass.
+  Comparing with the file on disk would stop the `render-mid-file` crash test reaching its fault
+  point, so the runner must keep state between passes instead.
 
-# Overall:
+- **Presorted output rows.**
 
-Design changes worth considering separately:
-Kinds declaring how to rebuild attributes from their key.
-One table for each findings category's key format.
-Stage descriptions and the unskippable rule as stage interfaces.
-Entity placement as a property of each kind.
-Moving candidate ranking into candidates.
-Deriving scopeKinds from a table.
-A table for the numeric config settings.
+- **Store write path.** Prepared statements, fewer SQL statements per observation, encoding
+  observation attributes to JSON only once, and diffing `SaveShown` instead of rewriting every row.
+
+- **Incremental passes.** Cache each stage's completed checks between passes, and refresh changed
+  records incrementally.
+
+- **HTTP connection reuse.** Needs rate limiting reworked.
+
+- **Small gains, left alone so far.** Each is minor on its own:
+  - cache the inventory's CNAME chains and per-scope results (about 5–10 ms per stage, but touches
+    shared infrastructure);
+  - cache the per-address hostname lookup that is computed three times per render;
+  - let a caller in `scope` or the stages tokenise an organisation name once, not on every match;
+  - speed up `indexRegistrants` (runs once per inventory);
+  - decode each web service's attributes only once (about 3 ms per 5k services);
+  - a non-JSON fast path for encoding finding attributes (risks changing stored values).
