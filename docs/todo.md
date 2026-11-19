@@ -76,8 +76,6 @@ A no-longer-current DNS claim writes a blank row to resolutions.csv.
 Historical addresses and code mentions that are no longer current skip the showing rule, so they stay listed after their host or root is excluded.
 /code-review is the better place to chase those.
 
-Merging every Classify test into one table. The tests read well as separate named behaviours, so I only removed the exact duplicates.
-
 
 # internal/run, internal/sanitize, internal/scope, internal/shellquote, internal/store, internal/testkit, and internal/thirdparty
 
@@ -91,3 +89,15 @@ Moving the candidate roll-up rules into internal/candidates.
 Diffing SaveShown instead of rewriting every row.
 Caching each stage's completed checks between passes, and refreshing changed records incrementally.
 Would change behaviour: sorting OpenPorts with AddrPort.Compare would change the order from text to numeric.
+
+
+# Overall:
+
+Design changes worth considering separately:
+Kinds declaring how to rebuild attributes from their key.
+One table for each findings category's key format.
+Stage descriptions and the unskippable rule as stage interfaces.
+Entity placement as a property of each kind.
+Moving candidate ranking into candidates.
+Deriving scopeKinds from a table.
+A table for the numeric config settings.
