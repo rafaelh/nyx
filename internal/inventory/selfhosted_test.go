@@ -37,7 +37,7 @@ func TestSelfHosted(t *testing.T) {
 	server("ns.excluded.example.com", "198.51.100.12")
 
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d, "198.51.100.64/28", "ns.excluded.example.com")
+	sc := newScope(inv, "198.51.100.64/28", "ns.excluded.example.com")
 
 	for _, c := range []struct {
 		host string
@@ -75,7 +75,7 @@ func TestServerAddressesChangeNothing(t *testing.T) {
 
 	db := provider.Default()
 	a, b := inventory.New(base, db), inventory.New(extra, db)
-	sa, sb := newScope(a, base), newScope(b, extra)
+	sa, sb := newScope(a), newScope(b)
 	if len(a.Addrs()) != len(b.Addrs()) {
 		t.Errorf("resolved names changed: %v -> %v", a.Addrs(), b.Addrs())
 	}

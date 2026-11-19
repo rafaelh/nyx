@@ -34,6 +34,9 @@ type Input struct {
 	Today       string // YYYY-MM-DD
 	Records     func(kinds.Named) []store.Record
 	Roots, Orgs []string
+	// Vis, if set, is the Visibility of Scope and Inv to reuse, with the host
+	// decisions it has already made.
+	Vis *kinds.Visibility
 }
 
 // Finding is one derived exposure. Attrs holds every attribute of its stored
@@ -99,7 +102,11 @@ type deriver struct {
 }
 
 func newDeriver(in Input) *deriver {
-	return &deriver{in: in, vis: kinds.NewVisibility(in.Scope, in.Inv)}
+	vis := in.Vis
+	if vis == nil {
+		vis = kinds.NewVisibility(in.Scope, in.Inv)
+	}
+	return &deriver{in: in, vis: vis}
 }
 
 // current is the current records of a kind.
@@ -281,10 +288,7 @@ func (d *deriver) certificates() []Finding {
 		return nil
 	}
 	var out []Finding
-	for _, r := range d.current(kinds.WebService) {
-		if !d.vis.Shown(kinds.WebService, r) {
-			continue
-		}
+	for _, r := range d.services() {
 		a := kinds.WebService.Attrs(r)
 		var types []string
 		expiry := a.TLSExpiry

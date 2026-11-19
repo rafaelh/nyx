@@ -39,7 +39,7 @@ func resolve(d *inventory.Data, name string, addrs ...string) {
 	d.Hosts = append(d.Hosts, inventory.Host{Name: name, Stages: []string{"crtsh"}})
 }
 
-func newScope(inv *inventory.Inventory, d inventory.Data, excl ...string) *scope.Scope {
+func newScope(inv *inventory.Inventory, excl ...string) *scope.Scope {
 	xs, _ := input.ParseExclusions(excl)
 	return scope.New(scope.Config{
 		Roots: []string{"example.com"}, Netblocks: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
@@ -97,7 +97,7 @@ func TestProbeHostnames(t *testing.T) {
 	resolve(&d, "x.example.org", "203.0.113.60") // candidate
 	resolve(&d, "admin.example.com", "203.0.113.70")
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d, "admin.example.com")
+	sc := newScope(inv, "admin.example.com")
 	got := inv.ProbeHostnames(sc)
 	if !slices.Equal(got, []string{"aa.example.com", "real.example.com"}) {
 		t.Errorf("ProbeHostnames = %v", got)
@@ -117,7 +117,7 @@ func TestRepresentativeIsProbeable(t *testing.T) {
 	d.Hosts = append(d.Hosts, inventory.Host{Name: "b.example.com", Stages: []string{"crtsh"}}) // wildcard-only, no addresses
 	resolve(&d, "shop.example.com", "203.0.113.1")
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d, "admin.example.com")
+	sc := newScope(inv, "admin.example.com")
 	if got := inv.ProbeHostnames(sc); !slices.Equal(got, []string{"shop.example.com"}) {
 		t.Errorf("ProbeHostnames = %v, want the in-scope resolving representative", got)
 	}
@@ -138,7 +138,7 @@ func TestSeeds(t *testing.T) {
 	resolve(&d, "wild.example.com", "203.0.113.1")
 	resolve(&d, "real.example.com", "203.0.113.2") // exists for real, but its parent is a wildcard zone
 	inv := inventory.New(d, provider.Default())
-	got := inv.Seeds(newScope(inv, d), "permutations")
+	got := inv.Seeds(newScope(inv), "permutations")
 	if !slices.Equal(got, []string{"api.corp.example.com", "both.corp.example.com"}) {
 		t.Errorf("seeds = %v", got)
 	}
@@ -168,7 +168,7 @@ func TestProviderHosts(t *testing.T) {
 		{Prefix: netip.MustParsePrefix("203.0.113.12/32"), Provider: "aws", Service: "CLOUDFRONT"},
 	})
 	inv := inventory.New(d, provider.Default())
-	rows := inv.ProviderHosts(newScope(inv, d))
+	rows := inv.ProviderHosts(newScope(inv))
 	byHost := map[string][]inventory.ProviderHost{}
 	for _, r := range rows {
 		byHost[r.Hostname] = append(byHost[r.Hostname], r)
@@ -201,7 +201,7 @@ func TestIPRows(t *testing.T) {
 	}
 	d.IPHostnames = []inventory.IPHostname{{IP: ip("198.51.100.9"), Hostname: "ptr.other.org", Source: "rdns"}, {IP: ip("198.51.100.9"), Hostname: "shodan.other.org", Source: "shodan"}}
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d)
+	sc := newScope(inv)
 
 	rows := map[string]inventory.IPRow{}
 	for _, r := range inv.IPRows(sc) {
@@ -242,7 +242,7 @@ func TestIPRowsMatchEgress(t *testing.T) {
 		ip("203.0.113.60"): {ASN: 64500, Holder: "ACME-NET", Known: true},
 	}
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d, "admin.example.com")
+	sc := newScope(inv, "admin.example.com")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -322,7 +322,7 @@ func TestCNAMESharedLabelIsStable(t *testing.T) {
 		inventory.Resolution{Name: "b.example.com", Type: "CNAME", Value: "y.fastly.net"})
 	for range 50 {
 		inv := inventory.New(d, provider.Default())
-		rows := inv.IPRows(newScope(inv, d))
+		rows := inv.IPRows(newScope(inv))
 		if len(rows) != 1 || rows[0].Provider != "aws" || rows[0].Service != "CloudFront" {
 			t.Fatalf("IPRows = %+v, want the label of a.example.com", rows)
 		}
@@ -343,7 +343,7 @@ func TestPortEligibleMatchesIPRows(t *testing.T) {
 		ip("203.0.113.6"): {ASN: 64500, Holder: "ACME-NET", Known: true},
 	}
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d, "admin.example.com")
+	sc := newScope(inv, "admin.example.com")
 
 	want := map[string]bool{"203.0.113.5": true, "198.51.100.9": true, "104.16.0.1": false, "104.16.0.2": false, "203.0.113.6": false}
 	for _, r := range inv.IPRows(sc) {

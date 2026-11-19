@@ -179,7 +179,7 @@ func TestPartial_KeyedSourceStatuses(t *testing.T) {
 			t.Cleanup(srv.Close)
 			h.eopts.SourceBaseURLs = map[string]string{"api.example-source.test": srv.URL}
 			h.setenv("NYX_KEYS_SHODAN", "sekret-key-123")
-			f := h.partial(h.exec("a.com", "--json", "--concurrency", "1"), true)
+			f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true)
 			if f.transient != c.transient || !strings.Contains(f.msg, "keyed ") {
 				t.Errorf("%d: %+v", c.code, f)
 			}
@@ -194,7 +194,7 @@ func TestPartial_KeyedSourceStatuses(t *testing.T) {
 	t.Cleanup(srv.Close)
 	h.eopts.SourceBaseURLs = map[string]string{"api.example-source.test": srv.URL}
 	h.setenv("NYX_KEYS_SHODAN", "sekret-key-123")
-	if f := h.partial(h.exec("a.com", "--json", "--concurrency", "1"), true); !f.transient {
+	if f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true); !f.transient {
 		t.Errorf("a rejected key and another failure: %+v", f)
 	}
 }
@@ -251,7 +251,7 @@ func TestPartial_ExitsZeroFor(t *testing.T) {
 func TestPartial_AbortedChecksAreNotCompleted(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, erring("keyed", 4, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected)))
-	f := h.partial(h.exec("a.com", "--json", "--concurrency", "1"), true)
+	f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true)
 	env := h.envelope()
 	if f.msg != "4 checks failed: keyed 4" || env.Meta.ChecksCompleted != 1 {
 		t.Errorf("%+v completed %d, want 4 failed and 1 completed", f, env.Meta.ChecksCompleted)

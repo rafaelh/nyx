@@ -87,7 +87,7 @@ type ChangeCount struct {
 // summary is one write and ends in one newline.
 func WriteSummary(w io.Writer, d palette.Depth, env Envelope) {
 	var b strings.Builder
-	s := env.Data
+	s := env.Map(sanitize.Text).Data
 	b.WriteString(d.Bold("Summary"))
 	rows := make([]labelled, 0, len(s.Counts))
 	for _, c := range s.Counts {
@@ -98,7 +98,7 @@ func WriteSummary(w io.Writer, d palette.Depth, env Envelope) {
 		fmt.Fprintf(&b, "\n  %d risky ports reported by Shodan, unconfirmed", s.UnconfirmedRiskyPorts)
 	}
 	for _, n := range s.Notes {
-		b.WriteString("\n  " + sanitize.Text(n))
+		b.WriteString("\n  " + n)
 	}
 	if env.Meta.DeadlineExceeded {
 		fmt.Fprintf(&b, "\n  Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.ChecksCompleted, env.Meta.ChecksCancelled)
@@ -125,7 +125,7 @@ func WriteSummary(w io.Writer, d palette.Depth, env Envelope) {
 		b.WriteString("\n" + d.Bold("Candidates worth promoting (high confidence)"))
 		for _, c := range s.Candidates {
 			fmt.Fprintf(&b, "\n  %s  %d evidence (%s)  promote: %s",
-				sanitize.Text(c.Value), c.EvidenceCount, sanitize.Text(strings.Join(c.Sources, ";")), sanitize.Text(c.Promote))
+				c.Value, c.EvidenceCount, strings.Join(c.Sources, ";"), c.Promote)
 		}
 		if more := s.CandidatesTotal - len(s.Candidates); more > 0 {
 			fmt.Fprintf(&b, "\n  and %d more in candidates.csv", more)
@@ -147,13 +147,11 @@ type labelled struct {
 // 16 wide, and wide enough for the longest label.
 func writeLabelled(b *strings.Builder, rows []labelled) {
 	width := 16
-	labels := make([]string, len(rows))
-	for i, r := range rows {
-		labels[i] = sanitize.Text(r.label)
-		width = max(width, utf8.RuneCountInString(labels[i]))
+	for _, r := range rows {
+		width = max(width, utf8.RuneCountInString(r.label))
 	}
-	for i, r := range rows {
-		fmt.Fprintf(b, "\n  %-*s %d", width, labels[i], r.n)
+	for _, r := range rows {
+		fmt.Fprintf(b, "\n  %-*s %d", width, r.label, r.n)
 	}
 }
 
@@ -195,11 +193,9 @@ func writeFindingRows(b *strings.Builder, d palette.Depth, heading string, rows 
 	}
 	b.WriteString("\n" + d.Bold(heading))
 	for _, r := range rows {
-		fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, sanitize.Text(r.Severity)), sanitize.Text(r.Category), sanitize.Text(r.Target))
-		if r.Detail != nil {
-			if det := sanitize.Text(*r.Detail); det != "" {
-				b.WriteString(" - " + det)
-			}
+		fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, r.Severity), r.Category, r.Target)
+		if r.Detail != nil && *r.Detail != "" {
+			b.WriteString(" - " + *r.Detail)
 		}
 	}
 }

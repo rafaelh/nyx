@@ -52,10 +52,10 @@ func (*Stage) Configured(e run.Env) (bool, string) {
 func (*Stage) Budget(s config.Settings) int { return s.DNSHistory.MaxHosts }
 
 // Checks yields, in name order, each fronted in-scope hostname.
-func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
+func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, h := range v.FrontedHostnames() {
-			if ctx.Err() != nil || !yield(run.Check{Key: h, Input: h, Cost: 1}, nil) {
+			if !yield(run.Check{Key: h, Input: h, Cost: 1}, nil) {
 				return
 			}
 		}

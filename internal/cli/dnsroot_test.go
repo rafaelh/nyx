@@ -438,7 +438,7 @@ func TestDNSRoot_FoundLine(t *testing.T) {
 	w := newWorld(t)
 	w.dns.TXT("example.com", "google-site-verification=abc")
 	w.dns.NS("example.com", "ns1.cloudflare.com")
-	if code := w.h.exec("--passive", "--rate-dns", "100000", "example.com"); code != 0 {
+	if code := w.h.exec("--passive", "--rate-per-source", "1000", "--rate-dns", "100000", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	out := strings.Join(w.h.logMsgs("INFO"), "\n")

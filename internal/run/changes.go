@@ -183,10 +183,12 @@ func (r *Runner) loadBaseline() (*baseline, error) {
 	if err != nil {
 		return nil, err
 	}
+	sig := r.kindSig(scopeKinds)
 	built, err := BuildScope(r.inputs, runnerSource{r})
 	if err != nil {
 		return nil, err
 	}
+	r.baseBuilt, r.baseSig = built, sig
 	snap, err := r.snapshot(built.Scope, built.Inv, built.Vis)
 	if err != nil {
 		return nil, err

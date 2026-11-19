@@ -8,7 +8,6 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // References are the buckets and containers something in scope points at: the
@@ -32,7 +31,7 @@ func (d *deriver) references() []cloudstorage.Reference {
 			continue
 		}
 		name := a.Name
-		if wildcardOnly[name] || d.in.Scope.ClassifyHost(name).Class != scope.InScope {
+		if wildcardOnly[name] || !d.in.Scope.HostInScope(name) {
 			continue
 		}
 		if ref, ok := cloudstorage.ParseCNAME(name, a.Value); ok {

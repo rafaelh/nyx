@@ -7,7 +7,6 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 )
@@ -51,7 +50,7 @@ func (*RDNS) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 		if a.Type != "PTR" {
 			continue
 		}
-		host := input.NormaliseHost(a.Value)
+		host := dnsname.Normalise(a.Value)
 		if host == "" || seen[host] {
 			continue
 		}
@@ -59,7 +58,7 @@ func (*RDNS) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 		obs = append(obs,
 			kinds.Hostname.Obs(host, kinds.HostnameAttrs{}),
 			kinds.IP.Obs(addr.String()),
-			kinds.IPHostname.Obs(addr.String()+"|"+host, kinds.IPHostnameAttrs{IP: addr.String(), Hostname: host, Source: "rdns"}))
+			kinds.IPHostnameObs(addr.String(), host, "rdns"))
 	}
 	return obs, nil
 }

@@ -156,3 +156,15 @@ func HackerTargetLines(body []byte) ([]string, error) {
 	}
 	return lines, nil
 }
+
+// Sleep waits for d or the context, whichever ends first.
+func Sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

@@ -2,7 +2,8 @@ package config
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -33,18 +34,12 @@ func parsePortItems(items []string) ([]int, error) {
 			set[p] = true
 		}
 	}
-	out := make([]int, 0, len(set))
-	for p := range set {
-		out = append(out, p)
-	}
-	sort.Ints(out)
-	return out, nil
+	return slices.Sorted(maps.Keys(set)), nil
 }
 
 // FormatPorts renders ports with consecutive runs compressed ("21-23,80").
 func FormatPorts(ports []int) string {
-	ps := append([]int(nil), ports...)
-	sort.Ints(ps)
+	ps := slices.Sorted(slices.Values(ports))
 	var parts []string
 	for i := 0; i < len(ps); {
 		j := i
@@ -100,6 +95,6 @@ var top100 = []int{
 }
 
 // DefaultPorts returns the default TCP port list (about the top 100, 105 ports).
-func DefaultPorts() []int { return append([]int(nil), top100...) }
+func DefaultPorts() []int { return slices.Clone(top100) }
 
 var defaultRisky = []int{21, 23, 445, 1433, 1521, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017}

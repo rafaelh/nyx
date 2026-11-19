@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
@@ -153,14 +153,14 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 				obs = append(obs, o)
 			}
 			for _, h := range m.Hostnames {
-				h = input.NormaliseHost(h)
+				h = dnsname.Normalise(h)
 				if h == "" || seen[m.IPStr+"|"+h] {
 					continue
 				}
 				seen[m.IPStr+"|"+h] = true
 				obs = append(obs,
 					kinds.Hostname.Obs(h, kinds.HostnameAttrs{}),
-					kinds.IPHostname.Obs(m.IPStr+"|"+h, kinds.IPHostnameAttrs{IP: m.IPStr, Hostname: h, Source: "shodan"}))
+					kinds.IPHostnameObs(m.IPStr, h, "shodan"))
 			}
 		}
 		got += len(r.Matches)

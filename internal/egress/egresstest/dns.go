@@ -5,7 +5,7 @@ package egresstest
 import (
 	"net"
 	"net/netip"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -246,7 +246,7 @@ func (d *DNS) Queried(qtype string) []string {
 			out = append(out, n)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

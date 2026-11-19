@@ -176,7 +176,7 @@ func search(ctx context.Context, e egress.Clients, root string, page int) (searc
 			if !ok || wait > maxWait || waits == maxWaits {
 				return searchResult{}, fmt.Errorf("HTTP %d (key rejected, or rate limit not lifting within %v): %w", resp.Status, maxWait, run.ErrAbortStage)
 			}
-			if err := sleep(ctx, wait); err != nil {
+			if err := httpsrc.Sleep(ctx, wait); err != nil {
 				return searchResult{}, err
 			}
 			continue
@@ -190,18 +190,6 @@ func search(ctx context.Context, e egress.Clients, root string, page int) (searc
 			return searchResult{}, errors.New("unreadable response")
 		}
 		return res, nil
-	}
-}
-
-// sleep waits for d or the context, whichever ends first.
-func sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }
 
@@ -242,7 +230,7 @@ func (in input) hostnames(it match) []string {
 				continue
 			}
 			n := httpsrc.CleanName(strings.Trim(tok, ".-"))
-			if n != "" && !slices.Contains(in.roots, n) && in.sc.ClassifyHost(n).Class == scope.InScope {
+			if n != "" && !slices.Contains(in.roots, n) && in.sc.HostInScope(n) {
 				set[n] = true
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"net/netip"
+	"slices"
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -71,10 +72,7 @@ func (*Ports) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 			}
 		}
 		settled := map[netip.AddrPort]bool{} // opened, or a port_check made
-		for _, op := range v.OpenPorts() {
-			settled[op.Addr] = true
-		}
-		for _, rec := range v.Records(kinds.PortCheck) {
+		for _, rec := range slices.Concat(v.Records(kinds.OpenPort), v.Records(kinds.PortCheck)) {
 			if ap, ok := kinds.ParsePortKey(rec.Key); ok {
 				settled[ap] = true
 			}

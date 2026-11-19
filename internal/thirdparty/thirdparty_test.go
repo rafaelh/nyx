@@ -23,7 +23,7 @@ func build(roots, hosts []string, cnames map[string]string, wildcards []inventor
 	d.Wildcards = wildcards
 	inv := inventory.New(d, provider.Default())
 	sc := scope.New(scope.Config{Roots: roots, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly()})
-	return thirdparty.CNAME(sc, inv, provider.Default())
+	return thirdparty.CNAME(sc, inv)
 }
 
 func keys(obs []store.Obs) []string {

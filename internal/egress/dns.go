@@ -8,8 +8,7 @@ import (
 	"strings"
 
 	"github.com/miekg/dns"
-
-	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
 // Record types for Resolver.Query, so stages never import a DNS library.
@@ -138,13 +137,13 @@ func toResult(m *dns.Msg, qtype uint16) DNSResult {
 	for _, rr := range m.Answer {
 		h := rr.Header()
 		if cn, ok := rr.(*dns.CNAME); ok {
-			res.CNAMEs = append(res.CNAMEs, CNAME{Name: input.NormaliseHost(h.Name), Target: input.NormaliseHost(cn.Target)})
+			res.CNAMEs = append(res.CNAMEs, CNAME{Name: dnsname.Normalise(h.Name), Target: dnsname.Normalise(cn.Target)})
 			if qtype != dns.TypeCNAME {
 				continue
 			}
 		}
 		res.Answers = append(res.Answers, Answer{
-			Name: input.NormaliseHost(h.Name), Type: dns.TypeToString[h.Rrtype], Value: rdata(rr), TTL: h.Ttl,
+			Name: dnsname.Normalise(h.Name), Type: dns.TypeToString[h.Rrtype], Value: rdata(rr), TTL: h.Ttl,
 		})
 	}
 	return res
@@ -157,25 +156,25 @@ func rdata(rr dns.RR) string {
 	case *dns.AAAA:
 		return v.AAAA.String()
 	case *dns.CNAME:
-		return input.NormaliseHost(v.Target)
+		return dnsname.Normalise(v.Target)
 	case *dns.NS:
-		return input.NormaliseHost(v.Ns)
+		return dnsname.Normalise(v.Ns)
 	case *dns.PTR:
-		return input.NormaliseHost(v.Ptr)
+		return dnsname.Normalise(v.Ptr)
 	case *dns.TXT:
 		return strings.Join(v.Txt, "")
 	case *dns.SOA:
-		return input.NormaliseHost(v.Ns) + " " + mailbox(v.Mbox)
+		return dnsname.Normalise(v.Ns) + " " + mailbox(v.Mbox)
 	case *dns.MX:
 		host := "."
 		if v.Mx != "." {
-			host = input.NormaliseHost(v.Mx)
+			host = dnsname.Normalise(v.Mx)
 		}
 		return fmt.Sprintf("%d %s", v.Preference, host)
 	case *dns.SRV:
 		host := "."
 		if v.Target != "." {
-			host = input.NormaliseHost(v.Target)
+			host = dnsname.Normalise(v.Target)
 		}
 		return fmt.Sprintf("%d %d %d %s", v.Priority, v.Weight, v.Port, host)
 	}

@@ -66,7 +66,7 @@ func (v *Visibility) hostShown(k Kind, r store.Record) bool {
 	case k.HostAttr != "":
 		return v.webHostInScope(webHost(k.HostAttr, r))
 	case k.HostKey:
-		return v.sc.ClassifyHost(r.Key).Class == scope.InScope
+		return v.sc.HostInScope(r.Key)
 	}
 	return true
 }
@@ -78,7 +78,7 @@ func (v *Visibility) outside(k Kind, r store.Record) bool {
 		return true
 	}
 	d := r.Str(k.OutsideAttr)
-	return d == "" || v.sc.ClassifyHost(d).Class != scope.InScope
+	return d == "" || !v.sc.HostInScope(d)
 }
 
 func (v *Visibility) webHostInScope(host string) bool {
@@ -116,7 +116,7 @@ func (v *Visibility) Printed(kind string, r store.Record) bool {
 	case v == nil:
 		return !k.scoped()
 	case k.Entity:
-		return v.sc.ClassifyHost(r.Key).Class == scope.InScope
+		return v.sc.HostInScope(r.Key)
 	}
 	return v.shown(k, r)
 }

@@ -73,9 +73,7 @@ type File struct {
 // disk before it is renamed, so a power loss cannot leave a renamed but empty file. On macOS that
 // costs a full flush of the drive's cache per file, so tests turn it off.
 func Render(dir string, files []File, snap Snapshot, fsync bool) error {
-	if snap.Vis == nil {
-		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
-	}
+	snap.Vis = snap.vis()
 	tmp := filepath.Join(dir, ".nyx", "tmp")
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return err
@@ -429,7 +427,7 @@ func inScopeHostRows(wildcardOnly bool) func(Snapshot) []Row {
 		var rows []Row
 		wo := s.Inv.WildcardOnly()
 		for _, r := range s.of(kinds.Hostname) {
-			if wo[r.Key] == wildcardOnly && s.Scope.ClassifyHost(r.Key).Class == scope.InScope {
+			if wo[r.Key] == wildcardOnly && s.Scope.HostInScope(r.Key) {
 				rows = append(rows, recordRow(r, r.Key))
 			}
 		}

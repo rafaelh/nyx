@@ -46,9 +46,6 @@ func (p Parsed) Empty() bool {
 	return len(p.Roots)+len(p.Orgs)+len(p.ASNs)+len(p.CIDRs) == 0
 }
 
-// NormaliseHost trims, lowercases and drops the trailing dot of a hostname.
-func NormaliseHost(h string) string { return dnsname.Normalise(h) }
-
 // IPLiteral parses host as an IP address, unmapped. A zoned address is not a
 // literal egress will dial, and a bracketed form is a URL authority, not a host.
 func IPLiteral(host string) (netip.Addr, bool) {
@@ -62,7 +59,7 @@ func IPLiteral(host string) (netip.Addr, bool) {
 // ParseDomain lowercases, converts to punycode and validates a root domain.
 // Public suffixes and IP literals are rejected.
 func ParseDomain(s string) (string, error) {
-	d := NormaliseHost(s)
+	d := dnsname.Normalise(s)
 	if d == "" {
 		return "", fmt.Errorf("invalid domain %q: empty", s)
 	}
@@ -226,7 +223,7 @@ func (e Exclusion) MatchesHost(h string) bool {
 	if e.prefix.IsValid() {
 		return false
 	}
-	h = NormaliseHost(h)
+	h = dnsname.Normalise(h)
 	if base, ok := strings.CutPrefix(e.Entry, "*."); ok {
 		return strings.HasSuffix(h, "."+base)
 	}

@@ -3,6 +3,7 @@ package run
 import (
 	"net/netip"
 
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -90,7 +91,7 @@ func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
 		names = append(names, h.Name)
 	}
 	for _, rec := range roots {
-		names = append(names, input.NormaliseHost(rec.Key))
+		names = append(names, dnsname.Normalise(rec.Key))
 	}
 	cands := map[string]bool{}
 	for _, n := range names {
@@ -175,12 +176,12 @@ func currentAs[T any](src ScopeSource, k kinds.Named, conv func(store.Record) (T
 }
 
 func hostOf(rec store.Record) (inventory.Host, bool) {
-	return inventory.Host{Name: input.NormaliseHost(rec.Key), Stages: rec.Stages}, true
+	return inventory.Host{Name: dnsname.Normalise(rec.Key), Stages: rec.Stages}, true
 }
 
 func resolutionOf(rec store.Record) (inventory.Resolution, bool) {
 	a := kinds.Resolution.Attrs(rec)
-	name := input.NormaliseHost(a.Name)
+	name := dnsname.Normalise(a.Name)
 	return inventory.Resolution{Name: name, Type: a.Type, Value: a.Value}, name != ""
 }
 
@@ -228,7 +229,7 @@ func ipHostnameOf(rec store.Record) (inventory.IPHostname, bool) {
 	if err != nil {
 		return inventory.IPHostname{}, false
 	}
-	return inventory.IPHostname{IP: addr.Unmap(), Hostname: input.NormaliseHost(a.Hostname), Source: a.Source}, true
+	return inventory.IPHostname{IP: addr.Unmap(), Hostname: dnsname.Normalise(a.Hostname), Source: a.Source}, true
 }
 
 func registrationOf(rec store.Record) (inventory.Registration, bool) {

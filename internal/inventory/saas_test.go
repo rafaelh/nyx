@@ -92,7 +92,7 @@ func TestProviderHostEntry(t *testing.T) {
 		{Name: "app.example.com", Type: "A", Value: "203.0.113.23"},
 	}
 	inv := inventory.New(d, provider.Default())
-	sc := newScope(inv, d)
+	sc := newScope(inv)
 	got := map[string]inventory.ProviderHost{}
 	for _, ph := range inv.ProviderHosts(sc) {
 		got[ph.Hostname] = ph

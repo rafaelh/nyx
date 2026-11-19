@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
@@ -144,7 +144,7 @@ func (t *thirdParty) sourceURL(r ThirdPartyRequest) (*url.URL, string, error) {
 	if u.Scheme != "https" || u.User != nil {
 		return nil, "", errors.New("third-party requests must be https without userinfo")
 	}
-	host := input.NormaliseHost(u.Hostname())
+	host := dnsname.Normalise(u.Hostname())
 	i := slices.IndexFunc(t.sources, func(s string) bool { return matchSource(s, host) })
 	if i < 0 {
 		return nil, "", fmt.Errorf("host %s is not one of this stage's sources", host)

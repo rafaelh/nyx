@@ -12,10 +12,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
@@ -66,26 +64,26 @@ type server struct {
 // Checks yields, in key order, one check for each self-hosted name server of an
 // in-scope root and one for each self-hosted mail host of one, keyed
 // "ns|<host>|max=<n>" and "mx|<host>|max=<n>".
-func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
+func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		limit := v.Settings().NSReverse.MaxDomains
 		sc := v.Scope()
 		var servers []server
 		seen := map[string]bool{}
 		add := func(role, host string) {
-			host = input.NormaliseHost(host)
+			host = dnsname.Normalise(host)
 			if k := role + "|" + host; host != "" && !seen[k] && v.SelfHosted(host) {
 				seen[k] = true
 				servers = append(servers, server{role, host, limit})
 			}
 		}
 		for _, rec := range v.Records(kinds.Resolution) {
-			if a := kinds.Resolution.Attrs(rec); a.Type == "NS" && sc.ClassifyHost(a.Name).Class == scope.InScope {
+			if a := kinds.Resolution.Attrs(rec); a.Type == "NS" && sc.HostInScope(a.Name) {
 				add(roleNS, a.Value)
 			}
 		}
 		for _, rec := range v.Records(kinds.EmailPosture) {
-			if sc.ClassifyHost(rec.Key).Class != scope.InScope {
+			if !sc.HostInScope(rec.Key) {
 				continue
 			}
 			for h := range strings.SplitSeq(kinds.EmailPosture.Attrs(rec).MX, ";") {
@@ -94,7 +92,7 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 		}
 		slices.SortFunc(servers, func(a, b server) int { return strings.Compare(a.key(), b.key()) })
 		for _, s := range servers {
-			if ctx.Err() != nil || !yield(run.Check{Key: s.key(), Input: s}, nil) {
+			if !yield(run.Check{Key: s.key(), Input: s}, nil) {
 				return
 			}
 		}

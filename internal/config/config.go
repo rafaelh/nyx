@@ -174,7 +174,7 @@ func Defaults() Settings {
 	return Settings{
 		Keys:            map[string]Secret{},
 		Ports:           DefaultPorts(),
-		RiskyPorts:      append([]int(nil), defaultRisky...),
+		RiskyPorts:      slices.Clone(defaultRisky),
 		Concurrency:     10,
 		PortConcurrency: 100,
 		Rate:            Rate{PerHost: 5, PerSource: 1, DNS: 50},

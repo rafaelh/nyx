@@ -32,7 +32,7 @@ func TestRootRecordRowsChangeNothing(t *testing.T) {
 
 	db := provider.Default()
 	a, b := inventory.New(base, db), inventory.New(extra, db)
-	sa, sb := newScope(a, base), newScope(b, extra)
+	sa, sb := newScope(a), newScope(b)
 
 	if !maps.EqualFunc(a.Addrs(), b.Addrs(), slices.Equal) {
 		t.Errorf("addresses changed: %v -> %v", a.Addrs(), b.Addrs())

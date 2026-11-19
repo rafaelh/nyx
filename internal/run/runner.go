@@ -69,6 +69,7 @@ type Runner struct {
 	order []string
 
 	inputs input.Parsed
+	acked  bool // the engagement holds the authorisation; read once, as Run fixes it for the run
 	sc     atomic.Pointer[scope.Scope]
 	inv    atomic.Pointer[inventory.Inventory]
 	vis    atomic.Pointer[kinds.Visibility] // of sc and inv, for the found lines
@@ -78,6 +79,10 @@ type Runner struct {
 	ranges    *provider.Ranges
 	rangesVer uint64
 	scopeSig  string // what the Scope was last built from (see buildScope)
+	// baseBuilt is the build loadBaseline made, from the records baseSig says,
+	// for the first buildScope to reuse when nothing has changed since.
+	baseBuilt *Built
+	baseSig   string
 	// policy is the egress Policy last set, and scriptsVer the script KindVersion
 	// its Scripts were read at: new scripts only replace Policy.Scripts.
 	policy     *egress.Policy
@@ -103,6 +108,7 @@ type Runner struct {
 	storedFindings [sha256.Size]byte               // the date and findings last stored (see storeDerived)
 
 	derivers   []*deriver           // the derived records other than findings (see deriveRecords)
+	findingIn  []kinds.Named        // the kinds the findings are derived from (see derivationSignature)
 	evidencers map[string]Evidencer // the stages that account for their own candidate evidence
 
 	base       *baseline        // the state the run started from, nil on a first run (see loadBaseline)
@@ -151,6 +157,7 @@ func New(cfg Config) *Runner {
 		}
 	}
 	r.derivers = r.newDerivers()
+	r.findingIn = r.findingInputs()
 	r.target = targetStages(cfg.Stages)
 	if cfg.Clock == nil {
 		r.cfg.Clock = time.Now
@@ -198,11 +205,12 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 	if r.inputs, err = eng.Inputs(); err != nil {
 		return Result{}, err
 	}
+	r.acked = eng.Acked()
 	r.emit("run_start", map[string]any{
 		"engagement": filepath.Base(eng.Dir()),
 		"scope": fmt.Sprintf("%d roots, %d orgs, %d asns, %d cidrs, %d exclusions",
 			len(r.inputs.Roots), len(r.inputs.Orgs), len(r.inputs.ASNs), len(r.inputs.CIDRs), len(r.inputs.Exclusions)),
-		"passive": r.cfg.Passive, "authorised": eng.Acked(),
+		"passive": r.cfg.Passive, "authorised": r.acked,
 	})
 	r.warnUnauthorised()
 	r.warnStaleEOLData()
@@ -331,9 +339,13 @@ func (r *Runner) buildScope() error {
 		r.policy = &p
 		return nil
 	}
-	built, err := BuildScope(r.inputs, runnerSource{r})
-	if err != nil {
-		return err
+	built := r.baseBuilt
+	r.baseBuilt = nil
+	if built == nil || sig != r.baseSig {
+		var err error
+		if built, err = BuildScope(r.inputs, runnerSource{r}); err != nil {
+			return err
+		}
 	}
 	sc, inv := built.Scope, built.Inv
 	r.sc.Store(sc)
@@ -345,7 +357,7 @@ func (r *Runner) buildScope() error {
 		sensitivePaths = append(sensitivePaths, e.Path)
 	}
 	p := &egress.Policy{
-		Scope: sc, Ack: eng.Acked(), Passive: r.cfg.Passive,
+		Scope: sc, Ack: r.acked, Passive: r.cfg.Passive,
 		Ports: r.cfg.Settings.Ports, SensitivePaths: sensitivePaths,
 		Resolutions: inv.Addrs(), Candidates: built.Candidates,
 		Shared:       inv.Shared,
@@ -430,7 +442,7 @@ func (r *Runner) gateByRun(s Stage) (bool, string) {
 		if r.cfg.Passive {
 			return false, "passive-only"
 		}
-		if !r.cfg.Engagement.Acked() {
+		if !r.acked {
 			return false, reasonNoAuthorisation
 		}
 	}
@@ -441,7 +453,7 @@ func (r *Runner) gate(s Stage) (bool, string) {
 	if ok, reason := r.gateByRun(s); !ok {
 		return false, reason
 	}
-	return s.Configured(Env{Settings: r.cfg.Settings, Passive: r.cfg.Passive, Authorised: r.cfg.Engagement.Acked()})
+	return s.Configured(Env{Settings: r.cfg.Settings, Passive: r.cfg.Passive, Authorised: r.acked})
 }
 
 // warnStaleEOLData warns, once per run and with no flag, when the run date is more than twelve
@@ -641,7 +653,7 @@ func (r *Runner) notes() []string {
 	if sc == nil || inv == nil {
 		return notes
 	}
-	view := View{r: r, sc: sc, inv: inv, cache: &recordCache{m: map[string][]store.Record{}}}
+	view := View{r: r, sc: sc, inv: inv, vis: r.vis.Load(), cache: &recordCache{m: map[string][]store.Record{}}}
 	for _, s := range r.cfg.Stages {
 		if n, ok := s.(Noter); ok {
 			if ok, _ := r.gate(s); ok {
@@ -753,7 +765,7 @@ func (r *Runner) deriveFindings() error {
 	}
 	var readErr error
 	in := findings.Input{Scope: sc, Inv: inv, Settings: r.cfg.Settings, Today: r.today(),
-		Records: keepFirstErr(&readErr, r.records), Roots: r.inputs.Roots, Orgs: r.inputs.Orgs}
+		Records: keepFirstErr(&readErr, r.records), Roots: r.inputs.Roots, Orgs: r.inputs.Orgs, Vis: r.vis.Load()}
 	fs, attribution := findings.DeriveAll(in)
 	if readErr != nil {
 		return readErr
@@ -879,12 +891,17 @@ func (r *Runner) kindSig(ks []kinds.Named) string {
 	return b.String()
 }
 
-// derivationSignature changes whenever a record of any kind but the derived
-// kinds ("finding" and those the derivers write) or the date changes. The Scope
-// and Inventory are built from nothing else, and the settings and inputs are
-// fixed for the Runner's life. The findings do not read the derived records, so
-// storing them must not derive the findings again.
+// derivationSignature changes whenever a record of one of the findings' input
+// kinds or the date changes. The Scope and Inventory are built from nothing
+// else, and the settings and inputs are fixed for the Runner's life.
 func (r *Runner) derivationSignature() string {
+	return r.kindSig(r.findingIn) + r.today()
+}
+
+// findingInputs is every kind but the derived ones ("finding" and those the
+// derivers write). The findings do not read the derived records, so storing
+// them must not derive the findings again.
+func (r *Runner) findingInputs() []kinds.Named {
 	derived := map[string]bool{kinds.Finding.Name(): true}
 	for _, d := range r.derivers {
 		derived[d.writes.Name()] = true
@@ -896,7 +913,7 @@ func (r *Runner) derivationSignature() string {
 			read = append(read, named)
 		}
 	}
-	return r.kindSig(read) + r.today()
+	return read
 }
 
 // currentRecords returns the current records of a kind. Callers must not

@@ -111,7 +111,7 @@ type siblings struct {
 func newSiblings(addrs map[string][]netip.Addr, services []Service, inv *inventory.Inventory, sc *scope.Scope) *siblings {
 	s := &siblings{bySAN: map[string][]int{}, byTitle: map[string][]int{}}
 	for _, name := range slices.Sorted(maps.Keys(addrs)) {
-		if inv.WildcardOnly()[name] || sc.ClassifyHost(name).Class != scope.InScope {
+		if inv.WildcardOnly()[name] || !sc.HostInScope(name) {
 			continue
 		}
 		if _, fronted := inv.Fronted(name); !fronted {

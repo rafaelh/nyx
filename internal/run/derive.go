@@ -9,7 +9,6 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/store"
 	"github.com/rafaelh/nyx/internal/thirdparty"
@@ -58,7 +57,7 @@ func (r *Runner) newDerivers() []*deriver {
 // deriver reads the kinds the inventory's provider hosts come from, and not
 // third_party, which it and the stages write.
 func thirdPartyCNAME(in deriveInput) []store.Obs {
-	return thirdparty.CNAME(in.Scope, in.Inv, provider.Default())
+	return thirdparty.CNAME(in.Scope, in.Inv)
 }
 
 // derive derives the findings and then the other derived records. Every place

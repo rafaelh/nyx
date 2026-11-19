@@ -79,7 +79,7 @@ func New(c Config) *Scope {
 		}
 	}
 	for h, addrs := range c.Resolutions {
-		h = input.NormaliseHost(h)
+		h = dnsname.Normalise(h)
 		s.resolved[h] = addrs
 		if e, ok := s.matchName(h); ok {
 			for _, a := range addrs {
@@ -101,7 +101,7 @@ func New(c Config) *Scope {
 func normaliseAll(in []string) []string {
 	out := make([]string, len(in))
 	for i, h := range in {
-		out[i] = input.NormaliseHost(h)
+		out[i] = dnsname.Normalise(h)
 	}
 	return out
 }
@@ -124,10 +124,13 @@ func (s *Scope) cidrOf(a netip.Addr) (input.Exclusion, bool) {
 	return input.Exclusion{}, false
 }
 
+// HostInScope reports whether ClassifyHost puts host in scope.
+func (s *Scope) HostInScope(host string) bool { return s.ClassifyHost(host).Class == InScope }
+
 // ClassifyHost returns InScope, Candidate or Excluded (with the reason). A name
 // is excluded if it matches the exclusion list or resolves into an excluded CIDR.
 func (s *Scope) ClassifyHost(host string) Classification {
-	h := input.NormaliseHost(host)
+	h := dnsname.Normalise(host)
 	if e, ok := s.matchName(h); ok {
 		return Classification{Excluded, "matched exclusion " + e.Entry}
 	}
@@ -147,7 +150,7 @@ func (s *Scope) ClassifyHost(host string) Classification {
 // RootOf is the most specific in-scope root that host is equal to or under, or
 // "" when none covers it. It ignores exclusions: ClassifyHost decides those.
 func (s *Scope) RootOf(host string) string {
-	h, best := input.NormaliseHost(host), ""
+	h, best := dnsname.Normalise(host), ""
 	for _, r := range s.roots {
 		if dnsname.Under(h, r) && len(r) > len(best) {
 			best = r
@@ -170,7 +173,7 @@ func (s *Scope) InScopeIP(a netip.Addr) bool {
 // is the one decision behind the summary counts and the web CSVs:
 // an IP literal is in an in-scope netblock and not excluded; a name is in scope.
 func (s *Scope) WebHostInScope(host string) bool {
-	h := input.NormaliseHost(host)
+	h := dnsname.Normalise(host)
 	if a, ok := input.IPLiteral(h); ok {
 		_, _, excluded := s.exclusion(a)
 		return s.InScopeIP(a) && !excluded

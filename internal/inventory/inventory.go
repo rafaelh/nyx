@@ -146,7 +146,7 @@ func New(d Data, db *provider.DB) *Inventory {
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
 		class: map[netip.Addr]provider.Result{}, regOf: map[netip.Addr]int{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{}}
 	for _, s := range d.ServerAddresses {
-		host := input.NormaliseHost(s.Host)
+		host := dnsname.Normalise(s.Host)
 		i.servers[host] = append(i.servers[host], s.Addr.Unmap())
 	}
 	for _, r := range d.Resolutions {
@@ -247,7 +247,7 @@ func (i *Inventory) WildcardOnly() map[string]bool { return i.wo }
 func (i *Inventory) Representatives(sc *scope.Scope) map[string]string {
 	reps := map[string]string{}
 	for name := range i.wo {
-		if len(i.addr[name]) == 0 || sc.ClassifyHost(name).Class != scope.InScope {
+		if len(i.addr[name]) == 0 || !sc.HostInScope(name) {
 			continue
 		}
 		zone := parent(name)
@@ -269,8 +269,8 @@ func (i *Inventory) WildcardZone(name string) bool { return i.zone[name] }
 func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 	var out []string
 	for _, h := range i.d.Hosts {
-		if i.wo[h.Name] || i.zone[parent(h.Name)] || sc.ClassifyHost(h.Name).Class != scope.InScope ||
-			sc.ClassifyHost(parent(h.Name)).Class != scope.InScope {
+		if i.wo[h.Name] || i.zone[parent(h.Name)] || !sc.HostInScope(h.Name) ||
+			!sc.HostInScope(parent(h.Name)) {
 			continue
 		}
 		if slices.ContainsFunc(h.Stages, func(s string) bool { return s != generator }) {
@@ -374,8 +374,8 @@ func (i *Inventory) indexRegistrants() {
 // and used by an in-scope host). A server with no address on record is
 // self-hosted only by being in scope.
 func (i *Inventory) SelfHosted(host string, sc *scope.Scope) bool {
-	host = input.NormaliseHost(host)
-	if sc.ClassifyHost(host).Class == scope.InScope {
+	host = dnsname.Normalise(host)
+	if sc.HostInScope(host) {
 		return true
 	}
 	return AddressDecides(host, sc, i.db) &&
@@ -429,7 +429,7 @@ func (i *Inventory) PortClosed(ap netip.AddrPort) bool {
 func (i *Inventory) ProbeHostnames(sc *scope.Scope) []string {
 	set := map[string]bool{}
 	for name, addrs := range i.addr {
-		if len(addrs) > 0 && !i.wo[name] && sc.ClassifyHost(name).Class == scope.InScope {
+		if len(addrs) > 0 && !i.wo[name] && sc.HostInScope(name) {
 			set[name] = true
 		}
 	}
@@ -452,7 +452,7 @@ func (i *Inventory) ProviderHosts(sc *scope.Scope) []ProviderHost {
 	}
 	var out []ProviderHost
 	for _, n := range slices.Sorted(maps.Keys(names)) {
-		if i.wo[n] || sc.ClassifyHost(n).Class != scope.InScope {
+		if i.wo[n] || !sc.HostInScope(n) {
 			continue
 		}
 		resolves := len(i.addr[n]) > 0
@@ -511,7 +511,7 @@ func (i *Inventory) Fronted(host string) (string, bool) {
 // of its addresses passes byAddr, and the provider of the first that does; an
 // IP literal is judged by byAddr alone.
 func (i *Inventory) served(host string, byCNAME func(provider.Entry) bool, byAddr func(provider.Result) bool) (string, bool) {
-	host = input.NormaliseHost(host)
+	host = dnsname.Normalise(host)
 	if a, ok := input.IPLiteral(host); ok {
 		if r := i.result(a); byAddr(r) {
 			return r.Provider, true
@@ -619,7 +619,7 @@ func (i *Inventory) IPRows(sc *scope.Scope) []IPRow {
 func (i *Inventory) srvPorts(names []string, sc *scope.Scope) []uint16 {
 	var ports []uint16
 	for _, n := range names {
-		if p := i.srv[n]; len(p) > 0 && sc.ClassifyHost(n).Class == scope.InScope {
+		if p := i.srv[n]; len(p) > 0 && sc.HostInScope(n) {
 			ports = append(ports, p...)
 		}
 	}

@@ -18,7 +18,7 @@ import (
 // read by runStage only once the workers have finished.
 type stageRun struct {
 	r    *Runner
-	ctx  context.Context
+	ctx  context.Context // the run's context, with the warner that Checks and Run use
 	s    Stage
 	name string
 
@@ -27,7 +27,6 @@ type stageRun struct {
 	retiring    bool
 	clients     egress.Clients
 	view        View
-	runCtx      context.Context // ctx with the warner the checks use
 	workers     int
 
 	work      chan Check
@@ -61,14 +60,14 @@ func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 		return nil, err
 	}
 	pend, _ := r.st.PendingRedo()
-	sr := &stageRun{r: r, ctx: ctx, s: s, name: name, done: done,
+	sr := &stageRun{r: r, ctx: withWarner(ctx, r.warn), s: s, name: name, done: done,
 		redoPending: slices.Contains(pend, name)}
 	var exempt []string
 	if ce, ok := s.(CandidateExempt); ok {
 		exempt = ce.CandidateExemptSources()
 	}
 	sr.clients = r.cfg.Egress.ClientsWith(s.Contact() == Target, s.Sources(), exempt)
-	sr.view = View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
+	sr.view = View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), vis: r.vis.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
 
 	sr.workers = r.cfg.Settings.Concurrency
 	if wc, ok := s.(WorkerCounter); ok {
@@ -76,7 +75,6 @@ func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 	}
 	// With no workers the first send on work would block forever.
 	sr.workers = max(sr.workers, 1)
-	sr.runCtx = withWarner(ctx, r.warn)
 
 	_, sr.retiring = s.(Retiring)
 	sr.keepAll = sr.redoPending || sr.retiring
@@ -139,7 +137,7 @@ func (sr *stageRun) runOne(c Check) {
 		return
 	}
 	fault.PointDetail("in-flight", c.Key)
-	obs, err := runCheck(sr.runCtx, sr.s, c, sr.clients)
+	obs, err := runCheck(sr.ctx, sr.s, c, sr.clients)
 	if sr.ctx.Err() != nil {
 		r.count(name, func(s *stageStats) { s.cancelled++ })
 		return

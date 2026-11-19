@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -745,13 +744,9 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 
 func TestGitHub_ReadmeStatesWhatIsAndIsNotRecorded(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(b)
+	readme := readmeText(t)
 	// Phrases wrap across lines and start sentences, so they are matched on words.
-	flat := strings.ToLower(strings.Join(strings.Fields(readme), " "))
+	flat := flatWords(readme)
 	if keyed := keyedSourcesBullet(readme); !strings.Contains(keyed, "`github`") || !strings.Contains(keyed, "github.max_results") {
 		t.Errorf("the keyed-sources entry does not name github and github.max_results: %q", keyed)
 	}

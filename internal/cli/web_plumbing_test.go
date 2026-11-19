@@ -3,7 +3,7 @@ package cli_test
 import (
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -39,7 +39,7 @@ func TestWebPlumbing_FilesAreSortedSafeDatedAndCounted(t *testing.T) {
 				t.Errorf("%s dates: %v", f, r)
 			}
 		}
-		if len(urls) == 0 || !sort.StringsAreSorted(urls) {
+		if len(urls) == 0 || !slices.IsSorted(urls) {
 			t.Errorf("%s must be non-empty and sorted: %v", f, urls)
 		}
 	}
@@ -58,7 +58,7 @@ func TestWebPlumbing_FilesAreSortedSafeDatedAndCounted(t *testing.T) {
 			t.Errorf("unexpected found line: %v", e)
 		}
 	}
-	sort.Strings(printed)
+	slices.Sort(printed)
 	if strings.Join(printed, ",") != "http://a.example.com,http://b.example.com" {
 		t.Errorf("printed web services = %v", printed)
 	}

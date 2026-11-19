@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -762,11 +761,7 @@ func TestShodanHost_CandidateRootFromBothIsOneFamily(t *testing.T) {
 
 func TestShodanHost_ReadmeSaysWhatItDoes(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(b)
+	readme := readmeText(t)
 	for _, want := range []string{
 		"shodan-host", "--redo shodan-host", "--redo shodan", "shodan.max_hosts", "--shodan-max-hosts",
 		"shodan_last_seen", "third-party reported", "unconfirmed", "per dedicated in-scope address", "rate-limited",

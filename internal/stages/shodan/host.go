@@ -140,10 +140,10 @@ func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string)
 			continue
 		}
 		seen["name|"+n] = true
-		if sc.ClassifyHost(n).Class == scope.InScope {
+		if sc.HostInScope(n) {
 			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
 			if addr != "" {
-				obs = append(obs, kinds.IPHostname.Obs(addr+"|"+n, kinds.IPHostnameAttrs{IP: addr, Hostname: n, Source: "shodan"}))
+				obs = append(obs, kinds.IPHostnameObs(addr, n, "shodan"))
 			}
 		} else if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] {
 			seen["root|"+root] = true

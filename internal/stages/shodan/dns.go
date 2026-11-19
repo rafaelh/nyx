@@ -158,7 +158,7 @@ func (o *dnsObs) record(sub, typ, value string) {
 	default:
 		return
 	}
-	if target != "" && o.in.sc.ClassifyHost(target).Class == scope.InScope {
+	if target != "" && o.in.sc.HostInScope(target) {
 		o.hostname(target)
 	}
 	if key := name + "|" + typ + "|" + value; !o.seen[key] {

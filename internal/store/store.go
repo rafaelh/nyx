@@ -71,15 +71,8 @@ type ObsRow struct{ Key, CheckKey string }
 // Input is a stored scope input or exclusion.
 type Input struct{ Kind, Value, AddedAt string }
 
-type opKind int
-
-const (
-	opComplete opKind = iota
-	opBarrier
-)
-
+// op is a check's completion, or a barrier when done is set.
 type op struct {
-	kind         opKind
 	stage, check string
 	obs          []Obs
 	done         chan error
@@ -326,13 +319,13 @@ func (s *Store) CheckKey(check string) string { return s.red.Redact(check) }
 
 // Complete queues the completion of a check with its observations.
 func (s *Store) Complete(stage, check string, obs []Obs) {
-	s.send(op{kind: opComplete, stage: stage, check: s.CheckKey(check), obs: obs})
+	s.send(op{stage: stage, check: s.CheckKey(check), obs: obs})
 }
 
 // Flush waits until everything queued so far is committed and returns the first write error.
 func (s *Store) Flush() error {
 	done := make(chan error, 1)
-	if !s.send(op{kind: opBarrier, done: done}) {
+	if !s.send(op{done: done}) {
 		return s.firstErr()
 	}
 	return <-done
@@ -365,7 +358,7 @@ func (s *Store) writer() {
 	defer s.wg.Done()
 	for first := range s.ch {
 		batch := []op{first}
-		if first.kind != opBarrier {
+		if first.done == nil {
 			timer := time.NewTimer(maxBatchWait)
 		collect:
 			for len(batch) < maxBatch {
@@ -375,7 +368,7 @@ func (s *Store) writer() {
 						break collect
 					}
 					batch = append(batch, o)
-					if o.kind == opBarrier {
+					if o.done != nil {
 						break collect
 					}
 				case <-timer.C:
@@ -399,7 +392,7 @@ func (s *Store) commit(batch []op) {
 		}
 		err := s.firstErr()
 		for _, o := range batch {
-			if o.kind == opBarrier {
+			if o.done != nil {
 				o.done <- err
 			}
 		}
@@ -455,16 +448,16 @@ func (s *Store) commitOps(batch []op) []Obs {
 	kinds := map[string]bool{}
 	wrote := false
 	for _, o := range batch {
-		switch o.kind {
-		case opComplete:
-			n, err := s.applyComplete(tx, o, today, kinds)
-			if err != nil {
-				s.setErr(err)
-				return nil
-			}
-			news = append(news, n...)
-			wrote = true
+		if o.done != nil {
+			continue
 		}
+		n, err := s.applyComplete(tx, o, today, kinds)
+		if err != nil {
+			s.setErr(err)
+			return nil
+		}
+		news = append(news, n...)
+		wrote = true
 	}
 	if !wrote {
 		return nil

@@ -1,6 +1,10 @@
 package kinds
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/rafaelh/nyx/internal/store"
+)
 
 // The record kinds. Each is a handle (Of or Bare) with its showing rules and,
 // for an Of, the struct of attributes its observations carry.
@@ -83,6 +87,12 @@ type IPHostnameAttrs struct {
 	IP       string `json:"ip"`
 	Hostname string `json:"hostname"`
 	Source   string `json:"source"`
+}
+
+// IPHostnameObs is the observation, keyed "<ip>|<hostname>", that source saw ip
+// point back to hostname.
+func IPHostnameObs(ip, hostname, source string) store.Obs {
+	return IPHostname.Obs(ip+"|"+hostname, IPHostnameAttrs{IP: ip, Hostname: hostname, Source: source})
 }
 
 // ProviderRangeAttrs: an address range a cloud or SaaS provider publishes.

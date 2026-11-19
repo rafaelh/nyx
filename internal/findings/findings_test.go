@@ -5,7 +5,6 @@ import (
 	"maps"
 	"net/netip"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -90,13 +89,13 @@ func summarise(fs []findings.Finding) []string {
 	for _, x := range fs {
 		out = append(out, fmt.Sprintf("%s/%s=%s", x.Category, x.Type, x.Severity))
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
 func wantSet(t *testing.T, got []findings.Finding, want ...string) {
 	t.Helper()
-	sort.Strings(want)
+	slices.Sort(want)
 	if g := summarise(got); !slices.Equal(g, want) {
 		t.Errorf("findings = %v, want %v", g, want)
 	}

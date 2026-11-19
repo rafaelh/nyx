@@ -148,16 +148,13 @@ func dependency(in rootInput, mechanism, host string) []run.Observation {
 	if host == "" {
 		return nil
 	}
-	if in.sc.ClassifyHost(host).Class == scope.InScope {
+	if in.sc.HostInScope(host) {
 		return []run.Observation{kinds.Hostname.Obs(host, kinds.HostnameAttrs{})}
 	}
 	if mechanism == "" {
 		return nil
 	}
-	domain := dnsname.Registrable(host)
-	owner, _ := provider.Default().DomainOwner(domain)
-	return []run.Observation{kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, mechanism, domain),
-		kinds.ThirdPartyAttrs{Root: in.root, Mechanism: mechanism, Domain: domain, Provider: owner})}
+	return []run.Observation{kinds.ThirdPartyObs(in.root, mechanism, dnsname.Registrable(host), 0)}
 }
 
 // runSRV asks each listed service name under the root. NXDOMAIN and NODATA are

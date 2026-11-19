@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/scope"
 )
@@ -255,7 +256,7 @@ func Link(resp Response, href string) (Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	if input.NormaliseHost(t.host) != input.NormaliseHost(resp.origin.host) {
+	if dnsname.Normalise(t.host) != dnsname.Normalise(resp.origin.host) {
 		return nil, errors.New("link is not on the same host as the page it was found on")
 	}
 	return req{t}, nil
@@ -318,7 +319,7 @@ func (p *Policy) planHTTP(tg target) (httpPlan, Refused, bool) {
 	if tg.script != "" && !p.Scripts[tg.script] {
 		return httpPlan{}, Refused{"script URL is not one the crawl recorded"}, true
 	}
-	host := input.NormaliseHost(tg.host)
+	host := dnsname.Normalise(tg.host)
 	lit, isIP := input.IPLiteral(host)
 	if r, refused := shapeRefusal(tg, isIP); refused {
 		return httpPlan{}, r, true

@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/netip"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -196,7 +195,7 @@ func portKeys(ips []string, ports []int) []string {
 			out = append(out, netip.AddrPortFrom(netip.MustParseAddr(ip), uint16(port)).String())
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -213,7 +212,7 @@ func (p *pworld) openPortKeys() []string {
 			out = append(out, netip.AddrPortFrom(netip.MustParseAddr(r["ip"]), uint16(port)).String())
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

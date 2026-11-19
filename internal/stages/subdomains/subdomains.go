@@ -14,7 +14,6 @@ import (
 	"maps"
 	"net/url"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,7 +138,7 @@ func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		seen[n] = true
 		obs = append(obs, kinds.Hostname.Obs(n, res.attrs))
 	}
-	sort.Slice(obs, func(i, j int) bool { return obs[i].Key < obs[j].Key })
+	slices.SortFunc(obs, func(a, b run.Observation) int { return strings.Compare(a.Key, b.Key) })
 	for _, u := range pickURLs(res.urls, root, in.maxURLs) {
 		obs = append(obs, kinds.URL.Obs(u.url, kinds.URLAttrs{URL: u.url, Host: u.host}))
 	}
@@ -167,11 +166,11 @@ func pickURLs(raw []string, root string, max int) []archivedURL {
 	}
 	hosts := make([]string, 0, len(byHost))
 	for h, l := range byHost {
-		sort.Strings(l)
+		slices.Sort(l)
 		byHost[h] = slices.Compact(l)
 		hosts = append(hosts, h)
 	}
-	sort.Strings(hosts)
+	slices.Sort(hosts)
 	var out []archivedURL
 	for i := 0; len(out) < max; i++ {
 		took := false
@@ -369,7 +368,7 @@ func ccGet(ctx context.Context, c egress.Clients, u string) ([]byte, error) {
 			if secs, err := strconv.Atoi(resp.HeaderValue("Retry-After")); err == nil && secs >= 0 && secs <= int(ccMaxWait/time.Second) {
 				d = time.Duration(secs) * time.Second
 			}
-			if err := sleep(ctx, d); err != nil {
+			if err := httpsrc.Sleep(ctx, d); err != nil {
 				return nil, err
 			}
 			wait *= 2
@@ -383,18 +382,6 @@ func ccGet(ctx context.Context, c egress.Clients, u string) ([]byte, error) {
 			}
 		}
 		return httpsrc.Body(req, resp)
-	}
-}
-
-// sleep waits for d or the context, whichever ends first.
-func sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }
 

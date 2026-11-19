@@ -328,7 +328,7 @@ func TestSRV_ThirdPartyAnnouncedAndKeptWhenNotCurrent(t *testing.T) {
 	w := newWorld(t)
 	w.dns.SRV("_xmpp-server._tcp.example.com", 5, 0, 5269, "xmpp.chat-host.test")
 	w.dns.SRV("_caldav._tcp.example.com", 1, 1, 443, "cal.cloudflare.com")
-	if code := w.h.exec("--passive", "--rate-dns", "100000", "example.com"); code != 0 {
+	if code := w.h.exec("--passive", "--rate-per-source", "1000", "--rate-dns", "100000", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	out := strings.Join(w.h.logMsgs("INFO"), "\n")

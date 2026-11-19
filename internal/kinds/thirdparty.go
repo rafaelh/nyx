@@ -58,6 +58,16 @@ func ThirdPartyKey(root, mechanism, name string) string {
 	return root + "|" + mechanism + "|" + name
 }
 
+// ThirdPartyObs is the observation of a third party that root depends on
+// through mechanism, named by its domain, found depth hops from the root. The
+// provider is the domain's owner when it is known. A TXT verification, which
+// names no domain, is built with ThirdParty.Obs.
+func ThirdPartyObs(root, mechanism, domain string, depth int) store.Obs {
+	owner, _ := provider.Default().DomainOwner(domain)
+	return ThirdParty.Obs(ThirdPartyKey(root, mechanism, domain),
+		ThirdPartyAttrs{Root: root, Mechanism: mechanism, Domain: domain, Provider: owner, Depth: depth})
+}
+
 // ThirdPartyOf decodes a third party's attributes, filling in from its key what
 // a record that is no longer current has lost: the store keeps attributes only
 // from current observations, but the key says the root, the mechanism and the

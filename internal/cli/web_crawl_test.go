@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -371,7 +370,7 @@ func TestCrawl_DisabledAndSettingsAreInTheCheckKey(t *testing.T) {
 	x.mustRun("--crawl-depth", "1")
 	x.mustRun("--crawl-pages", "50")
 	want := []string{key(1, 100), key(2, 100), key(2, 50)}
-	sort.Strings(want)
+	slices.Sort(want)
 	if got := x.completedKeys("crawl"); !slices.Equal(got, want) {
 		t.Errorf("crawl keys = %v, want %v: changing depth or pages must create new checks", got, want)
 	}

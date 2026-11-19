@@ -13,7 +13,6 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/orgname"
 	"github.com/rafaelh/nyx/internal/run"
@@ -51,7 +50,7 @@ func rootObs(names []string) []run.Observation {
 	seen := map[string]bool{}
 	var obs []run.Observation
 	for _, n := range names {
-		n = input.NormaliseHost(strings.TrimPrefix(strings.TrimSpace(n), "*."))
+		n = dnsname.Normalise(strings.TrimPrefix(strings.TrimSpace(n), "*."))
 		if n == "" || strings.ContainsAny(n, "*@/: ") {
 			continue
 		}

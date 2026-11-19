@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -71,9 +70,7 @@ func (f *failureWriter) write(e *clierr.Error) {
 		var b bytes.Buffer
 		if f.json {
 			l := newErrorLine(e, red)
-			enc := json.NewEncoder(&b)
-			enc.SetEscapeHTML(false) // a URL's & stays readable
-			if err := enc.Encode(l); err != nil {
+			if err := lineEncoder(&b).Encode(l); err != nil {
 				fmt.Fprintf(&b, "{\"error\":%q,\"code\":%q,\"hint\":null,\"input\":null,\"transient\":false}\n", err.Error(), clierr.Unexpected)
 			}
 		} else {

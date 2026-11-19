@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -738,18 +737,14 @@ func TestOrigin_Help(t *testing.T) {
 // the stages --passive skips, the new file and the settings.
 func TestOrigin_ReadmeStatesTheBoundary(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(b)
-	flat := strings.ToLower(strings.Join(strings.Fields(readme), " "))
+	readme := readmeText(t)
+	flat := flatWords(readme)
 	i := strings.Index(readme, "## Passive boundary")
 	j := strings.Index(readme, "## Passive-only mode")
 	if i < 0 || j < i {
 		t.Fatal("README has no passive boundary section")
 	}
-	boundary := strings.ToLower(strings.Join(strings.Fields(readme[i:j]), " "))
+	boundary := flatWords(readme[i:j])
 	for _, want := range []string{"one get of `/` to an address it is already allowed to contact",
 		"in-scope hostname as the server name and the host header", "whether a hostname behind a cdn or waf is also served directly"} {
 		if !strings.Contains(boundary, want) {

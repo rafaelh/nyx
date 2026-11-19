@@ -19,7 +19,6 @@ import (
 	"github.com/rafaelh/nyx/internal/engagement"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
@@ -289,7 +288,7 @@ func TestKeyEncodedSettingCreatesNewChecks(t *testing.T) {
 func inScopeHostnames(v run.View) []string {
 	var out []string
 	for _, rec := range v.Records(kinds.Hostname) {
-		if v.Scope().ClassifyHost(rec.Key).Class == scope.InScope {
+		if v.Scope().HostInScope(rec.Key) {
 			out = append(out, rec.Key)
 		}
 	}
@@ -1093,7 +1092,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 		h := newHarness(t, a, b)
 		h.eopts.SourceBaseURLs = map[string]string{"api.example.net": "http://127.0.0.1:1"} // refuses connections; error text includes the URL
 		h.setenv("NYX_KEYS_FAKE", envKey)
-		args := []string{"a.com", "--debug", "--config", cfg}
+		args := []string{"a.com", "--debug", "--config", cfg, "--rate-per-source", "1000"}
 		if jsonMode {
 			args = append(args, "--json")
 		}

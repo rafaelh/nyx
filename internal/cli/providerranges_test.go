@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -365,24 +364,6 @@ func TestProviderRanges_CNAMEIntoProviderStillMakesAHostShared(t *testing.T) {
 }
 
 // --- README ---
-
-func readmeSection(t *testing.T, heading string) (section, whole string) {
-	t.Helper()
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	whole = string(b)
-	start := strings.Index(whole, heading)
-	if start < 0 {
-		t.Fatalf("README has no %q section", heading)
-	}
-	end := strings.Index(whole[start+1:], "\n## ")
-	if end < 0 {
-		t.Fatalf("README has nothing after %q", heading)
-	}
-	return strings.ToLower(whole[start : start+1+end]), whole
-}
 
 // The passive-boundary section names every range publisher the stage contacts,
 // and says why Azure is not one of them.

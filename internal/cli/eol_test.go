@@ -298,11 +298,7 @@ func TestEOL_StaleDataWarning(t *testing.T) {
 // recognises and the output file; --help and the findings topic list the setting and the types.
 func TestEOL_DocumentedInReadmeAndHelp(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(b)
+	readme := readmeText(t)
 	wants := []string{"endoflife.date", eol.DataDate(), eolFile, "eol_warn_days", "--eol-warn-days", "eol-approaching",
 		"OpenSSH", "Dropbear", "ProFTPD", "vsftpd", "Pure-FTPd", "Postfix", "Exim", "Sendmail", "Microsoft IIS FTP", "Microsoft Exchange"}
 	wants = append(wants, eol.Names()...)

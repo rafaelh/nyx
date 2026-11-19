@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -701,11 +700,7 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 
 func TestKeyed_ReadmeNamesTheSources(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(b)
+	readme := readmeText(t)
 	keyed := keyedSourcesBullet(readme)
 	for _, want := range []string{"censys", "chaos", "shodan-dns", "query credit"} {
 		if !strings.Contains(keyed, want) {

@@ -12,10 +12,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Wildcard probes each parent zone with two random labels. It records the zone's
@@ -48,7 +46,7 @@ func (*Wildcard) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 	return func(yield func(run.Check, error) bool) {
 		zones := map[string]bool{}
 		for _, r := range v.Inputs().Roots {
-			zones[input.NormaliseHost(r)] = true
+			zones[dnsname.Normalise(r)] = true
 		}
 		for _, rec := range v.Records(kinds.Resolution) {
 			a := kinds.Resolution.Attrs(rec)
@@ -57,8 +55,8 @@ func (*Wildcard) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 			if a.Type != "A" && a.Type != "AAAA" && a.Type != "CNAME" {
 				continue
 			}
-			name := input.NormaliseHost(a.Name)
-			if v.Scope().ClassifyHost(name).Class != scope.InScope {
+			name := dnsname.Normalise(a.Name)
+			if !v.Scope().HostInScope(name) {
 				continue
 			}
 			for _, p := range dnsname.Parents(name) {
@@ -66,7 +64,7 @@ func (*Wildcard) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 			}
 		}
 		// A sub-root's parents are not ours to probe.
-		maps.DeleteFunc(zones, func(z string, _ bool) bool { return v.Scope().ClassifyHost(z).Class != scope.InScope })
+		maps.DeleteFunc(zones, func(z string, _ bool) bool { return !v.Scope().HostInScope(z) })
 		for _, z := range slices.Sorted(maps.Keys(zones)) {
 			if !yield(run.Check{Key: z, Input: z}, nil) {
 				return

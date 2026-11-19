@@ -15,7 +15,6 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/stages/serveraddr"
@@ -317,9 +316,7 @@ func (t *thirdParties) observations() []run.Observation {
 	var obs []run.Observation
 	for _, k := range slices.Sorted(maps.Keys(t.found)) {
 		mechanism, domain, _ := strings.Cut(k, "|")
-		owner, _ := provider.Default().DomainOwner(domain)
-		obs = append(obs, kinds.ThirdParty.Obs(kinds.ThirdPartyKey(t.root, mechanism, domain),
-			kinds.ThirdPartyAttrs{Root: t.root, Mechanism: mechanism, Domain: domain, Provider: owner, Depth: t.found[k]}))
+		obs = append(obs, kinds.ThirdPartyObs(t.root, mechanism, domain, t.found[k]))
 	}
 	return obs
 }

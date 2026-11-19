@@ -3,7 +3,7 @@ package cli_test
 import (
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -36,7 +36,7 @@ func typeURLs(rows []map[string]string) []string {
 	for _, r := range current(rows) {
 		out = append(out, r["type"]+"="+r["url"])
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -46,7 +46,7 @@ func col(rows []map[string]string, name string) []string {
 	for _, r := range rows {
 		out = append(out, r[name])
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -66,7 +66,7 @@ func (x *risk) summaryTargets() []string {
 	for _, f := range x.summaryFindings() {
 		out = append(out, fmt.Sprintf("%v=%v", f["target"], f["severity"]))
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -193,6 +193,6 @@ func heads(s *source) []string {
 			out = append(out, r.URI)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }

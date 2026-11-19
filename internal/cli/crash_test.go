@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -210,7 +209,7 @@ func setDiff(all []string, exclude map[string]bool) []string {
 			out = append(out, k)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -487,7 +486,7 @@ func changedHosts(t *testing.T, out string) []string {
 			hosts = append(hosts, strings.TrimSuffix(row[2], ".a.com"))
 		}
 	}
-	sort.Strings(hosts)
+	slices.Sort(hosts)
 	return hosts
 }
 

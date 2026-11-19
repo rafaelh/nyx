@@ -17,7 +17,7 @@ import (
 // specific input root that covers the name (Scope.RootOf). Names that are
 // excluded or only candidates are never listed, nor is a chain on which no
 // SaaS entry appears (one that reaches only a CDN or a cloud service).
-func CNAME(sc *scope.Scope, inv *inventory.Inventory, db *provider.DB) []store.Obs {
+func CNAME(sc *scope.Scope, inv *inventory.Inventory) []store.Obs {
 	seen := map[string]bool{}
 	var obs []store.Obs
 	for _, h := range inv.ProviderHosts(sc) {
@@ -33,9 +33,7 @@ func CNAME(sc *scope.Scope, inv *inventory.Inventory, db *provider.DB) []store.O
 			continue
 		}
 		seen[key] = true
-		owner, _ := db.DomainOwner(h.Entry.Suffix)
-		obs = append(obs, kinds.ThirdParty.Obs(key, kinds.ThirdPartyAttrs{
-			Root: root, Mechanism: kinds.MechanismCNAME, Domain: h.Entry.Suffix, Provider: owner}))
+		obs = append(obs, kinds.ThirdPartyObs(root, kinds.MechanismCNAME, h.Entry.Suffix, 0))
 	}
 	return obs
 }

@@ -61,15 +61,12 @@ type input struct {
 // (which excludes shared, excluded and unknown-owner addresses). An IPv6 address
 // is yielded only with a SecurityTrails key, since HackerTarget cannot answer it;
 // it gets its check when a key is added.
-func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
+func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		set := v.Settings()
 		_, keyed := run.Env{Settings: set}.Key("securitytrails")
 		sc := v.Scope()
 		for _, a := range v.IPs(func(a netip.Addr) bool { return (a.Is4() || keyed) && v.PortEligible(a) }) {
-			if ctx.Err() != nil {
-				return
-			}
 			key := fmt.Sprintf("%s|max=%d", a, set.ReverseIP.MaxDomains)
 			if !yield(run.Check{Key: key, Input: input{a, sc, set.ReverseIP.MaxDomains, keyed}}, nil) {
 				return

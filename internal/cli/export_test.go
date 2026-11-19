@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -163,7 +162,7 @@ func checkExportedRecordSet(t *testing.T, h *harness, lines []exLine) {
 			got = append(got, l.str("kind")+"|"+l.str("key"))
 		}
 	}
-	sort.Strings(got)
+	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Fatalf("exported records differ from the database\n got %v\nwant %v", got, want)
 	}
@@ -179,7 +178,7 @@ func checkExportOrder(t *testing.T, lines []exLine) {
 			order = append(order, l.str("kind")+"\x00"+l.str("key"))
 		}
 	}
-	if !sort.StringsAreSorted(order) {
+	if !slices.IsSorted(order) {
 		t.Errorf("records are not in kind and key order: %q", order)
 	}
 	seenRecord := false

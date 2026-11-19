@@ -13,6 +13,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/input"
@@ -200,6 +201,7 @@ type View struct {
 	r     *Runner
 	sc    *scope.Scope
 	inv   *inventory.Inventory
+	vis   *kinds.Visibility // of sc and inv
 	cache *recordCache
 	done  map[string]struct{} // the stage's completed check keys, as the store keeps them
 }
@@ -284,7 +286,7 @@ func (v View) WebServices() []WebService {
 func (v View) InScopeRoots() []string {
 	var out []string
 	for _, r := range v.Inputs().Roots {
-		if v.sc.ClassifyHost(r).Class == scope.InScope {
+		if v.sc.HostInScope(r) {
 			out = append(out, r)
 		}
 	}
@@ -299,7 +301,7 @@ func (v View) ResolvableHostnames() []string {
 	set := map[string]bool{}
 	add := func(h string) {
 		if v.sc.ClassifyHost(h).Class != scope.Candidate {
-			set[input.NormaliseHost(h)] = true
+			set[dnsname.Normalise(h)] = true
 		}
 	}
 	for _, rec := range v.Records(kinds.Hostname) {
@@ -337,13 +339,13 @@ func (v View) FrontedHostnames() []string {
 // OriginPairs are the candidate origins of the fronted hostnames, at most
 // origincheck.max_candidates for each: the same pairs the findings report.
 func (v View) OriginPairs() []origin.Pair {
-	return origin.Pairs(v.sc, v.inv, kinds.NewVisibility(v.sc, v.inv), v.Records, v.Settings().OriginCheck.MaxCandidates)
+	return origin.Pairs(v.sc, v.inv, v.vis, v.Records, v.Settings().OriginCheck.MaxCandidates)
 }
 
 // StorageRefs are the buckets and containers in-scope names and pages point at,
 // sorted. A bucket with a reference is attributed.
 func (v View) StorageRefs() []cloudstorage.Reference {
-	return findings.References(findings.Input{Scope: v.sc, Inv: v.inv, Records: v.Records})
+	return findings.References(findings.Input{Scope: v.sc, Inv: v.inv, Records: v.Records, Vis: v.vis})
 }
 
 // WildcardZone reports whether the name is a zone known to be a wildcard.
