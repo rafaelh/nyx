@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -39,6 +40,15 @@ const (
 	log4j   = `"id":"CVE-2021-44228","status":"Analyzed","published":"2021-12-10T10:15:09Z","last_modified":"2025-10-27T17:40:33Z",` +
 		`"description":"Apache Log4j2 JNDI features do not protect against attacker controlled LDAP."`
 )
+
+const (
+	noBounds     = `"version_start_including":null,"version_start_excluding":null,"version_end_including":null,"version_end_excluding":null`
+	log4jFrom201 = `{"cpe":"cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*","vendor":"apache","product":"log4j","version":null,` +
+		`"version_start_including":"2.0.1","version_start_excluding":null,"version_end_including":null,"version_end_excluding":"2.3.1"}`
+)
+
+// counts matches the two count keys of a projected record, and the comma after each.
+var counts = regexp.MustCompile(`"(affected_products|references)_count":\{[^}]*\},`)
 
 // fixtureRecords is each fixture's record exactly as --json writes it: every
 // key, in order, null or [] when empty.
@@ -79,6 +89,26 @@ var fixtureRecords = map[string]string{
 	"references.json": `{` + log4j + `,` + noScore + `,"weaknesses":[],"affected_products":[],"references":[` +
 		`{"url":"https://logging.apache.org/log4j/2.x/security.html?a=1&b=2","tags":["Vendor Advisory","Patch"]},` +
 		`{"url":"https://example.com/writeup","tags":[]}]}`,
+	// Long lists, in the NVD's order: the CPE-only entry has no vendor, product or version.
+	"long-lists.json": `{"id":"CVE-2023-0100","status":"Analyzed","published":"2023-03-01T09:00:00Z","last_modified":"2023-03-05T09:00:00Z",` +
+		`"description":"An example vulnerability with long affected-product and reference lists.",` + noScore + `,"weaknesses":[],"affected_products":[` +
+		log4jFrom201 + `,` +
+		`{"cpe":"cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*","vendor":"apache","product":"log4j","version":null,` +
+		`"version_start_including":"2.4.0","version_start_excluding":null,"version_end_including":null,"version_end_excluding":"2.12.2"},` +
+		`{"cpe":"cpe:2.3:a:apache:log4j:2.17.0:*:*:*:*:*:*:*","vendor":"apache","product":"log4j","version":"2.17.0",` + noBounds + `},` +
+		`{"cpe":"cpe:2.3:a:apache:tomcat:9.0.1:*:*:*:*:*:*:*","vendor":"apache","product":"tomcat","version":"9.0.1",` + noBounds + `},` +
+		`{"cpe":"cpe:2.3:a:vmware:vcenter_server:*:*:*:*:*:*:*:*","vendor":"vmware","product":"vcenter_server","version":null,` +
+		`"version_start_including":null,"version_start_excluding":null,"version_end_including":null,"version_end_excluding":"7.0"},` +
+		`{"cpe":"cpe:2.3:a:*:*:*:*:*:*:*:node.js:*:*","vendor":null,"product":null,"version":null,` + noBounds + `}],"references":[` +
+		`{"url":"https://logging.apache.org/log4j/2.x/security.html","tags":["Vendor Advisory","Patch"]},` +
+		`{"url":"https://github.com/example/log4j/commit/abc123","tags":["Patch"]},` +
+		`{"url":"https://www.openwall.com/lists/oss-security/2021/12/10/1","tags":["Mailing List","Third Party Advisory"]},` +
+		`{"url":"https://example.com/advisory","tags":[]},` +
+		`{"url":"https://vendor.example.net/psirt/vmware-1","tags":["Vendor Advisory"]}]}`,
+	// One entry in each list.
+	"one-each.json": `{"id":"CVE-2023-0101","status":"Analyzed","published":"2023-03-01T09:00:00Z","last_modified":"2023-03-05T09:00:00Z",` +
+		`"description":"An example vulnerability with one entry in each list.",` + noScore + `,"weaknesses":[],"affected_products":[` + log4jFrom201 +
+		`],"references":[{"url":"https://logging.apache.org/log4j/2.x/security.html","tags":["Vendor Advisory"]}]}`,
 	// English weaknesses, de-duplicated in order.
 	"weaknesses.json": `{` + log4j + `,` + noScore + `,"weaknesses":["CWE-502","CWE-400","CWE-917"],"affected_products":[],"references":[]}`,
 	// The English description among others, trimmed.
@@ -105,10 +135,15 @@ func TestFromNVD_EachFixture(t *testing.T) {
 			if got := encode(t, rec); got != want {
 				t.Errorf("record\n got %s\nwant %s", got, want)
 			}
-			// The envelope writes the record through the field table: all of it is the same bytes.
+			// The envelope writes the record through the field table: all of it is the same bytes,
+			// with a count in front of each list.
 			all, _ := Select("all")
-			if got := encode(t, all.Project(rec)); got != want {
+			projected := encode(t, View{Fields: all}.Project(rec))
+			if got := counts.ReplaceAllString(projected, ""); got != want {
 				t.Errorf("projected record\n got %s\nwant %s", got, want)
+			}
+			if n := len(counts.FindAllString(projected, -1)); n != 2 {
+				t.Errorf("projected record has %d counts, want 2: %s", n, projected)
 			}
 		})
 	}

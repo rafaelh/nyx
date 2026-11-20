@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,11 +52,26 @@ func stream(terminal bool, d palette.Depth, width int) layout.Stream {
 
 func renderTo(t *testing.T, recs []Record, spec string, s layout.Stream) string {
 	t.Helper()
+	return renderView(t, recs, View{Fields: selectFields(t, spec)}, s)
+}
+
+// renderView is recs cut by v and laid out for s.
+func renderView(t *testing.T, recs []Record, v View, s layout.Stream) string {
+	t.Helper()
 	var b bytes.Buffer
-	if err := Render(&b, recs, selectFields(t, spec), s, nil); err != nil {
+	if err := Render(&b, projectAll(v, recs), s, nil); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
+}
+
+// projectAll is each of recs cut by v.
+func projectAll(v View, recs []Record) []Projected {
+	out := make([]Projected, len(recs))
+	for i, r := range recs {
+		out[i] = v.Project(r)
+	}
+	return out
 }
 
 // render is the layout for a stream that is not a terminal.
@@ -90,10 +106,10 @@ Source: nvd@nist.gov
 Weaknesses
 - CWE-502
 
-Affected Products
+Affected Products (1)
 - apache log4j (>= 2.0.1, < 2.3.1)
 
-References
+References (1)
 https://logging.apache.org/log4j/2.x/security.html [Vendor Advisory]
 `
 
@@ -139,15 +155,14 @@ No CVSS score.
 Weaknesses
 - No weaknesses listed.
 
-Affected Products
-- No affected products listed.
+Affected Products (0)
+No affected products listed.
 
-References
+References (0)
 No references listed.
 `
 	// The cve tool writes the fallback of an empty list without a bullet.
 	want = strings.Replace(want, "- No weaknesses listed.", "No weaknesses listed.", 1)
-	want = strings.Replace(want, "- No affected products listed.", "No affected products listed.", 1)
 	if got := render(t, []Record{empty}, "all", palette.None, 100); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
@@ -367,10 +382,10 @@ CVSS Score
 Weaknesses
   - CWE-502
 
-Affected Products
+Affected Products (1)
   - apache log4j (>= 2.0.1, < 2.3.1)
 
-References
+References (1)
   https://logging.apache.org/log4j/2.x/security.html [Vendor Advisory]
 `
 }
@@ -407,10 +422,10 @@ CVSS Score
 Weaknesses
   No weaknesses listed.
 
-Affected Products
+Affected Products (0)
   No affected products listed.
 
-References
+References (0)
   No references listed.
 `
 	if got := renderTerm(t, []Record{empty}, "all", palette.None, 80); got != want {
@@ -464,7 +479,7 @@ func TestRender_TerminalColour(t *testing.T) {
 		}
 		for _, want := range []string{
 			"\n\n" + d.BoldText(palette.Semantic, "info", "Status & Dates") + "\n",
-			"\n\n" + d.BoldText(palette.Semantic, "info", "References") + "\n",
+			"\n\n" + d.BoldText(palette.Semantic, "info", "References (1)") + "\n",
 			"\n  " + d.Bold("Last Modified") + "  2025",
 			"\n  " + d.Bold("Status") + "         Analyzed",
 			"\n  " + d.Bold("Base Score") + "  10.0 (CRITICAL)",
@@ -700,7 +715,7 @@ func pieces(key string, n int) []string {
 func renderRedacted(t *testing.T, r Record, s layout.Stream, red *config.Redactor) string {
 	t.Helper()
 	var b bytes.Buffer
-	if err := Render(&b, []Record{r}, selectFields(t, "all"), s, red); err != nil {
+	if err := Render(&b, projectAll(View{Fields: selectFields(t, "all")}, []Record{r}), s, red); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
@@ -775,5 +790,146 @@ func TestRender_RedactorLeavesOtherTextAlone(t *testing.T) {
 	empty := Record{ID: "CVE-2026-0001"}
 	if got, want := renderRedacted(t, empty, stream(false, palette.None, 100), red), render(t, []Record{empty}, "all", palette.None, 100); got != want {
 		t.Errorf("a record of nulls: %q, want %q", got, want)
+	}
+}
+
+// sectionLines is the heading of a section and its body, as laid out: the lines
+// from the one that starts with name to the next blank line.
+func sectionLines(t *testing.T, out, name string) []string {
+	t.Helper()
+	var got []string
+	for l := range strings.SplitSeq(out, "\n") {
+		switch {
+		case len(got) == 0 && strings.HasPrefix(l, name):
+			got = append(got, l)
+		case len(got) > 0 && l == "":
+			return got
+		case len(got) > 0:
+			got = append(got, l)
+		}
+	}
+	if len(got) == 0 {
+		t.Fatalf("no section %q in\n%s", name, out)
+	}
+	return got
+}
+
+const (
+	nothingMatchesProducts = "No affected products match."
+	nothingListedProducts  = "No affected products listed."
+)
+
+// Each list's section says how many entries there are, as the count and the
+// shown list each put it, in the plain layout and on a terminal, where the
+// body is the plain layout's indented two spaces.
+func TestRender_ListsAndCounts(t *testing.T) {
+	t.Parallel()
+	long := FromNVD(loadEntry(t, "long-lists.json"))
+	empty := Record{ID: "CVE-2026-0001", Weaknesses: []string{}, AffectedProducts: []AffectedProduct{}, References: []Reference{}}
+	v1, v2, v3 := "- apache log4j (>= 2.0.1, < 2.3.1)", "- apache log4j (>= 2.4.0, < 2.12.2)", "- apache log4j 2.17.0"
+	for _, c := range []struct {
+		name string
+		rec  Record
+		view View
+		want []string
+	}{
+		{"the count alone", long, View{Fields: DefaultFields()}, []string{"Affected Products", "6 listed"}},
+		{"the count alone under a match", long, View{Fields: DefaultFields(), Match: "log4j"}, []string{"Affected Products", "3 of 6 match"}},
+		{"the count alone under a match that matches nothing", long, View{Fields: DefaultFields(), Match: "zzz"}, []string{"Affected Products", "0 of 6 match"}},
+		{"the count alone, nothing listed", empty, View{Fields: DefaultFields()}, []string{"Affected Products", nothingListedProducts}},
+		{"the count alone under a match, nothing listed", empty, View{Fields: DefaultFields(), Match: "log4j"}, []string{"Affected Products", nothingListedProducts}},
+		{"the list and its total", long, View{Fields: selectFields(t, "affected_products"), Limit: 6}, []string{"Affected Products (6)", v1, v2, v3,
+			"- apache tomcat 9.0.1", "- vmware vcenter_server (< 7.0)", "- cpe:2.3:a:*:*:*:*:*:*:*:node.js:*:*"}},
+		{"the list, matched", long, View{Fields: selectFields(t, "affected_products"), Match: "log4j"}, []string{"Affected Products (3 of 6 match)", v1, v2, v3}},
+		{"the list, matched and limited", long, View{Fields: selectFields(t, "affected_products"), Match: "log4j", Limit: 1}, []string{"Affected Products (3 of 6 match)", v1, "2 more not shown"}},
+		{"the list, limited", long, View{Fields: selectFields(t, "affected_products"), Limit: 2}, []string{"Affected Products (6)", v1, v2, "4 more not shown"}},
+		{"the list, with a limit that leaves nothing out", long, View{Fields: selectFields(t, "affected_products"), Match: "log4j", Limit: 3}, []string{"Affected Products (3 of 6 match)", v1, v2, v3}},
+		{"the list, nothing matched", long, View{Fields: selectFields(t, "affected_products"), Match: "zzz", Limit: 2}, []string{"Affected Products (0 of 6 match)", nothingMatchesProducts}},
+		{"the list, nothing listed", empty, View{Fields: selectFields(t, "affected_products")}, []string{"Affected Products (0)", nothingListedProducts}},
+		{"the list, nothing listed, under a match", empty, View{Fields: selectFields(t, "affected_products"), Match: "log4j"}, []string{"Affected Products (0 of 0 match)", nothingListedProducts}},
+		{"the count named alone", long, View{Fields: selectFields(t, "affected_products_count"), Match: "tomcat"}, []string{"Affected Products", "1 of 6 match"}},
+	} {
+		checkSection(t, c.name, c.rec, c.view, "Affected Products", 80, c.want)
+	}
+}
+
+// References read as affected products do.
+func TestRender_ReferenceCounts(t *testing.T) {
+	t.Parallel()
+	long := FromNVD(loadEntry(t, "long-lists.json"))
+	empty := Record{ID: "CVE-2026-0001", Weaknesses: []string{}, AffectedProducts: []AffectedProduct{}, References: []Reference{}}
+	r1, r2 := "https://logging.apache.org/log4j/2.x/security.html [Vendor Advisory, Patch]", "https://github.com/example/log4j/commit/abc123 [Patch]"
+	for _, c := range []struct {
+		name string
+		rec  Record
+		view View
+		want []string
+	}{
+		{"the count alone", long, View{Fields: DefaultFields()}, []string{"References", "5 listed"}},
+		{"the count alone under a match", long, View{Fields: DefaultFields(), Match: "log4j"}, []string{"References", "2 of 5 match"}},
+		{"the count alone, nothing listed", empty, View{Fields: DefaultFields()}, []string{"References", "No references listed."}},
+		{"the list, matched and limited", long, View{Fields: selectFields(t, "references"), Match: "log4j", Limit: 1}, []string{"References (2 of 5 match)", r1, "1 more not shown"}},
+		{"the list, limited", long, View{Fields: selectFields(t, "references"), Limit: 2}, []string{"References (5)", r1, r2, "3 more not shown"}},
+		{"the list, nothing matched", long, View{Fields: selectFields(t, "references"), Match: "zzz"}, []string{"References (0 of 5 match)", "No references match."}},
+		{"the list, nothing listed", empty, View{Fields: selectFields(t, "references")}, []string{"References (0)", "No references listed."}},
+	} {
+		checkSection(t, c.name, c.rec, c.view, "References", 120, c.want)
+	}
+}
+
+// checkSection checks the section named section of rec's record cut by view, in
+// the plain layout at width and on a terminal as wide, where its body is the
+// plain layout's indented two spaces.
+func checkSection(t *testing.T, name string, rec Record, view View, section string, width int, want []string) {
+	t.Helper()
+	plain := renderView(t, []Record{rec}, view, stream(false, palette.None, width))
+	if got := sectionLines(t, plain, section); !slices.Equal(got, want) {
+		t.Errorf("%s, plain:\n got %q\nwant %q", name, got, want)
+	}
+	indented := slices.Clone(want)
+	for i := 1; i < len(indented); i++ {
+		indented[i] = "  " + indented[i]
+	}
+	term := renderView(t, []Record{rec}, view, stream(true, palette.None, width))
+	if got := sectionLines(t, term, section); !slices.Equal(got, indented) {
+		t.Errorf("%s, terminal:\n got %q\nwant %q", name, got, indented)
+	}
+}
+
+// A default record is no longer for long lists: it is as many lines as one
+// whose lists have an entry each, and shows no entry of either.
+func TestRender_DefaultDoesNotGrowWithTheLists(t *testing.T) {
+	t.Parallel()
+	long, one := FromNVD(loadEntry(t, "long-lists.json")), FromNVD(loadEntry(t, "one-each.json"))
+	for _, terminal := range []bool{false, true} {
+		s := stream(terminal, palette.None, 80)
+		got, want := renderView(t, []Record{long}, View{Fields: DefaultFields()}, s), renderView(t, []Record{one}, View{Fields: DefaultFields()}, s)
+		if a, b := strings.Count(got, "\n"), strings.Count(want, "\n"); a != b {
+			t.Errorf("terminal %v: %d lines for long lists, %d for one entry each:\n%s", terminal, a, b, got)
+		}
+		for _, entry := range []string{"log4j", "https://", "- apache"} {
+			if strings.Contains(got, entry) {
+				t.Errorf("terminal %v: %q is in a default record:\n%s", terminal, entry, got)
+			}
+		}
+	}
+}
+
+// The NVD's text in a list is cleaned, and a key in it is masked, after the cut
+// has been made on the text as the NVD wrote it.
+func TestRender_CutListsAreRedacted(t *testing.T) {
+	t.Parallel()
+	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"
+	r := Record{ID: "CVE-2026-0001", AffectedProducts: []AffectedProduct{{Vendor: new("acme"), Product: new("widget" + key)}},
+		References: []Reference{{URL: "https://example.com/?k=" + key, Tags: []string{"Patch"}}}}
+	red := config.NewRedactor(key)
+	var b bytes.Buffer
+	v := View{Fields: selectFields(t, "affected_products,references"), Match: key[:12]}
+	if err := Render(&b, projectAll(v, []Record{r}), stream(false, palette.None, 100), red); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if strings.Contains(out, key[:12]) || !strings.Contains(out, "(1 of 1 match)") || strings.Count(out, "****") < 2 {
+		t.Errorf("the key was matched but must be masked, and both lists shown:\n%s", out)
 	}
 }

@@ -176,7 +176,27 @@ func unitJSON(t *testing.T, fixture string) string {
 	return strings.TrimSuffix(out.String(), "\n")
 }
 
-// unitText is the records of fixtures as the cve tool lays them out, at depth None.
+// defaultFieldNames are the keys of a record when --fields is not given: every field but the two lists.
+func defaultFieldNames() []string {
+	return slices.DeleteFunc(cve.FieldNames(), func(n string) bool { return n == "affected_products" || n == "references" })
+}
+
+// withCounts is the JSON of a record whose lists are empty with a count in front
+// of each, as every field of it is written.
+func withCounts(record string) string {
+	return strings.NewReplacer(`"affected_products":[]`, `"affected_products_count":{"total":0},"affected_products":[]`,
+		`"references":[]`, `"references_count":{"total":0},"references":[]`).Replace(record)
+}
+
+// withoutLists is the JSON of a record whose lists are empty as it is written
+// when the lists are left out: a count in place of each.
+func withoutLists(record string) string {
+	return strings.NewReplacer(`"affected_products":[]`, `"affected_products_count":{"total":0}`,
+		`"references":[]`, `"references_count":{"total":0}`).Replace(record)
+}
+
+// unitText is the records of fixtures as the cve tool lays them out, at depth None, for a
+// --fields value; "" here is the default, which --fields "" is not.
 func unitText(t *testing.T, spec string, fixtures ...string) string {
 	t.Helper()
 	var recs []cve.Record
@@ -184,12 +204,19 @@ func unitText(t *testing.T, spec string, fixtures ...string) string {
 		_, e := loadFixture(t, name)
 		recs = append(recs, cve.FromNVD(&e))
 	}
-	f, unknown := cve.Select(spec)
-	if unknown != nil {
-		t.Fatal(unknown)
+	f := cve.DefaultFields()
+	if spec != "" {
+		var unknown []string
+		if f, unknown = cve.Select(spec); unknown != nil {
+			t.Fatal(unknown)
+		}
+	}
+	projected := make([]cve.Projected, len(recs))
+	for i, r := range recs {
+		projected[i] = cve.View{Fields: f}.Project(r)
 	}
 	var out bytes.Buffer
-	if err := cve.Render(&out, recs, f, layout.Stream{}, nil); err != nil {
+	if err := cve.Render(&out, projected, layout.Stream{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
@@ -211,6 +238,7 @@ type cveEnvelope struct {
 		Count    int         `json:"count"`
 		Errors   []metaError `json:"errors"`
 		Warnings []string    `json:"warnings"`
+		Hint     *string     `json:"hint"`
 	} `json:"meta"`
 }
 
@@ -228,6 +256,9 @@ func (h *harness) cveEnvelope() cveEnvelope {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&env); err != nil {
 		h.t.Fatalf("stdout is not the envelope: %v\n%s", err, line)
+	}
+	if !strings.Contains(line, `,"hint":`) {
+		h.t.Errorf("meta has no hint key: %s", line)
 	}
 	if env.Data == nil || env.Meta.Errors == nil || env.Meta.Warnings == nil || env.Meta.Count != len(env.Data) {
 		h.t.Errorf("data, meta.errors or meta.warnings is null, or count is wrong: %s", line)
@@ -277,8 +308,15 @@ func TestCVE_RecordIsTheUnitRecord(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
 	env := h.cveEnvelope()
-	if len(env.Data) != 2 || string(env.Data[0]) != unitJSON(t, "primary-over-secondary.json") || string(env.Data[1]) != unitJSON(t, "rejected.json") {
+	if len(env.Data) != 2 || string(env.Data[0]) != withoutLists(unitJSON(t, "primary-over-secondary.json")) || string(env.Data[1]) != withoutLists(unitJSON(t, "rejected.json")) {
 		t.Errorf("data %s", env.Data)
+	}
+	// Every field is the unit record, with a count in front of each list.
+	if code := h.cveRun(true, log4j, rejected, "--fields", "all"); code != 0 {
+		t.Fatalf("--fields all: exit %d", code)
+	}
+	if env := h.cveEnvelope(); len(env.Data) != 2 || string(env.Data[0]) != withCounts(unitJSON(t, "primary-over-secondary.json")) || string(env.Data[1]) != withCounts(unitJSON(t, "rejected.json")) {
+		t.Errorf("--fields all: data %s", env.Data)
 	}
 	if !strings.Contains(string(env.Data[1]), `"status":"Rejected"`) || len(env.Meta.Errors) != 0 {
 		t.Errorf("the rejected CVE: %s, errors %v", env.Data[1], env.Meta.Errors)
@@ -287,7 +325,7 @@ func TestCVE_RecordIsTheUnitRecord(t *testing.T) {
 	if code := h.cveRun(false, log4j, rejected); code != 0 || h.stderr.Len() != 0 {
 		t.Fatalf("human: exit %d, stderr %q", code, h.stderr.String())
 	}
-	if want := unitText(t, "all", "primary-over-secondary.json", "rejected.json"); h.stdout.String() != want {
+	if want := unitText(t, "", "primary-over-secondary.json", "rejected.json"); h.stdout.String() != want {
 		t.Errorf("human\n got %q\nwant %q", h.stdout.String(), want)
 	}
 }
@@ -467,6 +505,40 @@ func TestCVE_ProblemsTogether(t *testing.T) {
 	}
 }
 
+// A bad --limit and a bad --match are reported with every other problem, in the one
+// error, before stdin is read or the NVD is asked.
+func TestCVE_LimitAndMatchProblemsTogether(t *testing.T) {
+	t.Parallel()
+	for _, jsonMode := range modes {
+		h := newHarness(t)
+		nvd := newNVD(t, h)
+		h.stdin = readSpy{t}
+		f := h.failed(h.cveRun(jsonMode, "-", "--fields", "bogus", "--limit", "0", "--match", "  ", "--timeout", "soon"), 2, jsonMode)
+		if f.code != "INVALID_INPUT" || !strings.Contains(f.msg, `"bogus"`) || !strings.Contains(f.msg, "--limit") || !strings.Contains(f.msg, "--match") || !strings.Contains(f.msg, "timeout") {
+			t.Errorf("json=%v: %+v", jsonMode, f)
+		}
+		if jsonMode {
+			for name, want := range map[string][]string{"fields": {"bogus"}, "limit": {"0"}, "match": {"  "}, "timeout": {"soon"}} {
+				if got := f.inputOf(name); !slices.Equal(got, want) {
+					t.Errorf("input %q = %v, want %v", name, got, want)
+				}
+			}
+		}
+		if len(nvd.requests()) != 0 {
+			t.Errorf("the NVD was asked %v", nvd.requests())
+		}
+	}
+	// The same, with a --limit that repeats and a --match with nothing in it to show.
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	h.stdin = readSpy{t}
+	f := h.failed(h.cveRun(true, "-", "--limit", "1", "--limit", "2", "--match", "a", "--match", "b", "--fields", "cvss_score"), 2, true)
+	if f.code != "INVALID_INPUT" || !strings.Contains(f.msg, "--limit was given more than once") || !strings.Contains(f.msg, "--match was given more than once") ||
+		len(f.inputOf("limit")) != 1 || len(f.inputOf("match")) != 1 || len(nvd.requests()) != 0 {
+		t.Errorf("repeated flags: %+v, requests %v", f, nvd.requests())
+	}
+}
+
 // cveGone is an ID the fake NVD does not hold.
 const cveGone = "CVE-2099-0001"
 
@@ -505,7 +577,7 @@ func outcomeSome(t *testing.T, h *harness, jsonMode bool, log4j string) {
 		}
 		return
 	}
-	if h.stdout.String() != unitText(t, "all", "primary-over-secondary.json") {
+	if h.stdout.String() != unitText(t, "", "primary-over-secondary.json") {
 		t.Errorf("some: stdout %q", h.stdout.String())
 	}
 	want := "error: 1 of 2 IDs returned, 1 failed (PARTIAL)\nhint: check the IDs that failed: " + cveGone + "\n" +
@@ -577,7 +649,7 @@ func TestCVE_Envelope(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
 	if out := h.stdout.String(); !strings.HasPrefix(out, `{"data":[{"id":"CVE-2021-44228",`) ||
-		!strings.HasSuffix(out, `}],"meta":{"count":1,"errors":[],"warnings":[]}}`+"\n") {
+		!strings.HasSuffix(out, `}],"meta":{"count":1,"errors":[],"warnings":[],"hint":null}}`+"\n") {
 		t.Errorf("stdout %s", out)
 	}
 	h.cveEnvelope()
@@ -628,7 +700,7 @@ func TestCVE_HumanColour(t *testing.T) {
 	}
 }
 
-// --fields returns the named fields plus id, in both modes; all is the default.
+// --fields returns the named fields plus id, in both modes; the default is every field but the two lists.
 func TestCVE_Fields(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -638,20 +710,29 @@ func TestCVE_Fields(t *testing.T) {
 		if code := h.cveRun(true, log4j, "--fields", spec); code != 0 {
 			t.Fatalf("--fields %q: exit %d: %s", spec, code, h.stderr.String())
 		}
-		if got := h.stdout.String(); got != `{"data":[{"id":"CVE-2021-44228","cvss_score":10}],"meta":{"count":1,"errors":[],"warnings":[]}}`+"\n" {
+		if got := h.stdout.String(); got != `{"data":[{"id":"CVE-2021-44228","cvss_score":10}],"meta":{"count":1,"errors":[],"warnings":[],"hint":null}}`+"\n" {
 			t.Errorf("--fields %q: %s", spec, got)
 		}
 		if code := h.cveRun(false, log4j, "--fields", spec); code != 0 || h.stdout.String() != "CVE-2021-44228\n\nCVSS Score\nBase Score: 10.0\n" {
 			t.Errorf("--fields %q, human: exit %d, %q", spec, code, h.stdout.String())
 		}
 	}
-	for _, args := range [][]string{{}, {"--fields", "all"}} {
-		if code := h.cveRun(true, append([]string{log4j}, args...)...); code != 0 {
+	// The default leaves out the two lists, and all has every field.
+	defaultNames := defaultFieldNames()
+	for args, want := range map[string][]string{"": defaultNames, "all": cve.FieldNames()} {
+		argv := []string{log4j}
+		if args != "" {
+			argv = append(argv, "--fields", args)
+		}
+		if code := h.cveRun(true, argv...); code != 0 {
 			t.Fatalf("exit %d", code)
 		}
-		if got := keysOf(t, h.cveEnvelope().Data[0]); !slices.Equal(got, cve.FieldNames()) {
-			t.Errorf("%v: keys %v", args, got)
+		if got := keysOf(t, h.cveEnvelope().Data[0]); !slices.Equal(got, want) {
+			t.Errorf("%q: keys %v, want %v", args, got, want)
 		}
+	}
+	if code := h.cveRun(true, log4j, "--fields", ""); code != 0 || !strings.HasPrefix(h.stdout.String(), `{"data":[{"id":"CVE-2021-44228"}],`) {
+		t.Errorf(`--fields "": exit %d, %s`, code, h.stdout.String())
 	}
 	for _, jsonMode := range modes {
 		f := h.failed(h.cveRun(jsonMode, log4j, "--fields", "cvss,id"), 2, jsonMode)
@@ -659,8 +740,8 @@ func TestCVE_Fields(t *testing.T) {
 			t.Errorf("unknown field: %+v", f)
 		}
 	}
-	if len(nvd.requests()) != 8 {
-		t.Errorf("%d requests, want 8: a usage error sends none", len(nvd.requests()))
+	if len(nvd.requests()) != 9 {
+		t.Errorf("%d requests, want 9: a usage error sends none", len(nvd.requests()))
 	}
 }
 
@@ -1075,11 +1156,14 @@ func TestCVE_RerunIsTheSame(t *testing.T) {
 	for _, jsonMode := range modes {
 		h := newHarness(t)
 		nvd := newNVD(t, h)
-		args := []string{nvd.fixture("primary-over-secondary.json"), "CVE-2099-0001", nvd.fixture("weaknesses.json")}
-		code := h.cveRun(jsonMode, args...)
-		out, errOut := h.stdout.String(), h.stderr.String()
-		if again := h.cveRun(jsonMode, args...); again != code || h.stdout.String() != out || h.stderr.String() != errOut {
-			t.Errorf("json=%v: a second call differs", jsonMode)
+		ids := []string{nvd.fixture("primary-over-secondary.json"), "CVE-2099-0001", nvd.fixture("weaknesses.json"), nvd.fixture("long-lists.json")}
+		for _, flags := range [][]string{nil, {"--fields", "affected_products,references", "--match", "log4j", "--limit", "1"}} {
+			args := slices.Concat(ids, flags)
+			code := h.cveRun(jsonMode, args...)
+			out, errOut := h.stdout.String(), h.stderr.String()
+			if again := h.cveRun(jsonMode, args...); again != code || h.stdout.String() != out || h.stderr.String() != errOut {
+				t.Errorf("json=%v, %v: a second call differs", jsonMode, flags)
+			}
 		}
 	}
 }
@@ -1134,6 +1218,14 @@ func TestCVE_Help(t *testing.T) {
 	if !strings.Contains(own, fieldsLine) || !strings.Contains(own, "(default 60s)") || lastLine(own) != exitCodesLine {
 		t.Errorf("nyx cve --help:\n%s", own)
 	}
+	// The footer lists the counts, --fields describes the new default and no flag says all is it.
+	if !strings.Contains(fieldsLine, "affected_products_count, affected_products, references_count, references") {
+		t.Errorf("the field names lack the counts: %s", fieldsLine)
+	}
+	checkFlagLines(t, own)
+	if !strings.Contains(own, "nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --json") {
+		t.Errorf("nyx cve --help lacks the example of --match and --limit:\n%s", own)
+	}
 	if code := h.execRoot("help", "cve"); code != 0 || h.stdout.String() != own {
 		t.Errorf("nyx help cve differs from nyx cve --help")
 	}
@@ -1150,6 +1242,24 @@ func TestCVE_Help(t *testing.T) {
 		}
 		if !ok(line) {
 			t.Errorf("%s does not read true for cve: %q", flag, line)
+		}
+	}
+}
+
+// checkFlagLines checks the help's lines for --fields, --limit and --match: --fields describes the new
+// default and none of the three reads as if it had one.
+func checkFlagLines(t *testing.T, help string) {
+	t.Helper()
+	for l := range strings.SplitSeq(help, "\n") {
+		switch flag, _, _ := strings.Cut(strings.TrimSpace(l), " "); flag {
+		case "--fields":
+			if strings.Contains(l, `(default "all")`) || !strings.Contains(l, "affected_products") || !strings.Contains(l, "references") {
+				t.Errorf("--fields reads %q", l)
+			}
+		case "--limit", "--match":
+			if strings.Contains(l, "(default") {
+				t.Errorf("%q reads as if it had a default", l)
+			}
 		}
 	}
 }
@@ -1182,6 +1292,556 @@ func TestCVE_HumanOutputRedactsTheKey(t *testing.T) {
 		}
 		if strings.Count(out, "****") < 2 {
 			t.Errorf("terminal %v: both keys should be masked:\n%s", terminal, out)
+		}
+	}
+}
+
+const (
+	hintBoth     = "use --fields affected_products,references (or --fields all) to list them"
+	hintProducts = "use --fields affected_products (or --fields all) to list them"
+	hintRefs     = "use --fields references (or --fields all) to list them"
+)
+
+// recordOf is a record of data as its keys and their JSON.
+func recordOf(t *testing.T, raw json.RawMessage) map[string]json.RawMessage {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// listOf is the entries of a list key of a record.
+func listOf(t *testing.T, rec map[string]json.RawMessage, key string) []json.RawMessage {
+	t.Helper()
+	var l []json.RawMessage
+	if err := json.Unmarshal(rec[key], &l); err != nil {
+		t.Fatalf("%s: %v", key, err)
+	}
+	return l
+}
+
+// The default has every field but the two lists, with the number of entries of each, and
+// is no longer for a record with long lists than for one with an entry in each.
+func TestCVE_DefaultDoesNotGrowWithTheLists(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	long, one := nvd.fixture("long-lists.json"), nvd.fixture("one-each.json")
+	defaultNames := defaultFieldNames()
+	for id, want := range map[string][2]string{long: {`{"total":6}`, `{"total":5}`}, one: {`{"total":1}`, `{"total":1}`}} {
+		if code := h.cveRun(true, id); code != 0 {
+			t.Fatalf("exit %d: %s", code, h.stderr.String())
+		}
+		raw := h.cveEnvelope().Data[0]
+		rec := recordOf(t, raw)
+		if got := keysOf(t, raw); !slices.Equal(got, defaultNames) {
+			t.Errorf("%s: keys %v", id, got)
+		}
+		if string(rec["affected_products_count"]) != want[0] || string(rec["references_count"]) != want[1] {
+			t.Errorf("%s: counts %s and %s, want %v", id, rec["affected_products_count"], rec["references_count"], want)
+		}
+		if strings.Contains(string(raw), "log4j") || strings.Contains(string(raw), "https://") {
+			t.Errorf("%s: an entry of a list is in the default record: %s", id, raw)
+		}
+	}
+	lines := map[string]int{}
+	for _, id := range []string{long, one} {
+		if code := h.cveRun(false, id); code != 0 {
+			t.Fatalf("human: exit %d: %s", code, h.stderr.String())
+		}
+		out := h.stdout.String()
+		lines[id] = strings.Count(out, "\n")
+		for _, bad := range []string{"- ", "https://", "log4j"} {
+			if strings.Contains(out, bad) {
+				t.Errorf("%s: %q is in the default human output:\n%s", id, bad, out)
+			}
+		}
+		for _, want := range []string{"Affected Products\n", "References\n"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: no %q section:\n%s", id, want, out)
+			}
+		}
+	}
+	if lines[long] != lines[one] {
+		t.Errorf("the default is %d lines for long lists and %d for one entry each", lines[long], lines[one])
+	}
+	if code := h.cveRun(false, long); code != 0 || !strings.Contains(h.stdout.String(), "Affected Products\n6 listed\n") || !strings.Contains(h.stdout.String(), "References\n5 listed\n") {
+		t.Errorf("human: exit %d\n%s", code, h.stdout.String())
+	}
+}
+
+// The counts can be named like any field, a list brings its count, all has every
+// field and an empty --fields has the id alone.
+func TestCVE_FieldsWithCounts(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	long := nvd.fixture("long-lists.json")
+	for _, c := range []struct {
+		spec string
+		keys []string
+		refs string
+	}{
+		{"references_count", []string{"id", "references_count"}, ""},
+		{"affected_products_count,references_count", []string{"id", "affected_products_count", "references_count"}, ""},
+		{"references", []string{"id", "references_count", "references"}, `{"total":5}`},
+		{"affected_products,references", []string{"id", "affected_products_count", "affected_products", "references_count", "references"}, `{"total":5}`},
+		{"all", cve.FieldNames(), `{"total":5}`},
+		{"", []string{"id"}, ""},
+	} {
+		if code := h.cveRun(true, long, "--fields", c.spec); code != 0 {
+			t.Fatalf("--fields %q: exit %d: %s", c.spec, code, h.stderr.String())
+		}
+		raw := h.cveEnvelope().Data[0]
+		keys := keysOf(t, raw)
+		if !slices.Equal(keys, c.keys) {
+			t.Errorf("--fields %q: keys %v, want %v", c.spec, keys, c.keys)
+		}
+		if got := string(recordOf(t, raw)["references_count"]); c.refs != "" && got != c.refs {
+			t.Errorf("--fields %q: references_count %s", c.spec, got)
+		}
+	}
+	// In human mode a count alone and a list with its number read as the layout says.
+	if code := h.cveRun(false, long, "--fields", "references_count"); code != 0 || h.stdout.String() != "CVE-2023-0100\n\nReferences\n5 listed\n" {
+		t.Errorf("a count alone: exit %d, %q", code, h.stdout.String())
+	}
+	if code := h.cveRun(false, long, "--fields", "references", "--limit", "2"); code != 0 || !strings.Contains(h.stdout.String(), "References (5)\n") {
+		t.Errorf("a list: exit %d, %q", code, h.stdout.String())
+	}
+}
+
+// A hint on how to see the lists is in meta.hint under --json and one INFO line on
+// stderr in human mode, and says nothing when there is nothing to list.
+func TestCVE_ListHint(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name     string
+		ids      []string // fixtures
+		flags    []string
+		want     string // "" for no hint
+		wantCode int
+	}{
+		{"the default names both", []string{"long-lists.json"}, nil, hintBoth, 0},
+		{"the id alone names both", []string{"long-lists.json"}, []string{"--fields", "id"}, hintBoth, 0},
+		{"all says nothing", []string{"long-lists.json"}, []string{"--fields", "all"}, "", 0},
+		{"both lists says nothing", []string{"long-lists.json"}, []string{"--fields", "affected_products,references"}, "", 0},
+		{"one list names the other", []string{"long-lists.json"}, []string{"--fields", "affected_products"}, hintRefs, 0},
+		{"lists with no entries in any record", []string{"rejected.json", "primary-over-secondary.json"}, nil, "", 0},
+		{"a list with entries in one record", []string{"rejected.json", "references.json"}, nil, hintRefs, 0},
+		{"a match that matches only references", []string{"long-lists.json"}, []string{"--match", "psirt"}, hintRefs, 0},
+		{"a match that matches only products", []string{"long-lists.json"}, []string{"--match", "tomcat"}, hintProducts, 0},
+		{"a match that matches nothing", []string{"long-lists.json"}, []string{"--match", "zzz"}, "", 0},
+	} {
+		for _, jsonMode := range modes {
+			h := newHarness(t)
+			nvd := newNVD(t, h)
+			args := slices.Clone(c.flags)
+			for _, f := range c.ids {
+				args = append([]string{nvd.fixture(f)}, args...)
+			}
+			if code := h.cveRun(jsonMode, args...); code != c.wantCode {
+				t.Fatalf("%s, json=%v: exit %d: %s", c.name, jsonMode, code, h.stderr.String())
+			}
+			if jsonMode {
+				checkJSONHint(t, h, c.name, c.want)
+			} else {
+				checkHumanHint(t, h, c.name, c.want)
+			}
+		}
+	}
+}
+
+// checkJSONHint checks meta.hint is want (null for ""), and that nothing else carried it.
+func checkJSONHint(t *testing.T, h *harness, name, want string) {
+	t.Helper()
+	hint := h.cveEnvelope().Meta.Hint
+	if want == "" && hint != nil || want != "" && (hint == nil || *hint != want) {
+		t.Errorf("%s: meta.hint %v, want %q", name, hint, want)
+	}
+	if h.stderr.Len() != 0 || len(h.messages("hint", "")) != 0 {
+		t.Errorf("%s: --json wrote %q to stderr or recorded a hint event", name, h.stderr.String())
+	}
+}
+
+// checkHumanHint checks the hint is one INFO line and one hint event, and not on stdout.
+func checkHumanHint(t *testing.T, h *harness, name, want string) {
+	t.Helper()
+	var lines []string
+	if want != "" {
+		lines = []string{want}
+	}
+	if got := h.logMsgs("INFO"); !slices.Equal(got, lines) {
+		t.Errorf("%s: INFO lines %q, want %q", name, got, lines)
+	}
+	if got := h.messages("hint", ""); !slices.Equal(got, lines) {
+		t.Errorf("%s: hint events %q, want %q", name, got, lines)
+	}
+	if strings.Contains(h.stdout.String(), "use --fields") {
+		t.Errorf("%s: the hint is on stdout:\n%s", name, h.stdout.String())
+	}
+}
+
+// --quiet hides the line.
+func TestCVE_ListHintQuiet(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	if code := h.cveRun(false, nvd.fixture("long-lists.json"), "--quiet"); code != 0 || h.stderr.Len() != 0 {
+		t.Errorf("exit %d, stderr %q", code, h.stderr.String())
+	}
+	if !strings.Contains(h.stdout.String(), "Affected Products\n6 listed\n") {
+		t.Errorf("stdout %q", h.stdout.String())
+	}
+}
+
+// A batch with a failure still says how to see the lists of the records that came
+// back, and does so before the error; with no record back there is nothing to say.
+func TestCVE_ListHintInABatch(t *testing.T) {
+	t.Parallel()
+	for _, jsonMode := range modes {
+		h := newHarness(t)
+		nvd := newNVD(t, h)
+		long := nvd.fixture("long-lists.json")
+		nvd.script("CVE-2099-0003", reply{status: 500})
+		h.partialOf(h.cveRun(jsonMode, long, cveGone), jsonMode, []string{cveGone}, true)
+		if jsonMode {
+			if hint := h.cveEnvelope().Meta.Hint; hint == nil || *hint != hintBoth {
+				t.Errorf("PARTIAL: meta.hint %v", hint)
+			}
+		} else {
+			errs := h.stderr.String()
+			if hint, errAt := strings.Index(errs, hintBoth), strings.Index(errs, "error: "); hint < 0 || errAt < hint {
+				t.Errorf("PARTIAL: the hint should come first on stderr:\n%s", errs)
+			}
+		}
+		// No record came back: mixed codes is a PARTIAL with nothing to list, and there is no line.
+		h.partialOf(h.cveRun(jsonMode, cveGone, "CVE-2099-0003"), jsonMode, []string{cveGone, "CVE-2099-0003"}, false)
+		if jsonMode {
+			if hint := h.cveEnvelope().Meta.Hint; hint != nil {
+				t.Errorf("no record: meta.hint %q", *hint)
+			}
+		} else if strings.Contains(h.stderr.String(), "use --fields") || len(h.messages("hint", "")) != 0 {
+			t.Errorf("no record: %s", h.stderr.String())
+		}
+	}
+}
+
+// --limit keeps the first entries of each shown list in the NVD's order, and says how many it left out.
+func TestCVE_Limit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	long := nvd.fixture("long-lists.json")
+	if code := h.cveRun(true, long, "--fields", "affected_products,references", "--limit", "2"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr.String())
+	}
+	rec := recordOf(t, h.cveEnvelope().Data[0])
+	products, refs := listOf(t, rec, "affected_products"), listOf(t, rec, "references")
+	if len(products) != 2 || len(refs) != 2 || !strings.Contains(string(products[1]), `"version_start_including":"2.4.0"`) || !strings.Contains(string(refs[1]), "github.com") {
+		t.Errorf("--limit 2 kept %s and %s", products, refs)
+	}
+	if string(rec["affected_products_count"]) != `{"total":6,"omitted":4}` || string(rec["references_count"]) != `{"total":5,"omitted":3}` {
+		t.Errorf("counts %s and %s", rec["affected_products_count"], rec["references_count"])
+	}
+	// A limit above a list's length leaves none out, and says so as 0 in JSON and not at all in human mode.
+	if code := h.cveRun(true, long, "--fields", "affected_products,references", "--limit", "5"); code != 0 {
+		t.Fatal(code)
+	}
+	rec = recordOf(t, h.cveEnvelope().Data[0])
+	if string(rec["affected_products_count"]) != `{"total":6,"omitted":1}` || string(rec["references_count"]) != `{"total":5,"omitted":0}` || len(listOf(t, rec, "references")) != 5 {
+		t.Errorf("--limit 5: counts %s and %s", rec["affected_products_count"], rec["references_count"])
+	}
+	if code := h.cveRun(false, long, "--fields", "affected_products,references", "--limit", "5"); code != 0 ||
+		strings.Count(h.stdout.String(), "more not shown") != 1 || !strings.Contains(h.stdout.String(), "1 more not shown\n") {
+		t.Errorf("--limit 5, human: exit %d\n%s", code, h.stdout.String())
+	}
+	// Without --limit every entry is shown, and the counts have no omitted key.
+	if code := h.cveRun(true, long, "--fields", "affected_products,references"); code != 0 {
+		t.Fatal(code)
+	}
+	rec = recordOf(t, h.cveEnvelope().Data[0])
+	if len(listOf(t, rec, "affected_products")) != 6 || string(rec["affected_products_count"]) != `{"total":6}` {
+		t.Errorf("no limit: %s", rec["affected_products_count"])
+	}
+	if code := h.cveRun(false, long, "--fields", "affected_products,references"); code != 0 || strings.Contains(h.stdout.String(), "not shown") {
+		t.Errorf("no limit, human: exit %d\n%s", code, h.stdout.String())
+	}
+	// Only the shown list has an omitted count.
+	if code := h.cveRun(true, long, "--fields", "references,affected_products_count", "--limit", "2"); code != 0 {
+		t.Fatal(code)
+	}
+	if rec = recordOf(t, h.cveEnvelope().Data[0]); string(rec["affected_products_count"]) != `{"total":6}` || string(rec["references_count"]) != `{"total":5,"omitted":3}` {
+		t.Errorf("one list shown: %s and %s", rec["affected_products_count"], rec["references_count"])
+	}
+}
+
+// A --limit that is not a positive integer, or is given twice, or has no list to cut, is a usage error.
+func TestCVE_BadLimit(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		args []string
+		hint string // what the hint holds, "" for any
+	}{
+		{"zero", []string{"--limit", "0", "--fields", "references"}, ""},
+		{"negative", []string{"--limit", "-1", "--fields", "references"}, ""},
+		{"a word", []string{"--limit", "abc", "--fields", "references"}, ""},
+		{"a fraction", []string{"--limit", "1.5", "--fields", "references"}, ""},
+		{"empty", []string{"--limit", "", "--fields", "references"}, ""},
+		{"too long for an int", []string{"--limit", "99999999999999999999", "--fields", "references"}, ""},
+		{"twice", []string{"--limit", "1", "--limit", "2", "--fields", "references"}, ""},
+		{"with the default fields", []string{"--limit", "2"}, "add affected_products or references to --fields"},
+		{"with other fields", []string{"--limit", "2", "--fields", "cvss_score"}, "add affected_products or references to --fields"},
+		{"with only a count", []string{"--limit", "2", "--fields", "references_count"}, "add affected_products or references to --fields"},
+		{"with an empty --fields", []string{"--limit", "2", "--fields", ""}, "add affected_products or references to --fields"},
+	} {
+		for _, jsonMode := range modes {
+			h := newHarness(t)
+			nvd := newNVD(t, h)
+			args := slices.Concat([]string{nvd.fixture("long-lists.json")}, c.args)
+			f := h.failed(h.cveRun(jsonMode, args...), 2, jsonMode)
+			if f.code != "INVALID_INPUT" || !strings.Contains(f.msg, "--limit") || c.hint != "" && !strings.Contains(f.hint, c.hint) {
+				t.Errorf("%s, json=%v: %+v", c.name, jsonMode, f)
+			}
+			if len(nvd.requests()) != 0 {
+				t.Errorf("%s: the NVD was asked", c.name)
+			}
+		}
+	}
+}
+
+// --match keeps the entries of a list that contain the text, ignoring case and
+// surrounding space, and counts them against the total.
+func TestCVE_Match(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	long := nvd.fixture("long-lists.json")
+	for _, match := range []string{"log4j", "LOG4J", " log4j ", "apache log4j"} {
+		if code := h.cveRun(true, long, "--fields", "affected_products,references", "--match", match); code != 0 {
+			t.Fatalf("--match %q: exit %d: %s", match, code, h.stderr.String())
+		}
+		rec := recordOf(t, h.cveEnvelope().Data[0])
+		if match == "apache log4j" {
+			if len(listOf(t, rec, "references")) != 0 || string(rec["references_count"]) != `{"total":5,"matched":0}` {
+				t.Errorf("--match %q: references %s, %s", match, rec["references"], rec["references_count"])
+			}
+		}
+		if len(listOf(t, rec, "affected_products")) != 3 || string(rec["affected_products_count"]) != `{"total":6,"matched":3}` {
+			t.Errorf("--match %q: %s, %s", match, rec["affected_products"], rec["affected_products_count"])
+		}
+	}
+	// The default fields hold the counts, so a match counts against them with no list shown.
+	if code := h.cveRun(true, long, "--match", "log4j"); code != 0 {
+		t.Fatal(code)
+	}
+	rec := recordOf(t, h.cveEnvelope().Data[0])
+	if string(rec["affected_products_count"]) != `{"total":6,"matched":3}` || string(rec["references_count"]) != `{"total":5,"matched":2}` || rec["references"] != nil {
+		t.Errorf("--match with the default: %s, %s", rec["affected_products_count"], rec["references_count"])
+	}
+	if code := h.cveRun(false, long, "--match", "log4j"); code != 0 || !strings.Contains(h.stdout.String(), "Affected Products\n3 of 6 match\n") || !strings.Contains(h.stdout.String(), "References\n2 of 5 match\n") {
+		t.Errorf("--match, human: exit %d\n%s", code, h.stdout.String())
+	}
+	// A count alone is enough to match against.
+	if code := h.cveRun(true, long, "--fields", "references_count", "--match", "x"); code != 0 {
+		t.Errorf("--fields references_count --match x: exit %d: %s", code, h.stderr.String())
+	}
+	// A reference matches by its tag.
+	if code := h.cveRun(true, long, "--fields", "references", "--match", "vendor advisory"); code != 0 || len(listOf(t, recordOf(t, h.cveEnvelope().Data[0]), "references")) != 2 {
+		t.Errorf("a tag: exit %d: %s", code, h.stdout.String())
+	}
+}
+
+// --match with nothing to show it, or with no text, or twice, is a usage error.
+func TestCVE_BadMatch(t *testing.T) {
+	t.Parallel()
+	const hint = "add affected_products, references or their counts to --fields"
+	for _, c := range []struct {
+		name string
+		args []string
+		hint string
+	}{
+		{"empty", []string{"--match", ""}, ""},
+		{"blank", []string{"--match", "   "}, ""},
+		{"twice", []string{"--match", "a", "--match", "b"}, ""},
+		{"with no list or count", []string{"--match", "log4j", "--fields", "id,cvss_score"}, hint},
+		{"with an empty --fields", []string{"--match", "log4j", "--fields", ""}, hint},
+	} {
+		for _, jsonMode := range modes {
+			h := newHarness(t)
+			nvd := newNVD(t, h)
+			f := h.failed(h.cveRun(jsonMode, append([]string{nvd.fixture("long-lists.json")}, c.args...)...), 2, jsonMode)
+			if f.code != "INVALID_INPUT" || !strings.Contains(f.msg, "--match") || c.hint != "" && !strings.Contains(f.hint, c.hint) {
+				t.Errorf("%s, json=%v: %+v", c.name, jsonMode, f)
+			}
+			if len(nvd.requests()) != 0 {
+				t.Errorf("%s: the NVD was asked", c.name)
+			}
+		}
+	}
+	// An unknown field is the one problem: no second, misleading one about the match.
+	h := newHarness(t)
+	newNVD(t, h)
+	f := h.failed(h.cveRun(true, "CVE-2021-44228", "--fields", "bogus", "--match", "x", "--limit", "2"), 2, true)
+	if strings.Contains(f.msg, "--match") || strings.Contains(f.msg, "--limit") {
+		t.Errorf("a bad --fields also gave: %+v", f)
+	}
+}
+
+// A --match that matches nothing never removes a record: every ID the NVD holds is returned, the exit code and
+// meta.count are as without it, and the list says that nothing matched, which is not that the NVD listed none.
+func TestCVE_MatchNeverRemovesARecord(t *testing.T) {
+	t.Parallel()
+	for _, jsonMode := range modes {
+		h := newHarness(t)
+		nvd := newNVD(t, h)
+		long, rejected, one := nvd.fixture("long-lists.json"), nvd.fixture("rejected.json"), nvd.fixture("one-each.json")
+		ids := []string{long, rejected, one}
+		if code := h.cveRun(jsonMode, append(slices.Clone(ids), "--fields", "affected_products,references")...); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		without := h.stdout.String()
+		if code := h.cveRun(jsonMode, append(slices.Clone(ids), "--fields", "affected_products,references", "--match", "zzzz-nothing")...); code != 0 || h.stderr.Len() != 0 {
+			t.Fatalf("json=%v: exit %d, stderr %q", jsonMode, code, h.stderr.String())
+		}
+		if jsonMode {
+			env := h.cveEnvelope()
+			if env.Meta.Count != 3 || !slices.Equal(env.ids(), ids) {
+				t.Errorf("meta.count %d, ids %v", env.Meta.Count, env.ids())
+			}
+			for i, want := range []string{`{"total":6,"matched":0}`, `{"total":0,"matched":0}`, `{"total":1,"matched":0}`} {
+				rec := recordOf(t, env.Data[i])
+				if string(rec["affected_products_count"]) != want || len(listOf(t, rec, "affected_products")) != 0 || string(rec["affected_products"]) != "[]" {
+					t.Errorf("record %d: %s, %s", i, rec["affected_products_count"], rec["affected_products"])
+				}
+			}
+			continue
+		}
+		out := h.stdout.String()
+		if strings.Count(out, "CVE-") != strings.Count(without, "CVE-") {
+			t.Errorf("a record was removed:\n%s", out)
+		}
+		for _, want := range []string{"Affected Products (0 of 6 match)\nNo affected products match.\n", "References (0 of 5 match)\nNo references match.\n",
+			"Affected Products (0 of 0 match)\nNo affected products listed.\n", "References (0 of 0 match)\nNo references listed.\n",
+			"Affected Products (0 of 1 match)\nNo affected products match.\n"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("human output lacks %q:\n%s", want, out)
+			}
+		}
+	}
+}
+
+// --match does not change what a batch with a failure returns.
+func TestCVE_MatchDoesNotChangeAPartialResult(t *testing.T) {
+	t.Parallel()
+	for _, jsonMode := range modes {
+		h := newHarness(t)
+		nvd := newNVD(t, h)
+		long := nvd.fixture("long-lists.json")
+		nvd.script("CVE-2024-0503", reply{status: 503, header: map[string]string{"Retry-After": "0"}})
+		args := []string{long, cveGone, "CVE-2024-0503", "--fields", "affected_products"}
+		without := h.partialOf(h.cveRun(jsonMode, args...), jsonMode, []string{cveGone, "CVE-2024-0503"}, true)
+		var envWithout cveEnvelope
+		if jsonMode {
+			envWithout = h.cveEnvelope()
+		}
+		with := h.partialOf(h.cveRun(jsonMode, append(args, "--match", "zzz")...), jsonMode, []string{cveGone, "CVE-2024-0503"}, true)
+		if with.msg != without.msg || with.code != without.code || !slices.Equal(with.targets, without.targets) {
+			t.Errorf("json=%v: the error differs:\n%+v\n%+v", jsonMode, without, with)
+		}
+		if jsonMode {
+			env := h.cveEnvelope()
+			a, _ := json.Marshal(envWithout.Meta.Errors)
+			b, _ := json.Marshal(env.Meta.Errors)
+			if env.Meta.Count != envWithout.Meta.Count || string(a) != string(b) {
+				t.Errorf("meta differs: %s and %s", a, b)
+			}
+		}
+	}
+}
+
+// The match is made before the limit: the limit and what is left out count the matching entries.
+func TestCVE_MatchThenLimit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	if code := h.cveRun(true, nvd.fixture("long-lists.json"), "--fields", "affected_products", "--match", "log4j", "--limit", "1"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr.String())
+	}
+	rec := recordOf(t, h.cveEnvelope().Data[0])
+	products := listOf(t, rec, "affected_products")
+	if len(products) != 1 || !strings.Contains(string(products[0]), `"version_end_excluding":"2.3.1"`) || string(rec["affected_products_count"]) != `{"total":6,"matched":3,"omitted":2}` {
+		t.Errorf("%s, %s", products, rec["affected_products_count"])
+	}
+	// A match only the third entry has is the first the limit keeps.
+	if code := h.cveRun(true, nvd.fixture("long-lists.json"), "--fields", "affected_products", "--match", "tomcat", "--limit", "1"); code != 0 {
+		t.Fatal(code)
+	}
+	if products = listOf(t, recordOf(t, h.cveEnvelope().Data[0]), "affected_products"); len(products) != 1 || !strings.Contains(string(products[0]), "tomcat") {
+		t.Errorf("%s", products)
+	}
+	if code := h.cveRun(false, nvd.fixture("long-lists.json"), "--fields", "affected_products,references", "--match", "log4j", "--limit", "1"); code != 0 ||
+		!strings.Contains(h.stdout.String(), "Affected Products (3 of 6 match)\n- apache log4j (>= 2.0.1, < 2.3.1)\n2 more not shown\n") {
+		t.Errorf("human: exit %d\n%s", code, h.stdout.String())
+	}
+}
+
+// The command that retries what failed repeats --limit and --match as they were given, quoted.
+func TestCVE_RetryRepeatsLimitAndMatch(t *testing.T) {
+	t.Parallel()
+	for _, jsonMode := range modes {
+		h := newHarness(t)
+		nvd := newNVD(t, h)
+		long := nvd.fixture("long-lists.json")
+		nvd.script("CVE-2024-0503", reply{status: 503, header: map[string]string{"Retry-After": "0"}})
+		f := h.partialOf(h.cveRun(jsonMode, "CVE-2024-0503", long, "--fields", "references", "--limit", "2", "--match", " Log4J "), jsonMode, []string{"CVE-2024-0503"}, true)
+		want := "run: nyx cve CVE-2024-0503" + map[bool]string{true: " --json"}[jsonMode] + " --fields references --limit 2 --match ' Log4J '"
+		if f.hint != want {
+			t.Errorf("json=%v: hint %q, want %q", jsonMode, f.hint, want)
+		}
+	}
+	// Without them given, the command does not name them.
+	h := newHarness(t)
+	nvd := newNVD(t, h)
+	nvd.script("CVE-2024-0503", reply{status: 503, header: map[string]string{"Retry-After": "0"}})
+	if f := h.partialOf(h.cveRun(true, "CVE-2024-0503", nvd.fixture("long-lists.json")), true, []string{"CVE-2024-0503"}, true); f.hint != "run: nyx cve CVE-2024-0503 --json" {
+		t.Errorf("hint %q", f.hint)
+	}
+}
+
+// A key in the --match, or in a matched reference, is masked: in the retry command, and in the matched list.
+func TestCVE_MatchedKeyIsMasked(t *testing.T) {
+	t.Parallel()
+	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"
+	for _, jsonMode := range modes {
+		h := newHarness(t)
+		h.setenv("NVD_API_KEY", key)
+		nvd := newNVD(t, h)
+		nvd.mu.Lock()
+		nvd.entries["CVE-2024-1000"] = `{"id":"CVE-2024-1000","vulnStatus":"Analyzed","published":"2024-01-01T00:00:00.000","lastModified":"2024-01-02T00:00:00.000",` +
+			`"descriptions":[{"lang":"en","value":"About it."}],"references":[{"url":"https://example.com/?token=` + key + `","tags":["Patch"]},{"url":"https://example.com/other"}]}`
+		nvd.mu.Unlock()
+		nvd.script("CVE-2024-0503", reply{status: 503, header: map[string]string{"Retry-After": "0"}})
+		f := h.partialOf(h.cveRun(jsonMode, "CVE-2024-0503", "CVE-2024-1000", "--fields", "references", "--match", key), jsonMode, []string{"CVE-2024-0503"}, true)
+		// The NVD's text is data under --json, as it is without --match; human mode masks it.
+		all := h.stderr.String()
+		if !jsonMode {
+			all += h.stdout.String()
+		}
+		for i := 0; i+8 <= len(key); i++ {
+			if strings.Contains(all, key[i:i+8]) {
+				t.Errorf("json=%v: %q of the key reached the output:\n%s", jsonMode, key[i:i+8], all)
+				break
+			}
+		}
+		if !strings.Contains(f.hint, "--match") || !strings.Contains(f.hint, "****") {
+			t.Errorf("json=%v: the retry command %q should hold the masked match", jsonMode, f.hint)
+		}
+		out := h.stdout.String()
+		if jsonMode && !strings.Contains(out, `"matched":1`) || !jsonMode && (!strings.Contains(out, "****") || !strings.Contains(out, "References (1 of 2 match)")) {
+			t.Errorf("json=%v: the matched reference should be shown, masked in human mode:\n%s", jsonMode, out)
 		}
 	}
 }

@@ -79,7 +79,7 @@ func newReconCommand(inv *invocation) *cobra.Command {
 	f.BoolVar(&o.authorised, "authorised", false, "Confirm you are authorised to test this scope, for this and later runs (alias --authorized)")
 	f.BoolVar(&o.allowLarge, "allow-large-netblocks", false, "Proceed even if in-scope IPv4 netblocks exceed --netblock-limit")
 	f.StringVar(&o.redo, "redo", "", "Re-perform every check of one stage (see nyx help stages)")
-	f.Var(timeoutFlag{&o.timeout}, "timeout", "Stop by this deadline, e.g. 30m or 2h, and exit 7; run again to carry on (default: none)")
+	f.Var(timeoutFlag(&o.timeout), "timeout", "Stop by this deadline, e.g. 30m or 2h, and exit 7; run again to carry on (default: none)")
 	f.BoolVar(&o.palette, "palette", false, "Print the colour palette sheet and exit")
 	_ = f.MarkHidden("palette") // only fails for an unknown flag
 	f.StringVar(&o.configPath, "config", "", configFlagUsage)

@@ -2,6 +2,7 @@ Examples:
   nyx cve CVE-2021-44228 CVE-2024-3094 --json
   nyx cve - --json < ids.txt
   nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
+  nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --json
 
 cve looks each CVE ID up in the NVD and returns one record for each ID the NVD holds, in argument
 order. A lone - reads the IDs from stdin, one per line. It needs no engagement, writes no files and
@@ -12,7 +13,9 @@ Usage:
   nyx cve <CVE-ID>... [flags]
 
 Flags:
-      --fields string      Return only these fields, separated by commas, plus id; all returns every field (default "all")
+      --fields string      Return only these fields, separated by commas, plus id; all returns every field (without it, all but affected_products and references, which are counted instead)
+      --limit int          Show at most this many entries of each of affected_products and references that --fields shows
+      --match string       Keep only the entries of affected_products and references that contain this text, ignoring case
       --timeout duration   Deadline for the whole call, e.g. 30s or 2m (default 60s)
       --config string      Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
   -h, --help               Help for cve
@@ -22,5 +25,5 @@ Shared flags:
   -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
   -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
 
-Fields accepted by --fields: id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products, references, all
+Fields accepted by --fields: id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products_count, affected_products, references_count, references, all
 Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)

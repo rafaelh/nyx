@@ -1253,13 +1253,16 @@ CSV files.
 
 ## CVE lookup
 
-`nyx cve` looks CVEs up in the NVD by CVE ID and returns one record for each ID the NVD holds. It
-returns the same records as the standalone `cve` tool, so one binary serves both jobs.
+`nyx cve` looks CVEs up in the NVD by CVE ID and returns one record for each ID the NVD holds. By
+default a record has every field but the two long lists, the affected products and the references,
+and in their place the number of entries in each, so a record is as short for CVE-2021-44228 as for
+a CVE with one entry in each list. Ask for the lists, or for part of them, when you need them.
 
 ```sh
 nyx cve CVE-2021-44228 CVE-2024-3094 --json
 nyx cve - --json < ids.txt
 nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
+nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --json
 ```
 
 - **IDs.** Pass one or more as arguments, or a lone `-` to read them from stdin, one per line, with
@@ -1269,8 +1272,9 @@ nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
   records come back in argument order. Every ID is checked against `CVE-YYYY-NNNN` (four or more
   digits) before the first request. A malformed one becomes an `INVALID_INPUT` entry and the others
   are still looked up.
-- **The record.** Every record has these keys, in this order. A key with no value is `null`, and an
-  empty list is `[]`. A rejected CVE is a record with the status `Rejected`, not a not-found.
+- **The record.** These are the keys, in this order, and `--fields all` returns every one. A key with
+  no value is `null`, and an empty list is `[]`. A rejected CVE is a record with the status
+  `Rejected`, not a not-found.
 
   | Key | Meaning |
   |---|---|
@@ -1280,19 +1284,50 @@ nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
   | `description` | The first English description, trimmed, else the first in any language |
   | `cvss_version`, `cvss_score`, `cvss_severity`, `cvss_vector`, `cvss_source` | One CVSS score: the highest version present (4.0, 3.1, 3.0, then 2.0), and within it the NVD's own (`Primary`) score over anyone else's. The severity is upper case |
   | `weaknesses` | The English CWE values, de-duplicated in order (`NVD-CWE-Other` and `NVD-CWE-noinfo` are kept) |
+  | `affected_products_count`, `references_count` | How many entries the list after it has, as an object: `{"total":n}`, with `"matched":m` added under `--match` and `"omitted":k` under `--limit` (see below). Every value is a number, and which keys there are depends on the flags, never on the data |
   | `affected_products` | Each vulnerable CPE match, once: `cpe`, `vendor`, `product`, `version` (from the CPE, unescaped, `null` for `*` or `-`) and the four `version_start_*`/`version_end_*` bounds |
   | `references` | Each reference's `url` and `tags` |
 
-- **`--fields a,b,c`** returns only those keys, plus `id`, in both modes; `all`, the default,
-  returns every key. An unknown name exits 2 with the valid names in the hint.
+- **`--fields a,b,c`** returns only those keys, plus `id`, in both modes; `all` returns every key,
+  both lists and both counts included, and `--fields ""` returns `id` alone. An unknown name exits 2
+  with the valid names in the hint. Without `--fields` a record has every key but
+  `affected_products` and `references`. A count can be named like any field, and naming a list
+  brings its count with it, so a list is never shown without its numbers.
+- **How to see the lists.** When the default or `--fields` leaves out a list that at least one
+  record has entries in (matching entries, under `--match`), the call says once how to see it,
+  naming only the lists that have some: `use --fields affected_products,references (or --fields all)
+  to list them`. Under `--json` it is `meta.hint`; in human mode it is one `INFO` line on stderr
+  after the records, which `--quiet` hides. Nothing is said when nothing was left out, or what was
+  left out has no entries.
+- **`--limit N`** shows at most the first N entries of each list that is shown, in the NVD's order,
+  and says how many were left out: `"omitted":k` in the count under `--json` (`0` when none were),
+  and a line `k more not shown` after the list in human mode, only when k is above 0. By default
+  there is no limit. N must be a positive whole number and `--limit` may be given once; anything
+  else exits 2, and so does `--limit` when `--fields` shows neither `affected_products` nor
+  `references`. It limits entries, never records: every ID given is still returned.
+- **`--match TEXT`** keeps only the entries of the lists whose text contains TEXT, ignoring case.
+  For an affected product that is the line human mode shows (vendor, product, version and the
+  version bounds, such as `apache log4j (>= 2.0.1, < 2.3.1)`, and not the fixed `cpe:2.3:<part>:`
+  start of its CPE), and for a reference it is the URL or any one of its tags. The match is made
+  against the NVD's text as `--json` writes it. Surrounding whitespace in TEXT is trimmed; an empty
+  TEXT or a second `--match` exits 2, and so does `--match` when `--fields` shows neither list nor
+  either count. The default shows the counts, so `nyx cve CVE-2021-44228 --match log4j` says how
+  many entries match. With `--match` a count has both `"matched":m` and `"total":n` (`3 of 163` in
+  human mode), and the match comes before `--limit`, so a limit and the number left out refer to the
+  matching entries. `--match` never removes a record: a list with no matching entry says that
+  nothing matched (`No affected products match.`), which is not the NVD listing none.
 - **`--json`** prints one compact object,
-  `{"data":[…],"meta":{"count":n,"errors":[…],"warnings":[…]}}`. `meta.errors` and
-  `meta.warnings` are always present, `[]` when empty. Each `meta.errors` entry has the five keys of
+  `{"data":[…],"meta":{"count":n,"errors":[…],"warnings":[…],"hint":…}}`. `meta.errors`,
+  `meta.warnings` and `meta.hint` are always present: `[]` when there are no errors or warnings, and
+  `null` when there is no hint. Each `meta.errors` entry has the five keys of
   the error (see [Errors](#errors)), with the argument exactly as given in `input`. The NVD's text
   is written as the NVD sent it.
 - **Without `--json`** each record is laid out for reading: its ID and a severity badge, then a
   section each for the status and dates, the description, the CVSS score, the weaknesses, the
-  affected products and the references, as `--fields` selects them. Records are separated by a
+  affected products and the references, as `--fields` selects them. A list's section has its number
+  in the heading, `Affected Products (163)`, or `Affected Products (3 of 163 match)` under
+  `--match`; where only the count is shown, the section is that number alone, `163 listed` or
+  `3 of 163 match`. Records are separated by a
   blank line, and text is wrapped to `COLUMNS` (default 100, at least 60). The NVD's text is
   stripped of anything that would act on a terminal. On a terminal the layout is the one in
   [Terminal layout](#terminal-layout): a header bar, headings, and labels with no colon.
@@ -1340,8 +1375,15 @@ command, listing every ID however many, as its failures are not written; when th
 it adds `, or raise --timeout`. One that is not transient keeps its code's hint, such as `check the
 ID; the NVD lists only published CVEs` or `check NVD_API_KEY`.
 
-**Differences from the `cve` tool.** A 404 is never "not found" (see above). The `--api-key` flag is
-gone: the key comes only from `NVD_API_KEY` or `keys.nvd`. Colours are nyx's palette.
+**Differences from the `cve` tool.** The default record leaves out the affected products and the
+references, which the `cve` tool returns, and has a count of each (see above). A 404 is never "not
+found" (see above). The `--api-key` flag is gone: the key comes only from `NVD_API_KEY` or
+`keys.nvd`. Colours are nyx's palette.
+
+**A deliberate break.** Leaving the two lists out of the default record broke the promise that
+every record has every key (see [Errors](#errors), "What stays stable"). It was made once, on
+purpose, in the change that added `--limit` and `--match`: ask for `--fields all` to get the
+previous record, with a count in front of each list.
 
 ## Exit codes
 
@@ -1432,7 +1474,9 @@ in the error as everywhere else.
 the recon `--json` envelope (see [The `--json` envelope](#the---json-envelope)), and the keys of the
 CVE record and of the `nyx cve` envelope (see [CVE lookup](#cve-lookup)) are an interface: a
 new one may be added, but renaming, removing or retyping one is a breaking change. The wording of
-messages and hints may change.
+messages and hints may change. The one exception so far is that the default `nyx cve` record no
+longer has the lists `affected_products` and `references`, only their counts: that was a deliberate
+break, made once when `--limit` and `--match` were added, and `--fields all` still returns them.
 
 ## Departures from `docs/agent-tools`
 

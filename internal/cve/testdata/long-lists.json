@@ -1,0 +1,95 @@
+{
+  "id": "CVE-2023-0100",
+  "vulnStatus": "Analyzed",
+  "published": "2023-03-01T09:00:00.000",
+  "lastModified": "2023-03-05T09:00:00.000",
+  "descriptions": [
+    {
+      "lang": "en",
+      "value": "An example vulnerability with long affected-product and reference lists."
+    }
+  ],
+  "configurations": [
+    {
+      "nodes": [
+        {
+          "operator": "OR",
+          "negate": false,
+          "cpeMatch": [
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+              "matchCriteriaId": "00000000-0000-0000-0000-000000000000",
+              "versionStartIncluding": "2.0.1",
+              "versionEndExcluding": "2.3.1"
+            },
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*",
+              "matchCriteriaId": "00000000-0000-0000-0000-000000000000",
+              "versionStartIncluding": "2.4.0",
+              "versionEndExcluding": "2.12.2"
+            },
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:apache:log4j:2.17.0:*:*:*:*:*:*:*",
+              "matchCriteriaId": "00000000-0000-0000-0000-000000000000"
+            },
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:apache:tomcat:9.0.1:*:*:*:*:*:*:*",
+              "matchCriteriaId": "00000000-0000-0000-0000-000000000000"
+            },
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:vmware:vcenter_server:*:*:*:*:*:*:*:*",
+              "matchCriteriaId": "00000000-0000-0000-0000-000000000000",
+              "versionEndExcluding": "7.0"
+            },
+            {
+              "vulnerable": true,
+              "criteria": "cpe:2.3:a:*:*:*:*:*:*:*:node.js:*:*",
+              "matchCriteriaId": "00000000-0000-0000-0000-000000000000"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://logging.apache.org/log4j/2.x/security.html",
+      "source": "security@apache.org",
+      "tags": [
+        "Vendor Advisory",
+        "Patch"
+      ]
+    },
+    {
+      "url": "https://github.com/example/log4j/commit/abc123",
+      "source": "security@apache.org",
+      "tags": [
+        "Patch"
+      ]
+    },
+    {
+      "url": "https://www.openwall.com/lists/oss-security/2021/12/10/1",
+      "source": "security@apache.org",
+      "tags": [
+        "Mailing List",
+        "Third Party Advisory"
+      ]
+    },
+    {
+      "url": "https://example.com/advisory",
+      "source": "security@apache.org"
+    },
+    {
+      "url": "https://vendor.example.net/psirt/vmware-1",
+      "source": "security@vmware.com",
+      "tags": [
+        "Vendor Advisory"
+      ]
+    }
+  ]
+}

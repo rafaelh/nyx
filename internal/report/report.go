@@ -15,9 +15,9 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Event is one thing that happened in a run. Types: run_start, stage, found, count, warning and
-// debug. They drive the console log; the result of the run is the Summary, not an event. A debug
-// event is one failed check.
+// Event is one thing that happened in a run. Types: run_start, stage, found, count, warning, hint
+// and debug. They drive the console log; the result of the run is the Summary, not an event. A
+// debug event is one failed check. A hint is a note on how to get more from the command.
 type Event struct {
 	Type   string
 	Fields map[string]any
@@ -165,7 +165,7 @@ func str(f map[string]any, k string) string {
 	}
 }
 
-// Emit renders one event. run_start, found and count are INFO; stage is INFO,
+// Emit renders one event. run_start, found, count and hint are INFO; stage is INFO,
 // or ERROR when its state is failed; warning is WARN and debug is DEBUG.
 // Unknown types print nothing.
 func (c *Console) Emit(ev Event) {
@@ -272,6 +272,8 @@ func (c *Console) message(ev Event) (level Level, msg []layout.Span, ok bool) {
 		msg = foundSpans(s, str(f, "category"), str(f, "value"), str(f, "text"), str(f, "severity"))
 	case "count":
 		msg = layout.Plain(fmt.Sprintf("  %s: %s", str(f, "category"), str(f, "n")))
+	case "hint":
+		msg = layout.Plain(str(f, "message"))
 	case "warning":
 		level, msg = Warn, layout.Plain(str(f, "message"))
 	case "debug":

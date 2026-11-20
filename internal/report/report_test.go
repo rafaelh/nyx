@@ -383,3 +383,25 @@ func checkSheetLevels(t *testing.T, d palette.Depth, plainOut string) {
 		}
 	}
 }
+
+// A hint event is an INFO line with its message, and a console that shows warnings and
+// above drops it.
+func TestConsole_HintIsAnInfoLine(t *testing.T) {
+	t.Parallel()
+	c := plain(report.Info)
+	c.Emit(ev("hint", map[string]any{"message": "use --fields references to list them"}))
+	if got, want := c.log.String(), "12:00:00 | INFO  | use --fields references to list them\n"; got != want {
+		t.Errorf("hint line %q, want %q", got, want)
+	}
+	quiet := plain(report.Warn)
+	quiet.Emit(ev("hint", map[string]any{"message": "use --fields references to list them"}))
+	if quiet.log.Len() != 0 {
+		t.Errorf("a hint reached a console at warn: %q", quiet.log.String())
+	}
+	// It is not a warning: the envelope's warnings leave it out.
+	var w report.Warnings
+	w.Emit(ev("hint", map[string]any{"message": "x"}))
+	if got := w.List(); len(got) != 0 {
+		t.Errorf("warnings %q", got)
+	}
+}

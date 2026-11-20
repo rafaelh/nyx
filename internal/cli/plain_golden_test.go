@@ -382,7 +382,7 @@ const bareEntry = `{"id":"CVE-2024-10002","vulnStatus":"Awaiting Analysis","publ
 
 // cveShapes are the --fields values whose layouts are captured; "" is no flag.
 var cveShapes = []string{"", "all", "id", "id,cvss_severity", "id,description", "id,cvss_score,cvss_vector", "cvss_score", "cvss_score,cvss_severity",
-	"cvss_version,cvss_source", "weaknesses", "affected_products", "references", "status,published,last_modified"}
+	"cvss_version,cvss_source", "weaknesses", "affected_products", "references", "references_count", "status,published,last_modified"}
 
 // cveGolden captures nyx cve records for each --fields shape with COLUMNS set to columns ("" is
 // unset): a record that fills every part, one with a null severity and nothing else, a rejected
@@ -405,7 +405,8 @@ func cveGolden(t *testing.T, name, columns string) {
 			if spec != "" {
 				args = append(args, "--fields", spec)
 			}
-			if code := h.execRoot(args...); code != 0 || h.stderr.Len() != 0 {
+			// The only thing on stderr may be the note on how to see the lists the fields leave out.
+			if code := h.execRoot(args...); code != 0 || strings.Count(h.stderr.String(), "\n") > 1 || strings.Count(h.stderr.String(), "\n") != strings.Count(h.stderr.String(), " to list them\n") {
 				t.Fatalf("--fields %q: exit %d, stderr %q", spec, code, h.stderr.String())
 			}
 			fmt.Fprintf(&b, "$ nyx cve %s%s\n%s", strings.Join(ids, " "), map[bool]string{true: " --fields " + spec}[spec != ""], h.stdout.String())

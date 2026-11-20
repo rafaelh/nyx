@@ -12,14 +12,6 @@
 
 - Add a newline before printing help text in the console, and colourize examples
 
-- CVE:
-  - I want to avoid flooding the context window of an agent, or the terminal of a human user, with
-    detail that won't always be useful. What I'm thinking of is:
-    - By default a returned CVE should only return a count of `Affected Products` and `References`
-    - guidance saying something like `Use --fields affected-products | references | all to show more information`.
-    - Adding a `--limit` flag so not all results have to show
-    - Adding a `--match` flag so an agent can specify the result it's looking for (use a different name for the flag if there is a more appropriate one)
-
 # CI improvements/fixes
 
 ## Linters that need configuration before they are worth enabling

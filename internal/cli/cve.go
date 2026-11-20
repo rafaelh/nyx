@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,10 @@ import (
 // cveOptions are the flags of nyx cve.
 type cveOptions struct {
 	fields, timeout, configPath string
+	// limit and match are kept as given, with how many times each was set, so that an
+	// invalid or repeated one is a usage error and the retry command repeats it as typed.
+	limit, match         string
+	limitSets, matchSets int
 }
 
 const (
@@ -39,7 +44,7 @@ const (
 
 // newCVECommand builds the cve command: CVE records from the NVD, by CVE ID.
 func newCVECommand(inv *invocation) *cobra.Command {
-	o := &cveOptions{fields: "all", timeout: "60s"}
+	o := &cveOptions{timeout: "60s"}
 	fieldsLine := "Fields accepted by --fields: " + strings.Join(cve.FieldNames(), ", ") + ", all"
 	cmd := &cobra.Command{
 		Use:   "cve <CVE-ID>... [flags]",
@@ -50,10 +55,11 @@ func newCVECommand(inv *invocation) *cobra.Command {
 			"(NVD_API_KEY, else keys.nvd in the config file), 5 without.",
 		Example: "  nyx cve CVE-2021-44228 CVE-2024-3094 --json\n" +
 			"  nyx cve - --json < ids.txt\n" +
-			"  nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json",
+			"  nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json\n" +
+			"  nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --json",
 		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
-			annotationEveryday: "fields,timeout,config",
+			annotationEveryday: "fields,limit,match,timeout,config",
 			annotationValues:   fieldsLine,
 			annotationFooter:   fieldsLine,
 		},
@@ -63,8 +69,11 @@ func newCVECommand(inv *invocation) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.SortFlags = false
-	f.StringVar(&o.fields, "fields", o.fields, "Return only these fields, separated by commas, plus id; all returns every field")
-	f.Var(timeoutFlag{&o.timeout}, "timeout", "Deadline for the whole call, e.g. 30s or 2m")
+	f.StringVar(&o.fields, "fields", "", "Return only these fields, separated by commas, plus id; all returns every field "+
+		"(without it, all but affected_products and references, which are counted instead)")
+	f.Var(rawFlag{&o.limit, &o.limitSets, "int"}, "limit", "Show at most this many entries of each of affected_products and references that --fields shows")
+	f.Var(rawFlag{&o.match, &o.matchSets, "string"}, "match", "Keep only the entries of affected_products and references that contain this text, ignoring case")
+	f.Var(timeoutFlag(&o.timeout), "timeout", "Deadline for the whole call, e.g. 30s or 2m")
 	f.StringVar(&o.configPath, "config", "", configFlagUsage)
 	f.BoolP("help", "h", false, "Help for cve")
 	return cmd
@@ -82,9 +91,13 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 
 	probs := inv.problems()
 	fields, unknown := cve.Select(o.fields)
+	if !cmd.Flags().Changed("fields") {
+		fields = cve.DefaultFields()
+	}
 	for _, n := range unknown {
 		probs.Add("fields", n, fmt.Sprintf("unknown field %q for --fields", n), cve.ValidFields())
 	}
+	view := cveView(probs, o, fields, len(unknown) == 0)
 	timeout := parseTimeout(probs, o.timeout, "--timeout 60s")
 	// The file's keys.nvd is told apart from NYX_KEYS_NVD, which cve does not read, by loading
 	// without it; the error still masks its value.
@@ -131,7 +144,7 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	if outErr != nil && outErr.Code != clierr.Partial {
 		return outErr // none succeeded, all with one code: nothing on stdout
 	}
-	if err := writeCVE(inv, records, metaErrs, fields, warnings, red); err != nil {
+	if err := writeCVE(inv, records, metaErrs, view, em, warnings, red); err != nil {
 		return err
 	}
 	wrote = inv.sh.json || len(records) > 0 // human mode writes nothing without a record
@@ -139,6 +152,46 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 		return outErr // not a nil *clierr.Error in a non-nil error
 	}
 	return nil
+}
+
+// cveView is the cut --fields, --limit and --match ask for, with each problem they have added to
+// probs: a --limit that is not a positive whole number, a --match with no text, either given twice,
+// and a flag with nothing to act on. The last is left unsaid when --fields has unknown names, as the
+// selection is then unknown too.
+func cveView(probs *clierr.Problems, o *cveOptions, fields cve.Fields, known bool) cve.View {
+	view := cve.View{Fields: fields}
+	if o.limitSets > 0 {
+		n, err := strconv.Atoi(o.limit)
+		switch {
+		case o.limitSets > 1:
+			probs.Add("limit", o.limit, "--limit was given more than once", "pass --limit once")
+		case errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(o.limit, "-"):
+			probs.Add("limit", o.limit, fmt.Sprintf("--limit: invalid value %q: too large", o.limit), "e.g. --limit 10")
+		case err != nil || n <= 0:
+			probs.Add("limit", o.limit, fmt.Sprintf("--limit: invalid value %q: not a positive whole number", o.limit), "e.g. --limit 10")
+		default:
+			view.Limit = n
+		}
+		if known && !fields.ShowsList() {
+			probs.Add("limit", o.limit, "--limit has no list to cut: --fields shows neither affected_products nor references",
+				"add affected_products or references to --fields")
+		}
+	}
+	if o.matchSets > 0 {
+		switch {
+		case o.matchSets > 1:
+			probs.Add("match", o.match, "--match was given more than once", "pass --match once")
+		case strings.TrimSpace(o.match) == "":
+			probs.Add("match", o.match, "--match has no text to look for", "e.g. --match log4j")
+		default:
+			view.Match = o.match // View.Project trims it
+		}
+		if known && !fields.ShowsCount() { // a list brings its count
+			probs.Add("match", o.match, "--match has no list or count to match: --fields shows neither",
+				"add affected_products, references or their counts to --fields")
+		}
+	}
+	return view
 }
 
 // withWarning appends the warning to the hint of an error that leaves stdout
@@ -321,7 +374,8 @@ func cveRetryCommand(cmd *cobra.Command, jsonMode bool, o *cveOptions) cve.HintF
 		flags = append(flags, "--json")
 	}
 	fs := cmd.Flags()
-	for _, f := range []struct{ name, value string }{{"fields", o.fields}, {"timeout", o.timeout}, {"config", o.configPath}} {
+	for _, f := range []struct{ name, value string }{{"fields", o.fields}, {"timeout", o.timeout}, {"config", o.configPath},
+		{"limit", o.limit}, {"match", o.match}} {
 		if fs.Changed(f.name) {
 			flags = append(flags, "--"+f.name, f.value)
 		}
@@ -335,24 +389,39 @@ type cveEnvelope struct {
 	Meta cveMeta         `json:"meta"`
 }
 
-// cveMeta is the envelope's meta: every key, every time.
+// cveMeta is the envelope's meta. Every key is there every time: errors and warnings are empty
+// lists when there is none, and hint, the note on how to see the lists the default leaves out, is
+// null when there is nothing to say.
 type cveMeta struct {
 	Count    int         `json:"count"`
 	Errors   []errorLine `json:"errors"`
 	Warnings []string    `json:"warnings"`
+	Hint     *string     `json:"hint"`
 }
 
-// writeCVE writes the records: the envelope under --json, else the cve
-// tool's layout, which writes nothing when there is no record.
-func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, fields cve.Fields, warnings *report.Warnings, red *config.Redactor) error {
+// writeCVE writes the records cut by view: the envelope under --json, else the cve tool's layout,
+// which writes nothing when there is no record, followed by the note on how to see the lists the
+// view leaves out, as a hint event, when there is a record to write and something to say.
+func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, view cve.View, em report.Emitter, warnings *report.Warnings, red *config.Redactor) error {
 	d := inv.d
-	if !inv.sh.json {
-		return cve.Render(d.Stdout, records, fields, inv.st.out, red)
-	}
-	env := cveEnvelope{Data: make([]cve.Projected, len(records)),
-		Meta: cveMeta{Count: len(records), Errors: make([]errorLine, len(metaErrs)), Warnings: warnings.List()}}
+	projected := make([]cve.Projected, len(records))
 	for i, r := range records {
-		env.Data[i] = fields.Project(r)
+		projected[i] = view.Project(r)
+	}
+	hint := cve.ListHint(projected)
+	if !inv.sh.json {
+		if err := cve.Render(d.Stdout, projected, inv.st.out, red); err != nil {
+			return err
+		}
+		if hint != "" {
+			em.Emit(report.Event{Type: "hint", Fields: map[string]any{"message": hint}})
+		}
+		return nil
+	}
+	env := cveEnvelope{Data: projected,
+		Meta: cveMeta{Count: len(records), Errors: make([]errorLine, len(metaErrs)), Warnings: warnings.List()}}
+	if hint != "" {
+		env.Meta.Hint = &hint
 	}
 	for i, e := range metaErrs {
 		env.Meta.Errors[i] = newErrorLine(e, red)

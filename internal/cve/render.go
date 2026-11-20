@@ -27,27 +27,28 @@ import (
 // anything that would act on a terminal first and redacted second, so a key that
 // cleaning joins back together is still masked, and redacted before it is
 // wrapped, so no line break can split a key and hide it. A nil red masks nothing.
-func Render(w io.Writer, recs []Record, f Fields, s layout.Stream, red *config.Redactor) error {
+func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor) error {
 	if len(recs) == 0 {
 		return nil
 	}
 	if red != nil {
-		scrubbed := make([]Record, len(recs))
-		for i, r := range recs {
-			scrubbed[i] = redactRecord(r, red)
+		scrubbed := make([]Projected, len(recs))
+		for i, p := range recs {
+			p.rec = redactRecord(p.rec, red)
+			scrubbed[i] = p
 		}
 		recs = scrubbed
 	}
 	blocks := make([]string, len(recs))
 	if s.Terminal {
-		tr := termRenderer{f: f, s: s.Fixed()} // so every record has one width
-		for i, r := range recs {
-			blocks[i] = tr.record(r)
+		tr := termRenderer{s: s.Fixed()} // so every record has one width
+		for i, p := range recs {
+			blocks[i] = tr.record(p)
 		}
 	} else {
-		rd := renderer{f: f, d: s.Depth, width: s.Cols()}
-		for i, r := range recs {
-			blocks[i] = rd.record(r)
+		rd := renderer{d: s.Depth, width: s.Cols()}
+		for i, p := range recs {
+			blocks[i] = rd.record(p)
 		}
 	}
 	_, err := fmt.Fprintln(w, strings.Join(blocks, "\n\n"))
@@ -101,7 +102,6 @@ func redactRecord(rec Record, red *config.Redactor) Record {
 }
 
 type renderer struct {
-	f     Fields
 	d     palette.Depth
 	width int
 }
@@ -129,8 +129,8 @@ func orEmpty(s, fallback string) string {
 	return s
 }
 
-func (r renderer) record(rec Record) string {
-	has := r.f.Has
+func (r renderer) record(p Projected) string {
+	rec, has := p.rec, p.f.Has
 	header := r.d.Bold(clean(rec.ID))
 	if has("cvss_severity") {
 		header += "  " + r.badge(or(rec.CVSSSeverity, "UNKNOWN"))
@@ -156,7 +156,7 @@ func (r renderer) record(rec Record) string {
 	if has("description") {
 		section("Description", wrap(or(rec.Description, "No description available."), r.width))
 	}
-	section("CVSS Score", r.cvss(rec)...)
+	section("CVSS Score", r.cvss(rec, has)...)
 	if has("weaknesses") {
 		ws := make([]string, len(rec.Weaknesses))
 		for i, w := range rec.Weaknesses {
@@ -164,17 +164,75 @@ func (r renderer) record(rec Record) string {
 		}
 		section("Weaknesses", bullets(ws, "No weaknesses listed.", r.width)...)
 	}
-	if has("affected_products") {
-		products := make([]string, len(rec.AffectedProducts))
-		for i, ap := range rec.AffectedProducts {
-			products[i] = shortForm(ap)
-		}
-		section("Affected Products", bullets(products, "No affected products listed.", r.width)...)
+	plain := func(s string) []string { return []string{s} }
+	if b, ok := p.listBody(productsList, len(rec.AffectedProducts)); ok {
+		section(b.heading, b.lines(func() []string { return bullets(shortForms(rec.AffectedProducts), "", r.width) }, plain)...)
 	}
-	if has("references") {
-		section("References", r.references(rec.References)...)
+	if b, ok := p.listBody(referencesList, len(rec.References)); ok {
+		section(b.heading, b.lines(func() []string { return r.references(rec.References) }, plain)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// listBody is what a list's section says: its heading, a line of text in place of
+// the entries when there are none to show, and how many entries were left out.
+type listBody struct {
+	heading string
+	text    string // "" when the entries are the body
+	more    string // "" when none were left out
+}
+
+// lines is the section's body: the entries, or the text in their place, then the
+// line saying how many were left out, each line of text laid out by text.
+func (b listBody) lines(entries func() []string, text func(string) []string) []string {
+	var out []string
+	if b.text != "" {
+		out = text(b.text)
+	} else {
+		out = entries()
+	}
+	if b.more != "" {
+		out = append(out, text(b.more)...)
+	}
+	return out
+}
+
+// listBody is the section of the list at i in lists: its entries under a heading
+// with their number when the list is shown (n of them, after the cut), else its
+// count alone as the body. It reports false when neither is selected.
+func (p Projected) listBody(i, n int) (listBody, bool) {
+	l, c := lists[i], p.counts[i]
+	listed := strconv.Itoa(c.Total)
+	matching := fmt.Sprintf("%d of %d match", c.entries(), c.Total)
+	nothing := "No " + l.noun + " listed."
+	switch {
+	case p.f.Has(l.name):
+		b := listBody{heading: l.title + " (" + listed + ")"}
+		if c.Matched != nil {
+			b.heading = l.title + " (" + matching + ")"
+		}
+		switch {
+		case n > 0:
+		case c.Total > 0:
+			b.text = "No " + l.noun + " match."
+		default:
+			b.text = nothing
+		}
+		if c.Omitted != nil && *c.Omitted > 0 {
+			b.more = fmt.Sprintf("%d more not shown", *c.Omitted)
+		}
+		return b, true
+	case p.f.Has(l.count):
+		b := listBody{heading: l.title, text: listed + " listed"}
+		switch {
+		case c.Total == 0:
+			b.text = nothing
+		case c.Matched != nil:
+			b.text = matching
+		}
+		return b, true
+	}
+	return listBody{}, false
 }
 
 // badge is the severity badge: in brackets without colour, else the palette's.
@@ -189,8 +247,7 @@ func (r renderer) field(key, value string) string { return r.d.Bold(key+":") + "
 
 // cvss is the CVSS section's body for the selected cvss_* fields. The severity
 // alone needs none: the header's badge shows it.
-func (r renderer) cvss(rec Record) []string {
-	has := r.f.Has
+func (r renderer) cvss(rec Record, has func(string) bool) []string {
 	if !has("cvss_score") && !has("cvss_vector") && !has("cvss_version") && !has("cvss_source") {
 		return nil
 	}
@@ -238,16 +295,31 @@ func (r renderer) references(refs []Reference) []string {
 }
 
 // shortForm is how an affected product reads to a person: apache log4j (>= 2.0.1, < 2.3.1).
-func shortForm(ap AffectedProduct) string {
+func shortForm(ap AffectedProduct) string { return productLine(ap, clean, clean) }
+
+// shortForms are the products' short forms.
+func shortForms(aps []AffectedProduct) []string {
+	out := make([]string, len(aps))
+	for i, ap := range aps {
+		out[i] = shortForm(ap)
+	}
+	return out
+}
+
+// productLine is the line of an affected product, its vendor, product and version
+// (its CPE, passed through cpe, when it has none of them) and its version bounds,
+// with each of the NVD's other values passed through tidy. Display cleans them
+// and matching leaves them as the NVD wrote them, so the two read the same line.
+func productLine(ap AffectedProduct, tidy, cpe func(string) string) string {
 	var name []string
 	for _, part := range []*string{ap.Vendor, ap.Product, ap.Version} {
 		if part != nil {
-			name = append(name, clean(*part))
+			name = append(name, tidy(*part))
 		}
 	}
 	s := strings.Join(name, " ")
 	if s == "" {
-		s = clean(ap.CPE)
+		s = cpe(ap.CPE)
 	}
 	var bounds []string
 	for _, b := range []struct {
@@ -258,7 +330,7 @@ func shortForm(ap AffectedProduct) string {
 		{"<=", ap.VersionEndIncluding}, {"<", ap.VersionEndExcluding},
 	} {
 		if b.value != nil {
-			bounds = append(bounds, b.op+" "+clean(*b.value))
+			bounds = append(bounds, b.op+" "+tidy(*b.value))
 		}
 	}
 	if len(bounds) > 0 {
@@ -343,7 +415,6 @@ func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
 // width. Every NVD value is cleaned, then wrapped, then coloured, as in the
 // plain layout.
 type termRenderer struct {
-	f Fields
 	s layout.Stream // its width fixed for the whole write
 }
 
@@ -353,8 +424,8 @@ const indent = 2
 // kv is a field of a section: a label and its cleaned value.
 type kv struct{ label, value string }
 
-func (r termRenderer) record(rec Record) string {
-	has := r.f.Has
+func (r termRenderer) record(p Projected) string {
+	rec, has := p.rec, p.f.Has
 	lines := []string{Bar(r.s, rec.ID, or(rec.CVSSSeverity, ""), has("cvss_severity"))}
 	section := func(heading string, body []string) {
 		if len(body) > 0 {
@@ -377,7 +448,7 @@ func (r termRenderer) record(rec Record) string {
 	if has("description") {
 		section("Description", r.text(or(rec.Description, "No description available.")))
 	}
-	section("CVSS Score", r.cvss(rec))
+	section("CVSS Score", r.cvss(rec, has))
 	if has("weaknesses") {
 		ws := make([]string, len(rec.Weaknesses))
 		for i, w := range rec.Weaknesses {
@@ -385,15 +456,11 @@ func (r termRenderer) record(rec Record) string {
 		}
 		section("Weaknesses", r.bullets(ws, "No weaknesses listed."))
 	}
-	if has("affected_products") {
-		products := make([]string, len(rec.AffectedProducts))
-		for i, ap := range rec.AffectedProducts {
-			products[i] = shortForm(ap)
-		}
-		section("Affected Products", r.bullets(products, "No affected products listed."))
+	if b, ok := p.listBody(productsList, len(rec.AffectedProducts)); ok {
+		section(b.heading, b.lines(func() []string { return r.bullets(shortForms(rec.AffectedProducts), "") }, r.text))
 	}
-	if has("references") {
-		section("References", r.references(rec.References))
+	if b, ok := p.listBody(referencesList, len(rec.References)); ok {
+		section(b.heading, b.lines(func() []string { return r.references(rec.References) }, r.text))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -443,8 +510,7 @@ func (r termRenderer) bullets(items []string, fallback string) []string {
 }
 
 // cvss is the CVSS section's body, as the plain layout's, for a terminal.
-func (r termRenderer) cvss(rec Record) []string {
-	has := r.f.Has
+func (r termRenderer) cvss(rec Record, has func(string) bool) []string {
 	if !has("cvss_score") && !has("cvss_vector") && !has("cvss_version") && !has("cvss_source") {
 		return nil
 	}

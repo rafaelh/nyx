@@ -67,7 +67,8 @@ once. A new command needs only `AddCommand`, an `Example` and its help annotatio
 the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
 keys of the CVE record and of the `nyx cve` envelope are a stable interface**: adding one is
 compatible, renaming, removing or retyping one is a breaking change (README, "Exit codes" and
-"Console and JSON").
+"Console and JSON"). The default `nyx cve` selection broke this once, deliberately: it leaves out the
+`affected_products` and `references` lists and has their counts instead (`--fields all` has both).
 
 **Stages** (`internal/run/stage.go`) implement `Name/Contact/Sources/Configured/Checks/Run`.
 - `Contact` is either `ThirdParty` or `Target`, never both. A stage that would do both is split

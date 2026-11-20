@@ -15,10 +15,12 @@ nyx cve <CVE-ID>... [flags]
   Look up CVEs in the NVD by CVE ID
   Example: nyx cve CVE-2021-44228 CVE-2024-3094 --json
 cve flags:
-      --fields string      Return only these fields, separated by commas, plus id; all returns every field (default "all")
+      --fields string      Return only these fields, separated by commas, plus id; all returns every field (without it, all but affected_products and references, which are counted instead)
+      --limit int          Show at most this many entries of each of affected_products and references that --fields shows
+      --match string       Keep only the entries of affected_products and references that contain this text, ignoring case
       --timeout duration   Deadline for the whole call, e.g. 30s or 2m (default 60s)
       --config string      Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
-Fields accepted by --fields: id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products, references, all
+Fields accepted by --fields: id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products_count, affected_products, references_count, references, all
 
 nyx recon [domain...] [flags]
   Passive-first reconnaissance of a target's domains, organisations and netblocks

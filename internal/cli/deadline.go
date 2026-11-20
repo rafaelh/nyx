@@ -19,18 +19,34 @@ func reserve(timeout time.Duration) time.Duration {
 	return min(max(timeout/10, 2*time.Second), 60*time.Second, timeout/2)
 }
 
-// timeoutFlag is --timeout. It keeps the text as given, so that recon checks it with every other
-// value and reports a bad one with the rest; its Type is "duration", as shown in help.
-type timeoutFlag struct{ raw *string }
+// rawFlag is a flag whose text is kept as given, so that it is checked after parsing with every
+// other value and a bad one is reported with the rest. When n is set it counts how many times the
+// flag was set, for a flag that may be given only once. typ is what help calls its value.
+type rawFlag struct {
+	raw *string
+	n   *int
+	typ string
+}
 
-func (t timeoutFlag) String() string {
-	if t.raw == nil {
+// timeoutFlag is --timeout, a duration.
+func timeoutFlag(raw *string) rawFlag { return rawFlag{raw: raw, typ: "duration"} }
+
+func (f rawFlag) String() string {
+	if f.raw == nil {
 		return ""
 	}
-	return *t.raw
+	return *f.raw
 }
-func (t timeoutFlag) Set(s string) error { *t.raw = s; return nil }
-func (timeoutFlag) Type() string         { return "duration" }
+
+func (f rawFlag) Set(s string) error {
+	*f.raw = s
+	if f.n != nil {
+		*f.n++
+	}
+	return nil
+}
+
+func (f rawFlag) Type() string { return f.typ }
 
 // parseTimeout is --timeout's value as a duration. A value that is not a positive duration is
 // recorded as a problem, with example as its hint.

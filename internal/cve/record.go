@@ -7,7 +7,9 @@
 // (internal/cli) owns the flags, the worker pool and the writing.
 //
 // The keys of the record are a stable interface: adding one is compatible,
-// and renaming, removing or retyping one is a breaking change.
+// and renaming, removing or retyping one is a breaking change. The one
+// deliberate break so far is that the default selection (DefaultFields) leaves
+// out the two lists, which hold their counts instead; all returns every key.
 package cve
 
 import (
@@ -30,8 +32,9 @@ func (t Timestamp) MarshalJSON() ([]byte, error) {
 }
 
 // Record is a CVE record: the only shape callers see. A nullable value is a
-// pointer and nothing is omitted, so every key appears in every record, and
-// every list is [] when empty.
+// pointer and nothing is omitted, so the record has every key, and every list
+// is [] when empty. What --json writes is a Projected record: the selected keys
+// of it, with a count in front of each list.
 type Record struct {
 	ID           string    `json:"id"`
 	Status       string    `json:"status"`

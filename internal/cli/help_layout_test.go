@@ -200,7 +200,7 @@ func TestHelp_ValueListsWrapAfterCommas(t *testing.T) {
 	check(export, "Kinds accepted by --kind:", strings.TrimPrefix(wide[0], "Kinds accepted by --kind: "))
 	check(export, "Exit codes:", "0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)")
 	cve := textLines(helpOn(t, palette.None, 80, "cve", "--help"))
-	check(cve, "Fields accepted by --fields:", "id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products, references, all")
+	check(cve, "Fields accepted by --fields:", "id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products_count, affected_products, references_count, references, all")
 }
 
 // Usage and example lines are never broken, even when they run past the width.
