@@ -14,6 +14,7 @@ make test                       # go vet for all 4 GOOS/GOARCH targets, then go 
 make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
 make lint                       # golangci-lint pinned in tools/go.mod; config in .golangci.yml
+make eol-data                   # refresh internal/eol/data from endoflife.date (needs curl, jq); review the diff
 ```
 
 - While iterating, run targeted tests without `-race`: the race detector roughly triples the cost.
@@ -123,7 +124,11 @@ takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives
 
 **Pure knowledge packages** with no I/O: `cloudstorage` (bucket naming, S3/GCS/Azure),
 `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data in the
-embedded `providers.yaml`), `dnsname`, `sanitize` (strips terminal-acting characters from
+embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.date data and
+`products.yaml`), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
+belong to an organisation input), `origin` (origin-behind-CDN decisions, which the `origincheck`
+stage and the findings both call so they can't disagree), `thirdparty`, `palette`, `shellquote`,
+`dnsname`, `sanitize` (strips terminal-acting characters from
 target-supplied text), `input`, `layout` (cell width, wrapping, tables, headings and rules for a
 terminal; the renderers take a `layout.Stream` and return their plain output unchanged when it is
 not a terminal). The built-in wordlist and sensitive-path list are embedded in
