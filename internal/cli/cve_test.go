@@ -245,7 +245,9 @@ func (h *harness) cveEnvelope() cveEnvelope {
 func (e cveEnvelope) ids() []string {
 	var out []string
 	for _, raw := range e.Data {
-		var r struct{ ID string }
+		var r struct {
+			ID string `json:"id"`
+		}
 		_ = json.Unmarshal(raw, &r)
 		out = append(out, r.ID)
 	}

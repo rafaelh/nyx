@@ -35,10 +35,6 @@
   `//nolint:nilerr` with a reason on each, which documents the intent; also check `run/runner.go`,
   `stages/rdap/rdap.go`, `stages/web/{favicon,jsparse,probe}.go`.
 
-- `musttag`: 2 issues. `stages/orgpivot/orgpivot.go` marshals a struct with no `json` tags, so
-  renaming a field would change the JSON. Find out whether that JSON is stored or part of a check
-  key (renaming would then break resume) and tag it; the other issue is in `egress/boundary_test.go`.
-
 # Refactoring opportunities
 
 Each item is one piece of work. Several output-side items (the showing rule, the "excluded"

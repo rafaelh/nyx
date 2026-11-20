@@ -152,7 +152,7 @@ func TestKeys(t *testing.T) {
 			t.Errorf("secret leaked in %q", out)
 		}
 	}
-	b, _ := json.Marshal(s)
+	b, _ := json.Marshal(s) //nolint:musttag // Settings has no JSON form; this checks that a Secret stays redacted if one is ever marshalled
 	if strings.Contains(string(b), "filesecret123") || strings.Contains(string(b), "envsecret456") {
 		t.Errorf("secret leaked in JSON %s", b)
 	}

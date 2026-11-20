@@ -18,6 +18,9 @@ linters:
     - thelper
     # Every //nolint names its linter and says why.
     - nolintlint
+    # Structs passed to json.Marshal/Unmarshal tag every field, so renaming a Go field can't
+    # silently change the JSON (stored attributes, the --json envelope, third-party responses).
+    - musttag
     # Small correctness and simplification checks.
     - copyloopvar
     - gocritic

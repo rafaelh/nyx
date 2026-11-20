@@ -76,10 +76,10 @@ func checkBoundary(t *testing.T, root, goos, goarch string) {
 	checked := 0
 	for dec.More() {
 		var p struct {
-			ImportPath string
-			Dir        string
-			GoFiles    []string
-			Imports    []string
+			ImportPath string   `json:"ImportPath"`
+			Dir        string   `json:"Dir"`
+			GoFiles    []string `json:"GoFiles"`
+			Imports    []string `json:"Imports"`
 		}
 		if err := dec.Decode(&p); err != nil {
 			t.Fatal(err)

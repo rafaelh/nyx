@@ -154,7 +154,8 @@ func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Ob
 			Categories []struct {
 				Category    string `json:"category"`
 				Suggestions []struct {
-					Value, Description string
+					Value       string `json:"value"`
+					Description string `json:"description"`
 				} `json:"suggestions"`
 			} `json:"categories"`
 		} `json:"data"`
