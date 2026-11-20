@@ -721,6 +721,10 @@ terminal stderr are log lines and are laid out like the rest. The `error:` line 
 `NO_COLOR` or `TERM=dumb` turns the colour off but not the layout: no escape byte is written, and
 rules and borders are drawn with ASCII (`-`, `|`, `+`).
 
+- **Margin.** A blank line comes before nyx's output and another after it, to set it apart from
+  the shell prompts. When stdout and stderr are both terminals they share it: the first line goes
+  to whichever is written first and the last to whichever is written last. A stream nyx writes
+  nothing to stays empty. There is no margin under `--json`.
 - **Width.** Each terminal stream has its own width: `COLUMNS` when it is a positive number, else
   the width of that terminal, else 100, and never less than 60. A log line reads the width each time
   it is written, so resizing the window applies from the next line. For `nyx cve` output that is not

@@ -208,6 +208,7 @@ type invocation struct {
 	raw  shared   // the shared flags as a scan of args finds them, before any parse
 	sh   shared   // the shared flags as parsed
 	fw   *failureWriter
+	mg   *margin // the blank lines around the output on a terminal; Execute closes it
 
 	cmd *cobra.Command // the command that ran, for the default hint
 	err error          // what it returned
@@ -217,9 +218,12 @@ type invocation struct {
 }
 
 func newInvocation(d Deps, args []string) *invocation {
-	inv := &invocation{d: d, args: args, raw: scanShared(args)}
+	inv := &invocation{d: d, args: args, raw: scanShared(args), mg: &margin{}}
 	inv.st = streams{out: newStream(d.StdoutIsTTY, d.Env, d.StdoutWidth), err: newStream(d.StderrIsTTY, d.Env, d.StderrWidth)}
-	inv.fw = newFailureWriter(d.Stderr, inv.raw.json, inv.st.err.Depth, config.NewRedactor(config.EnvKeyValues(d.Env)...))
+	// The pre-scan decides --json: a value refused later still leaves the streams as they were.
+	inv.d.Stdout = inv.mg.wrap(d.Stdout, inv.st.out.Terminal && !inv.raw.json)
+	inv.d.Stderr = inv.mg.wrap(d.Stderr, inv.st.err.Terminal && !inv.raw.json)
+	inv.fw = newFailureWriter(inv.d.Stderr, inv.raw.json, inv.st.err.Depth, config.NewRedactor(config.EnvKeyValues(d.Env)...))
 	return inv
 }
 
@@ -239,11 +243,13 @@ func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, env co
 // print none.
 func Execute(ctx context.Context, args []string, d Deps) int {
 	inv := newInvocation(withDefaults(d), args)
+	defer inv.mg.close() // after the error, which Execute writes before it returns
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sigs := watchSignals(inv.d.Signals, cancel, func(s os.Signal) {
 		// A second signal: exit at once, the one exit outside main.
 		inv.fw.write(inv.interruptError(s))
+		inv.mg.close()
 		os.Exit(signalOf(s).code)
 	})
 	defer sigs.stop()

@@ -156,7 +156,7 @@ func TestLog_ErrorLineColour(t *testing.T) {
 	colourAt(t, h, palette.TrueColor)
 	h.exec()
 	want := "\x1b[38;2;240;138;146merror:\x1b[0m no inputs"
-	got := h.stderr.String()
+	got := unmargined(t, h.stderr.String())
 	if !strings.HasPrefix(got, want) || strings.Contains(got[len(want):], esc) {
 		t.Errorf("stderr = %q, want a line starting %q and no other escape", got, want)
 	}
@@ -165,7 +165,7 @@ func TestLog_ErrorLineColour(t *testing.T) {
 	h.stderrTTY = true
 	h.setenv("NO_COLOR", "1")
 	h.exec()
-	if got := h.stderr.String(); strings.Contains(got, esc) || !strings.HasPrefix(got, "error: no inputs") {
+	if got := unmargined(t, h.stderr.String()); strings.Contains(got, esc) || !strings.HasPrefix(got, "error: no inputs") {
 		t.Errorf("stderr = %q", got)
 	}
 }
@@ -620,7 +620,7 @@ func TestLog_Summary(t *testing.T) {
 	h.setenv("NO_COLOR", "1")
 	h.setenv("COLUMNS", "80")
 	h.exec("a.com")
-	if got := h.stdout.String(); !strings.HasPrefix(got, "Summary\n"+strings.Repeat("-", 80)+"\n") || strings.Contains(got, esc) {
+	if got := unmargined(t, h.stdout.String()); !strings.HasPrefix(got, "Summary\n"+strings.Repeat("-", 80)+"\n") || strings.Contains(got, esc) {
 		t.Errorf("uncoloured terminal summary:\n%q", got)
 	}
 }

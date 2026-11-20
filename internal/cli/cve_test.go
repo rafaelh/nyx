@@ -610,7 +610,7 @@ func TestCVE_HumanColour(t *testing.T) {
 		return layout.Stream{Terminal: true, Depth: depth, Width: func() int { return 70 }}
 	}
 	bar := cve.Bar(at70(d), log4j, "CRITICAL", true)
-	if !strings.HasPrefix(h.stdout.String(), bar+"\n\n"+d.BoldText(palette.Semantic, "info", "Status & Dates")+"\n") {
+	if !strings.HasPrefix(unmargined(t, h.stdout.String()), bar+"\n\n"+d.BoldText(palette.Semantic, "info", "Status & Dates")+"\n") {
 		t.Errorf("stdout %q does not open with the severity's bar %q", h.stdout.String(), bar)
 	}
 	if w := layout.Measure(bar); w != 70 {
@@ -619,7 +619,7 @@ func TestCVE_HumanColour(t *testing.T) {
 	// With NO_COLOR the layout stays and no escape byte is written: the bar is the ID and [CRITICAL].
 	h.setenv("NO_COLOR", "1")
 	code := h.cveRun(false, log4j)
-	first, _, _ := strings.Cut(h.stdout.String(), "\n")
+	first, _, _ := strings.Cut(unmargined(t, h.stdout.String()), "\n")
 	if code != 0 || strings.Contains(h.stdout.String(), "\x1b") ||
 		first != cve.Bar(at70(palette.None), log4j, "CRITICAL", true) || !strings.HasSuffix(first, "[CRITICAL]") {
 		t.Errorf("NO_COLOR: exit %d, %q", code, h.stdout.String())

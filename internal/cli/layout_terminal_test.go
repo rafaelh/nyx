@@ -60,7 +60,7 @@ func warnStage(msgs ...string) *testkit.Stage {
 // ruleLength is the cells of the first line of stdout's rule beneath its first heading.
 func ruleLength(t *testing.T, out string) int {
 	t.Helper()
-	lines := strings.Split(stripSGR(out), "\n")
+	lines := strings.Split(stripSGR(unmargined(t, out)), "\n")
 	if len(lines) < 2 || lines[0] != "Summary" {
 		t.Fatalf("stdout does not start with the summary heading:\n%s", out)
 	}
@@ -315,7 +315,7 @@ func TestLayout_PaletteSheetOnATerminal(t *testing.T) {
 	h.stdoutTTY = true
 	h.setenv("NO_COLOR", "1")
 	h.exec("--palette")
-	got := h.stdout.String()
+	got := unmargined(t, h.stdout.String())
 	for _, want := range []string{"\nlayout\n", "SEVERITY  CATEGORY", "[HIGH]", "[UNKNOWN]", "[NONE]", "running", "done-previously", "not-configured", "+ host: "} {
 		if !strings.Contains(got, want) {
 			t.Errorf("uncoloured terminal sheet lacks %q", want)
