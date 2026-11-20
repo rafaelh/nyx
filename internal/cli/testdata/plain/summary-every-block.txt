@@ -1,0 +1,58 @@
+Summary
+  candidates                        34
+  code mentions                     0
+  findings                          6
+  hosts                             4
+  ips                               0
+  open ports (confirmed)            0
+  open ports (third-party reported) 2
+  third parties                     0
+  unresolved names                  0
+  urls                              0
+  web services                      3
+  2 risky ports reported by Shodan, unconfirmed
+  shodan: 3 hosts were not looked up (quota)
+  permutations: the list was cut at 1000 names
+Failed checks (retried on the next run; --debug shows each failure)
+  flaky            2
+Deferred to the next run
+  budgeted         1
+Findings (high and medium)
+  high     email a.com - SPF allows anyone to send: v=spf1 +all
+  medium   email a.com - no DMARC record
+  medium   certificates https://customer-portal-staging-environment-eu-west.internal-services.division-alpha.example-holdings.a.com - expired certificate (customer-portal-staging-environment-eu-west.internal-services.division-alpha.example-holdings.a.com), expires 2026-09-30
+  medium   certificates https://old.a.com - expired certificate (old.a.com), expires 2026-10-15
+Candidates worth promoting (high confidence)
+  holding-00.example.org  4 evidence (certspotter;crtsh;otx;wayback)  promote: holding-00.example.org
+  holding-01.example.org  4 evidence (certspotter;crtsh;otx;wayback)  promote: holding-01.example.org
+  holding-02.example.org  4 evidence (certspotter;crtsh;otx;wayback)  promote: holding-02.example.org
+  holding-03.example.org  4 evidence (certspotter;crtsh;otx;wayback)  promote: holding-03.example.org
+  holding-04.example.org  4 evidence (certspotter;crtsh;otx;wayback)  promote: holding-04.example.org
+  203.0.0.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.0.0/24
+  203.0.1.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.1.0/24
+  203.0.10.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.10.0/24
+  203.0.2.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.2.0/24
+  203.0.3.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.3.0/24
+  203.0.4.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.4.0/24
+  203.0.5.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.5.0/24
+  203.0.6.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.6.0/24
+  203.0.7.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.7.0/24
+  203.0.8.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.8.0/24
+  203.0.9.0/24  3 evidence (crtsh;otx;wayback)  promote: --cidr 203.0.9.0/24
+  holding-05.example.org  3 evidence (crtsh;otx;wayback)  promote: holding-05.example.org
+  holding-06.example.org  3 evidence (crtsh;otx;wayback)  promote: holding-06.example.org
+  holding-07.example.org  3 evidence (crtsh;otx;wayback)  promote: holding-07.example.org
+  holding-08.example.org  3 evidence (crtsh;otx;wayback)  promote: holding-08.example.org
+  and 14 more in candidates.csv
+Since last run
+  new hostnames    2
+  new addresses    0
+  new web services 2
+  new open ports   2
+  new candidates   34
+  new findings     5
+  gone findings    0
+New findings (high and medium)
+  high     email a.com - SPF allows anyone to send: v=spf1 +all
+  medium   email a.com - no DMARC record
+  medium   certificates https://customer-portal-staging-environment-eu-west.internal-services.division-alpha.example-holdings.a.com - expired certificate (customer-portal-staging-environment-eu-west.internal-services.division-alpha.example-holdings.a.com), expires 2026-09-30

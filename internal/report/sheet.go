@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/cve"
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
@@ -13,9 +15,25 @@ import (
 // then one sample log line per level and one two-line message, all through the
 // formatter a run uses, so a new terminal or theme can be checked by eye. The
 // log lines carry the time now, as it is to be shown.
-func Sheet(w io.Writer, d palette.Depth, now time.Time) {
+//
+// On a terminal the sheet also shows the layout: a heading, a sample findings table, a CVE header
+// bar for each severity and for a missing and an unknown one, a stage line for each state, two
+// found lines and a log line longer than the layout width. Its category and group headings take
+// the heading style there. Elsewhere it is the sheet without these.
+func Sheet(w io.Writer, s layout.Stream, now time.Time) {
+	if s.Terminal {
+		s = s.Fixed() // so the whole sheet has one width
+	}
+	d := s.Depth
 	var b strings.Builder
-	heading := func(s string) { b.WriteString(d.Bold(s) + "\n") }
+	heading := func(text string) { b.WriteString(d.Bold(text) + "\n") }
+	if s.Terminal {
+		heading = func(text string) {
+			for _, l := range layout.Heading(s, text, false) {
+				b.WriteString(l + "\n")
+			}
+		}
+	}
 	for _, c := range palette.Categories() {
 		heading(string(c))
 		for _, l := range palette.Labels(c) {
@@ -30,8 +48,41 @@ func Sheet(w io.Writer, d palette.Depth, now time.Time) {
 	}
 	heading("log lines")
 	for l := Debug; l <= Crit; l++ {
-		fmt.Fprintln(&b, Line(d, now, l, "a sample "+l.Label()+" message"))
+		fmt.Fprintln(&b, Line(s, now, l, "a sample "+l.Label()+" message"))
 	}
-	fmt.Fprintln(&b, Line(d, now, Info, "a message of two lines\ncontinued under the message column"))
+	fmt.Fprintln(&b, Line(s, now, Info, "a message of two lines\ncontinued under the message column"))
+	if s.Terminal {
+		heading("layout")
+		writeLayoutSamples(&b, s, now)
+	}
 	_, _ = io.WriteString(w, b.String()) // a failed write of the sheet has nowhere to be reported
+}
+
+// sampleLong is a message wider than any layout width the sheet is shown at.
+const sampleLong = "a log line whose message is longer than the layout width, so that it wraps and each " +
+	"continuation line starts under the message column instead of under the timestamp, with the " +
+	"words kept whole and a host such as www.example.com never broken"
+
+// writeLayoutSamples writes what the layout adds to the sheet on a terminal.
+func writeLayoutSamples(b *strings.Builder, s layout.Stream, now time.Time) {
+	b.WriteString(findingsTableText(s, []FindingRow{
+		{Severity: "high", Category: "exposed-admin", Target: "https://app.example.com/admin", Detail: new("a login page with no rate limit")},
+		{Severity: "medium", Category: "banner", Target: "198.51.100.7:21", Detail: new("an FTP banner that names its version")},
+		{Severity: "low", Category: "headers", Target: "www.example.com"},
+	}))
+	for _, label := range append(palette.Labels(palette.Severity), "", "NONE") {
+		b.WriteString(cve.Bar(s, "CVE-2021-44228", label, true) + "\n")
+	}
+	for _, c := range []struct {
+		state, reason string
+		level         Level
+	}{
+		{"running", "", Info}, {"done", "", Info}, {"done-previously", "", Info},
+		{"failed", "", Error}, {"not-configured", "no key", Info},
+	} {
+		b.WriteString(LineSpans(s, now, c.level, stageSpans(s, "crtsh", c.state, c.reason, "12", "1")) + "\n")
+	}
+	b.WriteString(LineSpans(s, now, Info, foundSpans(s, "finding", "https://app.example.com/admin", "", "high")) + "\n")
+	b.WriteString(LineSpans(s, now, Info, foundSpans(s, "host", "www.example.com", "", "")) + "\n")
+	b.WriteString(Line(s, now, Warn, sampleLong) + "\n")
 }

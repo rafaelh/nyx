@@ -181,6 +181,71 @@ func TestBold(t *testing.T) {
 	}
 }
 
+// BoldText is bold plus the entry's foreground, with no background; an unknown
+// name is bold only, and None leaves the text alone.
+func TestBoldText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		d         palette.Depth
+		group     palette.Group
+		name, out string
+	}{
+		{palette.TrueColor, palette.Semantic, "info", "\x1b[1;38;2;143;179;255mx\x1b[0m"},
+		{palette.Color256, palette.Semantic, "info", "\x1b[1;38;5;111mx\x1b[0m"},
+		{palette.Color16, palette.Semantic, "info", "\x1b[1;94mx\x1b[0m"},
+		{palette.TrueColor, palette.Chrome, "TIMESTAMP", "\x1b[1;38;2;124;129;145mx\x1b[0m"},
+		{palette.Color256, palette.Chrome, "TIMESTAMP", "\x1b[1;38;5;102mx\x1b[0m"},
+		{palette.Color16, palette.Chrome, "TIMESTAMP", "\x1b[1;90mx\x1b[0m"},
+		{palette.Color16, palette.Semantic, "error", "\x1b[1;91mx\x1b[0m"},
+		{palette.TrueColor, palette.Semantic, "nope", "\x1b[1mx\x1b[0m"},
+		{palette.Color16, palette.Group("nope"), "info", "\x1b[1mx\x1b[0m"},
+		{palette.None, palette.Semantic, "info", "x"},
+		{palette.None, palette.Semantic, "nope", "x"},
+	}
+	for _, c := range cases {
+		if got := c.d.BoldText(c.group, c.name, "x"); got != c.out {
+			t.Errorf("depth %v %s %s = %q, want %q", c.d, c.group, c.name, got, c.out)
+		}
+	}
+}
+
+// BadgeText is the badge of the label's style around the text exactly as given:
+// no padding and no added spaces. An unknown label takes DEBUG and None is plain.
+func TestBadgeText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		d            palette.Depth
+		cat          palette.Category
+		label, which string
+		out          string
+	}{
+		{palette.TrueColor, palette.Severity, "HIGH", "T", "\x1b[38;2;240;138;146;48;2;74;34;38mT\x1b[0m"},
+		{palette.TrueColor, palette.Severity, "high", "T", "\x1b[38;2;240;138;146;48;2;74;34;38mT\x1b[0m"},
+		{palette.TrueColor, palette.Severity, "CRITICAL", "T", "\x1b[1;38;2;246;246;246;48;2;163;52;60mT\x1b[0m"},
+		{palette.Color256, palette.Severity, "CRITICAL", "T", "\x1b[1;38;5;255;48;5;131mT\x1b[0m"},
+		{palette.Color16, palette.Severity, "CRITICAL", "T", "\x1b[1;97;41mT\x1b[0m"},
+		{palette.Color16, palette.Severity, "MEDIUM", "T", "\x1b[33;40mT\x1b[0m"},
+		{palette.Color16, palette.Severity, "LOW", "T", "\x1b[93;40mT\x1b[0m"},
+		{palette.Color16, palette.Severity, "INFO", "T", "\x1b[94;40mT\x1b[0m"},
+		{palette.TrueColor, palette.Severity, "NONE", "T", "\x1b[38;2;169;177;198;48;2;42;47;58mT\x1b[0m"},
+		{palette.Color256, palette.Severity, "UNKNOWN", "T", "\x1b[38;5;146;48;5;236mT\x1b[0m"},
+		{palette.Color16, palette.Severity, "UNKNOWN", "T", "\x1b[37;40mT\x1b[0m"},
+		{palette.None, palette.Severity, "HIGH", "T", "T"},
+		{palette.None, palette.Severity, "NONE", "T", "T"},
+	}
+	for _, c := range cases {
+		if got := c.d.BadgeText(c.cat, c.label, c.which); got != c.out {
+			t.Errorf("depth %v %s %s = %q, want %q", c.d, c.cat, c.label, got, c.out)
+		}
+	}
+	// The text is not padded: a text longer or shorter than the category's width
+	// comes back as given between the escapes.
+	got := palette.TrueColor.BadgeText(palette.Severity, "LOW", " a bar ")
+	if want := "\x1b[38;2;236;208;143;48;2;61;52;32m a bar \x1b[0m"; got != want {
+		t.Errorf("exact text = %q, want %q", got, want)
+	}
+}
+
 // Lookup is case-insensitive, and the category tables follow the palette document.
 func TestCategoryTables(t *testing.T) {
 	t.Parallel()

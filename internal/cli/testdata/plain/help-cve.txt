@@ -1,0 +1,26 @@
+Examples:
+  nyx cve CVE-2021-44228 CVE-2024-3094 --json
+  nyx cve - --json < ids.txt
+  nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
+
+cve looks each CVE ID up in the NVD and returns one record for each ID the NVD holds, in argument
+order. A lone - reads the IDs from stdin, one per line. It needs no engagement, writes no files and
+contacts only the NVD, paced to its rate limit: 50 requests per 30 seconds with an API key
+(NVD_API_KEY, else keys.nvd in the config file), 5 without.
+
+Usage:
+  nyx cve <CVE-ID>... [flags]
+
+Flags:
+      --fields string      Return only these fields, separated by commas, plus id; all returns every field (default "all")
+      --timeout duration   Deadline for the whole call, e.g. 30s or 2m (default 60s)
+      --config string      Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
+  -h, --help               Help for cve
+
+Shared flags:
+      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), and the stack of an unexpected failure
+  -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
+  -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
+
+Fields accepted by --fields: id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products, references, all
+Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)

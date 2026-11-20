@@ -1,0 +1,80 @@
+Examples:
+  nyx recon example.com --json --timeout 30m
+  nyx recon example.com --org 'Example Pty Ltd' --authorised --json --timeout 30m
+  nyx recon -e example.com --redo crtsh --json --timeout 30m
+
+recon records a target's hosts, IPs, web services, URLs and open ports, plus a severity-ranked
+list of obvious exposures, using only third-party sources and the kind of contact any member of
+the public could make. Results go to the console and to TXT/CSV files in an engagement directory.
+Re-run with the same engagement (nyx recon -e <name>) to resume.
+
+Usage:
+  nyx recon [domain...] [flags]
+
+Commands:
+  export      Write everything recorded about an engagement as JSON lines
+
+Flags:
+  -d, --domains-file string                    File of root domains, one per line (# comments allowed)
+      --org stringArray                        Organisation name (repeatable)
+      --asn stringArray                        ASN, AS123 or 123; its announced netblocks become in scope (repeatable)
+      --cidr stringArray                       Netblock in CIDR notation (repeatable)
+  -x, --exclude stringArray                    Excluded hostname, *.wildcard or CIDR (repeatable)
+      --exclude-file string                    File of exclusions, one per line (# comments allowed)
+  -e, --engagement string                      Engagement name (default: derived from the first input)
+      --passive                                Use third-party sources only; never contact target-owned systems
+      --authorised                             Confirm you are authorised to test this scope, for this and later runs (alias --authorized)
+      --allow-large-netblocks                  Proceed even if in-scope IPv4 netblocks exceed --netblock-limit
+      --redo string                            Re-perform every check of one stage (see nyx help stages)
+      --timeout duration                       Stop by this deadline, e.g. 30m or 2h, and exit 7; run again to carry on (default: none)
+      --config string                          Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
+      --ports ports                            TCP ports to check, separated by commas (e.g.: 37,53,79-81,443)
+      --risky-ports ports                      Ports whose being open is reported as a risk (default 21,23,445,1433,1521,3306,3389,5432,5900,6379,9200,11211,27017)
+      --sensitive-paths string                 YAML file of sensitive paths to request (default: built-in (268 entries))
+      --wordlist string                        Subdomain wordlist file (default: built-in (4860 entries))
+      --concurrency integer                    Workers per stage (ports: --port-concurrency) (default 10)
+      --port-concurrency integer               Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout (default 100)
+      --rate-per-host float                    Requests per second per dialled target IP (HTTP requests and TCP connects) (default 5)
+      --rate-per-source float                  Requests per second per third-party source (default 1)
+      --rate-dns float                         DNS queries per second in total across public resolvers (default 50)
+      --crawl-depth integer                    Maximum crawl depth (default 2)
+      --crawl-pages integer                    Maximum pages crawled per web service (0 disables the crawl) (default 100)
+      --archive-max-urls integer               Maximum archived URLs recorded per root from Wayback and Common Crawl (default 20000)
+      --storage-max-names integer              Cloud-storage bucket names guessed per root and per organisation (checked on AWS, Azure and GCP) (default 50)
+      --cert-expiry-days integer               Report certificates that expire within this many days (default 30)
+      --output-dir string                      Directory in which engagement directories are created (default ".")
+      --no-permutations                        Do not resolve permutations of discovered subdomain labels (default: on, including with --passive)
+      --permutations-max integer               Maximum permutations generated per discovered subdomain label (default 200)
+      --netblock-limit integer                 IPv4 address count above which the run stops unless --allow-large-netblocks is given (default 4096)
+      --skip stringArray                       Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)
+      --certspotter-max-pages integer          Result pages followed per root from Cert Spotter (default 10)
+      --shodan-dns-max-pages integer           Result pages followed per root from Shodan's DNS data (one query credit each) (default 10)
+      --censys-max-pages integer               Result pages followed per root from Censys (default 10)
+      --chaos-max-pages integer                Result pages followed per root from Chaos (it answers in one page, so this is not reached) (default 10)
+      --permutations-max-names integer         Maximum permutation names generated per run; the rest are deferred to later runs (default 200000)
+      --sensitive-path-max-requests integer    Maximum sensitive-path requests sent per run; the rest are deferred to later runs (default 50000)
+      --shodan-max-hosts integer               Maximum addresses looked up on Shodan per run; the rest are deferred to later runs (default 500)
+      --reverseip-max-domains integer          Registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded (default 100)
+      --jsparse-max-scripts integer            Maximum script files read per origin for the URLs and hostnames they name (default 50)
+      --identifier-pivot-max-queries integer   Maximum Shodan searches per run for web identifiers (tracking IDs and favicon hashes); the rest are deferred to later runs (default 50)
+      --github-max-results integer             Maximum GitHub code search results read per root (at most 1000); changing it searches again (default 500)
+      --dnshistory-max-hosts integer           Maximum hostnames behind a CDN or WAF whose historical addresses are fetched from SecurityTrails per run; the rest are deferred to later runs (default 200)
+      --origincheck-max-candidates integer     Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF (default 5)
+      --eol-warn-days integer                  Report software whose security support ends within this many days (0 turns the warning off) (default 90)
+      --nsreverse-max-domains integer          Domains one self-hosted name server or mail host may host before it is treated as shared hosting and nothing is recorded (default 1000)
+  -h, --help                                   Help for recon
+
+Shared flags:
+      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), and the stack of an unexpected failure
+  -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
+  -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
+
+Configuration:
+  Settings come from a YAML config file, NYX_* environment variables or flags; flags override
+  environment variables, which override the file. The default config file is
+  $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml).
+  Environment variables are NYX_<SETTING> with dots as underscores, e.g. NYX_CONCURRENCY and
+  NYX_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
+  NYX_KEYS_<SOURCE> in the environment.
+
+Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)

@@ -1,0 +1,34 @@
+Findings and their default severities (fixed in code, not configurable; the summary lists high and medium):
+  takeover              dns-nxdomain          high    a CNAME dangles (NXDOMAIN) into a provider whose names anyone can claim
+  takeover              http-fingerprint      high    a provider-hosted name serves the page an unclaimed resource serves
+  takeover              storage-missing       high    a bucket or account the in-scope CNAME or a page asset names does not exist
+  takeover              storage-missing-link  low     a missing bucket that is only the target of a plain link
+  storage               listable              high    an attributed bucket whose contents anyone can list
+  storage               public                medium  an attributed bucket with an object anyone can fetch, not listable
+  storage               exists                low     an attributed bucket that exists and is private
+  storage-unattributed  listable              low     a guessed bucket nothing in scope references, listable
+  storage-unattributed  public                low     a guessed bucket nothing in scope references, with a public object
+  sensitive-paths       <path>                medium  a sensitive path answered with its expected signature; the entry's severity, default medium
+  email                 spf-all-plus          high    SPF ends in +all (or a bare all): anyone may send as the domain
+  email                 spf-missing           medium  no SPF record
+  email                 spf-all-neutral       medium  SPF ends in ?all
+  email                 spf-invalid           medium  several SPF records, or an include that cannot be resolved
+  email                 spf-lookups           low     SPF needs more than 10 DNS lookups
+  email                 dmarc-missing         medium  no DMARC record
+  email                 dmarc-none            low     DMARC policy is none
+  email                 no-mx-spf             low     no MX (or a null MX) and no v=spf1 -all record
+  email                 mta-sts-missing       low     a root with a mail host does not publish exactly one MTA-STS policy record (_mta-sts)
+  ports                 risky-port            medium  a port on the risky list (RDP, SMB, Telnet, databases, ...) is open; low while only Shodan reports it
+  certificates          expired               medium  the certificate has expired
+  certificates          expiring              low     the certificate expires within --cert-expiry-days
+  certificates          hostname-mismatch     low     the certificate does not name the probed host (not for an IP literal or a host on shared provider infrastructure)
+  certificates          legacy-tls            low     the service negotiated TLS 1.0 or 1.1 (an old version offered alongside a newer one is not seen)
+  certificates          self-signed           low     the certificate is self-signed
+  web-posture           missing-hsts          low     an HTTPS service's first response has no Strict-Transport-Security header
+  web-posture           insecure-cookie       low     a cookie set over HTTPS lacks Secure
+  web-posture           directory-listing     low     the service's page is an automatic directory listing (Index of /)
+  web-posture           version-disclosure    low     a Server or X-Powered-By header carries a version (Apache/2.4.41)
+  origin-exposure       confirmed             medium  a hostname behind a CDN or WAF is also served directly by an address nyx may contact, which answers for it
+  origin-exposure       possible              low     an address that may be the origin of a hostname behind a CDN or WAF, found from its history or a sibling and not confirmed
+  eol-software          eol                   medium  a web technology or banner version is past the end of security support of its release cycle; low for a distribution build or a version only Shodan reports
+  eol-software          eol-approaching       low     the end of security support of the release cycle is within --eol-warn-days

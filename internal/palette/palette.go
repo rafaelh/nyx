@@ -322,6 +322,34 @@ func (d Depth) Bold(s string) string {
 	return d.wrap("1", s)
 }
 
+// BoldText colours s with the foreground of a named entry of group and makes it
+// bold: ESC[1;<foreground>m, s, ESC[0m. There is no background. An unknown name
+// gives plain bold, as Bold does. At depth None s is returned unchanged.
+func (d Depth) BoldText(g Group, name, s string) string {
+	if d == None {
+		return s
+	}
+	for _, e := range entriesOf(g) {
+		if e.name == name {
+			return d.wrap("1;"+d.fgParams(e.fgStyle), s)
+		}
+	}
+	return d.wrap("1", s)
+}
+
+// BadgeText writes text in the badge style that label takes in category c, found
+// as Value finds it: case-insensitively, and DEBUG for a label the category does
+// not hold. Unlike Badge and Value it adds no padding and no space either side:
+// it wraps text exactly, so a caller laying out a bar adds its own spaces. At
+// depth None text is returned unchanged.
+func (d Depth) BadgeText(c Category, label, text string) string {
+	if d == None {
+		return text
+	}
+	_, s := styleOf(c, label)
+	return d.wrap(d.badgeParams(s), text)
+}
+
 // nearest256 is the entry of the xterm 256-colour table, among indices 16 to
 // 255, nearest to c by squared RGB distance (the lowest index on a tie).
 // Indices 0 to 15 are skipped because their colour depends on the terminal's

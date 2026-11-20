@@ -1,0 +1,44 @@
+level
+  DEBUG
+  INFO 
+  WARN 
+  ERROR
+  CRIT 
+outcome
+  PASS   
+  FAIL   
+  SKIP   
+  DRY RUN
+severity
+  CRITICAL
+  HIGH    
+  MEDIUM  
+  LOW     
+  INFO    
+http_status
+  2xx
+  3xx
+  4xx
+  5xx
+http_method
+  GET
+  POST
+  PATCH
+  PUT
+  DELETE
+chrome
+  TIMESTAMP
+  SEPARATOR
+semantic
+  success
+  error
+  warning
+  info
+log lines
+09:00:00 | DEBUG | a sample DEBUG message
+09:00:00 | INFO  | a sample INFO message
+09:00:00 | WARN  | a sample WARN message
+09:00:00 | ERROR | a sample ERROR message
+09:00:00 | CRIT  | a sample CRIT message
+09:00:00 | INFO  | a message of two lines
+                   continued under the message column

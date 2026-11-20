@@ -113,7 +113,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	if o.palette {
 		// First, so that a broken config, a missing scope or stray inputs do not matter, and
 		// nothing is created or contacted.
-		report.Sheet(d.Stdout, inv.helpDepth(), d.Clock().In(d.Location))
+		report.Sheet(d.Stdout, inv.helpStream(), d.Clock().In(d.Location))
 		return nil
 	}
 	probs := inv.problems()
@@ -288,7 +288,7 @@ func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run
 			return err
 		}
 	} else {
-		report.WriteSummary(d.Stdout, inv.dp.out, env)
+		report.WriteSummary(d.Stdout, inv.st.out, env)
 	}
 	if e := partialError(inv.args, o.timeout, deadline, res); e != nil {
 		return e

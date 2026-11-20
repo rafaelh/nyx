@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/run"
 )
@@ -56,14 +57,30 @@ var stageHelps = map[string]stageHelp{
 	"ports":            {"", "TCP handshakes to the configured ports, keeping any banner sent unprompted"},
 }
 
-// stagesHelp is the stages topic at depth d: a table of stages in registry order with whom each
+// stagesHeading is the heading of the stages topic.
+const stagesHeading = "Stages, in the order each pass runs them:"
+
+// stagesFooter is what the stages topic says after its table.
+const stagesFooter = `Third-party stages ask public sources and resolvers, and run under --passive. Target stages
+contact the target's own systems: they are skipped under --passive, and unless --authorised
+has confirmed, on this run or an earlier one, that you are authorised. A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in
+brackets is optional. --redo <stage> performs every check of one stage again, and --skip <stage>
+turns one off, except the stages marked *, which other stages' safety depends on.`
+
+// stagesHelp is the stages topic for s: a table of stages in registry order with whom each
 // contacts, the key it needs and what it does, then how --passive, --redo and --skip treat them.
-func stagesHelp(d palette.Depth, stages []run.Stage) string {
-	type row struct{ name, contact, key, does string }
-	header := row{"STAGE", "CONTACT", "KEY", "WHAT IT DOES"}
-	rows := []row{header}
+func stagesHelp(s layout.Stream, stages []run.Stage) string {
+	return renderHelp(stagesBlocks(stages), s)
+}
+
+// stageRow is a row of the stages table.
+type stageRow struct{ name, contact, key, does string }
+
+// stageRows are the rows of the stages table, the stages in registry order.
+func stageRows(stages []run.Stage) []stageRow {
+	var rows []stageRow
 	for _, s := range stages {
-		r := row{name: s.Name(), contact: "third party"}
+		r := stageRow{name: s.Name(), contact: "third party"}
 		if s.Contact() == run.Target {
 			r.contact = "target"
 		}
@@ -74,44 +91,60 @@ func stagesHelp(d palette.Depth, stages []run.Stage) string {
 		r.key, r.does = h.key, h.does
 		rows = append(rows, r)
 	}
+	return rows
+}
+
+// stagesBlocks are the blocks of nyx help stages: its heading, its table and its footer.
+func stagesBlocks(stages []run.Stage) []helpBlock {
+	rows := stageRows(stages)
+	var b helpBuilder
+	b.heading(stagesHeading)
+	b.blocks = append(b.blocks, helpBlock{kind: blockTable, lines: plainStagesTable(rows),
+		table: func(s layout.Stream) layout.Table { return stagesTable(s, rows) }})
+	b.blank()
+	b.free(stagesFooter, nil)
+	return b.blocks
+}
+
+// plainStagesTable is the table's text for a stream that is not a terminal: its columns padded to
+// their widest cell.
+func plainStagesTable(rows []stageRow) []string {
+	all := append([]stageRow{{"STAGE", "CONTACT", "KEY", "WHAT IT DOES"}}, rows...)
 	var wName, wContact, wKey int
-	for _, r := range rows {
+	for _, r := range all {
 		wName, wContact, wKey = max(wName, len(r.name)), max(wContact, len(r.contact)), max(wKey, len(r.key))
 	}
-	// cell styles s and then pads it to w, so escape codes never upset a column. The header row is
-	// bold.
-	cell := func(header bool, s string, w int, style func(string) string) string {
-		gap := strings.Repeat(" ", max(0, w-len(s)))
-		switch {
-		case header:
-			return d.Bold(s) + gap
-		case s != "":
-			return style(s) + gap
-		}
-		return gap
+	lines := make([]string, len(all))
+	for i, r := range all {
+		line := fmt.Sprintf("  %-*s  %-*s  %-*s  %s", wName, r.name, wContact, r.contact, wKey, r.key, r.does)
+		lines[i] = strings.TrimRight(line, " ")
 	}
+	return lines
+}
+
+// stagesTable is the table of stages for s: a stage's name in the info colour, whom it contacts in
+// the success colour for a third party and the warning colour for the target, and its key muted.
+func stagesTable(s layout.Stream, rows []stageRow) layout.Table {
 	text := func(g palette.Group, entry string) func(string) string {
-		return func(s string) string { return d.Text(g, entry, s) }
+		return func(x string) string { return s.Depth.Text(g, entry, x) }
 	}
-	var b strings.Builder
-	b.WriteString(d.Bold("Stages, in the order each pass runs them:") + "\n")
-	for i, r := range rows {
+	t := layout.Table{
+		Indent:   2,
+		Bordered: true,
+		Columns: []layout.Column{{Header: "STAGE"}, {Header: "CONTACT"}, {Header: "KEY"},
+			{Header: "WHAT IT DOES", Wrap: layout.Spaces, Shrink: 1}},
+	}
+	for _, r := range rows {
 		contact := text(palette.Semantic, "success")
 		if r.contact == "target" {
 			contact = text(palette.Semantic, "warning")
 		}
-		h := i == 0
-		line := fmt.Sprintf("  %s  %s  %s  %s", cell(h, r.name, wName, text(palette.Semantic, "info")),
-			cell(h, r.contact, wContact, contact), cell(h, r.key, wKey, text(palette.Chrome, "TIMESTAMP")),
-			cell(h, r.does, 0, func(s string) string { return s }))
-		b.WriteString(strings.TrimRight(line, " ") + "\n")
+		t.Rows = append(t.Rows, []layout.Cell{
+			{{Text: r.name, Style: text(palette.Semantic, "info")}},
+			{{Text: r.contact, Style: contact}},
+			{{Text: r.key, Style: text(palette.Chrome, "TIMESTAMP")}},
+			layout.Plain(r.does),
+		})
 	}
-	b.WriteString(`
-Third-party stages ask public sources and resolvers, and run under --passive. Target stages
-contact the target's own systems: they are skipped under --passive, and unless --authorised
-has confirmed, on this run or an earlier one, that you are authorised. A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in
-brackets is optional. --redo <stage> performs every check of one stage again, and --skip <stage>
-turns one off, except the stages marked *, which other stages' safety depends on.
-`)
-	return b.String()
+	return t
 }

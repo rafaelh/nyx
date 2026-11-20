@@ -23,6 +23,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
@@ -51,7 +52,11 @@ type Deps struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	StdoutIsTTY func() bool
-	StderrIsTTY func() bool    // nil means false
+	StderrIsTTY func() bool // nil means false
+	// StdoutWidth and StderrWidth report the width in cells of a terminal stream, or 0 when it has
+	// none; nil means 0. They are consulted only for a stream that is a terminal.
+	StdoutWidth func() int
+	StderrWidth func() int
 	Location    *time.Location // the time zone log lines are shown in; nil means time.Local
 	Clock       func() time.Time
 	// Signals delivers SIGINT, SIGTERM and SIGHUP; nil means none arrive. The
@@ -80,10 +85,21 @@ func DefaultDeps() Deps {
 		Stdout: os.Stdout, Stderr: os.Stderr,
 		StdoutIsTTY: func() bool { return term.IsTerminal(int(os.Stdout.Fd())) },
 		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
+		StdoutWidth: func() int { return termWidth(os.Stdout.Fd()) },
+		StderrWidth: func() int { return termWidth(os.Stderr.Fd()) },
 		Clock:       time.Now,
 		Env:         os.Environ(), //nolint:forbidigo // main reads the process environment once, into Deps.Env
 		Stdin:       os.Stdin,
 	}
+}
+
+// termWidth is the width in cells of the terminal on fd, or 0 when fd is not one.
+func termWidth(fd uintptr) int {
+	w, _, err := term.GetSize(int(fd))
+	if err != nil {
+		return 0
+	}
+	return w
 }
 
 // NotifySignals subscribes to SIGINT, SIGTERM and SIGHUP, for Deps.Signals.
@@ -119,6 +135,12 @@ func withDefaults(d Deps) Deps {
 	if d.StderrIsTTY == nil {
 		d.StderrIsTTY = func() bool { return false }
 	}
+	if d.StdoutWidth == nil {
+		d.StdoutWidth = func() int { return 0 }
+	}
+	if d.StderrWidth == nil {
+		d.StderrWidth = func() int { return 0 }
+	}
 	if d.Location == nil {
 		d.Location = time.Local
 	}
@@ -149,8 +171,29 @@ func defaultStages() []run.Stage {
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }
 
-// depths are the colour depths of the two output streams, each decided once.
-type depths struct{ out, err palette.Depth }
+// streams are the two output streams as the layout sees them: whether each is a terminal, its
+// colour depth and its width. The depth is decided once; the width is read each time a layout is
+// made, so a resize applies from the next one.
+type streams struct{ out, err layout.Stream }
+
+// newStream is one output's stream. Its width is COLUMNS when that is a positive number, else the
+// terminal's own width (asked of width only when the stream is a terminal), else 100, and never
+// less than 60.
+func newStream(isTTY func() bool, env config.Env, width func() int) layout.Stream {
+	tty := isTTY()
+	columns := env.Get("COLUMNS") // the environment is fixed for the process
+	return layout.Stream{
+		Terminal: tty,
+		Depth:    palette.Detect(tty, env.Get),
+		Width: func() int {
+			term := 0
+			if tty { // only a terminal has a width of its own
+				term = width()
+			}
+			return layout.Width(columns, term)
+		},
+	}
+}
 
 // shared are the flags every command takes, before or after its name. None of
 // them is a setting.
@@ -160,7 +203,7 @@ type shared struct{ json, quiet, debug bool }
 // back to Execute.
 type invocation struct {
 	d    Deps
-	dp   depths
+	st   streams
 	args []string // as given, for the hints that repeat them
 	raw  shared   // the shared flags as a scan of args finds them, before any parse
 	sh   shared   // the shared flags as parsed
@@ -175,8 +218,8 @@ type invocation struct {
 
 func newInvocation(d Deps, args []string) *invocation {
 	inv := &invocation{d: d, args: args, raw: scanShared(args)}
-	inv.dp = depths{out: palette.Detect(d.StdoutIsTTY(), d.Env.Get), err: palette.Detect(d.StderrIsTTY(), d.Env.Get)}
-	inv.fw = newFailureWriter(d.Stderr, inv.raw.json, inv.dp.err, config.NewRedactor(config.EnvKeyValues(d.Env)...))
+	inv.st = streams{out: newStream(d.StdoutIsTTY, d.Env, d.StdoutWidth), err: newStream(d.StderrIsTTY, d.Env, d.StderrWidth)}
+	inv.fw = newFailureWriter(d.Stderr, inv.raw.json, inv.st.err.Depth, config.NewRedactor(config.EnvKeyValues(d.Env)...))
 	return inv
 }
 
@@ -375,8 +418,8 @@ func newEmitter(inv *invocation, red *config.Redactor) (report.Emitter, *report.
 	case sh.quiet:
 		minLevel = report.Warn
 	}
-	console := report.NewConsole(report.ConsoleOptions{Log: d.Stderr, LogDepth: inv.dp.err,
-		Min: minLevel, Clock: d.Clock, Location: d.Location})
+	console := report.NewConsole(report.ConsoleOptions{Log: d.Stderr, LogStream: inv.st.err,
+		Min: minLevel, Clock: d.Clock, Location: d.Location, Redactor: red})
 	var em report.Emitter = console
 	var warnings *report.Warnings
 	if sh.json {

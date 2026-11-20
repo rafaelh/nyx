@@ -7,13 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
 )
 
+// writeSummary is the summary on a stream that is not a terminal, with d as the depth it would
+// have if it were forced.
 func writeSummary(d palette.Depth, env report.Envelope) string {
 	var buf bytes.Buffer
-	report.WriteSummary(&buf, d, env)
+	report.WriteSummary(&buf, layout.Stream{Depth: d}, env)
 	return buf.String()
 }
 
@@ -361,7 +364,7 @@ func TestWriteSummary_Sanitises(t *testing.T) {
 func TestWriteSummary_OneWriteOneNewline(t *testing.T) {
 	t.Parallel()
 	var c countingWriter
-	report.WriteSummary(&c, palette.None, withData(report.Summary{Counts: []report.CountRow{{Category: "hosts", N: 1}}}))
+	report.WriteSummary(&c, plainStream(), withData(report.Summary{Counts: []report.CountRow{{Category: "hosts", N: 1}}}))
 	if c.writes != 1 {
 		t.Errorf("%d writes, want 1", c.writes)
 	}

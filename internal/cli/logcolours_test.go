@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -512,9 +513,9 @@ func TestLog_FoundLinesPlain(t *testing.T) {
 	}
 }
 
-// The badge has the palette's style at each depth, an unknown severity gets the
-// DEBUG style, and the only escapes in a coloured line are the chrome, the level
-// badge and the severity badge.
+// The badge has the palette's style at each depth, an unknown severity gets the DEBUG style, and
+// on a terminal the + takes the success colour and the category the info colour. Every escape in a
+// coloured line is one the palette writes.
 func TestLog_FoundLinesColoured(t *testing.T) {
 	t.Parallel()
 	st := finder("s", obs("hostname", "www.a.com"), findingObs("h", "high"), findingObs("m", "medium"), findingObs("l", "low"), findingObs("w", "weird"))
@@ -525,32 +526,21 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 			t.Fatal(h.stderr.String())
 		}
 		out := h.stderr.String()
+		plus := d.Text(palette.Semantic, "success", "+")
+		category := d.Text(palette.Semantic, "info", "finding exposed")
 		for _, sev := range []string{"high", "medium", "low", "weird"} {
 			badge := d.Value(palette.Severity, sev)
-			if !strings.Contains(out, "│ \x1b[0m+ "+badge+" finding exposed: https://a.com/"+sev[:1]) {
-				t.Errorf("depth %d: no %s badge in\n%q", d, sev, out)
+			if !strings.Contains(out, "│ \x1b[0m"+plus+" "+badge+" "+category+": https://a.com/"+sev[:1]) {
+				t.Errorf("depth %d: no %s found line in\n%q", d, sev, out)
 			}
 		}
-		if strings.Contains(out, "[") && strings.Contains(out, "[high]") {
+		if !strings.Contains(out, "│ \x1b[0m"+plus+" "+d.Text(palette.Semantic, "info", "host")+": www.a.com") {
+			t.Errorf("depth %d: no host found line in\n%q", d, out)
+		}
+		if strings.Contains(out, "[high]") {
 			t.Errorf("depth %d: brackets", d)
 		}
-		// Remove the chrome, the level badge and the severity badges; no escape is left.
-		rest := out
-		for _, sev := range []string{"high", "medium", "low", "weird"} {
-			rest = strings.ReplaceAll(rest, d.Value(palette.Severity, sev), "")
-		}
-		for _, l := range []string{"DEBUG", "INFO", "WARN", "ERROR"} {
-			rest = strings.ReplaceAll(rest, d.Badge(palette.Level, l), "")
-		}
-		rest = strings.ReplaceAll(rest, d.Text(palette.Chrome, "SEPARATOR", " │ "), "")
-		for ln := range strings.SplitSeq(rest, "\n") {
-			if len(ln) >= 8 && strings.Contains(ln, esc) {
-				ts := ln[:strings.Index(ln, "m")+1+8+len("\x1b[0m")]
-				if rest := strings.Replace(ln, ts, "", 1); strings.Contains(rest, esc) {
-					t.Errorf("depth %d: an escape in the message of %q", d, ln)
-				}
-			}
-		}
+		testkit.OnlyPaletteEscapes(t, d, out)
 	}
 	// The DEBUG style is what an unknown severity takes (24-bit values).
 	h := newHarness(t, st)
@@ -558,6 +548,19 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 	h.exec("a.com")
 	if !strings.Contains(h.stderr.String(), "\x1b[38;2;169;177;198;48;2;42;47;58m weird    \x1b[0m") {
 		t.Errorf("unknown severity is not in the DEBUG style:\n%q", h.stderr.String())
+	}
+	// A finding line with text of its own, and a stage line, colour only what the layout names.
+	h = newHarness(t, st)
+	colourAt(t, h, palette.TrueColor)
+	h.exec("a.com")
+	d := palette.TrueColor
+	for _, want := range []string{
+		" " + d.Text(palette.Semantic, "info", "running"),
+		" " + d.Text(palette.Semantic, "success", "done") + " (1 checks, 0 failed)",
+	} {
+		if !strings.Contains(h.stderr.String(), want) {
+			t.Errorf("stage line lacks %q:\n%q", want, h.stderr.String())
+		}
 	}
 }
 
@@ -581,23 +584,44 @@ func TestLog_Summary(t *testing.T) {
 		t.Errorf("summary:\n%s", out)
 	}
 
+	// On a coloured terminal every heading is bold in the info colour with a rule beneath it, the
+	// findings are a table with a bold header in the timestamp colour, and the only other style is
+	// the badge.
+	d := palette.TrueColor
 	h = newHarness(t, someFindings(), failingCheck("boom"))
-	colourAt(t, h, palette.TrueColor)
+	colourAt(t, h, d)
 	h.stderrTTY = false
+	h.setenv("COLUMNS", "80")
 	h.exec("a.com")
 	out = h.stdout.String()
-	if !strings.HasPrefix(out, "\x1b[1mSummary\x1b[0m\n") || !strings.Contains(out, "\x1b[1mFindings (high and medium)\x1b[0m\n") {
-		t.Errorf("headings are not bold:\n%q", out)
+	rule := d.Text(palette.Chrome, "SEPARATOR", strings.Repeat("─", 80))
+	for _, heading := range []string{"Summary", "Failed checks (retried on the next run; --debug shows each failure)", "Findings (high and medium)"} {
+		if !strings.Contains(out, d.BoldText(palette.Semantic, "info", heading)+"\n"+rule+"\n") {
+			t.Errorf("heading %q has no rule beneath it:\n%q", heading, out)
+		}
 	}
-	rest := out
-	for _, s := range []string{palette.TrueColor.Value(palette.Severity, "high"), palette.TrueColor.Value(palette.Severity, "medium"), "\x1b[1m", "\x1b[0m"} {
-		rest = strings.ReplaceAll(rest, s, "")
+	for _, header := range []string{"SEVERITY", "CATEGORY", "TARGET", "DETAIL"} {
+		if !strings.Contains(out, d.BoldText(palette.Chrome, "TIMESTAMP", header)) {
+			t.Errorf("table header %s is not bold in the timestamp colour:\n%q", header, out)
+		}
 	}
-	if strings.Contains(rest, esc) {
-		t.Errorf("more than the headings and badges is styled:\n%q", rest)
+	for _, sev := range []string{"high", "medium"} {
+		if !strings.Contains(out, d.Value(palette.Severity, sev)) {
+			t.Errorf("no %s badge:\n%q", sev, out)
+		}
 	}
+	testkit.OnlyPaletteEscapes(t, d, out)
 	if strings.Contains(h.stderr.String(), esc) {
 		t.Errorf("stderr is not a terminal here, yet it has an escape:\n%q", h.stderr.String())
+	}
+	// Uncoloured, the rule is - and the table has no escape.
+	h = newHarness(t, someFindings(), failingCheck("boom"))
+	h.stdoutTTY = true
+	h.setenv("NO_COLOR", "1")
+	h.setenv("COLUMNS", "80")
+	h.exec("a.com")
+	if got := h.stdout.String(); !strings.HasPrefix(got, "Summary\n"+strings.Repeat("-", 80)+"\n") || strings.Contains(got, esc) {
+		t.Errorf("uncoloured terminal summary:\n%q", got)
 	}
 }
 
@@ -618,7 +642,7 @@ func TestLog_ColourDecision(t *testing.T) {
 		return h
 	}
 	h := run1(t, true, false, nil) // nyx example.com 2> run.log
-	if strings.Contains(h.stderr.String(), esc) || !strings.Contains(h.stdout.String(), "\x1b[1mSummary") {
+	if strings.Contains(h.stderr.String(), esc) || !strings.Contains(h.stdout.String(), palette.TrueColor.BoldText(palette.Semantic, "info", "Summary")) {
 		t.Errorf("redirected log: stderr %q, stdout %q", h.stderr.String(), h.stdout.String())
 	}
 	h = run1(t, false, true, nil) // nyx example.com > summary.txt
@@ -731,57 +755,114 @@ func TestLog_JSON(t *testing.T) {
 	}
 }
 
-// Target-supplied text and secrets never reach either stream as an escape or a key.
+// Target-supplied text and secrets never reach either stream as an escape or a key, wherever the
+// layout breaks a line. On a terminal the long warning wraps (hard-broken, as it has no spaces) and
+// on a stream that is not one it stays on a single line.
 func TestLog_MessageHandling(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
 	long := strings.Repeat("w", 800)
+	atBreaks := strings.Repeat("ab ", 25) + evil + " " + strings.Repeat("cd ", 12) + evil + strings.Repeat(" ef", 20)
+	hardBroken := strings.Repeat("h", 70) + key + strings.Repeat("j", 70)
+	splitByBell := "sekret-\x07key-4242"
+	splitByCSI := "tail " + strings.Repeat("s", 40) + " sekret-\x1b[2Jkey-4242 " + strings.Repeat("s", 40)
+	splitInLongWord := strings.Repeat("q", 60) + "sekret-\x1b]0;t\x07key-4242" + strings.Repeat("q", 60)
 	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
 			v.Warn("warned %s %s", evil, key)
 			v.Warn("%s", long)
+			for _, m := range []string{atBreaks, hardBroken, splitByBell, splitByCSI, splitInLongWord} {
+				v.Warn("%s", m)
+			}
 			return testkit.Keys("c", 2)
 		},
 		RunFn: func(ctx context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
 			if c.Key == "c001" {
-				return nil, errors.New("failed " + evil + " " + key)
+				return nil, errors.New("failed " + evil + " " + key + " " + splitByBell)
 			}
 			run.Warnf(ctx, "inside %s", evil)
 			return []run.Observation{obs("hostname", "x.a.com"), findingObs("h", "high"),
-				obs("finding", "e", "category", "exposed", "severity", "high", "target", evil, "detail", evil)}, nil
+				obs("finding", "e", "category", "exposed", "severity", "high", "target", evil+" "+atBreaks, "detail", evil+" "+splitByCSI)}, nil
 		}}
-	for _, coloured := range []bool{false, true} {
-		h := newHarness(t, st)
-		h.setenv("NYX_KEYS_FAKE", key)
-		if coloured {
-			colourAt(t, h, palette.TrueColor)
+	for _, c := range []struct {
+		name   string
+		tune   func(*testing.T, *harness)
+		depth  palette.Depth
+		indent int // the message column of a wrapped line, or 0 when a line is never wrapped
+		width  int
+	}{
+		{"not a terminal", func(*testing.T, *harness) {}, palette.None, 0, 0},
+		{"plain terminal", func(_ *testing.T, h *harness) { h.stdoutTTY, h.stderrTTY = true, true; h.setenv("NO_COLOR", "1") }, palette.None, 19, 80},
+		{"truecolor terminal", func(t *testing.T, h *harness) { colourAt(t, h, palette.TrueColor) }, palette.TrueColor, 21, 80},
+		{"16-colour terminal, narrow", func(t *testing.T, h *harness) { colourAt(t, h, palette.Color16) }, palette.Color16, 21, 60},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, st)
+			h.setenv("NYX_KEYS_FAKE", key)
+			c.tune(t, h)
+			if c.width > 0 {
+				h.setenv("COLUMNS", strconv.Itoa(c.width))
+			}
+			if code := h.exec("a.com", "--debug", "--concurrency", "1"); code != 7 {
+				t.Fatal(h.stderr.String())
+			}
+			all := h.stdout.String() + h.stderr.String()
+			// The only escapes are the palette's, and no control byte is left.
+			testkit.OnlyPaletteEscapes(t, c.depth, all)
+			rest := stripSGR(all)
+			for _, bad := range []string{esc, "\x07", "\u202e", "\r", key, "[2J", "]0;"} {
+				if strings.Contains(rest, bad) {
+					t.Errorf("%q reached the output:\n%s", bad, rest)
+				}
+			}
+			assertNoKeyPieces(t, key, rest)
+			if !strings.Contains(rest, "****") {
+				t.Error("the key was not masked")
+			}
+			assertLongWarning(t, rest, long, c.indent)
+			log := withoutErrorLines(h.stderr.String())
+			if c.indent > 0 && maxCells(log) > c.width {
+				t.Errorf("a line of %d cells at width %d:\n%s", maxCells(log), c.width, rest)
+			}
+			assertLogLayout(t, h.stderr.String(), c.indent)
+		})
+	}
+}
+
+// assertLongWarning checks the 800-character warning in out: on one line when indent is 0, and
+// otherwise with every character on lines of its own, wrapped at the message column indent.
+func assertLongWarning(t *testing.T, out, long string, indent int) {
+	t.Helper()
+	ws := 0
+	for l := range strings.SplitSeq(out, "\n") {
+		body := strings.TrimLeft(l, " ")
+		if loc := anyLayout.FindStringIndex(l); loc != nil {
+			body = l[loc[1]:]
 		}
-		if code := h.exec("a.com", "--debug", "--concurrency", "1"); code != 7 {
-			t.Fatal(h.stderr.String())
-		}
-		all := h.stdout.String() + h.stderr.String()
-		// Our own sequences are SGR; remove them, and no control byte is left.
-		rest := regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(all, "")
-		for _, bad := range []string{esc, "\x07", "\u202e", "\r", key} {
-			if strings.Contains(rest, bad) {
-				t.Errorf("coloured=%v: %q reached the output:\n%s", coloured, bad, rest)
+		if body != "" && strings.Trim(body, "w") == "" && len(body) >= 5 {
+			ws += len(body)
+			if indent == 0 && body != long {
+				t.Errorf("a long message was cut or wrapped: %d bytes", len(body))
 			}
 		}
-		for _, l := range h.logLines() {
-			if strings.Contains(l.msg, "wwww") && l.msg != long {
-				t.Errorf("a long message was cut or wrapped: %d bytes", len(l.msg))
-			}
-		}
-		if !strings.Contains(rest, strings.Repeat("w", 800)) {
-			t.Errorf("coloured=%v: the long warning is not on one line", coloured)
-		}
-		for l := range strings.SplitSeq(strings.TrimSpace(h.stderr.String()), "\n") {
-			// After the log, the error and its lines: the failed check makes the run partial.
-			if !anyLayout.MatchString(stripSGR(l)) && !strings.HasPrefix(stripSGR(l), "error:") &&
-				!strings.HasPrefix(l, "hint:") && l != "retry: may succeed after a wait" {
-				t.Errorf("coloured=%v: a line outside the layout (an injected newline?): %q", coloured, l)
-			}
+	}
+	if ws != len(long) {
+		t.Errorf("%d of the %d characters of the long warning are on lines of their own", ws, len(long))
+	}
+}
+
+// assertLogLayout checks that every line of stderr is a log line, a line of a wrapped message
+// (starting at the message column indent, when the stream wraps) or part of the closing error.
+func assertLogLayout(t *testing.T, stderr string, indent int) {
+	t.Helper()
+	for l := range strings.SplitSeq(strings.TrimSpace(stderr), "\n") {
+		p := stripSGR(l)
+		closing := strings.HasPrefix(p, "error:") || strings.HasPrefix(l, "hint:") || l == "retry: may succeed after a wait"
+		continued := indent > 0 && strings.HasPrefix(p, strings.Repeat(" ", indent)) && !strings.HasPrefix(p, strings.Repeat(" ", indent+1))
+		if !anyLayout.MatchString(p) && !closing && !continued {
+			t.Errorf("a line outside the layout (an injected newline?): %q", l)
 		}
 	}
 }
@@ -845,9 +926,28 @@ func TestLog_Palette(t *testing.T) {
 	if !strings.Contains(col, esc) || !strings.Contains(stripSGR(col), "\n"+strings.Repeat(" ", 21)+"continued") {
 		t.Errorf("coloured sheet:\n%q", col)
 	}
+	// The sheet on a coloured terminal also shows the layout: its heading, the sample table, a CVE
+	// bar for each severity, a stage line for each state, found lines and a line that wraps.
+	d := palette.TrueColor
+	for _, want := range []string{
+		"\n" + d.BoldText(palette.Semantic, "info", "layout") + "\n",
+		d.BoldText(palette.Chrome, "TIMESTAMP", "SEVERITY"),
+		strings.TrimSuffix(d.BadgeText(palette.Severity, "HIGH", "x"), "x\x1b[0m") + " CVE-2021-44228 ",
+		strings.TrimSuffix(d.BadgeText(palette.Severity, "NONE", "x"), "x\x1b[0m") + " CVE-2021-44228 ",
+		" " + d.Text(palette.Semantic, "success", "done-previously"),
+		" " + d.Text(palette.Semantic, "error", "failed"),
+		" " + d.Text(palette.Chrome, "TIMESTAMP", "not-configured"),
+		d.Text(palette.Semantic, "success", "+") + " " + d.Value(palette.Severity, "high"),
+		d.Text(palette.Semantic, "info", "host") + ": www.example.com",
+	} {
+		if !strings.Contains(col, want) {
+			t.Errorf("coloured sheet lacks %q:\n%q", want, col)
+		}
+	}
+	testkit.OnlyPaletteEscapes(t, d, col)
 	h.exec("--palette", "--json")
-	if strings.Contains(h.stdout.String(), esc) {
-		t.Error("under --json the sheet is uncoloured")
+	if strings.Contains(h.stdout.String(), esc) || strings.Contains(h.stdout.String(), "\nlayout\n") {
+		t.Error("under --json the sheet is today's sheet: uncoloured and without the layout part")
 	}
 
 	// It is not in --help.

@@ -7,35 +7,97 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Width is the width records are wrapped to: COLUMNS when it is a positive
-// number, else 100, and never less than 60.
-func Width(columns string) int {
-	w := 100
-	if n, err := strconv.Atoi(strings.TrimSpace(columns)); err == nil && n > 0 {
-		w = n
-	}
-	return max(w, 60)
-}
-
 // Render writes the records for a person to read: each record's header, then
 // a section for each part of it the fields select, records separated by a
 // blank line. The NVD's text is cleaned of anything that would act on a
-// terminal before it is wrapped to width, and is coloured at depth d last.
-func Render(w io.Writer, recs []Record, f Fields, d palette.Depth, width int) error {
+// terminal before it is wrapped to width, and is coloured at the stream's
+// depth last.
+//
+// A stream that is not a terminal gets the plain layout, wrapped at the
+// stream's width (COLUMNS, else 100, and at least 60). A terminal gets the
+// layout of termRenderer: a header bar, indented sections and wrapped values.
+//
+// red masks every configured key in the records' text. Each value is cleaned of
+// anything that would act on a terminal first and redacted second, so a key that
+// cleaning joins back together is still masked, and redacted before it is
+// wrapped, so no line break can split a key and hide it. A nil red masks nothing.
+func Render(w io.Writer, recs []Record, f Fields, s layout.Stream, red *config.Redactor) error {
 	if len(recs) == 0 {
 		return nil
 	}
-	rd := renderer{f: f, d: d, width: width}
+	if red != nil {
+		scrubbed := make([]Record, len(recs))
+		for i, r := range recs {
+			scrubbed[i] = redactRecord(r, red)
+		}
+		recs = scrubbed
+	}
 	blocks := make([]string, len(recs))
-	for i, r := range recs {
-		blocks[i] = rd.record(r)
+	if s.Terminal {
+		tr := termRenderer{f: f, s: s.Fixed()} // so every record has one width
+		for i, r := range recs {
+			blocks[i] = tr.record(r)
+		}
+	} else {
+		rd := renderer{f: f, d: s.Depth, width: s.Cols()}
+		for i, r := range recs {
+			blocks[i] = rd.record(r)
+		}
 	}
 	_, err := fmt.Fprintln(w, strings.Join(blocks, "\n\n"))
 	return err
+}
+
+// redactRecord is rec with each string cleaned and then redacted. Cleaning again
+// later changes nothing, so the layout is as it is without a redactor.
+func redactRecord(rec Record, red *config.Redactor) Record {
+	str := func(s string) string { return red.Redact(clean(s)) }
+	ptr := func(p *string) *string {
+		if p == nil {
+			return nil
+		}
+		v := str(*p)
+		return &v
+	}
+	out := rec
+	out.ID, out.Status = str(rec.ID), str(rec.Status)
+	out.Description, out.CVSSVersion, out.CVSSSeverity = ptr(rec.Description), ptr(rec.CVSSVersion), ptr(rec.CVSSSeverity)
+	out.CVSSVector, out.CVSSSource = ptr(rec.CVSSVector), ptr(rec.CVSSSource)
+	if rec.Weaknesses != nil {
+		out.Weaknesses = make([]string, len(rec.Weaknesses))
+		for i, w := range rec.Weaknesses {
+			out.Weaknesses[i] = str(w)
+		}
+	}
+	if rec.AffectedProducts != nil {
+		out.AffectedProducts = make([]AffectedProduct, len(rec.AffectedProducts))
+		for i, ap := range rec.AffectedProducts {
+			out.AffectedProducts[i] = AffectedProduct{
+				CPE: str(ap.CPE), Vendor: ptr(ap.Vendor), Product: ptr(ap.Product), Version: ptr(ap.Version),
+				VersionStartIncluding: ptr(ap.VersionStartIncluding), VersionStartExcluding: ptr(ap.VersionStartExcluding),
+				VersionEndIncluding: ptr(ap.VersionEndIncluding), VersionEndExcluding: ptr(ap.VersionEndExcluding),
+			}
+		}
+	}
+	if rec.References != nil {
+		out.References = make([]Reference, len(rec.References))
+		for i, ref := range rec.References {
+			out.References[i] = Reference{URL: str(ref.URL)}
+			if ref.Tags != nil {
+				out.References[i].Tags = make([]string, len(ref.Tags))
+				for j, t := range ref.Tags {
+					out.References[i].Tags[j] = str(t)
+				}
+			}
+		}
+	}
+	return out
 }
 
 type renderer struct {
@@ -242,4 +304,195 @@ func wrap(text string, width int) string {
 		current = word
 	}
 	return strings.Join(append(lines, current), "\n")
+}
+
+// unknownSeverity is the label of a record with no severity.
+const unknownSeverity = "UNKNOWN"
+
+// Bar is the bar that opens a record on a terminal: the CVE ID at the left and
+// the severity label at the right, as wide as the stream's layout width. With
+// colour it is a space, the ID, padding, the label and a space, all in the badge
+// style the severity takes. A missing severity (empty, with hasSeverity set)
+// reads UNKNOWN, and a value the palette does not know keeps its own text; both
+// take the DEBUG style. Without hasSeverity (cvss_severity was not selected) the
+// bar holds only the ID, padded to the width, in the DEBUG style. Without colour
+// the bar is the ID and the label in brackets at either end of the line, or the
+// ID alone without hasSeverity. The ID and the severity are cleaned first.
+func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
+	id = clean(id)
+	label := orEmpty(clean(severity), unknownSeverity)
+	cols := s.Cols()
+	d := s.Depth
+	if !s.Coloured() {
+		if !hasSeverity {
+			return id
+		}
+		tag := "[" + label + "]"
+		return id + strings.Repeat(" ", max(1, cols-layout.Measure(id)-layout.Measure(tag))) + tag
+	}
+	if !hasSeverity {
+		// A label the severity table does not hold gets the DEBUG style.
+		return d.BadgeText(palette.Severity, unknownSeverity, layout.PadRight(" "+id, cols))
+	}
+	pad := max(1, cols-1-layout.Measure(id)-layout.Measure(label)-1)
+	return d.BadgeText(palette.Severity, label, " "+id+strings.Repeat(" ", pad)+label+" ")
+}
+
+// termRenderer lays records out for a terminal: a header bar, then each section
+// under a heading with no rule, its text indented two spaces and wrapped to the
+// width. Every NVD value is cleaned, then wrapped, then coloured, as in the
+// plain layout.
+type termRenderer struct {
+	f Fields
+	s layout.Stream // its width fixed for the whole write
+}
+
+// indent is the indentation of every line of a section's body.
+const indent = 2
+
+// kv is a field of a section: a label and its cleaned value.
+type kv struct{ label, value string }
+
+func (r termRenderer) record(rec Record) string {
+	has := r.f.Has
+	lines := []string{Bar(r.s, rec.ID, or(rec.CVSSSeverity, ""), has("cvss_severity"))}
+	section := func(heading string, body []string) {
+		if len(body) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, layout.Heading(r.s, heading, false)...)
+			lines = append(lines, body...)
+		}
+	}
+	var dates []kv
+	if has("status") {
+		dates = append(dates, kv{"Status", orEmpty(clean(rec.Status), "Unknown")})
+	}
+	if has("published") {
+		dates = append(dates, kv{"Published", timestamp(rec.Published)})
+	}
+	if has("last_modified") {
+		dates = append(dates, kv{"Last Modified", timestamp(rec.LastModified)})
+	}
+	section("Status & Dates", r.fields(dates))
+	if has("description") {
+		section("Description", r.text(or(rec.Description, "No description available.")))
+	}
+	section("CVSS Score", r.cvss(rec))
+	if has("weaknesses") {
+		ws := make([]string, len(rec.Weaknesses))
+		for i, w := range rec.Weaknesses {
+			ws[i] = clean(w)
+		}
+		section("Weaknesses", r.bullets(ws, "No weaknesses listed."))
+	}
+	if has("affected_products") {
+		products := make([]string, len(rec.AffectedProducts))
+		for i, ap := range rec.AffectedProducts {
+			products[i] = shortForm(ap)
+		}
+		section("Affected Products", r.bullets(products, "No affected products listed."))
+	}
+	if has("references") {
+		section("References", r.references(rec.References))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// squash is text with each run of spaces as one space and none at either end,
+// so it wraps as the plain layout's words do.
+func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// hang is plain text wrapped at spaces after prefix, its continuation lines
+// under its first.
+func (r termRenderer) hang(prefix, text string) []string {
+	return layout.Hang(prefix, layout.Plain(squash(text)), r.s.Cols(), layout.Spaces)
+}
+
+// text is a paragraph indented two spaces.
+func (r termRenderer) text(s string) []string { return r.hang(strings.Repeat(" ", indent), s) }
+
+// fields are labelled values: labels indented two spaces, bold with colour and
+// without a colon, then the values in one column two spaces after the longest
+// label, wrapping under themselves.
+func (r termRenderer) fields(kvs []kv) []string {
+	longest := 0
+	for _, f := range kvs {
+		longest = max(longest, layout.Measure(f.label))
+	}
+	col := indent + longest + 2
+	var out []string
+	for _, f := range kvs {
+		head := strings.Repeat(" ", indent) + r.s.Depth.Bold(f.label) + strings.Repeat(" ", col-indent-layout.Measure(f.label))
+		out = append(out, r.hang(head, f.value)...)
+	}
+	return out
+}
+
+// bullets are items as a list, each a dash two spaces in with its continuation
+// lines under its text, or fallback alone, indented, when there are none.
+func (r termRenderer) bullets(items []string, fallback string) []string {
+	if len(items) == 0 {
+		return r.text(fallback)
+	}
+	const mark = "  - "
+	var out []string
+	for _, item := range items {
+		out = append(out, r.hang(mark, item)...)
+	}
+	return out
+}
+
+// cvss is the CVSS section's body, as the plain layout's, for a terminal.
+func (r termRenderer) cvss(rec Record) []string {
+	has := r.f.Has
+	if !has("cvss_score") && !has("cvss_vector") && !has("cvss_version") && !has("cvss_source") {
+		return nil
+	}
+	if rec.CVSSScore == nil {
+		return r.text("No CVSS score.")
+	}
+	var kvs []kv
+	if has("cvss_score") {
+		score := strconv.FormatFloat(*rec.CVSSScore, 'f', 1, 64)
+		if has("cvss_severity") && rec.CVSSSeverity != nil {
+			score += " (" + clean(*rec.CVSSSeverity) + ")"
+		}
+		kvs = append(kvs, kv{"Base Score", score})
+	}
+	if has("cvss_vector") {
+		kvs = append(kvs, kv{"Vector", or(rec.CVSSVector, "Unknown")})
+	}
+	if has("cvss_version") {
+		kvs = append(kvs, kv{"Version", or(rec.CVSSVersion, "Unknown")})
+	}
+	if has("cvss_source") {
+		kvs = append(kvs, kv{"Source", or(rec.CVSSSource, "Unknown")})
+	}
+	return r.fields(kvs)
+}
+
+// references are each URL, whole, in the info colour, then the NVD's tags for it
+// as a list in the timestamp colour that wraps at spaces, under the URL's text at 4.
+func (r termRenderer) references(refs []Reference) []string {
+	if len(refs) == 0 {
+		return r.text("No references listed.")
+	}
+	d := r.s.Depth
+	info := func(x string) string { return d.Text(palette.Semantic, "info", x) }
+	chrome := func(x string) string { return d.Text(palette.Chrome, "TIMESTAMP", x) }
+	var out []string
+	for _, ref := range refs {
+		spans := []layout.Span{{Text: squash(clean(ref.URL)), Style: info}}
+		if len(ref.Tags) > 0 {
+			tags := make([]string, len(ref.Tags))
+			for i, t := range ref.Tags {
+				tags[i] = squash(clean(t))
+			}
+			spans = append(spans, layout.Span{Text: " "}, layout.Span{Text: "[" + strings.Join(tags, ", ") + "]", Style: chrome})
+		}
+		ls := layout.Wrap(spans, r.s.Cols(), indent, 2*indent, layout.Spaces)
+		out = append(out, strings.Repeat(" ", indent)+ls[0])
+		out = append(out, ls[1:]...)
+	}
+	return out
 }

@@ -347,7 +347,7 @@ type cveMeta struct {
 func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, fields cve.Fields, warnings *report.Warnings, red *config.Redactor) error {
 	d := inv.d
 	if !inv.sh.json {
-		return cve.Render(d.Stdout, records, fields, inv.dp.out, cve.Width(d.Env.Get("COLUMNS")))
+		return cve.Render(d.Stdout, records, fields, inv.st.out, red)
 	}
 	env := cveEnvelope{Data: make([]cve.Projected, len(records)),
 		Meta: cveMeta{Count: len(records), Errors: make([]errorLine, len(metaErrs)), Warnings: warnings.List()}}

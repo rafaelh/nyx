@@ -1,0 +1,19 @@
+Summary
+  code mentions                     0
+  findings                          1
+  hosts                             2
+  ips                               0
+  open ports (confirmed)            0
+  open ports (third-party reported) 0
+  third parties                     0
+  unresolved names                  0
+  urls                              0
+  web services                      1
+  shodan: 3 hosts were not looked up (quota)
+  permutations: the list was cut at 1000 names
+Failed checks (retried on the next run; --debug shows each failure)
+  flaky            2
+Deferred to the next run
+  budgeted         3
+Findings (high and medium)
+  medium   certificates https://old.a.com - expired certificate (old.a.com), expires 2026-10-15

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
 )
@@ -23,16 +23,24 @@ type cons struct {
 	log bytes.Buffer
 }
 
-func newCons(logDepth palette.Depth, min report.Level) *cons {
+// plainStream is a stream that is not a terminal: what a pipe or a file is.
+func plainStream() layout.Stream { return layout.Stream{} }
+
+// termStream is a terminal of the given depth and width in cells.
+func termStream(d palette.Depth, width int) layout.Stream {
+	return layout.Stream{Terminal: true, Depth: d, Width: func() int { return width }}
+}
+
+func newCons(log layout.Stream, min report.Level) *cons {
 	c := &cons{}
 	c.Console = report.NewConsole(report.ConsoleOptions{
-		Log: &c.log, LogDepth: logDepth,
+		Log: &c.log, LogStream: log,
 		Min: min, Clock: clk, Location: time.UTC,
 	})
 	return c
 }
 
-func plain(min report.Level) *cons { return newCons(palette.None, min) }
+func plain(min report.Level) *cons { return newCons(plainStream(), min) }
 
 func ev(typ string, f map[string]any) report.Event { return report.Event{Type: typ, Fields: f} }
 
@@ -64,7 +72,7 @@ func TestLinePlain(t *testing.T) {
 		{report.Error, "12:00:00 | ERROR | hello"},
 		{report.Crit, "12:00:00 | CRIT  | hello"},
 	} {
-		got := report.Line(palette.None, noon, c.l, "hello")
+		got := report.Line(plainStream(), noon, c.l, "hello")
 		if got != c.want || got[19:] != "hello" {
 			t.Errorf("level %d: %q, want %q", c.l, got, c.want)
 		}
@@ -78,12 +86,12 @@ func TestLineColoured(t *testing.T) {
 	at := time.Date(2026, 11, 1, 14, 2, 8, 0, time.UTC)
 	want := "\x1b[38;2;124;129;145m14:02:08\x1b[0m\x1b[38;2;74;79;92m │ \x1b[0m" +
 		"\x1b[38;2;236;208;143;48;2;61;52;32m WARN  \x1b[0m\x1b[38;2;74;79;92m │ \x1b[0mrate limited, retrying in 2s"
-	if got := report.Line(palette.TrueColor, at, report.Warn, "rate limited, retrying in 2s"); got != want {
+	if got := report.Line(termStream(palette.TrueColor, 100), at, report.Warn, "rate limited, retrying in 2s"); got != want {
 		t.Errorf("coloured line\n got %q\nwant %q", got, want)
 	}
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
 		for _, l := range []report.Level{report.Debug, report.Info, report.Warn, report.Error, report.Crit} {
-			cells := []rune(stripEscapes(report.Line(d, noon, l, "msg")))
+			cells := []rune(stripEscapes(report.Line(termStream(d, 100), noon, l, "msg")))
 			if string(cells[21:]) != "msg" || cells[9] != '│' {
 				t.Errorf("depth %d level %d: %q", d, l, string(cells))
 			}
@@ -95,12 +103,12 @@ func TestLineColoured(t *testing.T) {
 // with no timestamp or level.
 func TestLineContinuation(t *testing.T) {
 	t.Parallel()
-	got := report.Line(palette.None, noon, report.Error, "request failed\nTraceback\n  File x")
+	got := report.Line(plainStream(), noon, report.Error, "request failed\nTraceback\n  File x")
 	want := "12:00:00 | ERROR | request failed\n" + strings.Repeat(" ", 19) + "Traceback\n" + strings.Repeat(" ", 19) + "  File x"
 	if got != want {
 		t.Errorf("plain\n got %q\nwant %q", got, want)
 	}
-	col := strings.Split(report.Line(palette.TrueColor, noon, report.Error, "a\nb"), "\n")
+	col := strings.Split(report.Line(termStream(palette.TrueColor, 100), noon, report.Error, "a\nb"), "\n")
 	if len(col) != 2 || col[1] != strings.Repeat(" ", 21)+"b" {
 		t.Errorf("coloured continuation = %q", col)
 	}
@@ -182,10 +190,10 @@ func TestConsoleMessageText(t *testing.T) {
 		t.Errorf("messages\n got %q\nwant %q", got, want)
 	}
 
-	// On a coloured stream the only escapes are the chrome and the level badge.
-	col := newCons(palette.TrueColor, report.Info)
+	// On a coloured terminal the only escapes are the chrome, the level badge and the state words
+	// (tested by name in TestConsoleStateWords); the header and count lines have none.
+	col := newCons(termStream(palette.TrueColor, 100), report.Info)
 	col.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots", "passive": true, "authorised": true}))
-	col.Emit(ev("stage", map[string]any{"name": "asn", "state": "done", "checks": 3, "failed": 1}))
 	col.Emit(ev("count", map[string]any{"category": "hosts", "n": 12}))
 	for l := range strings.SplitSeq(strings.TrimSpace(col.log.String()), "\n") {
 		prefix := l[:strings.LastIndex(l, "│ \x1b[0m")+len("│ \x1b[0m")]
@@ -223,8 +231,10 @@ func TestConsoleFoundLines(t *testing.T) {
 		t.Errorf("no brackets: %q", got)
 	}
 
-	col := newCons(palette.TrueColor, report.Info)
-	want := report.Line(palette.TrueColor, noon, report.Info, "+ "+palette.TrueColor.Value(palette.Severity, "high")+" finding: x")
+	d := palette.TrueColor
+	col := newCons(termStream(d, 100), report.Info)
+	want := report.Line(termStream(d, 100), noon, report.Info, "") +
+		d.Text(palette.Semantic, "success", "+") + " " + d.Value(palette.Severity, "high") + " " + d.Text(palette.Semantic, "info", "finding") + ": x"
 	if got := found(col, map[string]any{"category": "finding", "value": "x", "severity": "high"}); got != want {
 		t.Errorf("coloured high\n got %q\nwant %q", got, want)
 	}
@@ -236,8 +246,9 @@ func TestConsoleFoundLines(t *testing.T) {
 	}
 }
 
-// Target-supplied escapes, titles, newlines and bidi controls never reach
-// the log, and a long message stays on one line.
+// Target-supplied escapes, titles, newlines and bidi controls never reach the log, on a stream that
+// is not a terminal and on a terminal at each width the text is wrapped to; one event makes the
+// lines its message needs and no more.
 func TestConsoleSanitises(t *testing.T) {
 	t.Parallel()
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
@@ -249,8 +260,8 @@ func TestConsoleSanitises(t *testing.T) {
 		ev("stage", map[string]any{"name": evil, "state": "done", "reason": evil}),
 		ev("warning", map[string]any{"message": long}),
 	}
-	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
-		c := newCons(d, report.Debug)
+	for _, s := range []layout.Stream{plainStream(), termStream(palette.None, 80), termStream(palette.TrueColor, 80)} {
+		c := newCons(s, report.Debug)
 		for _, e := range events {
 			c.Emit(e)
 		}
@@ -258,20 +269,24 @@ func TestConsoleSanitises(t *testing.T) {
 		rest := stripEscapes(c.log.String())
 		for _, bad := range []string{"\x1b", "\x07", "\u202e", "\r", "[2J", "]0;pwn"} {
 			if strings.Contains(rest, bad) {
-				t.Errorf("depth %d: %q reached the output:\n%q", d, bad, rest)
+				t.Errorf("%+v: %q reached the output:\n%q", s.Depth, bad, rest)
 			}
 		}
-		if n := strings.Count(c.log.String(), "\n"); n != 5 {
-			t.Errorf("depth %d: %d log lines for 5 events: %q", d, n, c.log.String())
+		lines := strings.Count(c.log.String(), "\n")
+		if !s.Terminal && lines != 5 {
+			t.Errorf("not a terminal: %d log lines for 5 events: %q", lines, c.log.String())
 		}
-		for l := range strings.SplitSeq(c.log.String(), "\n") {
-			if strings.Contains(l, long) && utf8.RuneCountInString(stripEscapes(l)) != 21+500 && utf8.RuneCountInString(stripEscapes(l)) != 19+500 {
-				t.Errorf("a long message was wrapped or cut: %d cells", utf8.RuneCountInString(stripEscapes(l)))
-			}
+		if s.Terminal && strings.Contains(rest, long) {
+			t.Errorf("a terminal line of 500 cells was not wrapped")
+		}
+		if !s.Terminal && !strings.Contains(rest, long) {
+			t.Errorf("a line on a stream that is not a terminal was wrapped or cut")
+		}
+		if s.Terminal && strings.Count(stripEscapes(strings.ReplaceAll(c.log.String(), "\n", "")), "a") < 500 {
+			t.Errorf("wrapping lost text")
 		}
 	}
-	// A message is sanitised before it is split, so an event never makes more
-	// than one line.
+	// A message is sanitised before it is split, so an injected newline makes no line of its own.
 	c := plain(report.Info)
 	c.Emit(ev("warning", map[string]any{"message": "one\ntwo"}))
 	if n := strings.Count(c.log.String(), "\n"); n != 1 {
@@ -309,13 +324,13 @@ func TestOnlyAndTee(t *testing.T) {
 	}
 }
 
-// The palette sheet has every entry of every table, a line per level and a
-// continuation line, through the formatter.
+// The palette sheet has every entry of every table, a line per level and a continuation line,
+// through the formatter. Off a terminal it is the sheet of today.
 func TestSheet(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		var buf bytes.Buffer
-		report.Sheet(&buf, d, clk().In(time.UTC))
+		report.Sheet(&buf, layout.Stream{Depth: d}, clk().In(time.UTC))
 		out := buf.String()
 		plainOut := stripEscapes(out)
 		checkSheetEntries(t, d, plainOut)
@@ -326,6 +341,9 @@ func TestSheet(t *testing.T) {
 		}
 		if (d == palette.None) == strings.Contains(out, "\x1b") {
 			t.Errorf("depth %d: escapes = %v", d, strings.Contains(out, "\x1b"))
+		}
+		if strings.Contains(plainOut, "layout") {
+			t.Errorf("depth %d: a sheet off a terminal has the added parts:\n%s", d, plainOut)
 		}
 	}
 }

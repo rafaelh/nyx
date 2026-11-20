@@ -457,6 +457,7 @@ func TestContract_NoPrompt(t *testing.T) {
 	h := newHarness(t, st)
 	h.stdoutTTY, h.stderrTTY = true, true
 	h.setenv("NO_COLOR", "1") // terminals, with plain lines to read
+	h.setenv("COLUMNS", "60") // the warning is wider than that, so it wraps; logLines folds it back
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
@@ -468,6 +469,9 @@ func TestContract_NoPrompt(t *testing.T) {
 	}
 	if w := h.logMsgs("WARN"); len(w) != 1 || !strings.Contains(w[0], "--authorised") {
 		t.Errorf("WARN lines %q", w)
+	}
+	if strings.Count(h.stderr.String(), "\n"+strings.Repeat(" ", 19)) == 0 {
+		t.Errorf("the warning did not wrap, so the folding of logLines was not needed:\n%s", h.stderr.String())
 	}
 	if len(st.Executed()) != 0 || h.network() != 0 {
 		t.Errorf("the target stage ran: %v", st.Executed())

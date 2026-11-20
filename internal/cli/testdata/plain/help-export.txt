@@ -1,0 +1,28 @@
+Examples:
+  nyx recon export -e example.com --json
+  nyx recon export -e example.com --current --kind finding --output findings.jsonl --json
+
+export writes one JSON object per line to stdout (or --output) for every record in the engagement,
+current or not, and for its inputs and exclusions. It reads a snapshot of the state database, takes no
+lock, so it works while a run is in progress, writes nothing to the engagement and makes no network
+requests. API keys are never in it.
+
+Usage:
+  nyx recon export -e <engagement> [flags]
+
+Flags:
+  -e, --engagement string   Engagement name (required)
+      --output string       Write to this file, replacing it atomically, instead of stdout
+      --current             Export only records that are current
+      --kind stringArray    Export only this kind (repeatable); the kinds are listed below
+      --output-dir string   Directory in which engagement directories are created (default ".")
+      --config string       Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
+  -h, --help                Help for export
+
+Shared flags:
+      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), and the stack of an unexpected failure
+  -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
+  -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
+
+Kinds accepted by --kind: asn, candidate_rank, code_mention, dns_claim, email_posture, excluded, finding, historical_address, hostname, http_port, ip, ip_hostname, ip_owner, netblock, open_port, organisation, origin_check, port_check, provider_range, registration, reported_port, resolution, root, script, script_parsed, sensitive_hit, server_address, shodan_netblock, storage, storage_account, storage_object, storage_ref, takeover_http, third_party, unresolved, url, web_identifier, web_posture, web_service, wildcard, input, exclusion
+Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)

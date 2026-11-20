@@ -1,0 +1,12 @@
+$ nyx recon --output-dir <OUTPUT-DIR>
+error: no inputs: give domains, --org, --asn or --cidr, or -e <engagement> to resume one (INVALID_INPUT)
+hint: nyx recon --help
+$ nyx recon --output-dir <OUTPUT-DIR> a.com --timeout abc --concurrency 0
+error: concurrency: invalid value "0": must be at least 1; timeout: invalid value "abc": not a positive duration (INVALID_INPUT)
+hint: --timeout 30m
+$ nyx cve --fields bogus CVE-2024-0001
+error: unknown field "bogus" for --fields (INVALID_INPUT)
+hint: valid fields: id, status, published, last_modified, description, cvss_version, cvss_score, cvss_severity, cvss_vector, cvss_source, weaknesses, affected_products, references, or all
+$ nyx cve not-an-id
+error: not-an-id: not a CVE ID (INVALID_INPUT)
+hint: expected CVE-YYYY-NNNN, e.g. CVE-2021-44228

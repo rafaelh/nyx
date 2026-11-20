@@ -50,6 +50,8 @@ and the help topics; cobra/viper flags, a pre-scan of the arguments, validation,
 the one place that picks the exit code and writes the error) → `internal/run.Runner` → stages →
 `internal/store` (SQLite via `modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output`
 (CSV/TXT files) and `internal/report` (the console log, the summary and the `--json` envelope).
+`invocation` builds one `layout.Stream` (terminal, colour depth, width) for stdout and one for stderr,
+and the human renderers take a stream where they once took a depth.
 `nyx cve` skips the runner: `internal/cli/cve.go` (flags, stdin, the worker pool, the writing) →
 `internal/cve` (the CVE record and its field table, the NVD client with its sliding window, the human
 layout and the batch outcome), which reaches the NVD through `egress`'s third-party client.
@@ -117,7 +119,9 @@ takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives
 **Pure knowledge packages** with no I/O: `cloudstorage` (bucket naming, S3/GCS/Azure),
 `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data in the
 embedded `providers.yaml`), `dnsname`, `sanitize` (strips terminal-acting characters from
-target-supplied text), `input`. The built-in wordlist and sensitive-path list are embedded in
+target-supplied text), `input`, `layout` (cell width, wrapping, tables, headings and rules for a
+terminal; the renderers take a `layout.Stream` and return their plain output unchanged when it is
+not a terminal). The built-in wordlist and sensitive-path list are embedded in
 `internal/config/builtin/`.
 
 **Config** (`internal/config`): precedence is file < `NYX_*` env < flags, and unknown keys are

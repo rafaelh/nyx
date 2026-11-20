@@ -1,0 +1,17 @@
+09:00:00 | INFO  | nyx a.com  1 roots, 0 orgs, 0 asns, 1 cidrs, 0 exclusions
+09:00:00 | INFO  | crtsh          done-previously
+09:00:00 | WARN  | quota is low
+09:00:00 | WARN  | the source answered slowly for api.example.com and https://status.example.com/incidents/2026/11/01/degraded-performance-eu-west, so many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried after a long wait and a few were given up on; many of the lookups were retried aft
+09:00:00 | WARN  | a warning with a line breakand control characters that are sanitised away
+09:00:00 | INFO  | warner         done-previously
+09:00:00 | INFO  | flaky          running
+09:00:00 | ERROR | flaky          failed
+09:00:00 | INFO  | shodan         not-configured (no key)
+09:00:00 | INFO  |   findings: 3
+09:00:00 | INFO  |   hosts: 2
+09:00:00 | INFO  |   open ports (confirmed): 2
+09:00:00 | INFO  |   third parties: 1
+09:00:00 | INFO  |   web services: 2
+error: 2 checks failed: flaky 2 (PARTIAL)
+hint: nyx recon --output-dir <OUTPUT-DIR> a.com --cidr 198.51.100.0/24 --concurrency 1
+retry: may succeed after a wait

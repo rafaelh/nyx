@@ -31,19 +31,20 @@ import (
 
 // harness drives cli.Execute in-process with fakes.
 type harness struct {
-	t         *testing.T
-	out       string
-	stages    []run.Stage
-	files     []output.File  // nil means the default files
-	signals   chan os.Signal // nil means the run takes no signals
-	stdoutTTY bool
-	stderrTTY bool
-	loc       *time.Location
-	eopts     egress.Options
-	now       time.Time
-	version   string
-	env       map[string]string // the environment cli.Execute sees; see setenv
-	stdin     io.Reader         // nil means an empty one
+	t                        *testing.T
+	out                      string
+	stages                   []run.Stage
+	files                    []output.File  // nil means the default files
+	signals                  chan os.Signal // nil means the run takes no signals
+	stdoutTTY                bool
+	stderrTTY                bool
+	stdoutWidth, stderrWidth int // the terminal width each stream reports; 0 means none
+	loc                      *time.Location
+	eopts                    egress.Options
+	now                      time.Time
+	version                  string
+	env                      map[string]string // the environment cli.Execute sees; see setenv
+	stdin                    io.Reader         // nil means an empty one
 
 	stdout, stderr bytes.Buffer
 	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
@@ -111,6 +112,8 @@ func (h *harness) deps() cli.Deps {
 		Stderr:      &h.stderr,
 		StdoutIsTTY: func() bool { return h.stdoutTTY },
 		StderrIsTTY: func() bool { return h.stderrTTY },
+		StdoutWidth: func() int { return h.stdoutWidth },
+		StderrWidth: func() int { return h.stderrWidth },
 		Location:    h.loc,
 		Clock:       func() time.Time { return h.now },
 		Version:     h.version,
@@ -446,16 +449,38 @@ type logLine struct{ time, level, msg string }
 // logLayout is the start of a plain log line: "HH:MM:SS | LEVEL | ".
 var logLayout = regexp.MustCompile(`^(\d\d:\d\d:\d\d) \| (DEBUG|INFO |WARN |ERROR|CRIT ) \| `)
 
-// logLines parses stderr's plain log lines; a line in another form (the
-// error and its hint) is skipped.
+// logLines parses stderr's plain log lines. A line wrapped on a terminal, or a message of several
+// lines, has continuation lines indented to the message column (19 cells, or 21 once escapes are
+// removed from a coloured one); each is folded into the line before it, joined by a space, so the
+// message reads as it was written. A line in another form (the error and its hint) is skipped.
 func (h *harness) logLines() []logLine {
 	var out []logLine
+	last := false // the previous line was a log line or a continuation of one
 	for l := range strings.SplitSeq(h.stderr.String(), "\n") {
 		if m := logLayout.FindStringSubmatch(l); m != nil {
 			out = append(out, logLine{m[1], strings.TrimSpace(m[2]), l[len(m[0]):]})
+			last = true
+			continue
 		}
+		if cont, ok := continuation(l); ok && last {
+			out[len(out)-1].msg += " " + cont
+			continue
+		}
+		last = false
 	}
 	return out
+}
+
+// continuation is the text of a line indented to the message column (19 or 21 cells, after
+// removing escapes), and whether it is one.
+func continuation(l string) (string, bool) {
+	l = stripSGR(l)
+	for _, indent := range []int{19, 21} {
+		if rest, ok := strings.CutPrefix(l, strings.Repeat(" ", indent)); ok && rest != "" && rest[0] != ' ' {
+			return rest, true
+		}
+	}
+	return "", false
 }
 
 // logMsgs are the messages of the log lines of one level.

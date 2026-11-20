@@ -687,7 +687,8 @@ A run writes two things, to two streams.
   are `INFO`; a stage that `failed` is `ERROR`. Every warning is `WARN` and is shown without any
   flag: a truncated result, a spent quota, addresses skipped because their owner is unknown,
   technology detection being off, the stages left out for lack of authorisation. The same warning
-  is written once per run. A message is never wrapped to the terminal width, and a line is never redrawn.
+  is written once per run. On a terminal a long message wraps (see [Terminal layout](#terminal-layout));
+  anywhere else a message is never wrapped. A line is never redrawn.
 - **The summary is on stdout,** and is all that stdout holds. It lists counts, the checks that
   failed (a check that failed is retried on the next run; `--debug` shows each failure), the work a
   per-run cap deferred, the high and medium findings, and the high-confidence candidates (see
@@ -708,6 +709,54 @@ A run writes two things, to two streams.
 
 A finding's `+` line and the summary show its severity as a badge: the severity as recorded (`high`,
 `medium`, `low`) in a fixed-width column.
+
+### Terminal layout
+
+When a stream is a terminal, nyx lays its human output out for reading: the recon summary, the log
+lines, `nyx cve` records, help and `nyx recon --palette`. A stream that is not a terminal (a pipe, a
+file) gets exactly the plain text described elsewhere in this document, so scripts and saved logs do
+not change, and neither does anything under `--json`: with `--json`, help and the palette sheet are
+written as for a stream that is not a terminal, and the envelope is the same. `--debug` lines on a
+terminal stderr are log lines and are laid out like the rest. The `error:` line is never laid out.
+`NO_COLOR` or `TERM=dumb` turns the colour off but not the layout: no escape byte is written, and
+rules and borders are drawn with ASCII (`-`, `|`, `+`).
+
+- **Width.** Each terminal stream has its own width: `COLUMNS` when it is a positive number, else
+  the width of that terminal, else 100, and never less than 60. A log line reads the width each time
+  it is written, so resizing the window applies from the next line. For `nyx cve` output that is not
+  a terminal the old rule stays: `COLUMNS`, else 100, at least 60.
+- **Wrapping.** No line is wider than the width, measured in terminal cells, with these exceptions:
+  usage and example lines in help, which never wrap; a hostname, an IP address or netblock (a
+  hostname or address may carry a `:port`), an email address or a URL with a scheme, which is never
+  broken even if it is wider than the space; the SEVERITY, CATEGORY, EVIDENCE and PROMOTE cells of
+  a table; and a table row whose wrapping columns have already shrunk to 10 cells. Such a line runs
+  past the width rather than break. A log message that wraps continues under the message column
+  (19 cells in, or 21 with colour).
+- **Headings and rules.** Headings are bold in the info colour. Each heading of the summary has a
+  rule beneath it, `─` in the separator colour, or `-` without colour.
+- **Tables.** The summary shows its findings ("Findings" and "New findings": SEVERITY, CATEGORY,
+  TARGET and DETAIL, with DETAIL left out when no row has one) and its candidates (VALUE, EVIDENCE,
+  SOURCES and PROMOTE) as tables with a bold header row and no borders. The counts blocks keep their
+  labels, with the numbers right-aligned. `nyx help findings` and `nyx help stages` are bordered
+  tables. When a table is too wide, its long columns shrink and wrap: DETAIL then TARGET, or SOURCES
+  then VALUE. A table with no rows is not shown, heading included.
+- **Stage lines.** With colour, the state word is coloured: `running` in the info colour, `done` and
+  `done-previously` in the success colour, `failed` in the error colour and `not-configured` in the
+  muted timestamp colour. A found line's `+` is in the success colour, and in a line of the form
+  `category: value` the category is in the info colour.
+- **CVE records.** Each record starts with a bar as wide as the layout width, with the CVE ID at
+  the left and the severity at the right, in the severity's badge colours. Without colour the bar is
+  the ID and `[SEVERITY]` at either end of the line. Field labels have no colon and the values
+  line up in one column in each section.
+- **Help.** Descriptions, paragraphs and footers wrap to the width; lists of values wrap after
+  commas.
+- **`nyx recon --palette`** also shows a heading, a sample table, a CVE bar for each severity, a
+  stage line for each state, a found line and a log line longer than the width, so a new terminal or
+  theme can be checked by eye.
+
+Rules and table borders use box-drawing characters, which Unicode classes as East Asian Ambiguous: a
+terminal set to a CJK locale may draw them two cells wide, which pushes a rule or border past the
+width. nyx measures them as one cell.
 
 ### The `--json` envelope
 
@@ -1241,7 +1290,8 @@ nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json
   section each for the status and dates, the description, the CVSS score, the weaknesses, the
   affected products and the references, as `--fields` selects them. Records are separated by a
   blank line, and text is wrapped to `COLUMNS` (default 100, at least 60). The NVD's text is
-  stripped of anything that would act on a terminal.
+  stripped of anything that would act on a terminal. On a terminal the layout is the one in
+  [Terminal layout](#terminal-layout): a header bar, headings, and labels with no colon.
 - **The key.** `NVD_API_KEY`, and otherwise `keys.nvd` in the config file. `nyx cve` takes
   `--config` and reads the configuration as recon does: an unreadable or invalid config file, or an
   invalid `NYX_*` setting, exits 2, and a missing default file is fine. `NYX_KEYS_NVD` is not read:

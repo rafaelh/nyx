@@ -28,73 +28,67 @@ func stageRow(topic, stage string) string {
 	return ""
 }
 
-// --help is coloured on a terminal, with the same words in the same order as
-// the plain help, and plain when stdout is not a terminal, under NO_COLOR and
-// under --json.
+// --help is coloured on a terminal, and plain when stdout is not a terminal, under NO_COLOR (laid
+// out, with no escape byte) and under --json. At a width where nothing wraps the colour is the
+// colour help has always had: info names, muted value types, defaults and notes, bold headings now
+// in the info colour. Off a terminal the plain text is pinned by TestHelp_PlainJoin.
 func TestHelp_Colour(t *testing.T) {
 	t.Parallel()
-	help := func(tty bool, env map[string]string, args ...string) string {
-		t.Helper()
-		h := newHarness(t, noop())
-		if tty {
-			colourAt(t, h, palette.TrueColor)
-		}
-		for k, v := range env {
-			h.setenv(k, v)
-		}
-		if code := h.execRoot(args...); code != 0 {
-			t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
-		}
-		return h.stdout.String()
-	}
+	d := palette.TrueColor
+	heading := func(s string) string { return d.BoldText(palette.Semantic, "info", s) }
+	muted := func(s string) string { return d.Text(palette.Chrome, "TIMESTAMP", s) }
 
 	// The root help is coloured by the same rules.
-	rootPlain, rootColoured := help(false, nil, "--help"), help(true, nil, "--help")
-	if strings.Contains(rootPlain, "\x1b") || !strings.Contains(rootColoured, "\x1b[1mExamples:\x1b[0m") ||
-		!strings.Contains(rootColoured, "--passive\x1b[0m") || sgr.ReplaceAllString(rootColoured, "") != rootPlain {
+	rootPlain, rootColoured := helpOff(t, "--help"), helpOn(t, d, 300, "--help")
+	if strings.Contains(rootPlain, "\x1b") || !strings.Contains(rootColoured, heading("Examples:")+"\n") ||
+		!strings.Contains(rootColoured, d.Text(palette.Semantic, "info", "--passive")) {
 		t.Errorf("root help colour:\n%s", rootColoured)
 	}
 
-	plain, coloured := help(false, nil, "recon", "--help"), help(true, nil, "recon", "--help")
+	plain, coloured := helpOff(t, "recon", "--help"), helpOn(t, d, 300, "recon", "--help")
 	if strings.Contains(plain, "\x1b") {
 		t.Error("help to a pipe is coloured")
 	}
-	for _, want := range []string{"\x1b[1mFlags:\x1b[0m", "\x1b[1mConfiguration:\x1b[0m", "--passive\x1b[0m", "\x1b[1mExamples:\x1b[0m",
-		"\x1b[38;2;124;129;145m (e.g.: 37,53,79-81,443)\x1b[0m",
-		"line \x1b[38;2;124;129;145m(# comments allowed)\x1b[0m", "name \x1b[38;2;124;129;145m(repeatable)\x1b[0m"} {
+	for _, want := range []string{heading("Flags:"), heading("Configuration:"), heading("Examples:"), heading("Usage:"),
+		d.Text(palette.Semantic, "info", "--passive"), muted(" (e.g.: 37,53,79-81,443)"), "line " + muted("(# comments allowed)"),
+		"name " + muted("(repeatable)"), muted(" string")} {
 		if !strings.Contains(coloured, want) {
 			t.Errorf("coloured help lacks %q", want)
 		}
 	}
-	// Removing the colour leaves the plain text, but for the width of the
-	// findings table's severity badges.
-	stripped := sgr.ReplaceAllString(coloured, "")
-	if strings.Join(strings.Fields(stripped), " ") != strings.Join(strings.Fields(plain), " ") {
-		t.Error("coloured help differs from the plain help in more than colour and spacing")
-	}
-	for line := range strings.SplitSeq(stripped, "\n") {
-		if !strings.Contains(plain, line) && !strings.Contains(line, "  high ") && !strings.Contains(line, "  medium ") && !strings.Contains(line, "  low ") {
-			t.Errorf("coloured help line not in the plain help: %q", line)
-		}
+	// Taking the colour away leaves the plain words, in the same order, but for the lines of
+	// running text, which re-flow to the width.
+	words := func(s string) []string { return strings.Fields(sgr.ReplaceAllString(s, "")) }
+	if !slices.Equal(words(coloured), strings.Fields(plain)) {
+		t.Error("coloured help differs from the plain help in more than colour and layout")
 	}
 
 	// The findings topic is coloured too, its severities as badges.
-	if got := help(true, nil, "help", "findings"); !strings.Contains(got, " high     \x1b[0m") {
+	if got := helpOn(t, d, 80, "help", "findings"); !strings.Contains(got, d.Value(palette.Severity, "high")) {
 		t.Errorf("findings topic severities are not badges:\n%s", got)
 	}
-	if got := help(false, nil, "help", "findings"); strings.Contains(got, "\x1b") {
+	if got := helpOff(t, "help", "findings"); strings.Contains(got, "\x1b") {
 		t.Error("findings topic to a pipe is coloured")
 	}
-	if got := help(true, nil, "--help", "--json"); strings.Contains(got, "\x1b") {
+	if got := helpOn(t, d, 80, "--help", "--json"); strings.Contains(got, "\x1b") {
 		t.Error("help under --json is coloured")
 	}
-	if got := help(true, nil, "recon", "export", "--help"); !strings.Contains(got, "\x1b[1mKinds accepted by --kind:\x1b[0m") ||
-		!strings.Contains(got, "this kind \x1b[38;2;124;129;145m(repeatable)\x1b[0m;") {
+	if got := helpOn(t, d, 300, "recon", "export", "--help"); !strings.Contains(got, d.Bold("Kinds accepted by --kind:")) || !strings.Contains(got, "this kind "+muted("(repeatable)")+";") {
 		t.Errorf("export help is not coloured:\n%s", got)
 	}
-	if got := help(true, map[string]string{"NO_COLOR": "1"}, "recon", "--help"); got != plain {
-		t.Error("help under NO_COLOR differs from the plain help")
+	if got := helpOn(t, palette.None, 300, "recon", "--help"); strings.Contains(got, "\x1b") || strings.Join(strings.Fields(got), " ") != strings.Join(strings.Fields(plain), " ") {
+		t.Error("help under NO_COLOR differs from the plain help in more than layout")
 	}
+}
+
+// helpOff is a help screen written to a stream that is not a terminal.
+func helpOff(t *testing.T, args ...string) string {
+	t.Helper()
+	h := newHarness(t, noop())
+	if code := h.execRoot(args...); code != 0 {
+		t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
+	}
+	return h.stdout.String()
 }
 
 // nyx help stages lists every registered stage in run order with whom it
@@ -150,14 +144,16 @@ func TestHelp_StagesTopic(t *testing.T) {
 		t.Error("the root help does not list nyx help stages")
 	}
 
-	// On a terminal a target stage's contact is in the warning colour, and
-	// removing the colour leaves the plain table.
+	// On a terminal the topic is a table, and a target stage's contact is in the warning colour
+	// (TestHelp_StagesTopicTable has the rest of its layout).
 	colourAt(t, h, palette.TrueColor)
 	coloured := h.stagesHelp()
-	if !strings.Contains(coloured, "\x1b[38;2;236;208;143mtarget\x1b[0m") {
+	if !strings.Contains(coloured, palette.TrueColor.Text(palette.Semantic, "warning", "target")) {
 		t.Errorf("target contact is not coloured:\n%s", coloured)
 	}
-	if sgr.ReplaceAllString(coloured, "") != topic {
-		t.Error("the coloured topic differs from the plain one in more than colour")
+	for _, s := range stages {
+		if !strings.Contains(sgr.ReplaceAllString(coloured, ""), s.Name()) {
+			t.Errorf("%s is missing from the coloured topic", s.Name())
+		}
 	}
 }

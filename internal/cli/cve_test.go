@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/cve"
+	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
@@ -188,7 +189,7 @@ func unitText(t *testing.T, spec string, fixtures ...string) string {
 		t.Fatal(unknown)
 	}
 	var out bytes.Buffer
-	if err := cve.Render(&out, recs, f, palette.None, 100); err != nil {
+	if err := cve.Render(&out, recs, f, layout.Stream{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
@@ -605,11 +606,22 @@ func TestCVE_HumanColour(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	d := palette.TrueColor
-	if !strings.Contains(h.stdout.String(), d.Bold(log4j)+"  "+d.Badge(palette.Severity, "CRITICAL")) {
-		t.Errorf("stdout %q", h.stdout.String())
+	at70 := func(depth palette.Depth) layout.Stream {
+		return layout.Stream{Terminal: true, Depth: depth, Width: func() int { return 70 }}
 	}
+	bar := cve.Bar(at70(d), log4j, "CRITICAL", true)
+	if !strings.HasPrefix(h.stdout.String(), bar+"\n\n"+d.BoldText(palette.Semantic, "info", "Status & Dates")+"\n") {
+		t.Errorf("stdout %q does not open with the severity's bar %q", h.stdout.String(), bar)
+	}
+	if w := layout.Measure(bar); w != 70 {
+		t.Errorf("the bar is %d cells wide, want the COLUMNS of 70", w)
+	}
+	// With NO_COLOR the layout stays and no escape byte is written: the bar is the ID and [CRITICAL].
 	h.setenv("NO_COLOR", "1")
-	if code := h.cveRun(false, log4j); code != 0 || strings.Contains(h.stdout.String(), "\x1b") {
+	code := h.cveRun(false, log4j)
+	first, _, _ := strings.Cut(h.stdout.String(), "\n")
+	if code != 0 || strings.Contains(h.stdout.String(), "\x1b") ||
+		first != cve.Bar(at70(palette.None), log4j, "CRITICAL", true) || !strings.HasSuffix(first, "[CRITICAL]") {
 		t.Errorf("NO_COLOR: exit %d, %q", code, h.stdout.String())
 	}
 }
@@ -1136,6 +1148,38 @@ func TestCVE_Help(t *testing.T) {
 		}
 		if !ok(line) {
 			t.Errorf("%s does not read true for cve: %q", flag, line)
+		}
+	}
+}
+
+// The NVD key never reaches the human output, whole or in part, even inside a long word
+// that a terminal's layout breaks or split by a character that cleaning removes.
+func TestCVE_HumanOutputRedactsTheKey(t *testing.T) {
+	t.Parallel()
+	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"
+	for _, terminal := range []bool{false, true} {
+		h := newHarness(t)
+		h.setenv("NVD_API_KEY", key)
+		h.setenv("COLUMNS", "80")
+		h.stdoutTTY = terminal
+		nvd := newNVD(t, h)
+		desc := strings.Repeat("a", 70) + key + strings.Repeat("b", 70) + " and " + key[:8] + `\u001b[31m` + key[8:]
+		nvd.mu.Lock()
+		nvd.entries["CVE-2024-1000"] = `{"id":"CVE-2024-1000","vulnStatus":"Analyzed","published":"2024-01-01T00:00:00.000","lastModified":"2024-01-02T00:00:00.000",` +
+			`"descriptions":[{"lang":"en","value":"` + desc + `"}],"references":[]}`
+		nvd.mu.Unlock()
+		if code := h.cveRun(false, "CVE-2024-1000"); code != 0 {
+			t.Fatalf("terminal %v: exit %d: %s", terminal, code, h.stderr.String())
+		}
+		out := h.stdout.String()
+		for i := 0; i+8 <= len(key); i++ {
+			if strings.Contains(out, key[i:i+8]) {
+				t.Errorf("terminal %v: %q of the key reached stdout:\n%s", terminal, key[i:i+8], out)
+				break
+			}
+		}
+		if strings.Count(out, "****") < 2 {
+			t.Errorf("terminal %v: both keys should be masked:\n%s", terminal, out)
 		}
 	}
 }
