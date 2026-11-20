@@ -40,7 +40,7 @@ func entriesOf(snap output.Snapshot) []entry {
 	byKey := map[entryKey]*entry{}
 	for _, k := range kinds.All() {
 		recs := snap.Records[k.Name]
-		if len(recs) == 0 || !k.Entity && k.Change == "" {
+		if len(recs) == 0 || !k.Entity() && k.Change == "" {
 			continue
 		}
 		named, _ := kinds.Lookup(k.Name)
@@ -51,7 +51,7 @@ func entriesOf(snap output.Snapshot) []entry {
 			}
 			shown := r.Current
 			switch {
-			case !k.Entity:
+			case !k.Entity():
 				shown = shown && vis.Shown(named, r)
 			case label == kinds.LabelHostname:
 				shown = shown && !wildcardOnly[r.Key]

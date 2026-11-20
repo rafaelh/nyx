@@ -231,6 +231,8 @@ func TestPlacement_AgreesWithCategory(t *testing.T) {
 		{kinds.Netblock, "not a cidr", false, 0, ""},
 		{kinds.Netblock, "192.0.2.0/24", true, scope.Candidate, kinds.Candidates},
 		{kinds.ASN, "AS64501", true, scope.Candidate, kinds.Candidates},
+		{kinds.ExcludedKind, "203.0.113.9", true, scope.Excluded, kinds.Excluded},
+		{kinds.URL, "https://www.example.com/", false, 0, ""}, // not an entity: shown or hidden instead
 	} {
 		class, placed := v.Placement(c.kind, rec(c.key))
 		if placed != c.placed || placed && class != c.class {

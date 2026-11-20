@@ -28,12 +28,12 @@ func CNAME(sc *scope.Scope, inv *inventory.Inventory) []store.Obs {
 		if root == "" {
 			continue
 		}
-		key := kinds.ThirdPartyKey(root, kinds.MechanismCNAME, h.Entry.Suffix)
-		if seen[key] {
+		o := kinds.ThirdPartyObs(root, kinds.MechanismCNAME, h.Entry.Suffix, 0)
+		if seen[o.Key] {
 			continue
 		}
-		seen[key] = true
-		obs = append(obs, kinds.ThirdPartyObs(root, kinds.MechanismCNAME, h.Entry.Suffix, 0))
+		seen[o.Key] = true
+		obs = append(obs, o)
 	}
 	return obs
 }

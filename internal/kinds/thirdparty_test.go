@@ -35,7 +35,7 @@ func TestThirdPartyShown(t *testing.T) {
 func TestThirdPartyCountedAndPrinted(t *testing.T) {
 	t.Parallel()
 	k, ok := kinds.Get("third_party")
-	if !ok || k.Category != "third parties" || k.Singular != "third party" || !k.Printed || k.Entity {
+	if !ok || k.Category != "third parties" || k.Singular != "third party" || !k.Printed || k.Entity() {
 		t.Fatalf("third_party = %+v, %v", k, ok)
 	}
 	v := world(t)
@@ -83,7 +83,7 @@ func TestThirdPartyFound(t *testing.T) {
 
 // A record that is no longer current keeps no attributes, so its root,
 // mechanism and domain (and the provider that domain belongs to) come from its key.
-func TestThirdPartyOfKeyFallback(t *testing.T) {
+func TestThirdPartyAttrsFromKey(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		key            string
@@ -96,9 +96,12 @@ func TestThirdPartyOfKeyFallback(t *testing.T) {
 		{"example.com|cname|github.io", "cname", "github.io", "GitHub"},
 		{"example.com|ns|cloudflare.com", "ns", "cloudflare.com", "Cloudflare"},
 	} {
-		a := kinds.ThirdPartyOf(store.Record{Kind: "third_party", Key: c.key})
+		a := kinds.ThirdParty.Attrs(store.Record{Kind: "third_party", Key: c.key})
 		if a.Root != "example.com" || a.Mechanism != c.mechanism || a.Domain != c.dom || a.Provider != c.provider || a.Depth != 0 {
-			t.Errorf("ThirdPartyOf(%q) = %+v", c.key, a)
+			t.Errorf("Attrs(%q) = %+v", c.key, a)
+		}
+		if got := kinds.ThirdParty.Key(a); got != c.key {
+			t.Errorf("Key(%+v) = %q, want %q", a, got, c.key)
 		}
 	}
 }

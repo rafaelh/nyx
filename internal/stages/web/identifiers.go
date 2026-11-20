@@ -153,8 +153,7 @@ func newIdentifierSet(service, host string, obs *obsSet) *identifierSet {
 // add records one identifier of the service.
 func (s *identifierSet) add(typ, value string) {
 	if value != "" {
-		s.obs.add(kinds.WebIdentifier.Obs(s.service+"|"+typ+"|"+value,
-			kinds.WebIdentifierAttrs{Service: s.service, Host: s.host, Type: typ, Value: value}))
+		s.obs.add(kinds.WebIdentifier.Obs(kinds.WebIdentifierAttrs{Service: s.service, Host: s.host, Type: typ, Value: value}))
 	}
 }
 

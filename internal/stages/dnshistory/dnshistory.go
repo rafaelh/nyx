@@ -104,7 +104,7 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			typ = "AAAA"
 		}
 		obs = append(obs,
-			kinds.HistoricalAddress.Obs(host+"|"+typ+"|"+a.String(),
+			kinds.HistoricalAddress.Obs(
 				kinds.HistoricalAddressAttrs{Host: host, Addr: a.String(), Type: typ, FirstSeen: s.first, LastSeen: s.last}),
 			kinds.IP.Obs(a.String()))
 	}

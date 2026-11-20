@@ -56,7 +56,7 @@ func Observations(ctx context.Context, e egress.Clients, sc *scope.Scope, host s
 	slices.Sort(addrs)
 	obs := make([]run.Observation, 0, len(addrs))
 	for _, a := range slices.Compact(addrs) {
-		obs = append(obs, kinds.ServerAddress.Obs(kinds.ServerAddressKey(host, a), kinds.ServerAddressAttrs{Host: host, Addr: a}))
+		obs = append(obs, kinds.ServerAddress.Obs(kinds.ServerAddressAttrs{Host: host, Addr: a}))
 	}
 	return obs, nil
 }

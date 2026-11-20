@@ -46,7 +46,7 @@ func reportedPort(ip string, port int, transport, banner, timestamp string) (run
 			seen = timestamp[:len(time.DateOnly)]
 		}
 	}
-	return kinds.ReportedPort.Obs(netip.AddrPortFrom(addr, uint16(port)).String(), kinds.ReportedPortAttrs{
+	return kinds.ReportedPort.Obs(kinds.ReportedPortAttrs{
 		IP: addr.String(), Port: port, Banner: kinds.ShodanBanner(banner), LastSeen: seen}), true
 }
 
@@ -154,13 +154,15 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			}
 			for _, h := range m.Hostnames {
 				h = dnsname.Normalise(h)
-				if h == "" || seen[m.IPStr+"|"+h] {
+				if h == "" {
 					continue
 				}
-				seen[m.IPStr+"|"+h] = true
-				obs = append(obs,
-					kinds.Hostname.Obs(h, kinds.HostnameAttrs{}),
-					kinds.IPHostnameObs(m.IPStr, h, "shodan"))
+				back := kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: m.IPStr, Hostname: h, Source: "shodan"})
+				if seen[back.Key] {
+					continue
+				}
+				seen[back.Key] = true
+				obs = append(obs, kinds.Hostname.Obs(h, kinds.HostnameAttrs{}), back)
 			}
 		}
 		got += len(r.Matches)

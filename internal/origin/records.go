@@ -27,7 +27,9 @@ type Pair struct {
 func (p Pair) Probed() bool { return p.Probe.Status >= 200 && p.Probe.Status < 300 }
 
 // Key is the key of the pair's origin_check record.
-func (p Pair) Key() string { return p.Host + "|" + p.Addr.String() }
+func (p Pair) Key() string {
+	return kinds.OriginCheck.Key(kinds.OriginCheckAttrs{Host: p.Host, Addr: p.Addr.String()})
+}
 
 // CheckKey is the key of the pair's check: the pair and a hash of the probe's title and certificate
 // subject, so that a change in either checks the pair again.

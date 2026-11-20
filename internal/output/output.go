@@ -455,10 +455,7 @@ func resolutionRows(s Snapshot) []Row {
 	var rows []Row
 	at := map[string]int{}
 	for _, r := range s.of(kinds.Resolution) {
-		a := kinds.Resolution.Attrs(r)
-		if a.Name == "" { // no longer current: the store keeps no attributes, the key has them
-			a.Name, a.Type, a.Value = splitResolutionKey(r.Key)
-		}
+		a := kinds.Resolution.Attrs(r) // one no longer current has its attributes from its key
 		// self_hosted is on a current NS row only: a row no longer current has lost its
 		// attributes, and says nothing of who runs the server today.
 		selfHosted := ""
@@ -482,22 +479,9 @@ func resolutionRows(s Snapshot) []Row {
 			continue
 		}
 		a := kinds.HistoricalAddress.Attrs(r)
-		if a.Host == "" { // no longer current: the key is "host|type|address"
-			a.Host, a.Type, a.Addr = splitResolutionKey(r.Key)
-		}
 		rows = append(rows, recordRow(r, a.Host, a.Type+"-historical", a.Addr, "dnshistory", "", a.FirstSeen, a.LastSeen))
 	}
 	return rows
-}
-
-// splitResolutionKey reads a resolution's "name|TYPE|value" key. The value may
-// contain a bar (a TXT record); the name and type cannot.
-func splitResolutionKey(key string) (name, typ, value string) {
-	parts := strings.SplitN(key, "|", 3)
-	if len(parts) != 3 {
-		return key, "", ""
-	}
-	return parts[0], parts[1], parts[2]
 }
 
 // derivedRows builds rows computed from the inventory. Each is dated by the

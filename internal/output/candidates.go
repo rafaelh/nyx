@@ -38,7 +38,7 @@ func candidateRows(s Snapshot) []Row {
 			if vis.Category(kind, r) != kinds.Candidates {
 				continue
 			}
-			rank, ok := ranks[kinds.CandidateRankKey(kind.Name(), r.Key)]
+			rank, ok := ranks[kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: kind.Name(), Value: r.Key})]
 			if !ok {
 				rank.Confidence = string(candidates.Low)
 			}

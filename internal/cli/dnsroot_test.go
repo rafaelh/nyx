@@ -553,5 +553,5 @@ func TestDNSRoot_RowsCreateNoWildcardChecks(t *testing.T) {
 }
 
 func resolutionObs(name, typ, value string) run.Observation {
-	return kinds.Resolution.Obs(name+"|"+typ+"|"+value, kinds.ResolutionAttrs{Name: name, Type: typ, Value: value})
+	return kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: name, Type: typ, Value: value})
 }

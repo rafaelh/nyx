@@ -260,7 +260,7 @@ func checkExportRecordFields(t *testing.T, lines []exLine) {
 	}
 
 	// Derived records are exported like the rest, from their pseudo-stage.
-	rank := exportLine(t, lines, "candidate_rank", kinds.CandidateRankKey("hostname", "evil.example"))
+	rank := exportLine(t, lines, "candidate_rank", kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: "hostname", Value: "evil.example"}))
 	if !slices.Equal(rank.stages(), []string{"candidate-rank"}) {
 		t.Errorf("candidate rank stages = %v", rank.stages())
 	}

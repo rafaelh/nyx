@@ -15,7 +15,7 @@ func TestEvidenceKinds(t *testing.T) {
 			t.Errorf("kind %s not registered", name)
 			continue
 		}
-		if k.Category != "" || k.Printed || k.Entity {
+		if k.Category != "" || k.Printed || k.Entity() {
 			t.Errorf("%s = %+v, want an internal kind with no category", name, k)
 		}
 	}

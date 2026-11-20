@@ -156,7 +156,7 @@ func (*Ports) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	}
 	switch r := res.(type) {
 	case egress.Open:
-		return []run.Observation{kinds.OpenPort.Obs(key, kinds.OpenPortAttrs{
+		return []run.Observation{kinds.OpenPort.Obs(kinds.OpenPortAttrs{
 			IP: ap.Addr().String(), Port: int(ap.Port()), Banner: kinds.EncodeBanner(string(r.Banner)),
 		})}, nil
 	case egress.Closed:

@@ -1,9 +1,11 @@
 package kinds
 
 import (
+	"net/netip"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/store"
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // The record kinds. Each is a handle (Of or Bare) with its showing rules and,
@@ -16,15 +18,39 @@ import (
 // may observe one record; the store merges their attributes field by field,
 // so a stage that does not know a field leaves it out.
 
-// Entities, classified against the scope.
+// Entities, placed against the scope. An in-scope root is an input, so it is
+// not counted.
 var (
-	Hostname = define[HostnameAttrs](Kind{Name: "hostname", Singular: "host", Category: Hosts, Entity: true, Printed: true})
-	Root     = defineBare(Kind{Name: "root", Singular: "root", Category: Candidates, Entity: true})
-	Netblock = define[NetblockAttrs](Kind{Name: "netblock", Singular: "netblock", Category: Netblocks, Entity: true})
+	Hostname = define[HostnameAttrs](Kind{Name: "hostname", Singular: "host", Category: Hosts, place: placeHost, Printed: true, Change: LabelHostname})
+	Root     = defineBare(Kind{Name: "root", Singular: "root", place: placeHost})
+	Netblock = define[NetblockAttrs](Kind{Name: "netblock", Singular: "netblock", Category: Netblocks, place: placeNetblock, Change: LabelNetblock})
 	// ExcludedKind is an address or name that triggered an exclusion at dial
 	// time; Excluded is its summary category.
-	ExcludedKind = define[ExcludedAttrs](Kind{Name: "excluded", Singular: "excluded", Category: Excluded, Entity: true})
+	ExcludedKind = define[ExcludedAttrs](Kind{Name: "excluded", Singular: "excluded", place: placeExcluded})
 )
+
+// placeHost places a hostname or root as the scope classifies it.
+func placeHost(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
+	return sc.ClassifyHost(key).Class, true
+}
+
+// placeNetblock places a netblock in scope when it is an input or an input
+// brings it in, and as a candidate otherwise. A key that is not a CIDR is not
+// placed.
+func placeNetblock(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
+	if _, err := netip.ParsePrefix(key); err != nil {
+		return 0, false
+	}
+	if sc.HasNetblock(key) {
+		return scope.InScope, true
+	}
+	return scope.Candidate, true
+}
+
+// placeExcluded places a record of what triggered an exclusion as excluded.
+func placeExcluded(*scope.Scope, *inventory.Inventory, string) (scope.Class, bool) {
+	return scope.Excluded, true
+}
 
 // HostnameAttrs: the Common Crawl index a name was found in, if it came from one.
 type HostnameAttrs struct {
@@ -45,24 +71,26 @@ type ExcludedAttrs struct {
 
 // DNS and address inventory.
 var (
-	Resolution    = define[ResolutionAttrs](Kind{Name: "resolution", Change: "resolution"})
+	Resolution    = defineJoined(Kind{Name: "resolution", Change: "resolution"}, resolutionFields)
 	IP            = defineBare(Kind{Name: "ip", Singular: "ip", Category: "ips", Change: LabelAddress})
 	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Change: "unresolved name"})
 	Wildcard      = define[WildcardAttrs](Kind{Name: "wildcard"})
 	IPOwner       = define[IPOwnerAttrs](Kind{Name: "ip_owner"})
-	IPHostname    = define[IPHostnameAttrs](Kind{Name: "ip_hostname"})
+	IPHostname    = defineJoined(Kind{Name: "ip_hostname"}, ipHostnameFields)
 	ProviderRange = define[ProviderRangeAttrs](Kind{Name: "provider_range"})
 )
 
 // ResolutionAttrs is one DNS answer: a name's A, AAAA or CNAME value, a root's
 // NS, SOA, TXT or CAA value, or the value of an SRV service name (not a host).
 // Only A, AAAA and CNAME rows decide what is resolved, contacted or checked for
-// wildcards.
+// wildcards. A record's key is "<name>|<TYPE>|<value>", which carries all three.
 type ResolutionAttrs struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
 	Value string `json:"value"`
 }
+
+func resolutionFields(a *ResolutionAttrs) []*string { return []*string{&a.Name, &a.Type, &a.Value} }
 
 // UnresolvedAttrs: why a name has no address (NXDOMAIN, SERVFAIL or NODATA).
 type UnresolvedAttrs struct {
@@ -83,17 +111,14 @@ type IPOwnerAttrs struct {
 }
 
 // IPHostnameAttrs: a name an address points back to, and where that came from.
+// A record's key is "<ip>|<hostname>".
 type IPHostnameAttrs struct {
 	IP       string `json:"ip"`
 	Hostname string `json:"hostname"`
 	Source   string `json:"source"`
 }
 
-// IPHostnameObs is the observation, keyed "<ip>|<hostname>", that source saw ip
-// point back to hostname.
-func IPHostnameObs(ip, hostname, source string) store.Obs {
-	return IPHostname.Obs(ip+"|"+hostname, IPHostnameAttrs{IP: ip, Hostname: hostname, Source: source})
-}
+func ipHostnameFields(a *IPHostnameAttrs) []*string { return []*string{&a.IP, &a.Hostname} }
 
 // ProviderRangeAttrs: an address range a cloud or SaaS provider publishes.
 type ProviderRangeAttrs struct {
@@ -188,10 +213,13 @@ type URLAttrs struct {
 }
 
 // Ports.
-var OpenPort = define[OpenPortAttrs](Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true, Change: LabelOpenPort})
+var OpenPort = defineKeyed(Kind{Name: "open_port", Singular: "open port", Category: "open ports (confirmed)", Printed: true, PortKey: true, Change: LabelOpenPort},
+	func(a OpenPortAttrs) string { return portKey(a.IP, a.Port) },
+	func(key string, a *OpenPortAttrs) { rebuildPort(key, &a.IP, &a.Port) })
 
 // OpenPortAttrs: an open TCP port and the banner it sent unprompted, escaped
-// with strconv.Quote's rules and without the quotes.
+// with strconv.Quote's rules and without the quotes. A record's key is the
+// address and port (see ParsePortKey).
 type OpenPortAttrs struct {
 	IP     string `json:"ip"`
 	Port   int    `json:"port"`

@@ -96,11 +96,15 @@ compatible, renaming, removing or retyping one is a breaking change (README, "Ex
   and re-derives findings.
 
 **Record kinds** (`internal/kinds/table.go`) are typed handles. Stages write with
-`kinds.X.Obs(key, attrs)`, and readers decode with `kinds.X.Attrs(rec)`. The store merges the
+`kinds.X.Obs(key, attrs)`, and readers decode with `kinds.X.Attrs(rec)`. A kind whose key is
+made from its attributes (`resolution`, `third_party`, the port kinds and others) is a `Keyed`
+handle: it writes with `kinds.X.Obs(attrs)` and makes the key itself (`kinds.X.Key(attrs)`), and
+its `Attrs` fills in from the key what a record no longer current has lost. The store merges the
 attributes that several stages observed for one record, field by field. `omitempty` and pointer
 fields carry meaning (see the comment at the top of `table.go`). A kind's showing rules
 (counted, printed, written, used for findings) live with it, and visibility is decided at read
-time from the current scope.
+time from the current scope. An entity kind carries its own placement rule (in scope, candidate
+or excluded).
 
 **Derived on read, never stored by stages.** `scope` (classifies hosts and addresses as
 in-scope, candidate or excluded), `inventory` (wildcards, provider hosts, port eligibility) and

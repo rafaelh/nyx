@@ -511,7 +511,7 @@ func lookup(ctx context.Context, e egress.Clients, addr netip.Addr) ([]run.Obser
 		handle = start.String() + "-" + end.String()
 	}
 	st.found = append(st.found, span)
-	obs := []run.Observation{kinds.Registration.Obs(kinds.RegistrationKey(reg.name, handle), kinds.RegistrationAttrs{
+	obs := []run.Observation{kinds.Registration.Obs(kinds.RegistrationAttrs{
 		Start: start.String(), End: end.String(), Registrant: registrant, Registry: reg.name, Handle: handle, Asked: addr.String()})}
 	if registrant != "" {
 		obs = append(obs, kinds.Organisation.Obs(registrant))

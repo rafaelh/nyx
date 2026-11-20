@@ -161,8 +161,8 @@ func (o *dnsObs) record(sub, typ, value string) {
 	if target != "" && o.in.sc.HostInScope(target) {
 		o.hostname(target)
 	}
-	if key := name + "|" + typ + "|" + value; !o.seen[key] {
-		o.seen[key] = true
-		o.obs = append(o.obs, kinds.DNSClaim.Obs(key, kinds.DNSClaimAttrs{Name: name, Type: typ, Value: value, Source: "shodan"}))
+	if c := kinds.DNSClaim.Obs(kinds.DNSClaimAttrs{Name: name, Type: typ, Value: value, Source: "shodan"}); !o.seen[c.Key] {
+		o.seen[c.Key] = true
+		o.obs = append(o.obs, c)
 	}
 }

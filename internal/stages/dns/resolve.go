@@ -47,8 +47,7 @@ func (*Resolve) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		for _, l := range res.CNAMEs {
 			if !links[l] {
 				links[l] = true
-				obs = append(obs, kinds.Resolution.Obs(l.Name+"|CNAME|"+l.Target,
-					kinds.ResolutionAttrs{Name: l.Name, Type: "CNAME", Value: l.Target}))
+				obs = append(obs, kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: l.Name, Type: "CNAME", Value: l.Target}))
 			}
 		}
 	}
@@ -64,7 +63,7 @@ func (*Resolve) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 				typ = "A"
 			}
 			obs = append(obs,
-				kinds.Resolution.Obs(name+"|"+typ+"|"+addr.String(), kinds.ResolutionAttrs{Name: name, Type: typ, Value: addr.String()}),
+				kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: name, Type: typ, Value: addr.String()}),
 				kinds.IP.Obs(addr.String()))
 		}
 	}

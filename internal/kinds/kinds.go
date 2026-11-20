@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/store"
 )
 
@@ -23,11 +25,15 @@ import (
 type Kind struct {
 	Name string
 	// Singular and Category are the console label of one record ("web service")
-	// and the summary category ("web services").
+	// and the summary category ("web services"). An entity kind's Category is
+	// that of a record placed in scope, and is empty when such a record is an
+	// input, which is not counted.
 	Singular, Category string
-	// Entity kinds (hostname, root, netblock, excluded) are classified against
-	// the scope: their category is in-scope, candidate or excluded.
-	Entity bool
+	// place, set on the entity kinds, places a record against the scope by its
+	// key (see Visibility.Placement): in scope, as a candidate or as excluded,
+	// which decides its summary category. It is not placed (false) when it stays
+	// on record without being listed.
+	place func(sc *scope.Scope, inv *inventory.Inventory, key string) (scope.Class, bool)
 	// Printed kinds are printed as a line the first time they are seen in an engagement.
 	Printed bool
 	// HostAttr names the attribute holding the host of a web record. Such a
@@ -53,14 +59,19 @@ type Kind struct {
 	// Change is the label changes.csv lists a record of the kind under, and the
 	// kinds whose records share one output file row share one (a resolution and a
 	// claim with one key are one row of resolutions.csv). A kind with none, an
-	// evidence or internal kind, is not listed. An entity kind is listed under the
-	// label of its summary category instead (see Visibility.ChangeLabel).
+	// evidence or internal kind, is not listed. An entity kind's Change is the
+	// label of a record placed in scope; one placed as a candidate or as excluded
+	// is listed under that label instead (see Visibility.ChangeLabel).
 	Change string
 }
 
+// Entity reports whether records of the kind are placed against the scope
+// (in scope, as a candidate or as excluded) rather than shown or hidden.
+func (k Kind) Entity() bool { return k.place != nil }
+
 // scoped reports whether showing a record of k depends on the scope.
 func (k Kind) scoped() bool {
-	return k.Entity || k.HostAttr != "" || k.PortKey || k.HostKey || k.OutsideAttr != ""
+	return k.Entity() || k.HostAttr != "" || k.PortKey || k.HostKey || k.OutsideAttr != ""
 }
 
 // The changes.csv labels other packages read: those of the entity categories
@@ -118,6 +129,33 @@ func (k Of[A]) Attrs(r store.Record) A {
 	return a
 }
 
+// Keyed is the handle of a kind whose key is made from its attributes. An
+// observation is made from the attributes alone, so its key always agrees with
+// them, and Attrs rebuilds from a record's key the attributes the key carries.
+type Keyed[A any] struct {
+	Of[A]
+	key func(A) string
+	// rebuild fills in the empty fields of *a that key carries.
+	rebuild func(key string, a *A)
+}
+
+// Key is the key of a record with attributes a. Only the fields the key
+// carries need be set.
+func (k Keyed[A]) Key(a A) string { return k.key(a) }
+
+// Obs is the observation of a record with attributes a, under its Key.
+func (k Keyed[A]) Obs(a A) store.Obs { return k.Of.Obs(k.key(a), a) }
+
+// Attrs decodes a record's merged attributes as Of.Attrs does, and takes a
+// field the record lacks and its key carries from the key: the store keeps
+// attributes only from current observations, so a record that is no longer
+// current has only its key.
+func (k Keyed[A]) Attrs(r store.Record) A {
+	a := k.Of.Attrs(r)
+	k.rebuild(r.Key, &a)
+	return a
+}
+
 // Bare is the handle of a kind whose observations carry no attributes.
 type Bare struct{ ref }
 
@@ -141,6 +179,46 @@ func encode(a any) map[string]any {
 var table []Kind // sorted by name once the handles are defined
 
 func define[A any](k Kind) Of[A] { table = append(table, k); return Of[A]{ref{k}} }
+
+// defineKeyed defines a kind whose key is key(attributes), and whose
+// attributes rebuild fills in from a key, setting only the empty fields.
+func defineKeyed[A any](k Kind, key func(A) string, rebuild func(key string, a *A)) Keyed[A] {
+	table = append(table, k)
+	return Keyed[A]{Of: Of[A]{ref{k}}, key: key, rebuild: rebuild}
+}
+
+// defineJoined defines a kind whose key is the fields that fields selects,
+// joined with "|" in that order, and rebuilt from a key with fillFromKey.
+func defineJoined[A any](k Kind, fields func(*A) []*string) Keyed[A] {
+	return defineKeyed(k,
+		func(a A) string {
+			parts := fields(&a)
+			s := make([]string, len(parts))
+			for i, p := range parts {
+				s[i] = *p
+			}
+			return strings.Join(s, "|")
+		},
+		func(key string, a *A) { fillFromKey(key, fields(a)...) })
+}
+
+// fillFromKey sets each empty *dst to its part of a "|"-joined key, the last
+// taking the rest of the key (a TXT value may hold a bar). It sets nothing
+// when the key has too few parts, or when no *dst is empty.
+func fillFromKey(key string, dst ...*string) {
+	if !slices.ContainsFunc(dst, func(p *string) bool { return *p == "" }) {
+		return
+	}
+	parts := strings.SplitN(key, "|", len(dst))
+	if len(parts) != len(dst) {
+		return
+	}
+	for i, p := range dst {
+		if *p == "" {
+			*p = parts[i]
+		}
+	}
+}
 
 func defineBare(k Kind) Bare { table = append(table, k); return Bare{ref{k}} }
 

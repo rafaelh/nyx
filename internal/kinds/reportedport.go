@@ -12,7 +12,9 @@ import (
 // ReportedPort is a TCP service a third party (Shodan) says is open on an
 // address. It is shown like an open_port while its address is port-eligible,
 // but nothing that decides contact ever reads it.
-var ReportedPort = define[ReportedPortAttrs](Kind{Name: "reported_port", Singular: "reported port", Category: "open ports (third-party reported)", PortKey: true, ClosedHides: true, Change: "open port"})
+var ReportedPort = defineKeyed(Kind{Name: "reported_port", Singular: "reported port", Category: "open ports (third-party reported)", PortKey: true, ClosedHides: true, Change: "open port"},
+	func(a ReportedPortAttrs) string { return portKey(a.IP, a.Port) },
+	func(key string, a *ReportedPortAttrs) { rebuildPort(key, &a.IP, &a.Port) })
 
 // ReportedPortAttrs: the banner as cut and escaped by ShodanBanner, and the
 // date (YYYY-MM-DD) the third party last saw the service.
@@ -31,6 +33,28 @@ func ParsePortKey(key string) (netip.AddrPort, bool) {
 		return netip.AddrPort{}, false
 	}
 	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), true
+}
+
+// portKey is the key of a port on the address ip, as netip.AddrPort writes it
+// ("[<address>]:<port>" for IPv6), the form ParsePortKey reads.
+func portKey(ip string, port int) string {
+	if addr, err := netip.ParseAddr(ip); err == nil && port >= 0 && port <= 0xffff {
+		return netip.AddrPortFrom(addr, uint16(port)).String()
+	}
+	return ip + ":" + strconv.Itoa(port)
+}
+
+// rebuildPort sets an empty *ip and *port from a port key.
+func rebuildPort(key string, ip *string, port *int) {
+	if *ip != "" {
+		return
+	}
+	if ap, ok := ParsePortKey(key); ok {
+		*ip = ap.Addr().String()
+		if *port == 0 {
+			*port = int(ap.Port())
+		}
+	}
 }
 
 // EncodeBanner escapes a banner so it is lossless for binary greetings and

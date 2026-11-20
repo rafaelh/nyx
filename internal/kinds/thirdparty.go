@@ -12,10 +12,10 @@ import (
 // while its root is in scope and, when it names a domain, only while that
 // domain is not: a name server inside the scope is a host to examine, not a
 // third party.
-var ThirdParty = define[ThirdPartyAttrs](Kind{
+var ThirdParty = defineKeyed(Kind{
 	Name: "third_party", Singular: "third party", Category: "third parties", Printed: true,
 	HostAttr: "root", OutsideAttr: "domain", Found: thirdPartyFound, Change: "third party",
-})
+}, thirdPartyKey, rebuildThirdParty)
 
 // Mechanisms of a third party.
 const (
@@ -52,10 +52,37 @@ func (a ThirdPartyAttrs) Platform() string {
 	return a.Domain
 }
 
-// ThirdPartyKey is the key of a third-party record: "<root>|<mechanism>|<name>",
-// where the name is the domain, or the platform of a TXT verification.
-func ThirdPartyKey(root, mechanism, name string) string {
-	return root + "|" + mechanism + "|" + name
+// thirdPartyKey is the key of a third-party record: "<root>|<mechanism>|<name>",
+// where the name is the domain, or the platform (the provider) of a TXT verification.
+func thirdPartyKey(a ThirdPartyAttrs) string {
+	name := a.Domain
+	if a.Mechanism == MechanismTXTVerification {
+		name = a.Provider
+	}
+	return strings.Join([]string{a.Root, a.Mechanism, name}, "|")
+}
+
+// rebuildThirdParty fills in from the key what a record that is no longer
+// current has lost: the root, the mechanism and the name (the domain of a name
+// server, service target, mail or SaaS dependency, the platform of a
+// verification), and the provider of a domain when it is known. The depth is
+// not in the key, so it stays 0.
+func rebuildThirdParty(key string, a *ThirdPartyAttrs) {
+	var name string
+	fillFromKey(key, &a.Root, &a.Mechanism, &name)
+	switch a.Mechanism {
+	case MechanismTXTVerification:
+		if a.Provider == "" {
+			a.Provider = name
+		}
+	default:
+		if a.Domain == "" {
+			a.Domain = name
+		}
+		if a.Provider == "" {
+			a.Provider, _ = provider.Default().DomainOwner(a.Domain)
+		}
+	}
 }
 
 // ThirdPartyObs is the observation of a third party that root depends on
@@ -64,41 +91,7 @@ func ThirdPartyKey(root, mechanism, name string) string {
 // names no domain, is built with ThirdParty.Obs.
 func ThirdPartyObs(root, mechanism, domain string, depth int) store.Obs {
 	owner, _ := provider.Default().DomainOwner(domain)
-	return ThirdParty.Obs(ThirdPartyKey(root, mechanism, domain),
-		ThirdPartyAttrs{Root: root, Mechanism: mechanism, Domain: domain, Provider: owner, Depth: depth})
-}
-
-// ThirdPartyOf decodes a third party's attributes, filling in from its key what
-// a record that is no longer current has lost: the store keeps attributes only
-// from current observations, but the key says the root, the mechanism and the
-// name (the domain of a name server, service target, mail or SaaS dependency, the
-// platform of a verification). The depth is not in the key, so it shows 0.
-func ThirdPartyOf(r store.Record) ThirdPartyAttrs {
-	a := ThirdParty.Attrs(r)
-	parts := strings.SplitN(r.Key, "|", 3)
-	if len(parts) != 3 {
-		return a
-	}
-	if a.Root == "" {
-		a.Root = parts[0]
-	}
-	if a.Mechanism == "" {
-		a.Mechanism = parts[1]
-	}
-	switch a.Mechanism {
-	case MechanismTXTVerification:
-		if a.Provider == "" {
-			a.Provider = parts[2]
-		}
-	default:
-		if a.Domain == "" {
-			a.Domain = parts[2]
-		}
-		if a.Provider == "" {
-			a.Provider, _ = provider.Default().DomainOwner(a.Domain)
-		}
-	}
-	return a
+	return ThirdParty.Obs(ThirdPartyAttrs{Root: root, Mechanism: mechanism, Domain: domain, Provider: owner, Depth: depth})
 }
 
 func thirdPartyFound(r store.Record) map[string]any {

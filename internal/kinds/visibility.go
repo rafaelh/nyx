@@ -1,7 +1,6 @@
 package kinds
 
 import (
-	"net/netip"
 	"net/url"
 	"sync"
 
@@ -22,9 +21,8 @@ import (
 //   - a record with an OutsideAttr is shown only while the domain it names is
 //     not in scope, on top of any other rule;
 //   - an entity record is never hidden: it is placed in scope, as a candidate
-//     or as excluded, which decides its summary category (see Placement). An
-//     asn is a candidate unless it is an input, and an organisation is placed
-//     as one only while Inventory.RegistrantCandidate holds;
+//     or as excluded by its kind's own rule, which decides its summary category
+//     (see Placement);
 //   - a record of any other kind is always shown.
 //
 // The summary counts, the found lines, the files and the findings all ask the
@@ -49,7 +47,7 @@ func (v *Visibility) Shown(kind Named, r store.Record) bool { return v.shown(kin
 
 func (v *Visibility) shown(k Kind, r store.Record) bool {
 	switch {
-	case k.Entity:
+	case k.Entity():
 		return true
 	case v == nil:
 		return !k.scoped()
@@ -115,8 +113,9 @@ func (v *Visibility) Printed(kind string, r store.Record) bool {
 		return false
 	case v == nil:
 		return !k.scoped()
-	case k.Entity:
-		return v.sc.HostInScope(r.Key)
+	case k.Entity():
+		class, placed := v.placement(k, r)
+		return placed && class == scope.InScope
 	}
 	return v.shown(k, r)
 }
@@ -131,7 +130,7 @@ func (v *Visibility) Category(kind Named, r store.Record) string {
 }
 
 func (v *Visibility) category(k Kind, r store.Record) string {
-	if !k.Entity {
+	if !k.Entity() {
 		if !v.shown(k, r) {
 			return ""
 		}
@@ -145,64 +144,39 @@ func (v *Visibility) category(k Kind, r store.Record) string {
 		return Candidates
 	case class == scope.Excluded:
 		return Excluded
-	case k.Name == "hostname":
-		return Hosts
-	case k.Name == "netblock":
-		return Netblocks
 	}
-	return "" // an in-scope root, asn or organisation is an input
+	return k.Category // "" for an input
 }
 
-// Placement is where a record of an entity kind sits against the scope, the
-// decision behind its summary category, so a candidate is placed as one
-// exactly when candidates.csv lists it. It is not placed (false) when it stays
-// on record without being listed: an organisation that neither matches an --org
-// input nor meets the candidate rule, or a netblock whose key is not a CIDR. A
-// record of any other kind is shown or hidden instead (see Shown). The
-// Visibility must not be nil.
+// Placement is where a record of an entity kind sits against the scope, by its
+// kind's own rule, the decision behind its summary category, so a candidate is
+// placed as one exactly when candidates.csv lists it. It is not placed (false)
+// when it stays on record without being listed: an organisation that neither
+// matches an --org input nor meets the candidate rule, or a netblock whose key
+// is not a CIDR. A record of any other kind is not placed either: it is shown
+// or hidden instead (see Shown). The Visibility must not be nil.
 func (v *Visibility) Placement(kind Named, r store.Record) (scope.Class, bool) {
 	return v.placement(kind.kind(), r)
 }
 
 func (v *Visibility) placement(k Kind, r store.Record) (scope.Class, bool) {
-	switch k.Name {
-	case "hostname", "root":
-		return v.sc.ClassifyHost(r.Key).Class, true
-	case "netblock":
-		if _, err := netip.ParsePrefix(r.Key); err != nil {
-			return 0, false
-		}
-		if v.sc.HasNetblock(r.Key) {
-			return scope.InScope, true
-		}
-		return scope.Candidate, true
-	case "asn":
-		if v.sc.HasASN(r.Key) {
-			return scope.InScope, true
-		}
-		return scope.Candidate, true
-	case "organisation":
-		switch {
-		case v.sc.MatchesOrg(r.Key):
-			return scope.InScope, true
-		case v.inv.RegistrantCandidate(v.sc, r.Key):
-			return scope.Candidate, true
-		}
+	if k.place == nil {
 		return 0, false
 	}
-	return scope.Excluded, true // an address or name that triggered an exclusion
+	return k.place(v.sc, v.inv, r.Key)
 }
 
 // ChangeLabel is the label a record is listed under in changes.csv, or "" if it
-// is not listed, and its scope column there. The label is the kind's Change, and
-// for an entity kind the label of the category it is counted under (a hostname
-// that is excluded is listed as excluded, a root that is in scope not at all),
-// which also fixes its placement. Another kind's scope is in-scope when showing
-// it depends on the scope, and blank otherwise. It says nothing of whether the
-// record is shown; Shown, or a current entity's category, decides that.
+// is not listed, and its scope column there. The label is the kind's Change,
+// and for an entity kind that of its placement: a candidate is listed as a
+// candidate and an excluded record as excluded, whatever their kind, and one
+// placed in scope under its kind's Change (a root that is in scope, an input,
+// not at all). Another kind's scope is in-scope when showing it depends on the
+// scope, and blank otherwise. It says nothing of whether the record is shown;
+// Shown, or a current entity's category, decides that.
 func (v *Visibility) ChangeLabel(kind Named, r store.Record) (label, place string) {
 	k := kind.kind()
-	if !k.Entity {
+	if !k.Entity() {
 		if k.Change != "" && k.scoped() {
 			return k.Change, scope.InScope.String()
 		}
@@ -211,17 +185,18 @@ func (v *Visibility) ChangeLabel(kind Named, r store.Record) (label, place strin
 	if v == nil {
 		return "", ""
 	}
-	switch v.category(k, r) {
-	case Hosts:
-		return LabelHostname, scope.InScope.String()
-	case Candidates:
+	class, placed := v.placement(k, r)
+	switch {
+	case !placed:
+		return "", ""
+	case class == scope.Candidate:
 		return LabelCandidate, scope.Candidate.String()
-	case Excluded:
+	case class == scope.Excluded:
 		return LabelExcluded, scope.Excluded.String()
-	case Netblocks:
-		return LabelNetblock, scope.InScope.String()
+	case k.Change == "":
+		return "", ""
 	}
-	return "", ""
+	return k.Change, scope.InScope.String()
 }
 
 // Totals counts the current records by summary category. Hosts and the
@@ -238,10 +213,10 @@ func (v *Visibility) Totals(recs map[string][]store.Record) map[string]int {
 		return ok && confirmed[ap]
 	}
 	for _, k := range table {
-		if k.Category == "" {
-			continue
-		}
-		if !k.Entity {
+		if !k.Entity() {
+			if k.Category == "" {
+				continue
+			}
 			totals[k.Category] += 0
 		}
 		if v == nil {

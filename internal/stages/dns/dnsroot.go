@@ -113,8 +113,7 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		if (in.t.name == "NS" || in.t.name == "SOA") && a.Name != in.root {
 			continue
 		}
-		obs = append(obs, kinds.Resolution.Obs(in.root+"|"+in.t.name+"|"+a.Value,
-			kinds.ResolutionAttrs{Name: in.root, Type: in.t.name, Value: a.Value}))
+		obs = append(obs, kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: in.root, Type: in.t.name, Value: a.Value}))
 		switch in.t.name {
 		case "NS":
 			servers = append(servers, a.Value)
@@ -124,7 +123,7 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 			obs = append(obs, dependency(in, "", primary)...) // an SOA primary outside the scope adds nothing
 		case "TXT":
 			if platform, ok := provider.Default().Verification(a.Value); ok {
-				obs = append(obs, kinds.ThirdParty.Obs(kinds.ThirdPartyKey(in.root, kinds.MechanismTXTVerification, platform),
+				obs = append(obs, kinds.ThirdParty.Obs(
 					kinds.ThirdPartyAttrs{Root: in.root, Mechanism: kinds.MechanismTXTVerification, Provider: platform}))
 			}
 		}
@@ -181,8 +180,7 @@ func runSRV(ctx context.Context, in rootInput, e egress.Clients) ([]run.Observat
 			}
 			// The name is a service name, not a hostname: only A, AAAA and CNAME
 			// rows reach the inventory, so it is never resolved or tested as a wildcard zone.
-			obs = append(obs, kinds.Resolution.Obs(name+"|SRV|"+a.Value,
-				kinds.ResolutionAttrs{Name: name, Type: "SRV", Value: a.Value}))
+			obs = append(obs, kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: name, Type: "SRV", Value: a.Value}))
 			obs = append(obs, dependency(in, kinds.MechanismSRV, target)...)
 		}
 	}

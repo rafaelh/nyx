@@ -14,7 +14,7 @@ func thirdPartyRows(s Snapshot) []Row {
 	var rows []Row
 	vis := s.vis()
 	for _, r := range s.of(kinds.ThirdParty) {
-		a := kinds.ThirdPartyOf(r)
+		a := kinds.ThirdParty.Attrs(r)
 		// A record no longer current keeps no attributes, so the showing rule is
 		// asked with the root and domain its key gives back: a name server whose
 		// domain a later root brings into scope is hidden either way.

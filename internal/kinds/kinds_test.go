@@ -20,7 +20,7 @@ func TestDiscoveryKinds(t *testing.T) {
 			t.Errorf("kind %s not registered", name)
 			continue
 		}
-		if k.Category != category || k.Printed || k.Entity {
+		if k.Category != category || k.Printed || k.Entity() {
 			t.Errorf("%s = %+v, want category %q, not printed, not an entity", name, k, category)
 		}
 	}

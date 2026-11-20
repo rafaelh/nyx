@@ -58,7 +58,7 @@ func (*RDNS) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 		obs = append(obs,
 			kinds.Hostname.Obs(host, kinds.HostnameAttrs{}),
 			kinds.IP.Obs(addr.String()),
-			kinds.IPHostnameObs(addr.String(), host, "rdns"))
+			kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: addr.String(), Hostname: host, Source: "rdns"}))
 	}
 	return obs, nil
 }

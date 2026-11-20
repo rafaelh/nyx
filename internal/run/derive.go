@@ -121,7 +121,7 @@ func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
 	all := r.gatherCandidates(in)
 	var obs []store.Obs
 	for _, c := range all {
-		key := kinds.CandidateRankKey(c.typ, c.value)
+		key := kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: c.typ, Value: c.value})
 		attrs, ok := last[key]
 		// A current candidate with no evidence of its own is observed only by
 		// checks a redo has forgotten and that have not run again (evidence
@@ -136,7 +136,7 @@ func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
 			continue // never ranked, and there is nothing to keep
 		}
 		attrs.Current = c.current
-		obs = append(obs, kinds.CandidateRank.Obs(key, attrs))
+		obs = append(obs, kinds.CandidateRank.Obs(attrs))
 	}
 	return obs
 }

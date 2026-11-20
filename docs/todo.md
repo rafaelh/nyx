@@ -39,11 +39,6 @@ Confirm each with `/code-review` before fixing.
 
 ## Design changes
 
-- **Kinds own their placement and keys.** Kinds classified against the scope decide their
-  placement and category by switching on kind names in `kinds/visibility.go`; make placement a
-  property of each kind. Give each record kind its own key decoder, and let a kind declare how to
-  rebuild its attributes from its key.
-
 - **One table per findings category.** Key format, key parsing, found text and how the finding is
   announced, all held by the finding kind. Replaces the `foundFields` special case with a
   `Kind.Found`, and moves the finding kind's found line inside the Found hook. The stored key

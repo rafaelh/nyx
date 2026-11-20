@@ -7,7 +7,8 @@ package kinds
 // the crawl fetched is the store's ordinary merge: each stage observes what it
 // saw, and an identifier stays current while either still sees it. A record is
 // shown while its host is in scope.
-var WebIdentifier = define[WebIdentifierAttrs](Kind{Name: "web_identifier", HostAttr: "host"})
+var WebIdentifier = defineJoined(Kind{Name: "web_identifier", HostAttr: "host"},
+	func(a *WebIdentifierAttrs) []*string { return []*string{&a.Service, &a.Type, &a.Value} })
 
 // The types of web identifier.
 const (

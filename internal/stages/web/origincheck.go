@@ -69,7 +69,7 @@ func (*OriginCheck) Run(ctx context.Context, c run.Check, e egress.Clients) ([]r
 			if len(r.PeerCerts) > 0 {
 				a.CertNamesHost = r.PeerCerts[0].VerifyHostname(p.Host) == nil
 			}
-			return []run.Observation{kinds.OriginCheck.Obs(p.Key(), a)}, nil
+			return []run.Observation{kinds.OriginCheck.Obs(a)}, nil
 		case egress.NoService:
 			if scheme == "https" && r.Reason != egress.NoServiceTLSFailed {
 				continue

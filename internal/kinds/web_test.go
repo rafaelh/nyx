@@ -27,7 +27,7 @@ func TestWebKinds(t *testing.T) {
 	if !ok {
 		t.Fatal("http_port is not registered")
 	}
-	if k.Category != "" || k.Printed || k.Entity {
+	if k.Category != "" || k.Printed || k.Entity() {
 		t.Errorf("http_port = %+v, want an internal kind with no category", k)
 	}
 	if k, _ := kinds.Get("open_port"); k.HostAttr != "" {
@@ -43,11 +43,14 @@ func TestWebIdentifierKind(t *testing.T) {
 	if !ok {
 		t.Fatal("web_identifier is not registered")
 	}
-	if k.HostAttr != "host" || k.Printed || k.Entity {
+	if k.HostAttr != "host" || k.Printed || k.Entity() {
 		t.Errorf("web_identifier = %+v, want an internal kind shown by its host", k)
 	}
-	o := kinds.WebIdentifier.Obs("http://a.example.com|favicon|1", kinds.WebIdentifierAttrs{
+	o := kinds.WebIdentifier.Obs(kinds.WebIdentifierAttrs{
 		Service: "http://a.example.com", Host: "a.example.com", Type: kinds.IdentifierFavicon, Value: "1"})
+	if o.Key != "http://a.example.com|favicon|1" {
+		t.Errorf("key = %q", o.Key)
+	}
 	a := kinds.WebIdentifier.Attrs(store.Record{Kind: o.Kind, Key: o.Key, Attrs: o.Attrs})
 	if a.Type != "favicon" || a.Value != "1" || a.Host != "a.example.com" {
 		t.Errorf("attrs = %+v", a)
