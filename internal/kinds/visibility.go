@@ -21,10 +21,10 @@ import (
 //   - a record keyed by a hostname (HostKey) is shown while that name is in scope;
 //   - a record with an OutsideAttr is shown only while the domain it names is
 //     not in scope, on top of any other rule;
-//   - an entity record is never hidden: it is classified as in scope, a
-//     candidate or excluded, which decides its summary category. An asn is a
-//     candidate unless it is an input, and an organisation is counted as one
-//     only while Inventory.RegistrantCandidate holds;
+//   - an entity record is never hidden: it is placed in scope, as a candidate
+//     or as excluded, which decides its summary category (see Placement). An
+//     asn is a candidate unless it is an input, and an organisation is placed
+//     as one only while Inventory.RegistrantCandidate holds;
 //   - a record of any other kind is always shown.
 //
 // The summary counts, the found lines, the files and the findings all ask the
@@ -137,69 +137,60 @@ func (v *Visibility) category(k Kind, r store.Record) string {
 		}
 		return k.Category
 	}
-	switch k.Name {
-	case "hostname", "root":
-		switch v.placement(k, r) {
-		case scope.InScope:
-			if k.Name == "hostname" {
-				return Hosts
-			}
-			return ""
-		case scope.Candidate:
-			return Candidates
-		default:
-			return Excluded
-		}
-	case "netblock":
-		if _, err := netip.ParsePrefix(r.Key); err != nil {
-			return ""
-		}
-		if v.placement(k, r) == scope.InScope {
-			return Netblocks
-		}
-		return Candidates
-	case "asn":
-		if v.sc.HasASN(r.Key) {
-			return ""
-		}
-		return Candidates
-	case "organisation":
-		if v.inv.RegistrantCandidate(v.sc, r.Key) {
-			return Candidates
-		}
+	class, placed := v.placement(k, r)
+	switch {
+	case !placed:
 		return ""
+	case class == scope.Candidate:
+		return Candidates
+	case class == scope.Excluded:
+		return Excluded
+	case k.Name == "hostname":
+		return Hosts
+	case k.Name == "netblock":
+		return Netblocks
 	}
-	return k.Category
+	return "" // an in-scope root, asn or organisation is an input
 }
 
 // Placement is where a record of an entity kind sits against the scope, the
-// decision behind its summary category. A record of any other kind is shown or
-// hidden instead (see Shown). The Visibility must not be nil.
-func (v *Visibility) Placement(kind Named, r store.Record) scope.Class {
+// decision behind its summary category, so a candidate is placed as one
+// exactly when candidates.csv lists it. It is not placed (false) when it stays
+// on record without being listed: an organisation that neither matches an --org
+// input nor meets the candidate rule, or a netblock whose key is not a CIDR. A
+// record of any other kind is shown or hidden instead (see Shown). The
+// Visibility must not be nil.
+func (v *Visibility) Placement(kind Named, r store.Record) (scope.Class, bool) {
 	return v.placement(kind.kind(), r)
 }
 
-func (v *Visibility) placement(k Kind, r store.Record) scope.Class {
+func (v *Visibility) placement(k Kind, r store.Record) (scope.Class, bool) {
 	switch k.Name {
 	case "hostname", "root":
-		return v.sc.ClassifyHost(r.Key).Class
+		return v.sc.ClassifyHost(r.Key).Class, true
 	case "netblock":
-		if v.sc.HasNetblock(r.Key) {
-			return scope.InScope
+		if _, err := netip.ParsePrefix(r.Key); err != nil {
+			return 0, false
 		}
-		return scope.Candidate
+		if v.sc.HasNetblock(r.Key) {
+			return scope.InScope, true
+		}
+		return scope.Candidate, true
 	case "asn":
 		if v.sc.HasASN(r.Key) {
-			return scope.InScope
+			return scope.InScope, true
 		}
-		return scope.Candidate
+		return scope.Candidate, true
 	case "organisation":
-		if v.sc.MatchesOrg(r.Key) {
-			return scope.InScope
+		switch {
+		case v.sc.MatchesOrg(r.Key):
+			return scope.InScope, true
+		case v.inv.RegistrantCandidate(v.sc, r.Key):
+			return scope.Candidate, true
 		}
-		return scope.Candidate
+		return 0, false
 	}
-	return scope.Excluded // an address or name that triggered an exclusion
+	return scope.Excluded, true // an address or name that triggered an exclusion
 }
 
 // ChangeLabel is the label a record is listed under in changes.csv, or "" if it

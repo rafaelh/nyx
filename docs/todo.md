@@ -39,10 +39,6 @@ them as pure refactors.
 
 Confirm each with `/code-review` before fixing.
 
-- **Organisation placement versus category.** Placement and category use different rules for
-  organisations, so `nyx recon export` can report an organisation as a candidate that
-  `candidates.csv` doesn't list. The kind placement redesign below would remove the cause.
-
 - **Blank row in `resolutions.csv`.** A DNS claim that is no longer current writes a blank row.
 
 - **Stale records skip the showing rule.** Historical addresses and code mentions that are no

@@ -1162,9 +1162,12 @@ nyx recon export -e acme --current --kind hostname --kind web_service --output h
   then one line for each record of the engagement, current or not, in kind order and then key order.
   A record line has `kind`, `key`, `attrs`, `current`, `first_seen`, `last_seen` and `stages`, the
   stages that observe it now (none when it is not current), and then either `scope` or `shown`.
-  `scope` is `in-scope`, `candidate` or `excluded`, for hostnames, roots, netblocks and excluded
-  items. `shown` is `true` or `false` for every other kind, as the files and summary decide it:
-  whether the record is shown for the engagement's scope. Both are worked out when you export,
+  `scope` is `in-scope`, `candidate` or `excluded`, for hostnames, roots, netblocks, autonomous
+  systems, organisations and excluded items, and is `candidate` exactly when `candidates.csv` lists
+  the record. An organisation that matches no `--org` input and is not an organisation candidate
+  is listed in no file, so it has `shown` `false` instead. `shown` is `true` or `false` for every
+  other kind, as the files and summary decide it: whether the record is shown for the engagement's
+  scope. Both are worked out when you export,
   from the engagement's inputs and your current configuration, the same way a run does, so an
   exclusion added since a record was found is reflected.
 - **Attributes.** `attrs` are the record's attributes merged from the stages that observe it, later

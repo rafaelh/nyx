@@ -271,10 +271,11 @@ func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility
 		if l.Stages == nil {
 			l.Stages = []string{}
 		}
-		if k.Entity {
-			l.Scope = vis.Placement(h, rec).String()
+		if class, placed := vis.Placement(h, rec); k.Entity && placed {
+			l.Scope = class.String()
 		} else {
-			shown := vis.Shown(h, rec)
+			// An entity on record but listed in no file is not shown.
+			shown := !k.Entity && vis.Shown(h, rec)
 			l.Shown = &shown
 		}
 		if err := x.enc.Encode(l); err != nil { // Encode ends the line

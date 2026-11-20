@@ -204,3 +204,40 @@ func TestVisibility_ASNAndOrganisation(t *testing.T) {
 		t.Errorf("an organisation named by an --org input is counted as %q", got)
 	}
 }
+
+// An entity is placed as a candidate exactly when it is counted as one, so the
+// export never reports a candidate that candidates.csv leaves out; one that
+// stays on record without being listed is not placed.
+func TestPlacement_AgreesWithCategory(t *testing.T) {
+	t.Parallel()
+	regs := []inventory.Registration{}
+	for i, n := range []string{"203.0.113.0", "203.0.114.0", "203.0.115.0"} {
+		regs = append(regs, inventory.Registration{Key: string(rune('a' + i)), Start: netip.MustParseAddr(n), End: netip.MustParseAddr(n).Next(), Registrant: "Globex Holdings Ltd", Registry: "arin"})
+	}
+	regs = append(regs, inventory.Registration{Key: "d", Start: netip.MustParseAddr("192.0.2.0"), End: netip.MustParseAddr("192.0.2.255"), Registrant: "Initech", Registry: "arin"})
+	inv := inventory.New(inventory.Data{Registrations: regs}, provider.Default())
+	v := kinds.NewVisibility(scope.New(scope.Config{Orgs: []string{"Acme"}}), inv)
+	for _, c := range []struct {
+		kind   kinds.Named
+		key    string
+		placed bool
+		class  scope.Class
+		cat    string
+	}{
+		{kinds.Organisation, "Globex Holdings Ltd", true, scope.Candidate, kinds.Candidates},
+		{kinds.Organisation, "Initech", false, 0, ""}, // one netblock: below the candidate rule
+		{kinds.Organisation, "Other Co", false, 0, ""},
+		{kinds.Organisation, "Acme Pty Ltd", true, scope.InScope, ""},
+		{kinds.Netblock, "not a cidr", false, 0, ""},
+		{kinds.Netblock, "192.0.2.0/24", true, scope.Candidate, kinds.Candidates},
+		{kinds.ASN, "AS64501", true, scope.Candidate, kinds.Candidates},
+	} {
+		class, placed := v.Placement(c.kind, rec(c.key))
+		if placed != c.placed || placed && class != c.class {
+			t.Errorf("Placement(%s %s) = %v, %v, want %v, %v", c.kind.Name(), c.key, class, placed, c.class, c.placed)
+		}
+		if got := v.Category(c.kind, rec(c.key)); got != c.cat {
+			t.Errorf("Category(%s %s) = %q, want %q", c.kind.Name(), c.key, got, c.cat)
+		}
+	}
+}
