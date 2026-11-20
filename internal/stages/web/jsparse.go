@@ -226,7 +226,7 @@ func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string) 
 			}
 			visited[target] = true
 			if req, err = egress.Redirect(r); err != nil {
-				return egress.Response{}, false, nil
+				return egress.Response{}, false, nil //nolint:nilerr // a redirect that cannot be followed means there is no script to parse
 			}
 		default: // refused
 			return egress.Response{}, false, nil

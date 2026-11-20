@@ -305,7 +305,7 @@ func withNetworks(ctx context.Context, e egress.Clients, in orgInput, ent entity
 		return ent, false, err
 	}
 	if json.Unmarshal(raw, &ent) != nil {
-		return ent, false, nil
+		return ent, false, nil //nolint:nilerr // an unreadable entity record is not found, like a 404, so the lookup completes without its networks
 	}
 	return ent, true, nil
 }
@@ -494,7 +494,7 @@ func lookup(ctx context.Context, e egress.Clients, addr netip.Addr) ([]run.Obser
 	span := inventory.Registration{Start: start, End: end}
 	if e1 != nil || e2 != nil || start.Is4() != end.Is4() || !span.Contains(addr.Unmap()) {
 		run.Warnf(ctx, "rdap: %s (%s) gave no address range for %s", reg.name, reg.host, addr)
-		return nil, nil
+		return nil, nil //nolint:nilerr // a range that cannot be used is warned about and records no registration
 	}
 	registrant := ""
 	for _, ent := range ans.Entities {
@@ -562,7 +562,7 @@ func follow(ctx context.Context, e egress.Clients, addr netip.Addr, u string) ([
 		next, err := parsed.Parse(loc)
 		if err != nil || loc == "" || next.Scheme != "https" {
 			run.Warnf(ctx, "rdap: %s referred the lookup of %s to %q, which cannot be followed; no registration is recorded", reg.host, addr, loc)
-			return nil, reg, nil
+			return nil, reg, nil //nolint:nilerr // a referral that cannot be followed is warned about and records no registration
 		}
 		u = next.String()
 	}

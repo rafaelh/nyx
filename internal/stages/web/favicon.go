@@ -136,7 +136,7 @@ func fetchFavicon(ctx context.Context, chain []*hop, e egress.Clients) (string, 
 		}
 		if isRedirect(r.Status) && r.Location != "" && !redirected {
 			if req, err = egress.Link(r, r.Location); err != nil { // another host
-				return "", nil
+				return "", nil //nolint:nilerr // a redirect to another host is not followed, so there is no favicon to fetch
 			}
 			continue
 		}

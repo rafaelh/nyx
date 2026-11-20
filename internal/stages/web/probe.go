@@ -291,7 +291,7 @@ func followRedirects(ctx context.Context, in probeInput, first egress.Response, 
 		last = next
 		chain = append(chain, newHop(next))
 	}
-	return chain, nil
+	return chain, nil //nolint:nilerr // a redirect that cannot be followed ends the chain, which is a result, not a failure
 }
 
 // recordHop records the URL a redirect from last points to, the hostname it

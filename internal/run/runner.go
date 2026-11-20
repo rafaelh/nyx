@@ -516,7 +516,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 		return false, nil
 	}
 	if r.abortErr(name) != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // an aborted stage sits out the rest of the run; its checks are retried next run
 	}
 	sr, err := r.newStageRun(ctx, s)
 	if err != nil {
@@ -524,7 +524,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	}
 	sr.execute()
 	if ctx.Err() != nil {
-		return sr.attempted.Load() > 0, nil
+		return sr.attempted.Load() > 0, nil //nolint:nilerr // pass sees the cancelled context and reports the interruption
 	}
 	if n := sr.aborted.Load(); n > 0 {
 		r.warn("%s: quota spent or key rejected; %d checks will be retried next run", name, n)

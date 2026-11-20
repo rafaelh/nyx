@@ -30,11 +30,6 @@
   `scope/scope.go`, `stages/ports/ports.go` and `stages/web/favicon.go`, and the deliberate
   `InsecureSkipVerify` in `egress/tls.go`, which needs a `//nolint:gosec` that says why.
 
-- `nilerr`: 9 issues. Most are deliberate: a negative result is a completed check with a nil
-  error, as when a redirect can't be followed in `stages/web/crawl.go`. Enabling it means a
-  `//nolint:nilerr` with a reason on each, which documents the intent; also check `run/runner.go`,
-  `stages/rdap/rdap.go`, `stages/web/{favicon,jsparse,probe}.go`.
-
 # Refactoring opportunities
 
 Each item is one piece of work. Several output-side items (the showing rule, the "excluded"

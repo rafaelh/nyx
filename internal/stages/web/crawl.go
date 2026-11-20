@@ -190,7 +190,7 @@ func (c *crawler) fetchPage(req egress.Request, page string) (resp egress.Respon
 		}
 		c.visited[target] = true
 		if req, err = egress.Redirect(r); err != nil {
-			return resp, true, nil
+			return resp, true, nil //nolint:nilerr // a redirect that cannot be followed ends the crawl of this page, which is a result, not a failure
 		}
 		page = target
 	}
