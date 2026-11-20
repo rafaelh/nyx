@@ -105,8 +105,20 @@ var lists = [...]list{
 
 // fieldIndex is the position of the field name in the table, or -1.
 func fieldIndex(name string) int {
-	return slices.IndexFunc(fields, func(x field) bool { return x.name == name })
+	if i, ok := fieldPos[name]; ok {
+		return i
+	}
+	return -1
 }
+
+// fieldPos is each field's position in the table, by name.
+var fieldPos = func() map[string]int {
+	m := make(map[string]int, len(fields))
+	for i, f := range fields {
+		m[f.name] = i
+	}
+	return m
+}()
 
 func (f Fields) set(name string, on bool) {
 	if i := fieldIndex(name); i >= 0 {

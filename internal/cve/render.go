@@ -165,10 +165,10 @@ func (r renderer) record(p Projected) string {
 		section("Weaknesses", bullets(ws, "No weaknesses listed.", r.width)...)
 	}
 	plain := func(s string) []string { return []string{s} }
-	if b, ok := p.listBody(productsList, len(rec.AffectedProducts)); ok {
+	if b, ok := p.listBody(productsList); ok {
 		section(b.heading, b.lines(func() []string { return bullets(shortForms(rec.AffectedProducts), "", r.width) }, plain)...)
 	}
-	if b, ok := p.listBody(referencesList, len(rec.References)); ok {
+	if b, ok := p.listBody(referencesList); ok {
 		section(b.heading, b.lines(func() []string { return r.references(rec.References) }, plain)...)
 	}
 	return strings.Join(lines, "\n")
@@ -198,9 +198,9 @@ func (b listBody) lines(entries func() []string, text func(string) []string) []s
 }
 
 // listBody is the section of the list at i in lists: its entries under a heading
-// with their number when the list is shown (n of them, after the cut), else its
-// count alone as the body. It reports false when neither is selected.
-func (p Projected) listBody(i, n int) (listBody, bool) {
+// with their number when the list is shown, else its count alone as the body. It
+// reports false when neither is selected.
+func (p Projected) listBody(i int) (listBody, bool) {
 	l, c := lists[i], p.counts[i]
 	listed := strconv.Itoa(c.Total)
 	matching := fmt.Sprintf("%d of %d match", c.entries(), c.Total)
@@ -212,7 +212,7 @@ func (p Projected) listBody(i, n int) (listBody, bool) {
 			b.heading = l.title + " (" + matching + ")"
 		}
 		switch {
-		case n > 0:
+		case c.entries() > 0: // a limit is at least 1, so some are shown
 		case c.Total > 0:
 			b.text = "No " + l.noun + " match."
 		default:
@@ -276,9 +276,6 @@ func (r renderer) cvss(rec Record, has func(string) bool) []string {
 
 // references is the References section's body: each URL, with the NVD's tags for it.
 func (r renderer) references(refs []Reference) []string {
-	if len(refs) == 0 {
-		return []string{"No references listed."}
-	}
 	lines := make([]string, len(refs))
 	for i, ref := range refs {
 		line := r.d.Text(palette.Semantic, "info", clean(ref.URL))
@@ -456,10 +453,10 @@ func (r termRenderer) record(p Projected) string {
 		}
 		section("Weaknesses", r.bullets(ws, "No weaknesses listed."))
 	}
-	if b, ok := p.listBody(productsList, len(rec.AffectedProducts)); ok {
+	if b, ok := p.listBody(productsList); ok {
 		section(b.heading, b.lines(func() []string { return r.bullets(shortForms(rec.AffectedProducts), "") }, r.text))
 	}
-	if b, ok := p.listBody(referencesList, len(rec.References)); ok {
+	if b, ok := p.listBody(referencesList); ok {
 		section(b.heading, b.lines(func() []string { return r.references(rec.References) }, r.text))
 	}
 	return strings.Join(lines, "\n")
@@ -540,9 +537,6 @@ func (r termRenderer) cvss(rec Record, has func(string) bool) []string {
 // references are each URL, whole, in the info colour, then the NVD's tags for it
 // as a list in the timestamp colour that wraps at spaces, under the URL's text at 4.
 func (r termRenderer) references(refs []Reference) []string {
-	if len(refs) == 0 {
-		return r.text("No references listed.")
-	}
 	d := r.s.Depth
 	info := func(x string) string { return d.Text(palette.Semantic, "info", x) }
 	chrome := func(x string) string { return d.Text(palette.Chrome, "TIMESTAMP", x) }

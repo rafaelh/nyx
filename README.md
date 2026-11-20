@@ -1284,7 +1284,7 @@ nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --jso
   | `description` | The first English description, trimmed, else the first in any language |
   | `cvss_version`, `cvss_score`, `cvss_severity`, `cvss_vector`, `cvss_source` | One CVSS score: the highest version present (4.0, 3.1, 3.0, then 2.0), and within it the NVD's own (`Primary`) score over anyone else's. The severity is upper case |
   | `weaknesses` | The English CWE values, de-duplicated in order (`NVD-CWE-Other` and `NVD-CWE-noinfo` are kept) |
-  | `affected_products_count`, `references_count` | How many entries the list after it has, as an object: `{"total":n}`, with `"matched":m` added under `--match` and `"omitted":k` under `--limit` (see below). Every value is a number, and which keys there are depends on the flags, never on the data |
+  | `affected_products_count`, `references_count` | How many entries the list after it has, as an object: `{"total":n}`, with `"matched":m` added under `--match` and `"omitted":k` under `--limit` when its list is shown too (see below). Every value is a number, and which keys there are depends on the flags, never on the data |
   | `affected_products` | Each vulnerable CPE match, once: `cpe`, `vendor`, `product`, `version` (from the CPE, unescaped, `null` for `*` or `-`) and the four `version_start_*`/`version_end_*` bounds |
   | `references` | Each reference's `url` and `tags` |
 
