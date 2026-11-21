@@ -38,6 +38,10 @@ linters:
       min-complexity: 30
     exhaustive:
       default-signifies-exhaustive: true
+    govet:
+      # Opt-in analyzers beyond go vet's defaults: nil checks that can't fail or can't pass, and
+      # writes to struct fields that are never read (often a write to a copy).
+      enable: [nilness, unusedwrite]
     forbidigo:
       analyze-types: true
       forbid:
