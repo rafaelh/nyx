@@ -34,12 +34,6 @@ func (*Storage) Sources() []string {
 }
 func (*Storage) Configured(run.Env) (bool, string) { return true, "" }
 
-// CandidateExemptSources: a redirect from an in-scope page may have recorded any
-// of the provider endpoints (an Azure account host, or the path-style
-// s3.amazonaws.com, s3.<region>.amazonaws.com and storage.googleapis.com) as
-// a candidate hostname. They are provider endpoints, not target systems.
-func (s *Storage) CandidateExemptSources() []string { return s.Sources() }
-
 type storageInput struct {
 	kind                              string // bucket, account, container or object
 	provider, name, container, object string

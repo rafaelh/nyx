@@ -164,14 +164,6 @@ type Noter interface {
 	Notes(v View) []string
 }
 
-// CandidateExempt is implemented by a stage whose third-party sources include
-// provider endpoints that a redirect may have recorded as candidate hostnames
-// (Azure storage accounts). Hosts matching these source patterns skip only the
-// refusal of candidates; an in-scope or excluded host is still refused.
-type CandidateExempt interface {
-	CandidateExemptSources() []string
-}
-
 // Evidencer is implemented by a stage that says what supports a candidate its
 // check found.
 type Evidencer interface {

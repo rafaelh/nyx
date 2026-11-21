@@ -62,11 +62,7 @@ func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 	pend, _ := r.st.PendingRedo()
 	sr := &stageRun{r: r, ctx: withWarner(ctx, r.warn), s: s, name: name, done: done,
 		redoPending: slices.Contains(pend, name)}
-	var exempt []string
-	if ce, ok := s.(CandidateExempt); ok {
-		exempt = ce.CandidateExemptSources()
-	}
-	sr.clients = r.cfg.Egress.ClientsWith(s.Contact() == Target, s.Sources(), exempt)
+	sr.clients = r.cfg.Egress.Clients(s.Contact() == Target, s.Sources())
 	sr.view = View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), vis: r.vis.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
 
 	sr.workers = r.cfg.Settings.Concurrency

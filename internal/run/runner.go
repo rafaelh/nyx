@@ -354,7 +354,7 @@ func (r *Runner) buildScope() error {
 	p := &egress.Policy{
 		Scope: sc, Ack: r.acked, Passive: r.cfg.Passive,
 		Ports: r.cfg.Settings.Ports, SensitivePaths: sensitivePaths,
-		Resolutions: inv.Addrs(), Candidates: built.Candidates,
+		Resolutions: inv.Addrs(),
 		Shared:       inv.Shared,
 		OwnerUnknown: func(a netip.Addr) bool { return !inv.OwnerKnown(a, sc) },
 		Excluded:     r.guard,

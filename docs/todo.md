@@ -30,12 +30,6 @@ Confirm each with `/code-review` before fixing.
 
 ## Design changes
 
-- **One showing rule.** Make which entities the files list a single Visibility rule (today
-  `changes.go` copies the rules from `output`), and keep the "excluded" counting rule in one place.
-
-- **Candidate rules in `internal/candidates`.** Move the candidate roll-up rules and the ranking
-  there. Revisit the `CandidateExempt` plumbing, which serves one stage.
-
 - **No hard-coded stage or source names.** Remove the hard-coded "asn" stage name from finding
   announcements and from `BuildScope`, and take source names from stage data.
 

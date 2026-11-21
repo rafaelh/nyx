@@ -87,32 +87,26 @@ func TestSourceMiddleWildcard(t *testing.T) {
 	}
 }
 
-// Exempt sources skip only the candidate refusal.
-func TestCandidateExemption(t *testing.T) {
+// A source host is contacted even when it is a candidate (a storage account a
+// redirect recorded, say); an excluded or in-scope host that matches a source
+// is still refused.
+func TestCandidateSourceIsContacted(t *testing.T) {
 	t.Parallel()
 	rec := newRecorder(t)
-	eg := thirdPartyEgress(t, map[string]string{"*.blob.core.windows.net": rec.srv.URL, "*.example.org": rec.srv.URL}, egress.Options{})
-	sources := []string{"*.blob.core.windows.net", "*.example.org"}
-
-	plain := eg.Clients(false, sources).ThirdParty
-	if _, err := plain.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://cand.blob.core.windows.net/c"}); err == nil {
-		t.Fatal("without the exemption a candidate host is refused")
-	}
-
-	c := eg.ClientsWith(false, sources, []string{"*.blob.core.windows.net"}).ThirdParty
+	eg := thirdPartyEgress(t, map[string]string{"*.blob.core.windows.net": rec.srv.URL}, egress.Options{})
+	c := eg.Clients(false, []string{"*.blob.core.windows.net"}).ThirdParty
 	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://cand.blob.core.windows.net/c"}); err != nil {
-		t.Errorf("exempt candidate: %v", err)
+		t.Errorf("candidate source host: %v", err)
 	}
 	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://bad.blob.core.windows.net/c"}); err == nil {
 		t.Error("an excluded host is still refused")
 	}
-	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://cand.example.org/c"}); err == nil {
-		t.Error("a candidate outside the exempt patterns is still refused")
-	}
-	// An in-scope host is refused even when it matches an exempt pattern.
 	eg.SetPolicy(&egress.Policy{Scope: scope.New(scope.Config{Roots: []string{"blob.core.windows.net"}})})
 	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://mine.blob.core.windows.net/c"}); err == nil {
 		t.Error("an in-scope host is still refused")
+	}
+	if len(rec.requests()) != 1 {
+		t.Errorf("requests = %v, want only the candidate's", rec.requests())
 	}
 }
 

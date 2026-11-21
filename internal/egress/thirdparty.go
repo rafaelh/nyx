@@ -65,8 +65,6 @@ type ThirdPartyHTTP interface {
 type thirdParty struct {
 	e       *Egress
 	sources []string
-	// exempt are the source patterns whose hosts skip the candidate refusal.
-	exempt []string
 }
 
 // matchSource reports whether host is the source pattern: an exact host, "*.x"
@@ -160,19 +158,16 @@ func (t *thirdParty) sourceURL(r ThirdPartyRequest) (*url.URL, string, error) {
 }
 
 // policyRefusal refuses a source host that the current scope classifies as in scope or
-// excluded, or that is a candidate the stage has not declared exempt.
+// excluded. A candidate is not refused: the host is one the stage declared as its source,
+// and so a third party by declaration, even when a redirect from an in-scope page has
+// recorded it (a provider endpoint such as a storage account, or a service's API host).
 func (t *thirdParty) policyRefusal(host string) error {
 	p := t.e.policy()
-	if p == nil {
+	if p == nil || p.Scope == nil {
 		return nil
 	}
-	if p.Scope != nil {
-		if c := p.Scope.ClassifyHost(host); c.Class == scope.InScope || c.Class == scope.Excluded {
-			return fmt.Errorf("host %s is %s; third-party clients never contact it", host, c.Class)
-		}
-	}
-	if p.Candidates[host] && !t.candidateExempt(host) {
-		return fmt.Errorf("host %s is a candidate; it is never contacted", host)
+	if c := p.Scope.ClassifyHost(host); c.Class == scope.InScope || c.Class == scope.Excluded {
+		return fmt.Errorf("host %s is %s; third-party clients never contact it", host, c.Class)
 	}
 	return nil
 }
@@ -244,12 +239,6 @@ func (t *thirdParty) newRequest(ctx context.Context, r ThirdPartyRequest, u *url
 		hreq.Header.Set(r.KeyHeader, r.KeyPrefix+key.Reveal())
 	}
 	return hreq, nil
-}
-
-// candidateExempt reports whether host matches a pattern the stage declared as
-// a provider endpoint rather than a target system.
-func (t *thirdParty) candidateExempt(host string) bool {
-	return slices.ContainsFunc(t.exempt, func(p string) bool { return matchSource(p, host) })
 }
 
 // scrub removes key values from an error, including the URL net/http embeds.

@@ -81,7 +81,6 @@ func newOriginFixture(t *testing.T) *originFixture {
 			Netblocks:  []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
 			Exclusions: mustExcl(t, "198.51.100.66", "admin.example.com")}),
 		Ack: true, Resolutions: res,
-		Candidates:   map[string]bool{"cand.example.org": true},
 		Shared:       func(a netip.Addr) bool { return a == addr(sharedAddr) },
 		OwnerUnknown: func(a netip.Addr) bool { return a == addr(unknownAddr) },
 	}

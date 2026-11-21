@@ -159,95 +159,43 @@ func (r *Runner) evidence(stage, check string) candidates.Evidence {
 }
 
 // rankCandidates ranks every candidate from the completed checks that observe
-// it. A candidate root also counts the evidence of the candidate hostnames
-// under it, so that stages that report roots and stages that report hostnames
-// can corroborate each other; the hostnames keep their own rank. A candidate
-// that is no longer current, or whose only support awaits a redo, keeps the
-// rank it last had.
+// it, by the rules of candidates.RankAll.
 func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
-	last := map[string]kinds.CandidateRankAttrs{} // by rank key
+	last := map[candidates.Key]candidates.Rank{}
 	for _, rec := range in.Records(kinds.CandidateRank) {
 		if rec.Current {
-			last[rec.Key] = kinds.CandidateRank.Attrs(rec)
+			a := kinds.CandidateRank.Attrs(rec)
+			last[candidates.Key{Type: a.Type, Value: a.Value}] = rankOf(a)
 		}
 	}
-	all := r.gatherCandidates(in)
-	var obs []store.Obs
-	for _, c := range all {
-		key := kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: c.typ, Value: c.value})
-		attrs, ok := last[key]
-		// A current candidate with no evidence of its own is observed only by
-		// checks a redo has forgotten and that have not run again (evidence
-		// rolled up from hostnames does not make a root current): it keeps its
-		// last rank until they do, so that a candidate they no longer find
-		// shows the rank it had while supported.
-		if c.current && (c.own > 0 || !ok) {
-			rank := candidates.Score(c.evidence, in.Inputs.Orgs)
-			attrs = kinds.CandidateRankAttrs{Type: c.typ, Value: c.value, Sources: strings.Join(rank.Sources, ";"),
-				EvidenceCount: rank.Count, Confidence: string(rank.Confidence), Current: true}
-		} else if !ok {
-			continue // never ranked, and there is nothing to keep
-		}
-		attrs.Current = c.current
-		obs = append(obs, kinds.CandidateRank.Obs(attrs))
-	}
-	return obs
-}
-
-// rankedCandidate is a candidate record and the evidence it is ranked on.
-type rankedCandidate struct {
-	typ, value string
-	current    bool
-	evidence   []candidates.Evidence
-	own        int // the evidence of its own completed checks, before any roll-up
-}
-
-// gatherCandidates lists the candidate records of every candidate kind, each
-// with the evidence of the checks that observe it, and rolls the evidence of
-// each current candidate hostname up into the current candidate roots above
-// it (or equal to it).
-func (r *Runner) gatherCandidates(in deriveInput) []*rankedCandidate {
-	var all []*rankedCandidate
-	roots := map[string]*rankedCandidate{} // current candidate roots, by value
-	var hostnames []*rankedCandidate
+	var cs []candidates.Candidate
 	for _, kind := range kinds.CandidateKinds {
 		observers := in.Observers(kind)
 		for _, rec := range in.Records(kind) {
 			if in.Vis.Category(kind, rec) != kinds.Candidates {
 				continue
 			}
-			c := &rankedCandidate{typ: kind.Name(), value: rec.Key, current: rec.Current}
+			c := candidates.Candidate{Type: kind.Name(), Value: rec.Key, Current: rec.Current}
 			for _, o := range observers[rec.Key] {
-				c.evidence = append(c.evidence, r.evidence(o.Stage, o.CheckKey))
+				c.Evidence = append(c.Evidence, r.evidence(o.Stage, o.CheckKey))
 			}
-			c.own = len(c.evidence)
-			all = append(all, c)
-			switch {
-			case !c.current:
-			case kind.Name() == kinds.Root.Name():
-				roots[rec.Key] = c
-			case kind.Name() == kinds.Hostname.Name():
-				hostnames = append(hostnames, c)
-			}
+			cs = append(cs, c)
 		}
 	}
-	for _, h := range hostnames {
-		rollUp(h, roots)
+	ranked := candidates.RankAll(cs, last, in.Inputs.Orgs)
+	obs := make([]store.Obs, len(ranked))
+	for i, c := range ranked {
+		obs[i] = kinds.CandidateRank.Obs(kinds.CandidateRankAttrs{Type: c.Type, Value: c.Value, Sources: strings.Join(c.Sources, ";"),
+			EvidenceCount: c.Count, Confidence: string(c.Confidence), Current: c.Current})
 	}
-	return all
+	return obs
 }
 
-// rollUp adds a hostname's evidence to every root in roots above it, or equal
-// to it.
-func rollUp(h *rankedCandidate, roots map[string]*rankedCandidate) {
-	for name := h.value; ; {
-		if c, ok := roots[name]; ok {
-			c.evidence = append(c.evidence, h.evidence...)
-		}
-		_, rest, found := strings.Cut(name, ".")
-		if !found {
-			return
-		}
-		name = rest
+// rankOf is the rank a candidate_rank record stores.
+func rankOf(a kinds.CandidateRankAttrs) candidates.Rank {
+	var sources []string
+	if a.Sources != "" {
+		sources = strings.Split(a.Sources, ";")
 	}
+	return candidates.Rank{Sources: sources, Count: a.EvidenceCount, Confidence: candidates.Confidence(a.Confidence)}
 }

@@ -39,7 +39,9 @@ make eol-data                   # refresh internal/eol/data from endoflife.date 
 - **Passive boundary.** Target-owned systems may only receive DNS lookups, TCP handshakes (read the
   unprompted banner, send nothing) and HTTP GET/HEAD to in-scope hosts. Egress enforces this
   through a `Policy` the runner rebuilds whenever the scope changes. Candidates and excluded
-  hosts/addresses are never contacted. `nyx ip --active` also completes TLS handshakes (no
+  hosts/addresses are never contacted as targets. A third-party client contacts only the source
+  hosts its stage declared, refusing one that is in scope or excluded; a candidate that matches a
+  declared source (a storage account a redirect recorded) is asked as that source. `nyx ip --active` also completes TLS handshakes (no
   application data), through `egress.NewProbe`'s `Probe`, which alone has a TLS client: `Clients`
   never does, so recon stages cannot handshake.
 - The cross-target `go vet` in `make test` exists so that an untagged platform-specific call can't
@@ -90,7 +92,7 @@ compatible, renaming, removing or retyping one is a breaking change (README, "Ex
 - `Run` reports negative results (NXDOMAIN, closed port) as completed checks with zero or more
   observations. A returned error means a transient failure: the check is retried on later runs.
   Wrap `run.ErrAbortStage` to abort the stage's remaining checks for this run.
-- Optional interfaces: `WorkerCounter` (a custom pool size, used by ports), `CandidateExempt`,
+- Optional interfaces: `WorkerCounter` (a custom pool size, used by ports),
   `Retiring` (completed checks the stage no longer yields are retired, so their evidence stops
   being current), `Evidencer` (names the source and supporting item a check gives a candidate;
   without it they are the stage name and the check key, so a stage whose key carries a setting

@@ -576,7 +576,6 @@ func TestThirdParty(t *testing.T) {
 	for name, req := range map[string]egress.ThirdPartyRequest{
 		"host outside sources": {Method: "GET", URL: "https://evil.example.net/"},
 		"in-scope host":        {Method: "GET", URL: "https://www.example.com/"},
-		"candidate host":       {Method: "GET", URL: "https://cand.example.org/"},
 		"excluded host":        {Method: "GET", URL: "https://bad.example.net/"},
 		"method":               {Method: "DELETE", URL: "https://stat.ripe.net/"},
 		"userinfo":             {Method: "GET", URL: "https://u:p@stat.ripe.net/"},

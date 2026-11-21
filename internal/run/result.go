@@ -5,7 +5,6 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/findings"
@@ -96,34 +95,22 @@ func (r *Runner) notConfigured() []report.StageReason {
 	return out
 }
 
-// rankedCandidates are the current candidates of high confidence, best first,
-// each with the input that promotes it. A candidate that is no longer current
-// keeps its rank for candidates.csv but is not listed; the rest of the ranked
-// candidates are in candidates.csv only.
+// rankedCandidates are the candidates the summary lists (candidates.Listed),
+// each with the input that promotes it.
 func (r *Runner) rankedCandidates() []report.CandidateRow {
 	recs, _ := r.currentRecords(kinds.CandidateRank)
-	var ranked []kinds.CandidateRankAttrs
-	for _, rec := range recs {
-		if a := kinds.CandidateRank.Attrs(rec); a.Current && candidates.Confidence(a.Confidence) == candidates.High {
-			ranked = append(ranked, a)
-		}
+	ranked := make([]candidates.Ranked, len(recs))
+	for i, rec := range recs {
+		a := kinds.CandidateRank.Attrs(rec)
+		ranked[i] = candidates.Ranked{Type: a.Type, Value: a.Value, Current: a.Current, Rank: rankOf(a)}
 	}
-	entry := func(a kinds.CandidateRankAttrs) candidates.Entry {
-		return candidates.Entry{Value: a.Value, Current: true, Confidence: candidates.High, Count: a.EvidenceCount}
+	listed := candidates.Listed(ranked)
+	rows := make([]report.CandidateRow, len(listed))
+	for i, c := range listed {
+		rows[i] = report.CandidateRow{Kind: c.Type, Value: c.Value, Sources: append([]string{}, c.Sources...), EvidenceCount: c.Count,
+			Confidence: string(c.Confidence), Promote: candidates.Promote(c.Type, c.Value)}
 	}
-	slices.SortFunc(ranked, func(a, b kinds.CandidateRankAttrs) int {
-		return cmp.Or(candidates.Compare(entry(a), entry(b)), strings.Compare(a.Type, b.Type))
-	})
-	high := make([]report.CandidateRow, 0, len(ranked))
-	for _, a := range ranked {
-		sources := []string{}
-		if a.Sources != "" {
-			sources = strings.Split(a.Sources, ";")
-		}
-		high = append(high, report.CandidateRow{Kind: a.Type, Value: a.Value, Sources: sources, EvidenceCount: a.EvidenceCount,
-			Confidence: a.Confidence, Promote: candidates.Promote(a.Type, a.Value)})
-	}
-	return high
+	return rows
 }
 
 // changesSummary is the summary's changes: how many of each kind changed in each way, and the

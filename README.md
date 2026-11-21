@@ -208,7 +208,9 @@ nyx limits what target-owned systems can receive. It sends only:
 
 It never sends credentials, submits forms, uses other HTTP methods, puts payloads in parameters or
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
-scope) and excluded hosts are never contacted. Everything else comes from third parties: CT logs
+scope) and excluded hosts are never contacted, except that a candidate that is the host of one of
+the third parties below (a cloud-storage account an in-scope page redirected to, say) is still asked
+as that third party; an excluded host never is. Everything else comes from third parties: CT logs
 (crt.sh and Cert Spotter), web archives, passive DNS and search (HackerTarget and urlscan.io),
 GitHub's code search, public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage
 provider endpoints. Only hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three

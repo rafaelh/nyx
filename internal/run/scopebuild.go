@@ -43,9 +43,6 @@ type Built struct {
 	// Vis is the showing rules for Scope and Inv: the decision behind every
 	// count, file, found line and finding, and an export's shown.
 	Vis *kinds.Visibility
-	// Candidates are the current hostnames and roots classified as candidates:
-	// the names that are never contacted.
-	Candidates map[string]bool
 }
 
 // BuildScope builds the Scope and Inventory from the engagement's stored
@@ -81,25 +78,7 @@ func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
 	inv := inventory.New(data, provider.Default())
 	sc := scope.New(scope.Config{Roots: in.Roots, Netblocks: blocks, Exclusions: excl, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
 		ASNs: in.ASNs, Orgs: in.Orgs})
-
-	roots, err := src.CurrentRecords(kinds.Root)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(data.Hosts)+len(roots))
-	for _, h := range data.Hosts {
-		names = append(names, h.Name)
-	}
-	for _, rec := range roots {
-		names = append(names, dnsname.Normalise(rec.Key))
-	}
-	cands := map[string]bool{}
-	for _, n := range names {
-		if sc.ClassifyHost(n).Class == scope.Candidate {
-			cands[n] = true
-		}
-	}
-	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv), Candidates: cands}, nil
+	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv)}, nil
 }
 
 // asnNetblocks maps each current netblock observed by the asn stage under a

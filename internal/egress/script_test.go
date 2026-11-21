@@ -74,7 +74,6 @@ func TestScript_StillSubjectToHostPolicy(t *testing.T) {
 			Passive:     passive,
 			Ports:       []int{f.port},
 			Resolutions: res,
-			Candidates:  map[string]bool{"cand.example.org": true},
 			Scripts: map[string]bool{
 				scriptURL("www.example.com", f.port, "/a.js"):  true,
 				scriptURL("cand.example.org", f.port, "/a.js"): true,

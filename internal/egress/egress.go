@@ -34,8 +34,6 @@ type Policy struct {
 	Scripts map[string]bool
 	// Resolutions maps in-scope and excluded hostnames to their addresses.
 	Resolutions map[string][]netip.Addr
-	// Candidates are discovered out-of-scope hostnames; ThirdPartyHTTP never contacts them.
-	Candidates map[string]bool
 	// Shared reports whether an address is shared provider infrastructure.
 	Shared func(netip.Addr) bool
 	// OwnerUnknown reports whether nothing is known about an address's owner.
@@ -234,17 +232,9 @@ func wait(ctx context.Context, l *rate.Limiter) error {
 // Clients returns the clients for a stage. Target clients are only given to
 // stages that contact target-owned systems.
 func (e *Egress) Clients(target bool, sources []string) Clients {
-	return e.ClientsWith(target, sources, nil)
-}
-
-// ClientsWith is Clients for a stage with candidate-exempt sources: hosts
-// matching one of the exempt patterns skip the refusal of candidate hostnames
-// (they are provider endpoints that a redirect may have recorded as candidates).
-// An in-scope or excluded host is still refused.
-func (e *Egress) ClientsWith(target bool, sources, exempt []string) Clients {
 	c := Clients{
 		DNS:        &resolver{e: e},
-		ThirdParty: &thirdParty{e: e, sources: sources, exempt: exempt},
+		ThirdParty: &thirdParty{e: e, sources: sources},
 	}
 	if target {
 		c.HTTP = &targetHTTP{e: e}

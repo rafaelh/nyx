@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/candidates"
+	"github.com/rafaelh/nyx/internal/kinds"
 )
 
 func ev(pairs ...string) []candidates.Evidence {
@@ -154,5 +155,117 @@ func TestREADMEListsEverySource(t *testing.T) {
 		if !strings.Contains(string(b), "`"+s+"`") {
 			t.Errorf("README.md does not list the candidate source `%s`", s)
 		}
+	}
+}
+
+func rankOf(rs []candidates.Ranked, typ, value string) (candidates.Ranked, bool) {
+	for _, r := range rs {
+		if r.Type == typ && r.Value == value {
+			return r, true
+		}
+	}
+	return candidates.Ranked{}, false
+}
+
+// A current root counts the evidence of the current hostnames under it and
+// equal to it; the hostnames keep their own, and a hostname that is not
+// current, or a root that is not, takes no part.
+func TestRankAllRollUp(t *testing.T) {
+	t.Parallel()
+	own := ev("crtsh", "a")
+	cs := []candidates.Candidate{
+		{Type: "root", Value: "other.org", Current: true, Evidence: own},
+		{Type: "hostname", Value: "www.other.org", Current: true, Evidence: ev("wayback", "b")},
+		{Type: "hostname", Value: "other.org", Current: true, Evidence: ev("rdns", "c")},
+		{Type: "hostname", Value: "old.other.org", Current: false, Evidence: ev("httpprobe", "d")},
+		{Type: "hostname", Value: "www.another.org", Current: true, Evidence: ev("httpprobe", "e")},
+		{Type: "root", Value: "gone.org", Current: false, Evidence: ev("crtsh", "f")},
+		{Type: "hostname", Value: "a.gone.org", Current: true, Evidence: ev("wayback", "g", "rdns", "h")},
+	}
+	got := candidates.RankAll(cs, map[candidates.Key]candidates.Rank{{Type: "root", Value: "gone.org"}: {Confidence: candidates.Low, Count: 1}}, nil)
+	root, _ := rankOf(got, "root", "other.org")
+	if want := []string{"crtsh", "rdns", "wayback"}; !slices.Equal(root.Sources, want) || root.Count != 3 || root.Confidence != candidates.High {
+		t.Errorf("root = %+v, want the sources %v, 3 evidence and high", root, want)
+	}
+	if www, _ := rankOf(got, "hostname", "www.other.org"); www.Count != 1 || www.Confidence != candidates.Low {
+		t.Errorf("hostname = %+v, want its own evidence only", www)
+	}
+	if gone, _ := rankOf(got, "root", "gone.org"); gone.Current || gone.Count != 1 {
+		t.Errorf("a root that is not current = %+v, want its last rank and no roll-up", gone)
+	}
+	if len(own) != 1 || cap(own) != 1 {
+		t.Errorf("the roll-up wrote to the caller's evidence: %v", own)
+	}
+}
+
+// A candidate keeps its last rank when it is not current, or when it is
+// current but has no evidence of its own; with no last rank, the first is
+// left out and the second is ranked.
+func TestRankAllKeepsLastRank(t *testing.T) {
+	t.Parallel()
+	last := candidates.Rank{Sources: []string{"crtsh", "wayback"}, Count: 2, Confidence: candidates.Medium}
+	lastOf := map[candidates.Key]candidates.Rank{
+		{Type: "root", Value: "gone.org"}: last, {Type: "root", Value: "forgotten.org"}: last, {Type: "root", Value: "rerun.org"}: last,
+	}
+	cs := []candidates.Candidate{
+		{Type: "root", Value: "gone.org", Current: false, Evidence: ev("crtsh", "a")},
+		{Type: "root", Value: "forgotten.org", Current: true},
+		{Type: "root", Value: "rerun.org", Current: true, Evidence: ev("crtsh", "a")},
+		{Type: "root", Value: "never.org", Current: false, Evidence: ev("crtsh", "a")},
+		{Type: "root", Value: "new.org", Current: true},
+		{Type: "hostname", Value: "www.forgotten.org", Current: true, Evidence: ev("httpprobe", "b", "rdns", "c", "crawl", "d")},
+	}
+	got := candidates.RankAll(cs, lastOf, nil)
+	if r, _ := rankOf(got, "root", "gone.org"); r.Current || r.Confidence != candidates.Medium || r.Count != 2 {
+		t.Errorf("not current = %+v, want the last rank, not current", r)
+	}
+	if r, _ := rankOf(got, "root", "forgotten.org"); !r.Current || r.Confidence != candidates.Medium || r.Count != 2 {
+		t.Errorf("no evidence of its own = %+v, want the last rank, current, whatever rolls up", r)
+	}
+	if r, _ := rankOf(got, "root", "rerun.org"); r.Confidence != candidates.Low || r.Count != 1 {
+		t.Errorf("evidence of its own = %+v, want it ranked afresh", r)
+	}
+	if r, ok := rankOf(got, "root", "never.org"); ok {
+		t.Errorf("never ranked and not current = %+v, want it left out", r)
+	}
+	if r, ok := rankOf(got, "root", "new.org"); !ok || !r.Current || r.Confidence != candidates.Low || r.Count != 0 {
+		t.Errorf("never ranked, current, no evidence = %+v, %v, want a low rank", r, ok)
+	}
+}
+
+// The summary lists the current candidates of high confidence, best first, by
+// type when they tie.
+func TestListed(t *testing.T) {
+	t.Parallel()
+	high := func(typ, value string, n int, current bool) candidates.Ranked {
+		return candidates.Ranked{Type: typ, Value: value, Current: current, Count: n, Confidence: candidates.High}
+	}
+	got := candidates.Listed([]candidates.Ranked{
+		high("root", "few.org", 3, true),
+		high("root", "gone.org", 9, false),
+		{Type: "root", Value: "medium.org", Current: true, Count: 9, Confidence: candidates.Medium},
+		high("root", "tie.org", 5, true),
+		high("hostname", "tie.org", 5, true),
+		high("root", "many.org", 7, true),
+	})
+	var keys []string
+	for _, r := range got {
+		keys = append(keys, r.Type+" "+r.Value)
+	}
+	if want := []string{"root many.org", "hostname tie.org", "root tie.org", "root few.org"}; !slices.Equal(keys, want) {
+		t.Errorf("listed = %v\nwant     %v", keys, want)
+	}
+}
+
+// The types the roll-up and Promote tell apart are the names of the kinds the
+// candidates are.
+func TestTypesAreKindNames(t *testing.T) {
+	t.Parallel()
+	var names []string
+	for _, k := range kinds.CandidateKinds {
+		names = append(names, k.Name())
+	}
+	if want := []string{"root", "hostname", "netblock", "asn", "organisation"}; !slices.Equal(names, want) {
+		t.Errorf("candidate kinds = %v, want %v", names, want)
 	}
 }
