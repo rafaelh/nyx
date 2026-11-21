@@ -1,7 +1,8 @@
 // Package batch decides how a command that looks up several inputs ends: which
 // error it returns, what that error says, and the hint that tells the caller
 // how to retry. nyx cve and nyx ip share it, so a batch of either one ends the
-// same way. It has no I/O and knows nothing of what is looked up.
+// same way, and look their items up a few at a time with [Each]. It has no I/O
+// and knows nothing of what is looked up.
 //
 // # Terms
 //
@@ -11,7 +12,9 @@
 //
 // A Failure is one item that failed. It has a Name, the item as the user gave
 // it, which is what the messages and the "check ..." hint show; an Entry, the
-// value of its meta.errors entry's input (the Name when nil); a Retry, the text
+// value of its meta.errors entry's input (the Name when nil); Given, the inputs
+// as typed that the error the call ends with lists for it (the Name when nil);
+// a Retry, the text
 // the retry command is given for it, which is empty for a failure that is not
 // worth retrying (a quota that resets daily, say); and the Err that stopped it.
 // A failure's Retry may differ from its Name: a CIDR that failed on some
@@ -52,6 +55,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rafaelh/nyx/internal/clierr"
@@ -69,7 +74,7 @@ const HintTimeout = "raise --timeout"
 type Config struct {
 	// Noun names the items in messages: "IDs", "inputs".
 	Noun string
-	// Key is the key of the error's input map that lists the failed Names.
+	// Key is the key of the error's input map that lists the failures' Given inputs.
 	Key string
 	// Command is the command, with the caller's flags, that looks the given
 	// Retry texts up again.
@@ -82,6 +87,9 @@ type Failure struct {
 	Name string
 	// Entry is the value of the failure's meta.errors entry's input; Name when nil.
 	Entry any
+	// Given are the inputs as typed that the call's error lists for this failure; [Name]
+	// when nil. A failed address lists the inputs that gave it.
+	Given []string
 	// Retry is what the retry command is given for this failure. Empty when it
 	// is not worth retrying, whether or not Err is transient.
 	Retry string
@@ -100,9 +108,20 @@ func Outcome(c Config, total, returned int, failures []Failure) ([]*clierr.Error
 	}
 	var metaErrs []*clierr.Error
 	var names []string
+	given, seen := []string{}, map[string]bool{}
 	transient := false
 	for _, f := range failures {
 		names = append(names, f.Name)
+		typed := f.Given
+		if typed == nil {
+			typed = []string{f.Name}
+		}
+		for _, g := range typed {
+			if !seen[g] {
+				seen[g] = true
+				given = append(given, g)
+			}
+		}
 		transient = transient || f.Err.Transient
 		e := *f.Err
 		e.Input = f.Name
@@ -114,7 +133,7 @@ func Outcome(c Config, total, returned int, failures []Failure) ([]*clierr.Error
 	code, single := oneCode(failures)
 	single = single && returned == 0
 	// A single code's error is all that is written, so its hint lists every item however many.
-	e := &clierr.Error{Input: map[string][]string{c.Key: names}, Transient: transient, Hint: retryHint(c, failures, names, !single)}
+	e := &clierr.Error{Input: map[string][]string{c.Key: given}, Transient: transient, Hint: retryHint(c, failures, names, !single)}
 	if single {
 		first := failures[0].Err
 		e.Code = code
@@ -197,4 +216,23 @@ func retryHint(c Config, failures []Failure, names []string, shown bool) string 
 // and at least 1s: "5s".
 func Seconds(d time.Duration) string {
 	return strconv.Itoa(max(int((d+time.Second-1)/time.Second), 1)) + "s"
+}
+
+// Each calls fn for every index below n, at most workers at a time, and returns once every call
+// has. The indexes are started in order.
+func Each(n, workers int, fn func(i int)) {
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(workers, n) {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= n {
+					return
+				}
+				fn(i)
+			}
+		})
+	}
+	wg.Wait()
 }

@@ -49,7 +49,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	pf.SortFlags = false
 	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Print the result as one JSON object on stdout, and any error as one JSON line on stderr")
 	pf.BoolVarP(&inv.sh.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; recon's summary is still printed")
-	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), and the stack of an unexpected failure")
+	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure")
 	f := root.Flags()
 	f.SortFlags = false
 	f.Bool("version", false, "Print the version and exit") // long-only: -v is usually read as verbose

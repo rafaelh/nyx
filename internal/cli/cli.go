@@ -1,5 +1,5 @@
 // Package cli is the nyx command line: the command tree (nyx, recon, recon
-// export, cve, help and the help topics), flags, validation, help text,
+// export, cve, ip, help and the help topics), flags, validation, help text,
 // signals, and the one place that picks the exit code and writes the error.
 package cli
 
@@ -72,7 +72,8 @@ type Deps struct {
 	// Events, when set, also receives every event of a recon run, as the console would see it
 	// (redacted). Only tests set it, to read the events that --json no longer writes.
 	Events report.Emitter
-	// Stdin is read only by a command given a lone "-" (nyx cve); nil means an empty one.
+	// Stdin is read only by a lookup command given a lone "-" (nyx cve, nyx ip); nil means an
+	// empty one.
 	Stdin io.Reader
 }
 

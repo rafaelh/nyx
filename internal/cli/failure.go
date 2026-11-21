@@ -40,7 +40,7 @@ func (f *failureWriter) setRedactor(r *config.Redactor) {
 }
 
 // errorLine is the JSON error: exactly these five keys, in this order. It is
-// also each meta.errors entry of nyx cve.
+// also each meta.errors entry of a lookup command (nyx cve, nyx ip).
 type errorLine struct {
 	Error     string  `json:"error"`
 	Code      string  `json:"code"`

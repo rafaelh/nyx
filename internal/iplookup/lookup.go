@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/rafaelh/nyx/internal/addrkind"
+	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
 )
@@ -60,16 +61,7 @@ func Resolve(ctx context.Context, cfg Config, plan Plan) (Resolved, error) {
 	}
 	hosts := plan.Hostnames()
 	results := make([]hostResolution, len(hosts))
-	sem := make(chan struct{}, resolveConcurrency)
-	var wg sync.WaitGroup
-	for i, h := range hosts {
-		sem <- struct{}{}
-		wg.Go(func() {
-			defer func() { <-sem }()
-			results[i] = resolveHost(ctx, cfg, h)
-		})
-	}
-	wg.Wait()
+	batch.Each(len(hosts), resolveConcurrency, func(i int) { results[i] = resolveHost(ctx, cfg, hosts[i]) })
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return Resolved{}, ctx.Err()
 	}
@@ -232,20 +224,14 @@ func lookupConcurrency(active bool) int {
 func Lookup(ctx context.Context, cfg Config, r Resolved) []AddressResult {
 	st := newState(cfg)
 	out := make([]AddressResult, len(r.Addresses))
-	sem := make(chan struct{}, lookupConcurrency(cfg.Fields.Active()))
-	var wg sync.WaitGroup
 	for i, a := range r.Addresses {
 		out[i] = AddressResult{Record: NewRecord(a)}
-		if errors.Is(ctx.Err(), context.Canceled) {
-			continue
-		}
-		sem <- struct{}{}
-		wg.Go(func() {
-			defer func() { <-sem }()
-			out[i] = st.lookupAddress(ctx, a)
-		})
 	}
-	wg.Wait()
+	batch.Each(len(out), lookupConcurrency(cfg.Fields.Active()), func(i int) {
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			out[i] = st.lookupAddress(ctx, r.Addresses[i])
+		}
+	})
 	return out
 }
 

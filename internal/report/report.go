@@ -55,6 +55,12 @@ func (f only) Emit(ev Event) {
 	}
 }
 
+// Say is a function that emits each message it is given as an event of type typ, the shape of
+// every warning and debug line.
+func Say(em Emitter, typ string) func(string) {
+	return func(msg string) { em.Emit(Event{Type: typ, Fields: map[string]any{"message": msg}}) }
+}
+
 // Tee sends every event to both emitters.
 func Tee(a, b Emitter) Emitter { return tee{a, b} }
 

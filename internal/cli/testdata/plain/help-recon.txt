@@ -65,7 +65,7 @@ Flags:
   -h, --help                                   Help for recon
 
 Shared flags:
-      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), and the stack of an unexpected failure
+      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
   -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
   -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
 

@@ -2,7 +2,9 @@ package batch_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -256,4 +258,41 @@ func TestSeconds(t *testing.T) {
 			t.Errorf("Seconds(%v) = %q, want %q", d, got, want)
 		}
 	}
+}
+
+// The error's input lists each failure's Given inputs, each once and in order, and the Name of a
+// failure with none.
+func TestOutcome_InputListsTheGivenInputs(t *testing.T) {
+	t.Parallel()
+	a, b, c := network("10.0.0.1"), network("10.0.0.2"), network("bad")
+	a.Given, b.Given = []string{"10.0.0.0/30", "a.example"}, []string{"10.0.0.0/30"}
+	_, err := batch.Outcome(cfg, 3, 0, []batch.Failure{a, b, c})
+	want := []string{"10.0.0.0/30", "a.example", "bad"}
+	if got := err.Input.(map[string][]string)["input"]; !slices.Equal(got, want) {
+		t.Errorf("input %v, want %v", got, want)
+	}
+}
+
+// Each calls fn once for every index, never with more than workers at a time.
+func TestEach(t *testing.T) {
+	t.Parallel()
+	var running, peak atomic.Int32
+	var calls [20]atomic.Int32
+	batch.Each(len(calls), 3, func(i int) {
+		n := running.Add(1)
+		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+		}
+		time.Sleep(time.Millisecond)
+		calls[i].Add(1)
+		running.Add(-1)
+	})
+	for i := range calls {
+		if n := calls[i].Load(); n != 1 {
+			t.Errorf("index %d called %d times", i, n)
+		}
+	}
+	if p := peak.Load(); p > 3 {
+		t.Errorf("%d ran at once, want at most 3", p)
+	}
+	batch.Each(0, 3, func(int) { t.Error("called with no items") })
 }

@@ -123,14 +123,16 @@ func TestOutcome_OneFailedSourceIsPartial(t *testing.T) {
 	recs, metaErrs, err := Outcome(
 		[]InputResult{given("1.1.1.1", "1.1.1.1"), given("10.0.0.0/31", "10.0.0.0", "10.0.0.1")},
 		[]AddressResult{ok("1.1.1.1"), with("10.0.0.0", twoSources, fail(SourceRDAP, clierr.UpstreamError, true)), ok("10.0.0.1")},
-		RetryCommand(Flags{Active: true, Fields: "asn,rdap_org", FieldsSet: true, Timeout: "10s", TimeoutSet: true, JSON: true}))
+		func(retry []string) string {
+			return "nyx ip " + strings.Join(retry, " ") + " --active --fields asn,rdap_org"
+		})
 	if err == nil || err.Code != clierr.Partial {
 		t.Fatalf("err %+v, want PARTIAL", err)
 	}
 	if len(recs) != 3 {
 		t.Errorf("a record with a failed source is still returned: %v", addresses(recs))
 	}
-	if want := "run: nyx ip 10.0.0.0 --active --fields asn,rdap_org --timeout 10s --json"; err.Hint != want {
+	if want := "run: nyx ip 10.0.0.0 --active --fields asn,rdap_org"; err.Hint != want {
 		t.Errorf("hint %q, want %q", err.Hint, want)
 	}
 	if !err.Transient || err.Message != "3 of 3 inputs returned, 1 failed" {
@@ -356,29 +358,5 @@ func TestOutcome_RecordsKeepTheirOrder(t *testing.T) {
 		[]AddressResult{ok("3.3.3.3"), with("1.1.1.1", twoSources, fail(SourceCymru, clierr.Timeout, true), fail(SourceRDAP, clierr.Timeout, true)), ok("2.2.2.2")}, cmd)
 	if !slices.Equal(addresses(recs), []string{"3.3.3.3", "2.2.2.2"}) {
 		t.Errorf("records %v: the failed address has no record", addresses(recs))
-	}
-}
-
-func TestRetryCommand(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name  string
-		flags Flags
-		want  string
-	}{
-		{"no flags", Flags{}, "nyx ip 1.1.1.1 2001:db8::1"},
-		{"every flag, in the same order whatever the field order", Flags{JSON: true, TimeoutSet: true, Timeout: "2m", FieldsSet: true, Fields: "asn", Active: true},
-			"nyx ip 1.1.1.1 2001:db8::1 --active --fields asn --timeout 2m --json"},
-		{"an empty --fields is kept", Flags{FieldsSet: true}, "nyx ip 1.1.1.1 2001:db8::1 --fields ''"},
-		{"fields not set are left out", Flags{Fields: "asn", Timeout: "5s"}, "nyx ip 1.1.1.1 2001:db8::1"},
-		{"values are quoted", Flags{FieldsSet: true, Fields: "asn, ptr", TimeoutSet: true, Timeout: "1m 5s"}, "nyx ip 1.1.1.1 2001:db8::1 --fields 'asn, ptr' --timeout '1m 5s'"},
-	}
-	for _, c := range cases {
-		if got := RetryCommand(c.flags)([]string{"1.1.1.1", "2001:db8::1"}); got != c.want {
-			t.Errorf("%s:\n got %s\nwant %s", c.name, got, c.want)
-		}
-	}
-	if got := RetryCommand(Flags{})([]string{"it's.example.com"}); got != `nyx ip 'it'\''s.example.com'` {
-		t.Errorf("an argument is quoted: %s", got)
 	}
 }

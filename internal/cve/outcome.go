@@ -14,13 +14,11 @@ type Result struct {
 	Fail   *Failure
 }
 
-// HintFunc is the command that looks ids up again, with the caller's flags.
-type HintFunc func(ids []string) string
-
 // Outcome is what a batch returns, from its results in argument order: the
 // records, a meta.errors entry for each failure (its error, with the argument
 // as given as its input) and the error the call ends with, nil when every ID
-// succeeded.
+// succeeded. command is the command, with the caller's flags, that looks the
+// given IDs up again.
 //
 // When some succeeded, or none did with different error codes, the error is
 // PARTIAL: it counts what succeeded and what did not, lists the failed
@@ -30,7 +28,7 @@ type HintFunc func(ids []string) string
 // failures, or else says to check the IDs that failed; a single code's error
 // that is not transient keeps that code's hint, and one of timeouts also
 // says to raise --timeout.
-func Outcome(results []Result, hint HintFunc) ([]Record, []*clierr.Error, *clierr.Error) {
+func Outcome(results []Result, command func(ids []string) string) ([]Record, []*clierr.Error, *clierr.Error) {
 	var records []Record
 	var failures []batch.Failure
 	for _, r := range results {
@@ -40,7 +38,7 @@ func Outcome(results []Result, hint HintFunc) ([]Record, []*clierr.Error, *clier
 		}
 		failures = append(failures, batch.Failure{Name: r.Input, Retry: r.ID, Err: r.Fail.Err, Wait: r.Fail.Wait})
 	}
-	metaErrs, err := batch.Outcome(batch.Config{Noun: "IDs", Key: "id", Command: hint},
+	metaErrs, err := batch.Outcome(batch.Config{Noun: "IDs", Key: "id", Command: command},
 		len(results), len(records), failures)
 	return records, metaErrs, err
 }

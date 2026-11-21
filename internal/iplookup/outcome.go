@@ -8,7 +8,6 @@ import (
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/shellquote"
 )
 
 // InputResult is how one input ended before any of its addresses was looked up.
@@ -100,7 +99,9 @@ type ErrorInput struct {
 // addresses and on the hostnames whose resolution failed, for the failures worth retrying. A
 // failed address has the code of its first failing source in the record's order. Its message
 // counts the addresses and inputs that failed against those looked up, so "1 of 2 inputs
-// returned" may count addresses.
+// returned" may count addresses. The failures are named by address in the messages, but the
+// error's input lists what the caller typed: every input that failed or that gave a failed
+// address, once each, in order; each meta.errors entry names its address.
 func Outcome(inputs []InputResult, addrs []AddressResult, command func(retry []string) string) ([]Record, []*clierr.Error, *clierr.Error) {
 	verdicts := make(map[string]verdict, len(addrs))
 	var records []Record
@@ -126,8 +127,12 @@ func Outcome(inputs []InputResult, addrs []AddressResult, command func(retry []s
 	failAddress := func(a string) {
 		if v := verdicts[a]; len(v.failing) > 0 && !reported[a] {
 			reported[a] = true
+			given := givenBy[a]
+			if given == nil {
+				given = []string{} // an address no input names lists none
+			}
 			failures = append(failures, batch.Failure{
-				Name: a, Entry: ErrorInput{Input: givenBy[a], Address: a}, Retry: a, Err: v.err(),
+				Name: a, Entry: ErrorInput{Input: givenBy[a], Address: a}, Given: given, Retry: a, Err: v.err(),
 			})
 		}
 	}
@@ -146,57 +151,5 @@ func Outcome(inputs []InputResult, addrs []AddressResult, command func(retry []s
 	}
 	metaErrs, err := batch.Outcome(batch.Config{Noun: "inputs", Key: "input", Command: command},
 		total, len(records), failures)
-	if err != nil {
-		err.Input = callInput(failures)
-	}
 	return records, metaErrs, err
-}
-
-// callInput is the input of the error a call ends with: every input as given that failed or that
-// gave a failed address, in order, as the one list of the "input" argument, the shape every
-// command's error has. The failures are named by address in the messages, but the input lists
-// what the caller typed; each meta.errors entry names its address.
-func callInput(failures []batch.Failure) map[string][]string {
-	given := []string{}
-	for _, f := range failures {
-		e, _ := f.Entry.(ErrorInput)
-		for _, in := range e.Input {
-			if !slices.Contains(given, in) {
-				given = append(given, in)
-			}
-		}
-	}
-	return map[string][]string{"input": given}
-}
-
-// Flags are the flags a caller gave, which a retry command repeats.
-type Flags struct {
-	Active     bool
-	Fields     string
-	FieldsSet  bool // --fields was given, even when empty
-	Timeout    string
-	TimeoutSet bool
-	JSON       bool
-}
-
-// RetryCommand is the command that looks up again the given addresses and hostnames, with the
-// flags the caller gave: nyx ip <inputs> --active --fields <fields> --timeout <timeout> --json,
-// each argument quoted for a shell.
-func RetryCommand(f Flags) func(retry []string) string {
-	var flags []string
-	if f.Active {
-		flags = append(flags, "--active")
-	}
-	if f.FieldsSet {
-		flags = append(flags, "--fields", f.Fields)
-	}
-	if f.TimeoutSet {
-		flags = append(flags, "--timeout", f.Timeout)
-	}
-	if f.JSON {
-		flags = append(flags, "--json")
-	}
-	return func(retry []string) string {
-		return "nyx ip " + shellquote.Join(append(slices.Clone(retry), flags...))
-	}
 }

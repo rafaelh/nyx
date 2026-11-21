@@ -26,7 +26,8 @@ type ipOptions struct {
 }
 
 // ipStdin is what nyx ip reads from stdin.
-var ipStdin = stdinWords{plural: "inputs", perLine: "one address, hostname or CIDR per line", asArgs: "inputs"}
+var ipStdin = stdinWords{none: "no inputs given: pass one or more addresses, hostnames or CIDRs", key: "input",
+	plural: "inputs", perLine: "one address, hostname or CIDR per line", asArgs: "inputs"}
 
 // Paces and timeouts of the sources nyx ip asks, applied where the base options leave them unset.
 const (
@@ -122,26 +123,20 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 	}
 	phase := func(n int) (context.Context, context.CancelFunc) { return context.WithDeadline(ctx, deadlineFor(n)) }
 
+	stdin := lookupArgs(probs, args, ipStdin)
 	inputs := args
-	stdin := len(args) == 1 && args[0] == "-"
-	switch {
-	case len(args) == 0:
-		probs.Add("", "", "no inputs given: pass one or more addresses, hostnames or CIDRs, or - to read them from stdin", "nyx --help")
-	case slices.Contains(args, "-") && len(args) > 1:
-		probs.Add("input", "-", "- reads the inputs from stdin, and is given alone", "pass the inputs as arguments, or - alone")
-		inputs = nil
+	if slices.Contains(args, "-") {
+		inputs = nil // read from stdin, or a problem already
 	}
-	if stdin || len(inputs) == 0 {
+	if stdin {
 		if err := probs.Err(); err != nil {
 			return err
 		}
-	}
-	if stdin {
 		sctx, cancel := phase(1)
 		lines, err := readLines(sctx, d.Stdin, ipStdin)
 		cancel()
 		if err != nil {
-			return endedBy(ctx, err)
+			return err
 		}
 		inputs = lines
 	}
@@ -162,7 +157,7 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 	em, warnings := newEmitter(inv, red)
 	cfg := ipConfig(d.Egress, fields, red, em)
 	if inv.sh.debug {
-		cfg.Debug = func(msg string) { em.Emit(report.Event{Type: "debug", Fields: map[string]any{"message": msg}}) }
+		cfg.Debug = report.Say(em, "debug")
 	}
 
 	rctx, cancel := phase(plan.ProvisionalCount())
@@ -181,19 +176,9 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 		return context.Cause(ctx)
 	}
 
-	flags := iplookup.Flags{Active: o.active, Fields: o.fields, FieldsSet: fs.Changed("fields"),
-		Timeout: o.timeout, TimeoutSet: timeoutSet, JSON: inv.sh.json}
-	records, metaErrs, outErr := iplookup.Outcome(resolved.Inputs, results, iplookup.RetryCommand(flags))
-	if outErr != nil && outErr.Code != clierr.Partial {
-		return outErr // none succeeded, all with one code: nothing on stdout
-	}
-	if err := writeIP(inv, records, metaErrs, fields, warnings, red); err != nil {
-		return err
-	}
-	if outErr != nil {
-		return outErr // not a nil *clierr.Error in a non-nil error
-	}
-	return nil
+	retry := retryCommand("ip", inv.sh.json, fs, "active", "fields", "timeout")
+	records, metaErrs, outErr := iplookup.Outcome(resolved.Inputs, results, retry)
+	return endLookup(outErr, func() error { return writeIP(inv, records, metaErrs, fields, warnings, red) })
 }
 
 // ipConfig is what the lookup needs: one egress for the resolvers and the third parties, with no
@@ -205,7 +190,7 @@ func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor,
 	clients := e.Clients(false, iplookup.SourceHosts())
 	cfg := iplookup.Config{Fields: fields, ThirdParty: clients.ThirdParty, DNS: clients.DNS, Local: e.Local(),
 		ProbeOptions: o}
-	cfg.Warn = func(msg string) { em.Emit(report.Event{Type: "warning", Fields: map[string]any{"message": msg}}) }
+	cfg.Warn = report.Say(em, "warning")
 	return cfg
 }
 
