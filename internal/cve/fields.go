@@ -256,13 +256,17 @@ func referenceMatches(ref Reference, match string) bool {
 		slices.ContainsFunc(ref.Tags, func(t string) bool { return strings.Contains(strings.ToLower(t), match) })
 }
 
-// ListHint is the note on how to see the lists the selection leaves out: it names each
-// one that has entries in at least one record (matching entries under --match), in the
-// table's order. It is "" when nothing was left out that has entries.
+// leftOut reports whether the list at i in lists is not shown though the record has
+// entries in it (matching entries under --match): what ListHint and the heading of
+// the list's count name.
+func (p Projected) leftOut(i int) bool { return !p.f.Has(lists[i].name) && p.counts[i].entries() > 0 }
+
+// ListHint is the --json note on how to see the lists the selection leaves out: it names each
+// one left out of at least one record, in the table's order. It is "" when none was.
 func ListHint(ps []Projected) string {
 	var names []string
 	for i, l := range lists {
-		if slices.ContainsFunc(ps, func(p Projected) bool { return !p.f.Has(l.name) && p.counts[i].entries() > 0 }) {
+		if slices.ContainsFunc(ps, func(p Projected) bool { return p.leftOut(i) }) {
 			names = append(names, l.name)
 		}
 	}

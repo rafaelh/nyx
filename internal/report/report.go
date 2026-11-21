@@ -15,9 +15,9 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Event is one thing that happened in a run. Types: run_start, stage, found, count, warning, hint
-// and debug. They drive the console log; the result of the run is the Summary, not an event. A
-// debug event is one failed check. A hint is a note on how to get more from the command.
+// Event is one thing that happened in a run. Types: run_start, stage, found, count, warning and
+// debug. They drive the console log; the result of the run is the Summary, not an event. A debug
+// event is one failed check.
 type Event struct {
 	Type   string
 	Fields map[string]any
@@ -165,17 +165,35 @@ func str(f map[string]any, k string) string {
 	}
 }
 
-// Emit renders one event. run_start, found, count and hint are INFO; stage is INFO,
+// Emit renders one event. run_start, found and count are INFO; stage is INFO,
 // or ERROR when its state is failed; warning is WARN and debug is DEBUG.
 // Unknown types print nothing.
 func (c *Console) Emit(ev Event) {
+	level, ok := eventLevel(ev)
+	if !ok || level < c.o.Min {
+		return // before the line is built: most debug events are dropped
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	level, msg, ok := c.message(ev)
-	if !ok || level < c.o.Min {
-		return
+	fmt.Fprintln(c.o.Log, LineSpans(c.o.LogStream, c.o.Clock().In(c.o.Location), level, c.message(ev)))
+}
+
+// eventLevel is the level of an event's line. ok is false for an event type with no line.
+func eventLevel(ev Event) (level Level, ok bool) {
+	switch ev.Type {
+	case "run_start", "found", "count":
+		return Info, true
+	case "stage":
+		if str(ev.Fields, "state") == "failed" {
+			return Error, true
+		}
+		return Info, true
+	case "warning":
+		return Warn, true
+	case "debug":
+		return Debug, true
 	}
-	fmt.Fprintln(c.o.Log, LineSpans(c.o.LogStream, c.o.Clock().In(c.o.Location), level, msg))
+	return 0, false
 }
 
 // textStyle is the style of a semantic or chrome entry for the text of a line, or none when the
@@ -245,10 +263,9 @@ func foundSpans(s layout.Stream, category, value, text, severity string) []layou
 	return append(spans, layout.Span{Text: category, Style: textStyle(s, palette.Semantic, "info")}, layout.Span{Text: ": " + value})
 }
 
-// message is the level and message of an event's line. ok is false for an event type with no line.
-func (c *Console) message(ev Event) (level Level, msg []layout.Span, ok bool) {
+// message is the message of the line of an event that has one (eventLevel's ok).
+func (c *Console) message(ev Event) (msg []layout.Span) {
 	s, str, f := c.o.LogStream, c.str, ev.Fields
-	level = Info
 	switch ev.Type {
 	case "run_start":
 		m := "nyx " + str(f, "engagement")
@@ -263,23 +280,13 @@ func (c *Console) message(ev Event) (level Level, msg []layout.Span, ok bool) {
 		}
 		msg = layout.Plain(m)
 	case "stage":
-		state := str(f, "state")
-		if state == "failed" {
-			level = Error
-		}
-		msg = stageSpans(s, str(f, "name"), state, str(f, "reason"), str(f, "checks"), str(f, "failed"))
+		msg = stageSpans(s, str(f, "name"), str(f, "state"), str(f, "reason"), str(f, "checks"), str(f, "failed"))
 	case "found":
 		msg = foundSpans(s, str(f, "category"), str(f, "value"), str(f, "text"), str(f, "severity"))
 	case "count":
 		msg = layout.Plain(fmt.Sprintf("  %s: %s", str(f, "category"), str(f, "n")))
-	case "hint":
+	case "warning", "debug":
 		msg = layout.Plain(str(f, "message"))
-	case "warning":
-		level, msg = Warn, layout.Plain(str(f, "message"))
-	case "debug":
-		level, msg = Debug, layout.Plain(str(f, "message"))
-	default:
-		return 0, nil, false
 	}
-	return level, msg, true
+	return msg
 }

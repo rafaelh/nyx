@@ -16,7 +16,6 @@
 
 - Evaluate the difference in approach that  https://github.com/blacklanternsecurity/bbot uses for scanning.
 
-- Change CVE sub-command so that the severity line at the top has two blank spaces at the end that aren't coloured. Additionally, Change the header for `Affected Products` to have `(--fields affected_products)` in dark grey after it. With `References` it should have `(--fields references)`. Remove the stderr log line that shows `12:29:54 │  INFO   │ use --fields affected_products,references (or --fields all) to list them`. Last, render the human facing (non-json) version of the `Published` and `Last Modified` dates in local time, YYYY-MM-DD 12hr clock, with a `(UTC 2000-07-13T04:00:00Z)` after it.
 
 # CI improvements/fixes
 

@@ -405,8 +405,7 @@ func cveGolden(t *testing.T, name, columns string) {
 			if spec != "" {
 				args = append(args, "--fields", spec)
 			}
-			// The only thing on stderr may be the note on how to see the lists the fields leave out.
-			if code := h.execRoot(args...); code != 0 || strings.Count(h.stderr.String(), "\n") > 1 || strings.Count(h.stderr.String(), "\n") != strings.Count(h.stderr.String(), " to list them\n") {
+			if code := h.execRoot(args...); code != 0 || h.stderr.Len() != 0 {
 				t.Fatalf("--fields %q: exit %d, stderr %q", spec, code, h.stderr.String())
 			}
 			fmt.Fprintf(&b, "$ nyx cve %s%s\n%s", strings.Join(ids, " "), map[bool]string{true: " --fields " + spec}[spec != ""], h.stdout.String())

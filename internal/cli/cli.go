@@ -57,7 +57,7 @@ type Deps struct {
 	// none; nil means 0. They are consulted only for a stream that is a terminal.
 	StdoutWidth func() int
 	StderrWidth func() int
-	Location    *time.Location // the time zone log lines are shown in; nil means time.Local
+	Location    *time.Location // the time zone human output shows times in; nil means time.Local
 	Clock       func() time.Time
 	// Signals delivers SIGINT, SIGTERM and SIGHUP; nil means none arrive. The
 	// first cancels the command, a second exits at once (see NotifySignals).

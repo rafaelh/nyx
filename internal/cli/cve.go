@@ -144,7 +144,7 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	if outErr != nil && outErr.Code != clierr.Partial {
 		return outErr // none succeeded, all with one code: nothing on stdout
 	}
-	if err := writeCVE(inv, records, metaErrs, view, em, warnings, red); err != nil {
+	if err := writeCVE(inv, records, metaErrs, view, warnings, red); err != nil {
 		return err
 	}
 	wrote = inv.sh.json || len(records) > 0 // human mode writes nothing without a record
@@ -427,24 +427,16 @@ func writeEnvelope[T any](inv *invocation, data []T, metaErrs []*clierr.Error, w
 	return lineEncoder(inv.d.Stdout).Encode(env)
 }
 
-// writeCVE writes the records cut by view: the envelope under --json, else the cve tool's layout,
-// which writes nothing when there is no record, followed by the note on how to see the lists the
-// view leaves out, as a hint event, when there is a record to write and something to say.
-func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, view cve.View, em report.Emitter, warnings *report.Warnings, red *config.Redactor) error {
-	d := inv.d
+// writeCVE writes the records cut by view: the envelope, with the note on how to see the lists the
+// view leaves out as its hint, under --json, else the cve tool's layout, which writes nothing when
+// there is no record and names the flag of each list it leaves out in that list's heading.
+func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, view cve.View, warnings *report.Warnings, red *config.Redactor) error {
 	projected := make([]cve.Projected, len(records))
 	for i, r := range records {
 		projected[i] = view.Project(r)
 	}
-	hint := cve.ListHint(projected)
 	if !inv.sh.json {
-		if err := cve.Render(d.Stdout, projected, inv.st.out, red); err != nil {
-			return err
-		}
-		if hint != "" {
-			em.Emit(report.Event{Type: "hint", Fields: map[string]any{"message": hint}})
-		}
-		return nil
+		return cve.Render(inv.d.Stdout, projected, inv.st.out, red, inv.d.Location)
 	}
-	return writeEnvelope(inv, projected, metaErrs, warnings, hint, red)
+	return writeEnvelope(inv, projected, metaErrs, warnings, cve.ListHint(projected), red)
 }

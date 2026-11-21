@@ -58,8 +58,14 @@ func renderTo(t *testing.T, recs []Record, spec string, s layout.Stream) string 
 // renderView is recs cut by v and laid out for s.
 func renderView(t *testing.T, recs []Record, v View, s layout.Stream) string {
 	t.Helper()
+	return renderWith(t, recs, v, s, nil, time.UTC)
+}
+
+// renderWith is recs cut by v, rendered to s with red masking keys and the dates in loc.
+func renderWith(t *testing.T, recs []Record, v View, s layout.Stream, red *config.Redactor, loc *time.Location) string {
+	t.Helper()
 	var b bytes.Buffer
-	if err := Render(&b, projectAll(v, recs), s, nil); err != nil {
+	if err := Render(&b, projectAll(v, recs), s, red, loc); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
@@ -91,8 +97,8 @@ const log4shellText = `CVE-2021-44228  [CRITICAL]
 
 Status & Dates
 Status: Analyzed
-Published: 2021-12-10T10:15:09Z
-Last Modified: 2025-10-27T17:40:33Z
+Published: 2021-12-10 10:15 AM (UTC 2021-12-10T10:15:09Z)
+Last Modified: 2025-10-27 5:40 PM (UTC 2025-10-27T17:40:33Z)
 
 Description
 Apache Log4j2 JNDI features do not protect against attacker controlled LDAP.
@@ -272,7 +278,7 @@ func widest(s string) int {
 var colourDepths = []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16}
 
 // The bar is as wide as the layout: the ID at the left and the severity label
-// at the right, all in the severity's badge style.
+// at the right, all in the severity's badge style but the last two spaces.
 func TestBar_Coloured(t *testing.T) {
 	t.Parallel()
 	for _, d := range colourDepths {
@@ -282,8 +288,8 @@ func TestBar_Coloured(t *testing.T) {
 		} {
 			s := stream(true, d, 80)
 			got := Bar(s, "CVE-2021-44228", c.severity, true)
-			plain := " CVE-2021-44228" + strings.Repeat(" ", 80-1-len("CVE-2021-44228")-len(c.label)-1) + c.label + " "
-			if want := d.BadgeText(palette.Severity, c.label, plain); got != want {
+			plain := " CVE-2021-44228" + strings.Repeat(" ", 78-1-len("CVE-2021-44228")-len(c.label)-1) + c.label + " "
+			if want := d.BadgeText(palette.Severity, c.label, plain) + "  "; got != want {
 				t.Errorf("depth %d, severity %q: got %q, want %q", d, c.severity, got, want)
 			}
 			if w := layout.Measure(got); w != 80 {
@@ -313,12 +319,12 @@ func TestBar_Width(t *testing.T) {
 	}
 }
 
-// Without cvss_severity the bar holds only the ID, in the DEBUG style.
+// Without cvss_severity the bar holds only the ID, in the DEBUG style but the last two spaces.
 func TestBar_WithoutSeverity(t *testing.T) {
 	t.Parallel()
 	for _, d := range colourDepths {
 		got := Bar(stream(true, d, 80), "CVE-2021-44228", "CRITICAL", false)
-		want := d.BadgeText(palette.Severity, "no such label", " CVE-2021-44228"+strings.Repeat(" ", 80-15))
+		want := d.BadgeText(palette.Severity, "no such label", " CVE-2021-44228"+strings.Repeat(" ", 78-15)) + "  "
 		if got != want {
 			t.Errorf("depth %d: got %q, want %q", d, got, want)
 		}
@@ -367,8 +373,8 @@ func terminalLog4shell() string {
 
 Status & Dates
   Status         Analyzed
-  Published      2021-12-10T10:15:09Z
-  Last Modified  2025-10-27T17:40:33Z
+  Published      2021-12-10 10:15 AM (UTC 2021-12-10T10:15:09Z)
+  Last Modified  2025-10-27 5:40 PM (UTC 2025-10-27T17:40:33Z)
 
 Description
   Apache Log4j2 JNDI features do not protect against attacker controlled LDAP.
@@ -494,6 +500,43 @@ func TestRender_TerminalColour(t *testing.T) {
 		if want := strings.SplitN(terminalLog4shell(), "\n", 2)[1]; !strings.HasSuffix(strip(got), want) {
 			t.Errorf("depth %d: stripped of colour the body differs:\n%s", d, strip(got))
 		}
+	}
+}
+
+// A list shown only as its count names the flag that lists it after its heading, in the muted
+// timestamp colour, and the heading keeps its own style.
+func TestRender_TerminalColourListTip(t *testing.T) {
+	t.Parallel()
+	for _, d := range colourDepths {
+		got := renderTerm(t, []Record{log4shell()}, "id,affected_products_count,references_count", d, 80)
+		for _, want := range []string{
+			"\n\n" + d.BoldText(palette.Semantic, "info", "Affected Products") + " " + d.Text(palette.Chrome, "TIMESTAMP", "(--fields affected_products)") + "\n",
+			"\n\n" + d.BoldText(palette.Semantic, "info", "References") + " " + d.Text(palette.Chrome, "TIMESTAMP", "(--fields references)") + "\n",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("depth %d: lacks %q:\n%q", d, want, got)
+			}
+		}
+	}
+}
+
+// A date reads as the day and a 12-hour time in the location given, then the moment in UTC.
+func TestRender_DatesInLocalTime(t *testing.T) {
+	t.Parallel()
+	sydney := time.FixedZone("AEDT", 11*60*60)
+	for _, s := range []layout.Stream{stream(false, palette.None, 100), stream(true, palette.None, 100)} {
+		got := renderWith(t, []Record{log4shell()}, View{Fields: selectFields(t, "published,last_modified")}, s, nil, sydney)
+		for _, want := range []string{
+			"2021-12-10 9:15 PM (UTC 2021-12-10T10:15:09Z)",
+			"2025-10-28 4:40 AM (UTC 2025-10-27T17:40:33Z)",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("terminal %t: lacks %q:\n%s", s.Terminal, want, got)
+			}
+		}
+	}
+	if got := localTime(Timestamp{}, sydney); got != "Unknown" {
+		t.Errorf("no date: got %q, want Unknown", got)
 	}
 }
 
@@ -714,11 +757,7 @@ func pieces(key string, n int) []string {
 
 func renderRedacted(t *testing.T, r Record, s layout.Stream, red *config.Redactor) string {
 	t.Helper()
-	var b bytes.Buffer
-	if err := Render(&b, projectAll(View{Fields: selectFields(t, "all")}, []Record{r}), s, red); err != nil {
-		t.Fatal(err)
-	}
-	return b.String()
+	return renderWith(t, []Record{r}, View{Fields: selectFields(t, "all")}, s, red, time.UTC)
 }
 
 // A configured key in the NVD's text never reaches the output, whole or in part,
@@ -817,6 +856,8 @@ func sectionLines(t *testing.T, out, name string) []string {
 const (
 	nothingMatchesProducts = "No affected products match."
 	nothingListedProducts  = "No affected products listed."
+	tippedProducts         = "Affected Products (--fields affected_products)"
+	tippedRefs             = "References (--fields references)"
 )
 
 // Each list's section says how many entries there are, as the count and the
@@ -833,8 +874,8 @@ func TestRender_ListsAndCounts(t *testing.T) {
 		view View
 		want []string
 	}{
-		{"the count alone", long, View{Fields: DefaultFields()}, []string{"Affected Products", "6 listed"}},
-		{"the count alone under a match", long, View{Fields: DefaultFields(), Match: "log4j"}, []string{"Affected Products", "3 of 6 match"}},
+		{"the count alone", long, View{Fields: DefaultFields()}, []string{tippedProducts, "6 listed"}},
+		{"the count alone under a match", long, View{Fields: DefaultFields(), Match: "log4j"}, []string{tippedProducts, "3 of 6 match"}},
 		{"the count alone under a match that matches nothing", long, View{Fields: DefaultFields(), Match: "zzz"}, []string{"Affected Products", "0 of 6 match"}},
 		{"the count alone, nothing listed", empty, View{Fields: DefaultFields()}, []string{"Affected Products", nothingListedProducts}},
 		{"the count alone under a match, nothing listed", empty, View{Fields: DefaultFields(), Match: "log4j"}, []string{"Affected Products", nothingListedProducts}},
@@ -847,7 +888,7 @@ func TestRender_ListsAndCounts(t *testing.T) {
 		{"the list, nothing matched", long, View{Fields: selectFields(t, "affected_products"), Match: "zzz", Limit: 2}, []string{"Affected Products (0 of 6 match)", nothingMatchesProducts}},
 		{"the list, nothing listed", empty, View{Fields: selectFields(t, "affected_products")}, []string{"Affected Products (0)", nothingListedProducts}},
 		{"the list, nothing listed, under a match", empty, View{Fields: selectFields(t, "affected_products"), Match: "log4j"}, []string{"Affected Products (0 of 0 match)", nothingListedProducts}},
-		{"the count named alone", long, View{Fields: selectFields(t, "affected_products_count"), Match: "tomcat"}, []string{"Affected Products", "1 of 6 match"}},
+		{"the count named alone", long, View{Fields: selectFields(t, "affected_products_count"), Match: "tomcat"}, []string{tippedProducts, "1 of 6 match"}},
 	} {
 		checkSection(t, c.name, c.rec, c.view, "Affected Products", 80, c.want)
 	}
@@ -865,8 +906,8 @@ func TestRender_ReferenceCounts(t *testing.T) {
 		view View
 		want []string
 	}{
-		{"the count alone", long, View{Fields: DefaultFields()}, []string{"References", "5 listed"}},
-		{"the count alone under a match", long, View{Fields: DefaultFields(), Match: "log4j"}, []string{"References", "2 of 5 match"}},
+		{"the count alone", long, View{Fields: DefaultFields()}, []string{tippedRefs, "5 listed"}},
+		{"the count alone under a match", long, View{Fields: DefaultFields(), Match: "log4j"}, []string{tippedRefs, "2 of 5 match"}},
 		{"the count alone, nothing listed", empty, View{Fields: DefaultFields()}, []string{"References", "No references listed."}},
 		{"the list, matched and limited", long, View{Fields: selectFields(t, "references"), Match: "log4j", Limit: 1}, []string{"References (2 of 5 match)", r1, "1 more not shown"}},
 		{"the list, limited", long, View{Fields: selectFields(t, "references"), Limit: 2}, []string{"References (5)", r1, r2, "3 more not shown"}},
@@ -923,12 +964,8 @@ func TestRender_CutListsAreRedacted(t *testing.T) {
 	r := Record{ID: "CVE-2026-0001", AffectedProducts: []AffectedProduct{{Vendor: new("acme"), Product: new("widget" + key)}},
 		References: []Reference{{URL: "https://example.com/?k=" + key, Tags: []string{"Patch"}}}}
 	red := config.NewRedactor(key)
-	var b bytes.Buffer
 	v := View{Fields: selectFields(t, "affected_products,references"), Match: key[:12]}
-	if err := Render(&b, projectAll(v, []Record{r}), stream(false, palette.None, 100), red); err != nil {
-		t.Fatal(err)
-	}
-	out := b.String()
+	out := renderWith(t, []Record{r}, v, stream(false, palette.None, 100), red, time.UTC)
 	if strings.Contains(out, key[:12]) || !strings.Contains(out, "(1 of 1 match)") || strings.Count(out, "****") < 2 {
 		t.Errorf("the key was matched but must be masked, and both lists shown:\n%s", out)
 	}

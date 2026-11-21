@@ -231,12 +231,12 @@ func Rule(s Stream, width int) string {
 
 // Heading lays a heading out as lines (without line ends) at the stream's width,
 // in the heading style: bold in the palette's semantic info colour, and plain
-// text when the stream has no colour. A heading wider than the width wraps at
-// spaces, and its continuation lines start at column 0 in the heading style. With
-// rule, a full width Rule follows the last line.
-func Heading(s Stream, text string, rule bool) []string {
+// text when the stream has no colour. after follows the text, in its own styles.
+// A heading wider than the width wraps at spaces, and its continuation lines
+// start at column 0. With rule, a full width Rule follows the last line.
+func Heading(s Stream, text string, rule bool, after ...Span) []string {
 	style := func(x string) string { return s.Depth.BoldText(palette.Semantic, "info", x) }
-	lines := Wrap([]Span{{Text: text, Style: style}}, s.Cols(), 0, 0, Spaces)
+	lines := Wrap(append([]Span{{Text: text, Style: style}}, after...), s.Cols(), 0, 0, Spaces)
 	if rule {
 		lines = append(lines, Rule(s, 0))
 	}

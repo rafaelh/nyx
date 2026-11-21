@@ -794,7 +794,8 @@ rules and borders are drawn with ASCII (`-`, `|`, `+`).
   muted timestamp colour. A found line's `+` is in the success colour, and in a line of the form
   `category: value` the category is in the info colour.
 - **CVE records.** Each record starts with a bar as wide as the layout width, with the CVE ID at
-  the left and the severity at the right, in the severity's badge colours. Without colour the bar is
+  the left and the severity at the right, in the severity's badge colours but for its last two
+  spaces, which are uncoloured. Without colour the bar is
   the ID and `[SEVERITY]` at either end of the line. Field labels have no colon and the values
   line up in one column in each section.
 - **IP records.** Each record starts with a header: the address, the input hostnames that gave it
@@ -1354,9 +1355,11 @@ nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --jso
 - **How to see the lists.** When the default or `--fields` leaves out a list that at least one
   record has entries in (matching entries, under `--match`), the call says once how to see it,
   naming only the lists that have some: `use --fields affected_products,references (or --fields all)
-  to list them`. Under `--json` it is `meta.hint`; in human mode it is one `INFO` line on stderr
-  after the records, which `--quiet` hides. Nothing is said when nothing was left out, or what was
-  left out has no entries.
+  to list them`. Under `--json` it is `meta.hint`. In human mode a list shown only as its count has
+  the flag that lists it after its heading, `Affected Products (--fields affected_products)`, in the
+  muted timestamp colour, and nothing is written to stderr; a list left out with its count has no
+  section to say it in. Nothing is said when nothing was left out, or what was left out has no
+  entries.
 - **`--limit N`** shows at most the first N entries of each list that is shown, in the NVD's order,
   and says how many were left out: `"omitted":k` in the count under `--json` (`0` when none were),
   and a line `k more not shown` after the list in human mode, only when k is above 0. By default
@@ -1385,7 +1388,9 @@ nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --jso
   affected products and the references, as `--fields` selects them. A list's section has its number
   in the heading, `Affected Products (163)`, or `Affected Products (3 of 163 match)` under
   `--match`; where only the count is shown, the section is that number alone, `163 listed` or
-  `3 of 163 match`. Records are separated by a
+  `3 of 163 match`. The dates are the day and a 12-hour time in the local time zone (`TZ`), then
+  the moment in UTC as `--json` writes it: `2021-12-10 9:15 PM (UTC 2021-12-10T10:15:09Z)`.
+  Records are separated by a
   blank line, and text is wrapped to `COLUMNS` (default 100, at least 60). The NVD's text is
   stripped of anything that would act on a terminal. On a terminal the layout is the one in
   [Terminal layout](#terminal-layout): a header bar, headings, and labels with no colon.

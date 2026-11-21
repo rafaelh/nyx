@@ -27,7 +27,10 @@ import (
 // anything that would act on a terminal first and redacted second, so a key that
 // cleaning joins back together is still masked, and redacted before it is
 // wrapped, so no line break can split a key and hide it. A nil red masks nothing.
-func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor) error {
+//
+// loc is the time zone the dates are shown in, each followed by the same moment
+// in UTC.
+func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor, loc *time.Location) error {
 	if len(recs) == 0 {
 		return nil
 	}
@@ -41,12 +44,12 @@ func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor
 	}
 	blocks := make([]string, len(recs))
 	if s.Terminal {
-		tr := termRenderer{s: s.Fixed()} // so every record has one width
+		tr := termRenderer{s: s.Fixed(), loc: loc} // so every record has one width
 		for i, p := range recs {
 			blocks[i] = tr.record(p)
 		}
 	} else {
-		rd := renderer{d: s.Depth, width: s.Cols()}
+		rd := renderer{d: s.Depth, width: s.Cols(), loc: loc}
 		for i, p := range recs {
 			blocks[i] = rd.record(p)
 		}
@@ -104,6 +107,7 @@ func redactRecord(rec Record, red *config.Redactor) Record {
 type renderer struct {
 	d     palette.Depth
 	width int
+	loc   *time.Location
 }
 
 // or is *s cleaned, or fallback when s is nil or blank.
@@ -125,51 +129,47 @@ func (r renderer) record(p Projected) string {
 	rec, has := p.rec, p.f.Has
 	header := r.d.Bold(sanitize.Line(rec.ID))
 	if has("cvss_severity") {
-		header += "  " + r.badge(or(rec.CVSSSeverity, "UNKNOWN"))
+		header += "  " + r.badge(or(rec.CVSSSeverity, unknownSeverity))
 	}
 	lines := []string{header}
-	section := func(heading string, body ...string) {
+	section := func(heading, tip string, body []string) {
 		if len(body) > 0 {
-			lines = append(lines, "", r.d.Bold(heading))
+			h := r.d.Bold(heading)
+			if tip != "" {
+				h += " " + muted(r.d)(tip)
+			}
+			lines = append(lines, "", h)
 			lines = append(lines, body...)
 		}
 	}
-	var dates []string
-	if has("status") {
-		dates = append(dates, r.field("Status", orEmpty(sanitize.Line(rec.Status), "Unknown")))
-	}
-	if has("published") {
-		dates = append(dates, r.field("Published", timestamp(rec.Published)))
-	}
-	if has("last_modified") {
-		dates = append(dates, r.field("Last Modified", timestamp(rec.LastModified)))
-	}
-	section("Status & Dates", dates...)
+	section("Status & Dates", "", r.fields(dateFields(rec, has, r.loc)))
 	if has("description") {
-		section("Description", wrap(or(rec.Description, "No description available."), r.width))
+		section("Description", "", []string{wrap(or(rec.Description, "No description available."), r.width)})
 	}
-	section("CVSS Score", r.cvss(rec, has)...)
+	if kvs, selected := cvssFields(rec, has); selected && kvs == nil {
+		section("CVSS Score", "", []string{noCVSSScore})
+	} else {
+		section("CVSS Score", "", r.fields(kvs))
+	}
 	if has("weaknesses") {
-		ws := make([]string, len(rec.Weaknesses))
-		for i, w := range rec.Weaknesses {
-			ws[i] = sanitize.Line(w)
-		}
-		section("Weaknesses", bullets(ws, "No weaknesses listed.", r.width)...)
+		section("Weaknesses", "", bullets(cleaned(rec.Weaknesses), "No weaknesses listed.", r.width))
 	}
 	plain := func(s string) []string { return []string{s} }
 	if b, ok := p.listBody(productsList); ok {
-		section(b.heading, b.lines(func() []string { return bullets(shortForms(rec.AffectedProducts), "", r.width) }, plain)...)
+		section(b.heading, b.tip, b.lines(func() []string { return bullets(shortForms(rec.AffectedProducts), "", r.width) }, plain))
 	}
 	if b, ok := p.listBody(referencesList); ok {
-		section(b.heading, b.lines(func() []string { return r.references(rec.References) }, plain)...)
+		section(b.heading, b.tip, b.lines(func() []string { return r.references(rec.References) }, plain))
 	}
 	return strings.Join(lines, "\n")
 }
 
-// listBody is what a list's section says: its heading, a line of text in place of
-// the entries when there are none to show, and how many entries were left out.
+// listBody is what a list's section says: its heading, the flag that lists its
+// entries when only their count is shown, a line of text in place of the entries
+// when there are none to show, and how many entries were left out.
 type listBody struct {
 	heading string
+	tip     string // "" when the entries are shown, or there are none to list
 	text    string // "" when the entries are the body
 	more    string // "" when none were left out
 }
@@ -216,6 +216,9 @@ func (p Projected) listBody(i int) (listBody, bool) {
 		return b, true
 	case p.f.Has(l.count):
 		b := listBody{heading: l.title, text: listed + " listed"}
+		if p.leftOut(i) {
+			b.tip = "(--fields " + l.name + ")"
+		}
 		switch {
 		case c.Total == 0:
 			b.text = nothing
@@ -235,35 +238,77 @@ func (r renderer) badge(severity string) string {
 	return r.d.Badge(palette.Severity, severity)
 }
 
-func (r renderer) field(key, value string) string { return r.d.Bold(key+":") + " " + value }
+// fields are labelled values, each a bold label with a colon and its value.
+func (r renderer) fields(kvs []kv) []string {
+	var lines []string
+	for _, f := range kvs {
+		lines = append(lines, r.d.Bold(f.label+":")+" "+f.value)
+	}
+	return lines
+}
 
-// cvss is the CVSS section's body for the selected cvss_* fields. The severity
-// alone needs none: the header's badge shows it.
-func (r renderer) cvss(rec Record, has func(string) bool) []string {
+// muted is the style of the muted timestamp colour.
+func muted(d palette.Depth) func(string) string {
+	return func(s string) string { return d.Text(palette.Chrome, "TIMESTAMP", s) }
+}
+
+// cleaned is each of ss cleaned of anything that would act on a terminal.
+func cleaned(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = sanitize.Line(s)
+	}
+	return out
+}
+
+// kv is a field of a section: a label and its cleaned value.
+type kv struct{ label, value string }
+
+// dateFields are the Status & Dates section's fields that are selected.
+func dateFields(rec Record, has func(string) bool, loc *time.Location) []kv {
+	var kvs []kv
+	if has("status") {
+		kvs = append(kvs, kv{"Status", orEmpty(sanitize.Line(rec.Status), "Unknown")})
+	}
+	if has("published") {
+		kvs = append(kvs, kv{"Published", localTime(rec.Published, loc)})
+	}
+	if has("last_modified") {
+		kvs = append(kvs, kv{"Last Modified", localTime(rec.LastModified, loc)})
+	}
+	return kvs
+}
+
+// noCVSSScore is the CVSS section's body for a record with no score.
+const noCVSSScore = "No CVSS score."
+
+// cvssFields are the CVSS section's fields for the selected cvss_* fields, and
+// whether any of them is selected: selected with no fields is a record with no
+// score. The severity alone selects none: the header's badge shows it.
+func cvssFields(rec Record, has func(string) bool) (kvs []kv, selected bool) {
 	if !has("cvss_score") && !has("cvss_vector") && !has("cvss_version") && !has("cvss_source") {
-		return nil
+		return nil, false
 	}
 	if rec.CVSSScore == nil {
-		return []string{"No CVSS score."}
+		return nil, true
 	}
-	var lines []string
 	if has("cvss_score") {
 		score := strconv.FormatFloat(*rec.CVSSScore, 'f', 1, 64)
 		if has("cvss_severity") && rec.CVSSSeverity != nil {
 			score += " (" + sanitize.Line(*rec.CVSSSeverity) + ")"
 		}
-		lines = append(lines, r.field("Base Score", score))
+		kvs = append(kvs, kv{"Base Score", score})
 	}
 	if has("cvss_vector") {
-		lines = append(lines, r.field("Vector", or(rec.CVSSVector, "Unknown")))
+		kvs = append(kvs, kv{"Vector", or(rec.CVSSVector, "Unknown")})
 	}
 	if has("cvss_version") {
-		lines = append(lines, r.field("Version", or(rec.CVSSVersion, "Unknown")))
+		kvs = append(kvs, kv{"Version", or(rec.CVSSVersion, "Unknown")})
 	}
 	if has("cvss_source") {
-		lines = append(lines, r.field("Source", or(rec.CVSSSource, "Unknown")))
+		kvs = append(kvs, kv{"Source", or(rec.CVSSSource, "Unknown")})
 	}
-	return lines
+	return kvs, true
 }
 
 // references is the References section's body: each URL, with the NVD's tags for it.
@@ -272,11 +317,7 @@ func (r renderer) references(refs []Reference) []string {
 	for i, ref := range refs {
 		line := r.d.Text(palette.Semantic, "info", sanitize.Line(ref.URL))
 		if len(ref.Tags) > 0 {
-			tags := make([]string, len(ref.Tags))
-			for j, t := range ref.Tags {
-				tags[j] = sanitize.Line(t)
-			}
-			line += " " + r.d.Text(palette.Chrome, "TIMESTAMP", "["+strings.Join(tags, ", ")+"]")
+			line += " " + muted(r.d)("["+strings.Join(cleaned(ref.Tags), ", ")+"]")
 		}
 		lines[i] = line
 	}
@@ -328,11 +369,13 @@ func productLine(ap AffectedProduct, tidy, cpe func(string) string) string {
 	return s
 }
 
-func timestamp(t Timestamp) string {
+// localTime is how a date reads to a person: the day and a 12-hour time in loc,
+// then the moment in UTC as --json writes it: 2021-12-10 9:15 PM (UTC 2021-12-10T10:15:09Z).
+func localTime(t Timestamp, loc *time.Location) string {
 	if t.IsZero() {
 		return "Unknown"
 	}
-	return t.UTC().Format(time.RFC3339)
+	return t.In(loc).Format("2006-01-02 3:04 PM") + " (UTC " + t.UTC().Format(time.RFC3339) + ")"
 }
 
 // bullets are items as a list, each wrapped with its continuation lines
@@ -373,12 +416,13 @@ const unknownSeverity = "UNKNOWN"
 // Bar is the bar that opens a record on a terminal: the CVE ID at the left and
 // the severity label at the right, as wide as the stream's layout width. With
 // colour it is a space, the ID, padding, the label and a space, all in the badge
-// style the severity takes. A missing severity (empty, with hasSeverity set)
-// reads UNKNOWN, and a value the palette does not know keeps its own text; both
-// take the DEBUG style. Without hasSeverity (cvss_severity was not selected) the
-// bar holds only the ID, padded to the width, in the DEBUG style. Without colour
-// the bar is the ID and the label in brackets at either end of the line, or the
-// ID alone without hasSeverity. The ID and the severity are cleaned first.
+// style the severity takes, then barMargin uncoloured. A missing severity (empty,
+// with hasSeverity set) reads UNKNOWN, and a value the palette does not know
+// keeps its own text; both take the DEBUG style. Without hasSeverity
+// (cvss_severity was not selected) the bar holds only the ID, padded, in the
+// DEBUG style, then barMargin. Without colour the bar is the ID and the label in
+// brackets at either end of the line, or the ID alone without hasSeverity. The ID
+// and the severity are cleaned first.
 func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
 	id = sanitize.Line(id)
 	label := orEmpty(sanitize.Line(severity), unknownSeverity)
@@ -389,67 +433,63 @@ func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
 			return id
 		}
 		tag := "[" + label + "]"
-		return id + strings.Repeat(" ", max(1, cols-layout.Measure(id)-layout.Measure(tag))) + tag
+		return layout.PadRight(id+" ", cols-layout.Measure(tag)) + tag
 	}
+	cols -= len(barMargin)
 	if !hasSeverity {
 		// A label the severity table does not hold gets the DEBUG style.
-		return d.BadgeText(palette.Severity, unknownSeverity, layout.PadRight(" "+id, cols))
+		return d.BadgeText(palette.Severity, unknownSeverity, layout.PadRight(" "+id, cols)) + barMargin
 	}
-	pad := max(1, cols-1-layout.Measure(id)-layout.Measure(label)-1)
-	return d.BadgeText(palette.Severity, label, " "+id+strings.Repeat(" ", pad)+label+" ")
+	return d.BadgeText(palette.Severity, label, layout.PadRight(" "+id+" ", cols-1-layout.Measure(label))+label+" ") + barMargin
 }
+
+// barMargin is the uncoloured spaces that end a coloured bar.
+const barMargin = "  "
 
 // termRenderer lays records out for a terminal: a header bar, then each section
 // under a heading with no rule, its text indented two spaces and wrapped to the
 // width. Every NVD value is cleaned, then wrapped, then coloured, as in the
 // plain layout.
 type termRenderer struct {
-	s layout.Stream // its width fixed for the whole write
+	s   layout.Stream // its width fixed for the whole write
+	loc *time.Location
 }
 
 // indent is the indentation of every line of a section's body.
 const indent = 2
 
-// kv is a field of a section: a label and its cleaned value.
-type kv struct{ label, value string }
-
 func (r termRenderer) record(p Projected) string {
 	rec, has := p.rec, p.f.Has
 	lines := []string{Bar(r.s, rec.ID, or(rec.CVSSSeverity, ""), has("cvss_severity"))}
-	section := func(heading string, body []string) {
+	// A tip follows the heading in the muted timestamp colour, and is not broken.
+	section := func(heading, tip string, body []string) {
 		if len(body) > 0 {
+			var after []layout.Span
+			if tip != "" {
+				after = []layout.Span{{Text: " "}, {Text: tip, Style: muted(r.s.Depth), Keep: true}}
+			}
 			lines = append(lines, "")
-			lines = append(lines, layout.Heading(r.s, heading, false)...)
+			lines = append(lines, layout.Heading(r.s, heading, false, after...)...)
 			lines = append(lines, body...)
 		}
 	}
-	var dates []kv
-	if has("status") {
-		dates = append(dates, kv{"Status", orEmpty(sanitize.Line(rec.Status), "Unknown")})
-	}
-	if has("published") {
-		dates = append(dates, kv{"Published", timestamp(rec.Published)})
-	}
-	if has("last_modified") {
-		dates = append(dates, kv{"Last Modified", timestamp(rec.LastModified)})
-	}
-	section("Status & Dates", r.fields(dates))
+	section("Status & Dates", "", r.fields(dateFields(rec, has, r.loc)))
 	if has("description") {
-		section("Description", r.text(or(rec.Description, "No description available.")))
+		section("Description", "", r.text(or(rec.Description, "No description available.")))
 	}
-	section("CVSS Score", r.cvss(rec, has))
+	if kvs, selected := cvssFields(rec, has); selected && kvs == nil {
+		section("CVSS Score", "", r.text(noCVSSScore))
+	} else {
+		section("CVSS Score", "", r.fields(kvs))
+	}
 	if has("weaknesses") {
-		ws := make([]string, len(rec.Weaknesses))
-		for i, w := range rec.Weaknesses {
-			ws[i] = sanitize.Line(w)
-		}
-		section("Weaknesses", r.bullets(ws, "No weaknesses listed."))
+		section("Weaknesses", "", r.bullets(cleaned(rec.Weaknesses), "No weaknesses listed."))
 	}
 	if b, ok := p.listBody(productsList); ok {
-		section(b.heading, b.lines(func() []string { return r.bullets(shortForms(rec.AffectedProducts), "") }, r.text))
+		section(b.heading, b.tip, b.lines(func() []string { return r.bullets(shortForms(rec.AffectedProducts), "") }, r.text))
 	}
 	if b, ok := p.listBody(referencesList); ok {
-		section(b.heading, b.lines(func() []string { return r.references(rec.References) }, r.text))
+		section(b.heading, b.tip, b.lines(func() []string { return r.references(rec.References) }, r.text))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -498,40 +538,11 @@ func (r termRenderer) bullets(items []string, fallback string) []string {
 	return out
 }
 
-// cvss is the CVSS section's body, as the plain layout's, for a terminal.
-func (r termRenderer) cvss(rec Record, has func(string) bool) []string {
-	if !has("cvss_score") && !has("cvss_vector") && !has("cvss_version") && !has("cvss_source") {
-		return nil
-	}
-	if rec.CVSSScore == nil {
-		return r.text("No CVSS score.")
-	}
-	var kvs []kv
-	if has("cvss_score") {
-		score := strconv.FormatFloat(*rec.CVSSScore, 'f', 1, 64)
-		if has("cvss_severity") && rec.CVSSSeverity != nil {
-			score += " (" + sanitize.Line(*rec.CVSSSeverity) + ")"
-		}
-		kvs = append(kvs, kv{"Base Score", score})
-	}
-	if has("cvss_vector") {
-		kvs = append(kvs, kv{"Vector", or(rec.CVSSVector, "Unknown")})
-	}
-	if has("cvss_version") {
-		kvs = append(kvs, kv{"Version", or(rec.CVSSVersion, "Unknown")})
-	}
-	if has("cvss_source") {
-		kvs = append(kvs, kv{"Source", or(rec.CVSSSource, "Unknown")})
-	}
-	return r.fields(kvs)
-}
-
 // references are each URL, whole, in the info colour, then the NVD's tags for it
 // as a list in the timestamp colour that wraps at spaces, under the URL's text at 4.
 func (r termRenderer) references(refs []Reference) []string {
 	d := r.s.Depth
 	info := func(x string) string { return d.Text(palette.Semantic, "info", x) }
-	chrome := func(x string) string { return d.Text(palette.Chrome, "TIMESTAMP", x) }
 	var out []string
 	for _, ref := range refs {
 		spans := []layout.Span{{Text: squash(sanitize.Line(ref.URL)), Style: info}}
@@ -540,7 +551,7 @@ func (r termRenderer) references(refs []Reference) []string {
 			for i, t := range ref.Tags {
 				tags[i] = squash(sanitize.Line(t))
 			}
-			spans = append(spans, layout.Span{Text: " "}, layout.Span{Text: "[" + strings.Join(tags, ", ") + "]", Style: chrome})
+			spans = append(spans, layout.Span{Text: " "}, layout.Span{Text: "[" + strings.Join(tags, ", ") + "]", Style: muted(d)})
 		}
 		ls := layout.Wrap(spans, r.s.Cols(), indent, 2*indent, layout.Spaces)
 		out = append(out, strings.Repeat(" ", indent)+ls[0])
