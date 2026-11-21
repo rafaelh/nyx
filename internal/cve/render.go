@@ -217,7 +217,7 @@ func (p Projected) listBody(i int) (listBody, bool) {
 	case p.f.Has(l.count):
 		b := listBody{heading: l.title, text: listed + " listed"}
 		if p.leftOut(i) {
-			b.tip = "(--fields " + l.name + ")"
+			b.tip = "(--fields " + l.name + " to show)"
 		}
 		switch {
 		case c.Total == 0:
