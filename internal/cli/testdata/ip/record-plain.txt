@@ -1,0 +1,36 @@
+8.8.4.4 (web.example.com) [public]
+
+Owner
+ASN: AS64500
+Name: EXAMPLE-NET
+Prefix: 8.8.4.0/24
+
+Registration
+Netblock: 8.8.4.0/24
+Organisation: Example Org Pty Ltd
+Registry: arin
+
+Names
+PTR: host-8-8-4-4.example.net
+
+Provider
+Provider: none
+Class: none
+
+Location
+Country: AU
+City: Sydney
+
+Exposure
+Ports: 22, 80, 443
+Hostnames: idb-8-8-4-4.example.net
+Tags: self-signed
+CPEs: cpe:/a:apache:http_server:2.4.41
+Vulns: CVE-2021-41773
+
+Reverse IP
+Count: 2
+Names: a.8-8-4-4.example.org, b.8-8-4-4.example.org
+
+Failures
+none

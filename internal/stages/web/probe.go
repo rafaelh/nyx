@@ -12,7 +12,6 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // maxHops is how many redirects a probe, the crawl or jsparse follows.
@@ -330,7 +329,7 @@ func certAttrs(attrs *kinds.WebServiceAttrs, first egress.Response, host string,
 	for _, name := range leaf.DNSNames {
 		// A wildcard contributes its base name; malformed names, IP literals
 		// and public suffixes are skipped.
-		if d := httpsrc.CleanName(name); d != "" && d != strings.ToLower(host) {
+		if d := input.CleanName(name); d != "" && d != strings.ToLower(host) {
 			obs.add(kinds.Hostname.Obs(d, kinds.HostnameAttrs{}))
 		}
 	}

@@ -6,6 +6,8 @@ package egress
 
 import (
 	"cmp"
+	"context"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -95,6 +97,12 @@ type Options struct {
 	// SourceBaseURLs maps a source pattern, or an exact host (checked first), to a base URL.
 	SourceBaseURLs map[string]string
 	DialMap        map[string]string // "ip:port" -> "host:port" actually dialled
+	// SourceRates sets the requests per second of a third-party source pattern, in place of
+	// RatePerSource.
+	SourceRates map[string]float64
+	// LocalResolverAddr, when set, is the "host:port" this machine's resolver is replaced with,
+	// for tests.
+	LocalResolverAddr string
 
 	DNSTimeout, ConnectTimeout, BannerWait, HTTPTimeout time.Duration
 
@@ -192,7 +200,11 @@ func (e *Egress) hostLimiter(a netip.Addr) *rate.Limiter {
 }
 
 func (e *Egress) sourceLimiter(pattern string) *rate.Limiter {
-	return limiterFor(&e.mu, e.srcLim, pattern, e.opts.RatePerSource)
+	r, ok := e.opts.SourceRates[pattern]
+	if !ok || r <= 0 {
+		r = e.opts.RatePerSource
+	}
+	return limiterFor(&e.mu, e.srcLim, pattern, r)
 }
 
 // limiterFor returns m's limiter for k, creating one at rate r on first use.
@@ -205,6 +217,18 @@ func limiterFor[K comparable](mu *sync.Mutex, m map[K]*rate.Limiter, k K, r floa
 		m[k] = l
 	}
 	return l
+}
+
+// wait waits for a token from l. A wait that would pass ctx's deadline is refused at once, with
+// an error that wraps context.DeadlineExceeded, so a caller can tell it from a network failure.
+func wait(ctx context.Context, l *rate.Limiter) error {
+	err := l.Wait(ctx)
+	if err != nil && ctx.Err() == nil {
+		if _, ok := ctx.Deadline(); ok {
+			return fmt.Errorf("%w: %w", context.DeadlineExceeded, err)
+		}
+	}
+	return err
 }
 
 // Clients returns the clients for a stage. Target clients are only given to

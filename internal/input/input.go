@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -56,35 +57,132 @@ func IPLiteral(host string) (netip.Addr, bool) {
 	return a.Unmap(), true
 }
 
+// CleanName returns a name a source reported in canonical form: lower case,
+// punycode, with a trailing dot and a leading "*." removed, so a wildcard
+// certificate name yields its base name. It returns "" for anything that is not a
+// valid hostname: an address, a URL or a public suffix.
+func CleanName(n string) string {
+	n = strings.TrimPrefix(strings.TrimSpace(n), "*.") // ParseDomain does the rest of the normalising
+	d, _ := ParseDomain(n)
+	return d
+}
+
 // ParseDomain lowercases, converts to punycode and validates a root domain.
 // Public suffixes and IP literals are rejected.
 func ParseDomain(s string) (string, error) {
+	return parseName(s, nameOptions{noun: "domain", rejectSuffix: true})
+}
+
+// ParseHostname lowercases, converts to punycode and validates a hostname to look up. Unlike
+// ParseDomain it allows a public suffix ("co.uk"), and unless singleLabel is set it needs two or
+// more labels. A name of only digits and dots is never a hostname, and nor is an IP literal.
+func ParseHostname(s string, singleLabel bool) (string, error) {
+	return parseName(s, nameOptions{noun: "hostname", needTwoLabels: !singleLabel, rejectDigits: true})
+}
+
+// nameOptions is what differs between the checks ParseDomain and ParseHostname make.
+type nameOptions struct {
+	noun          string // what the name is called in an error
+	rejectSuffix  bool   // a public suffix is not a name
+	needTwoLabels bool   // a single label is not a name
+	rejectDigits  bool   // a name of only digits and dots is not a name
+}
+
+// parseName is the one set of checks behind ParseDomain and ParseHostname.
+func parseName(s string, o nameOptions) (string, error) {
 	d := dnsname.Normalise(s)
 	if d == "" {
-		return "", fmt.Errorf("invalid domain %q: empty", s)
+		return "", fmt.Errorf("invalid %s %q: empty", o.noun, s)
 	}
 	if _, err := netip.ParseAddr(d); err == nil {
-		return "", fmt.Errorf("invalid domain %q: IP addresses are not domains", s)
+		return "", fmt.Errorf("invalid %s %q: IP addresses are not %ss", o.noun, s, o.noun)
 	}
 	if strings.ContainsAny(d, "/:@ _*") {
-		return "", fmt.Errorf("invalid domain %q: contains characters not allowed in a hostname", s)
+		return "", fmt.Errorf("invalid %s %q: contains characters not allowed in a hostname", o.noun, s)
+	}
+	if o.rejectDigits && strings.Trim(d, "0123456789.") == "" {
+		return "", fmt.Errorf("invalid %s %q: a name of only digits and dots is not a hostname", o.noun, s)
 	}
 	ascii, err := idna.Lookup.ToASCII(d)
 	if err != nil {
-		return "", fmt.Errorf("invalid domain %q: %w", s, err)
+		return "", fmt.Errorf("invalid %s %q: %w", o.noun, s, err)
 	}
 	if len(ascii) > 253 {
-		return "", fmt.Errorf("invalid domain %q: too long", s)
+		return "", fmt.Errorf("invalid %s %q: too long", o.noun, s)
 	}
 	for label := range strings.SplitSeq(ascii, ".") {
 		if !dnsname.ValidLabel(label) {
-			return "", fmt.Errorf("invalid domain %q: bad label %q", s, label)
+			return "", fmt.Errorf("invalid %s %q: bad label %q", o.noun, s, label)
 		}
 	}
-	if suffix, _ := publicsuffix.PublicSuffix(ascii); suffix == ascii {
-		return "", fmt.Errorf("invalid domain %q: it is a public suffix, not a registrable domain", s)
+	if o.needTwoLabels && !strings.Contains(ascii, ".") {
+		return "", fmt.Errorf("invalid %s %q: a hostname needs two or more labels", o.noun, s)
+	}
+	if o.rejectSuffix {
+		if suffix, _ := publicsuffix.PublicSuffix(ascii); suffix == ascii {
+			return "", fmt.Errorf("invalid %s %q: it is a public suffix, not a registrable domain", o.noun, s)
+		}
 	}
 	return ascii, nil
+}
+
+// BareHost recognises s as a URL (scheme://host[:port]/path), as host:port or as [v6]:port and
+// returns the host alone, lowercased and without brackets. ok is false for anything else, a bare
+// address or name included.
+func BareHost(s string) (host string, ok bool) {
+	s = strings.TrimSpace(s)
+	if strings.ContainsAny(s, " \t\r\n") {
+		return "", false
+	}
+	if scheme, rest, found := strings.Cut(s, "://"); found {
+		if !validScheme(scheme) {
+			return "", false
+		}
+		u, err := url.Parse(scheme + "://" + rest)
+		if err != nil || u.Hostname() == "" {
+			return "", false
+		}
+		return strings.ToLower(u.Hostname()), true
+	}
+	// host:port, optionally followed by a path.
+	authority, _, _ := strings.Cut(s, "/")
+	if rest, found := strings.CutPrefix(authority, "["); found {
+		h, port, found := strings.Cut(rest, "]")
+		if !found || h == "" || !strings.HasPrefix(port, ":") || !validPort(port[1:]) {
+			return "", false
+		}
+		if a, err := netip.ParseAddr(h); err != nil || !a.Is6() {
+			return "", false
+		}
+		return strings.ToLower(h), true
+	}
+	if strings.Count(authority, ":") != 1 {
+		return "", false // no port, or a bare IPv6 address
+	}
+	h, port, _ := strings.Cut(authority, ":")
+	if h == "" || !validPort(port) {
+		return "", false
+	}
+	return strings.ToLower(h), true
+}
+
+// validScheme reports whether s is a URL scheme: a letter, then letters, digits, "+", "-" or ".".
+func validScheme(s string) bool {
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'):
+		default:
+			return false
+		}
+	}
+	return s != ""
+}
+
+// validPort reports whether s is a port number, 1 to 65535.
+func validPort(s string) bool {
+	n, err := strconv.ParseUint(s, 10, 16)
+	return err == nil && n >= 1 && !strings.HasPrefix(s, "+")
 }
 
 // ParseOrg trims an organisation name and requires it to be non-empty.

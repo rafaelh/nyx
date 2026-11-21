@@ -55,16 +55,21 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
   writes what an engagement holds as JSON lines (see [Exporting an engagement](#exporting-an-engagement)).
 - **`nyx cve <CVE-ID>... [flags]`** looks CVEs up in the NVD by CVE ID (see [CVE lookup](#cve-lookup)).
   It needs no engagement and no authorisation, and writes no files.
+- **`nyx ip <input>... [flags]`** looks up who runs an IP address, where it is, what it is called and
+  what is exposed on it, for each address, hostname or CIDR given (see [IP lookup](#ip-lookup)). It
+  needs no engagement and no key, writes no files, and by default sends nothing to the address.
+  `nyx ip --active` also connects to it. Recon and `nyx cve` behave as they did before.
 - **`--timeout <duration>`** is a recon flag: `nyx recon example.com --json --timeout 30m` stops by
   that deadline and exits 7, and a re-run carries on (see [Deadline](#deadline)). `export` makes no
-  network calls and takes no `--timeout`.
+  network calls and takes no `--timeout`. `nyx cve` and `nyx ip` take their own `--timeout`, the
+  deadline for the whole call (see [CVE lookup](#cve-lookup) and [IP lookup](#ip-lookup)).
 - **Help.** `nyx --help`, `nyx help` and a bare `nyx` print the whole reference: examples, every
   command with its everyday flags and one example, the valid values of each fixed-set flag (the
   stages, the export kinds) and the exit codes. The recon example in `nyx --help` and in
   `nyx recon --help` passes `--json` and `--timeout`, and the root help lists `--timeout` among
   recon's everyday flags. `nyx help <command>` (or `nyx <command> --help`) is
   one command's full help; recon's tuning settings are listed only there. The root help also lists
-  cve's flags and the field names `--fields` accepts. `nyx help stages` and
+  cve's and ip's flags and the field names `--fields` accepts. `nyx help stages` and
   `nyx help findings` are the two help topics. Help goes to stdout and exits 0.
 - **Shared flags.** Every command takes `--json` (`-J`), `--quiet` (`-q`) and `--debug`, before or
   after its name (`nyx --json recon example.com` runs recon). `--json` implies `--quiet`, and
@@ -73,7 +78,7 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 - **Flags are spelt in full.** An abbreviation (`--pass` for `--passive`) is an unknown flag;
   `--authorized` is the one alias.
 - **No prompts, no stdin.** No command asks a question, and none loads a `.env` file: the
-  environment is the one you gave it. Only `nyx cve`, given a lone `-`, reads stdin.
+  environment is the one you gave it. Only `nyx cve` and `nyx ip`, given a lone `-`, read stdin.
 - **Version.** `nyx --version` prints the version; every HTTP request nyx makes carries
   `nyx/<version>` (`nyx/devel` for a build with no version) as its User-Agent.
 
@@ -239,6 +244,43 @@ against Shodan's current terms when this was written, so check your plan before 
 netblock search pages past the first still cost query credits as before. What Shodan reports is
 shown, never acted on: a port only Shodan names is never connected to, and widens nothing.
 
+**`nyx ip`** keeps no engagement and has no scope, so the list above is for recon and is unchanged.
+By default `nyx ip` sends nothing to the address it looks up. It contacts only third parties and DNS
+resolvers: Shodan's InternetDB (`internetdb.shodan.io`), RIPEstat (`stat.ripe.net`), HackerTarget
+(`api.hackertarget.com`), IANA (`data.iana.org`, for the RDAP bootstrap file), the five regional
+registries' RDAP servers (`rdap.arin.net`, `rdap.db.ripe.net`, `rdap.apnic.net`, `rdap.lacnic.net` and
+`rdap.afrinic.net`), and the public DNS resolvers, for the Team Cymru TXT lookups, PTR names and
+the A and AAAA records of a hostname. A hostname you give is sent to the public resolvers, except a
+single-label name, which is never sent to one. An address that is not public (see
+[IP lookup](#ip-lookup)) is never sent to any third party or public resolver, and a CIDR is looked
+up one address at a time.
+
+`nyx ip --active` also sends the address, and only the address, these requests: a TCP handshake to
+each port on its list, which reads what the service sends unprompted and sends nothing; a TLS
+handshake on each of a few TLS ports, which completes the handshake, sends no application data and
+neither trusts nor rejects the certificate; and one HTTP or HTTPS GET of `/` on each of a few web
+ports, with no redirect followed (see [IP lookup](#ip-lookup) for the ports). It never sends
+credentials, uses another method, or requests another path. It sends them to:
+
+- every public address that is not shared provider infrastructure (a CDN, SaaS, WAF or
+  shared-hosting provider, or an address in a provider range nyx has built in; a cloud provider's
+  address is not shared and is contacted);
+- every non-public address, except an unspecified, this-network, multicast or broadcast address, an
+  IPv6 link-local address (which needs a zone to be dialled), and a non-public address that only the
+  public resolvers gave for a hostname: a hostile name could otherwise aim the connections at your
+  own machine or your cloud's metadata service. One you gave as an address or in a CIDR, or that
+  this machine's resolver gave, is contacted.
+
+Passing `--active` is the confirmation that you may do this: it takes no `--authorised` (see
+[Authorisation acknowledgement](#authorisation-acknowledgement)). Unlike recon, `nyx ip --active`
+connects to the ports that InternetDB reports for the address, as well as its built-in list.
+
+Under `--active`, three lookups go to this machine's own resolver rather than the public ones: a
+single-label name, a name the public resolvers do not know (tried again there), and the PTR name of a
+non-public address. They go wherever that resolver sends them, which may be a public resolver that
+nyx cannot see; nyx never sends a non-public address to a public resolver itself, but your resolver
+may forward it. Without `--active`, none of these lookups is made.
+
 All network access goes through one package. On every supported platform, a test fails if any other
 package imports a network package or `syscall`, or uses `golang.org/x/sys/unix` for anything other
 than signals and file locking, and if any package imports `os/exec`.
@@ -264,6 +306,9 @@ is no prompt, on a terminal or anywhere else.
   named, and there is no warning under `--passive` or when no stage is left out. It appears on every
   run until authorisation is confirmed. Under `--json` it is in the envelope's `meta.warnings` and not
   on stderr.
+- The acknowledgement applies to recon only. `nyx ip` has no engagement to remember it in, and no
+  `--authorised` flag: passing `--active` is the confirmation that you may connect to the addresses
+  you gave it (see [IP lookup](#ip-lookup)). Without `--active` it never contacts them.
 
 ## Large netblocks
 
@@ -713,7 +758,7 @@ A finding's `+` line and the summary show its severity as a badge: the severity 
 ### Terminal layout
 
 When a stream is a terminal, nyx lays its human output out for reading: the recon summary, the log
-lines, `nyx cve` records, help and `nyx recon --palette`. A stream that is not a terminal (a pipe, a
+lines, `nyx cve` and `nyx ip` records, help and `nyx recon --palette`. A stream that is not a terminal (a pipe, a
 file) gets exactly the plain text described elsewhere in this document, so scripts and saved logs do
 not change, and neither does anything under `--json`: with `--json`, help and the palette sheet are
 written as for a stream that is not a terminal, and the envelope is the same. `--debug` lines on a
@@ -752,6 +797,13 @@ rules and borders are drawn with ASCII (`-`, `|`, `+`).
   the left and the severity at the right, in the severity's badge colours. Without colour the bar is
   the ID and `[SEVERITY]` at either end of the line. Field labels have no colon and the values
   line up in one column in each section.
+- **IP records.** Each record starts with a header: the address, the input hostnames that gave it
+  and its kind. Then a heading and labelled lines for each of these sections, in this order, left out
+  when none of its keys is selected: Owner, Registration, Names, Provider, Location, Exposure,
+  Reverse IP, Not contacted, Ports, TLS, Web and Failures. Labels have no colon and the values line
+  up in one column in each section. A key that is selected but has no value shows `none`. Text from
+  a third party or the target (a banner, a page title, a registrant's name) is stripped of anything
+  that would act on a terminal.
 - **Help.** Descriptions, paragraphs and footers wrap to the width; lists of values wrap after
   commas.
 - **`nyx recon --palette`** also shows a heading, a sample table, a CVE bar for each severity, a
@@ -838,6 +890,12 @@ An example, wrapped here for reading (nyx writes it on one line):
 values are an interface: a new key may be added, but renaming, removing or retyping one is a
 breaking change. The same holds for the keys of the rows inside a list. The wording of warnings,
 notes and `detail` text may change. A reader should ignore keys it does not know.
+
+`nyx cve` and `nyx ip` print their own envelope under `--json`, not this one: one compact object
+`{"data":[…],"meta":{"count","errors","warnings","hint"}}` with a record for each ID or address (see
+[CVE lookup](#cve-lookup) and [IP lookup](#ip-lookup)). For `nyx ip`, `meta.count` is the number of
+records, every `meta` key is always present (`[]` when there are no errors or warnings), and
+`meta.hint` is always `null`.
 
 ## RDAP netblocks and registrants
 
@@ -1385,6 +1443,229 @@ every record has every key (see [Errors](#errors), "What stays stable"). It was 
 purpose, in the change that added `--limit` and `--match`: ask for `--fields all` to get the
 previous record, with a count in front of each list.
 
+## IP lookup
+
+`nyx ip` returns who runs each address, where it is, what it is called and what is known to be
+exposed on it: a readable record for each address, or one JSON envelope. It is for triaging an
+address seen in a log or an alert in seconds, with no engagement and no key. By default it contacts
+third parties and DNS resolvers only, and sends nothing to the address (see
+[Passive boundary](#passive-boundary)). Recon and `nyx cve` are unchanged.
+
+```sh
+nyx ip 1.1.1.1 --json
+nyx ip 203.0.113.0/28 198.51.100.7 example.com
+nyx ip - --json < addresses.txt
+nyx ip 192.0.2.10 --fields asn,as_name,rdap_org,ptr --json
+nyx ip 192.0.2.10 --active
+```
+
+- **Inputs.** Pass IPv4 and IPv6 addresses, hostnames and CIDRs as arguments, or a lone `-` to read
+  them from stdin, one per line, with blank lines ignored and surrounding whitespace trimmed. A bare
+  `nyx ip`, a `-` alongside other arguments, and a `-` with no inputs on stdin exit 2. `nyx ip`
+  takes no `--config` and reads no `NYX_*` setting: nothing configures it, and the port lists and
+  paces below are built in.
+  - A **hostname** has two or more labels, parses as a domain name and is not all digits and dots. It
+    is resolved (A and AAAA) through the public resolvers, and each address it gives has a record.
+    Under `--active` a **single-label name** (`intranet`) is a hostname too, resolved only through
+    this machine's resolver and never sent to a public one; without `--active` it is `INVALID_INPUT`,
+    and the hint says to add `--active`. Only NXDOMAIN, or no A and no AAAA records, is `NOT_FOUND`: a
+    resolver that fails is `NETWORK_ERROR` or `TIMEOUT`, marked transient. Under `--active`, a name the
+    public resolvers do not know is tried again through this machine's resolver.
+  - A **CIDR** has its host bits masked and expands to every address it holds, its first and last
+    included.
+  - Anything else, a URL or a `host:port` too, is an `INVALID_INPUT` entry (the hint gives the bare
+    host), and the other inputs are still looked up. When the call exits 2, every `INVALID_INPUT`
+    problem is reported together.
+  - **One record for each distinct address**, at its first appearance and in its canonical form, which
+    lists every input hostname that gave it. An IPv4-mapped IPv6 address is the IPv4 address. A CIDR's
+    addresses come in address order, and a hostname's come IPv4 first, then IPv6, each in address
+    order.
+  - **At most 256 distinct addresses.** When the literal addresses and CIDRs alone pass 256, the call
+    exits 2 before any request. Addresses a hostname gives count once it resolves: when the total
+    passes 256, the call exits 2 having sent only DNS lookups.
+- **Address kinds.** Every record has a `kind`: `public`, or the kind of non-public address it is. An
+  address is non-public when IANA's special-purpose address registries (IPv4 and IPv6) mark it
+  globally reachable `False` or `N/A`, so a longer prefix can differ from the one that holds it
+  (192.0.0.0/24 is `False`, and 192.0.0.9/32 in it is `True`, so public). Teredo and 6to4 are
+  non-public (`N/A`), and 64:ff9b::/96 is public. Multicast has registries of its own, and an IPv6
+  address outside 2000::/3 that no row lists is `reserved`, from IANA's IPv6 Address Space registry,
+  a different registry from the other kinds'. The table was written by hand from the registries as
+  they stood on 21 November 2026, and they gain rows now and then.
+
+  | Kind | Addresses |
+  |---|---|
+  | `public` | Globally reachable |
+  | `private` | 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 |
+  | `ula` | fc00::/7 |
+  | `loopback` | 127.0.0.0/8, ::1 |
+  | `link-local` | 169.254.0.0/16, fe80::/10 |
+  | `cgnat` | 100.64.0.0/10 |
+  | `multicast` | 224.0.0.0/4, ff00::/8 |
+  | `unspecified` | 0.0.0.0 and :: |
+  | `this-network` | The rest of 0.0.0.0/8 |
+  | `broadcast` | 255.255.255.255 only |
+  | `documentation` | 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32, 3fff::/20 |
+  | `benchmarking` | 198.18.0.0/15, 2001:2::/48 |
+  | `reserved` | 240.0.0.0/4 but for the broadcast address, and IPv6 outside 2000::/3 that no row lists |
+  | `ietf-protocol` | 192.0.0.0/24 and 2001::/23, but for the rows below and the reachable ones |
+  | `6to4` | 2002::/16 |
+  | `teredo` | 2001::/32 |
+  | `nat64-local` | 64:ff9b:1::/48 |
+  | `discard` | 100::/64 |
+  | `dummy` | 192.0.0.8 and 100:0:0:1::/64 |
+  | `srv6` | 5f00::/16 |
+  | `nat64-discovery` | 192.0.0.170 and 192.0.0.171 |
+  | `6a44-relay` | 192.88.99.2 (the rest of the terminated 192.88.99.0/24 is public) |
+  | `ipv4-mapped` | Never occurs: an IPv4-mapped address is looked up as the IPv4 address it carries |
+
+- **A non-public address** is sent to no third party and to no public DNS resolver. Without
+  `--active` no PTR lookup is made for it either; under `--active` its PTR name is looked up through
+  this machine's resolver only, which may itself forward the query to a public resolver that nyx
+  cannot see (see [Passive boundary](#passive-boundary)). Its record has its kind and every other
+  selected key `null` or `[]`. It counts as a success, and has no failures, but for one of that local
+  PTR lookup.
+- **The record.** These are the keys, in this order. Without `--fields` every key the mode allows is
+  returned. A single value that is unknown is `null`, and a list with no entries is `[]`. A source
+  that answers that it knows nothing about the address (a 404, or an empty answer) has answered, and
+  its keys are empty; the keys of a source that failed are `null`.
+
+  | Key | Meaning |
+  |---|---|
+  | `address` | The address, in canonical form |
+  | `hostnames` | The input hostnames that gave it, `[]` for a literal address or one from a CIDR |
+  | `kind` | `public`, or the non-public kind |
+  | `asn`, `as_name`, `as_prefix` | The origin AS number, its name, and the announced prefix (Team Cymru) |
+  | `rdap_netblock`, `rdap_org`, `rdap_registry` | The registered netblock (a CIDR when the range is exactly one, otherwise `start-end`), the registrant organisation, and the registry (RDAP) |
+  | `ptr` | The PTR names |
+  | `provider`, `provider_class` | The shared cloud or CDN provider and its class, from nyx's built-in provider data and the ASN. No provider range list is downloaded, so the answer can differ from recon's |
+  | `geo_country`, `geo_city` | Approximate location. `?` or an empty country, and an empty city, are `null`. There is no region |
+  | `internetdb_ports`, `internetdb_hostnames`, `internetdb_tags`, `internetdb_cpes`, `internetdb_vulns` | What Shodan's InternetDB reports: open ports, hostnames, tags, CPEs and CVE IDs |
+  | `reverse_ip`, `reverse_ip_count` | HackerTarget's reverse-IP hostnames: the first 100, sorted, and the total count. `null` for an IPv6 address or a shared provider address, which is not asked and is not a failure |
+  | `not_contacted` | Only under `--active`: why the address was not contacted, or `null` when it was |
+  | `ports` | Only under `--active`: a list of `{port, state, banner}` |
+  | `tls` | Only under `--active`: a list of `{port, server_name, outcome, names, issuer, expiry}` |
+  | `web` | Only under `--active`: a list of `{port, scheme, host, outcome, status, server, title, location}` |
+  | `failures` | A list of `{source, code, message, transient, quota}`, always last, `[]` when there are none |
+
+  `address`, `hostnames`, `kind` and `failures` are always present. A failure's `source` is one of
+  `cymru`, `rdap`, `ptr`, `ripestat`, `internetdb`, `hackertarget` or `probe`; `code` is an error
+  code (see [Errors](#errors)); and `quota` is true only for HackerTarget's spent daily quota. A
+  failed probe is a result, never a failure: only an error of nyx's own, when it could not make the
+  connection, is a `probe` failure.
+- **`--fields a,b,c`** returns only those keys, plus `address`, `hostnames`, `kind` and `failures`.
+  `all` returns every key the mode allows, and `--fields ""` returns only the four that are always
+  present. An unknown name exits 2 with the valid names in the hint, and so does naming a key of
+  `--active` (`not_contacted`, `ports`, `tls`, `web`) without `--active`. Only the sources the
+  selected keys need are asked, with those they depend on: the provider needs the AS number from Team
+  Cymru, HackerTarget needs the provider, and active probing needs the provider and InternetDB's
+  ports. Under `--active` whether an address is shared provider infrastructure is always worked out,
+  whatever `--fields` selects.
+- **Sources.** For each address the sources are asked together, each at its own pace.
+
+  | Source | Gives | Pace |
+  |---|---|---|
+  | Team Cymru (TXT over DNS) | `asn`, `as_name`, `as_prefix` | DNS, 50 a second |
+  | RDAP (IANA's bootstrap file, then the registry, referrals followed) | the `rdap_*` keys | IANA and each registry host 1 a second |
+  | PTR (DNS) | `ptr` | DNS, 50 a second |
+  | RIPEstat, `maxmind-geo-lite` | `geo_country`, `geo_city` | 4 a second |
+  | Shodan InternetDB | the `internetdb_*` keys | 1 a second |
+  | HackerTarget | `reverse_ip`, `reverse_ip_count` | 1 a second |
+
+  Under `--active`, connections to one address are also limited to 10 a second.
+  - **RIPEstat's** geolocation is MaxMind GeoLite data, and RIPEstat is run by the RIPE NCC: credit
+    the RIPE NCC and MaxMind if you publish it. It is approximate (a country, and often a city), has
+    no region, and says where an address is registered more than where a machine is.
+  - **InternetDB** is Shodan's free API. It is for non-commercial use, and it is limited for each
+    client address.
+  - **HackerTarget** is asked only for an IPv4 address that is not shared provider infrastructure,
+    because its daily quota is small and a CDN address returns thousands of meaningless names. The
+    names are cleaned as recon cleans them, de-duplicated and sorted; `reverse_ip` has the first 100
+    and `reverse_ip_count` the total.
+  - **A 429** from InternetDB, RIPEstat or one RDAP host is `RATE_LIMITED`, transient, and that source
+    (for RDAP, that host) is not asked again in the call: each address not yet asked records
+    `RATE_LIMITED`, with "not asked: rate-limited earlier in this call", and one warning names the
+    source. HackerTarget's spent quota (a 429, or an answer that starts `API count exceeded`) latches
+    the same way, but its failures are `RATE_LIMITED` with `quota` true, not transient, and the
+    warning says the quota resets daily. A transport error is `NETWORK_ERROR`, transient; another
+    non-2xx status, or a body that is unreadable or cut short, is `UPSTREAM_ERROR`, transient; a
+    source that has not answered by the deadline is `TIMEOUT`, transient. Team Cymru answering
+    NXDOMAIN, or with nothing, is an answer: the owner is unknown, which is not a failure.
+- **The deadline.** `--timeout` (a positive duration such as `30s` or `2m`) is the deadline for the
+  whole call, and replaces the default. The default grows with the number of addresses, because
+  InternetDB's pace dominates a batch: 6 seconds plus 1.25 seconds for each address after the first,
+  and under `--active` 30 seconds plus 2 seconds for each address after the first. While stdin is
+  read, the one-address value applies from the start of the call. Once the inputs are read the
+  default comes from the number of inputs, where a hostname counts as one address and a CIDR as
+  its size, and once the hostnames resolve it is fixed from the number of distinct addresses. A
+  stdin not closed by the deadline is `TIMEOUT`. Only one public address in the default mode is
+  promised 6 seconds, on a working connection; neither a batch nor `--active` is. A source that has
+  not answered by the deadline is a `TIMEOUT` failure in the record, and a port that was not
+  probed in time is `not-probed`.
+- **`--active`.** Passing it is the confirmation (see
+  [Authorisation acknowledgement](#authorisation-acknowledgement)). nyx contacts the addresses
+  [Passive boundary](#passive-boundary) says, and for each one:
+  - **Ports.** It makes a TCP handshake to a built-in list of common ports, 21, 22, 23, 25, 53, 80,
+    110, 111, 135, 139, 143, 389, 443, 445, 465, 587, 636, 853, 993, 995, 1433, 1521, 2049, 3306,
+    3389, 5432, 5900, 5985, 6379, 8000, 8080, 8443, 8888, 9200, 9443, 11211 and 27017, and to the
+    ports InternetDB reports that are not on it, lowest first, at most 64 of them. Unlike recon, it
+    connects to the ports InternetDB reports. It reads the unprompted banner (at most 1024 bytes,
+    with invalid UTF-8 replaced) and sends nothing. A port is `open`, `closed`, `no-answer`, or
+    `not-probed` when the deadline came first.
+  - **TLS.** On each open port of 443, 465, 636, 853, 993, 995, 8443 and 9443 it makes a second
+    connection with a TLS handshake, once for each input hostname that gave the address, with that
+    hostname as the server name, or once with none when there is no hostname. It records the
+    certificate's names, issuer and expiry (`YYYY-MM-DD`, in UTC), and neither trusts nor rejects
+    the certificate. InternetDB's tags describe an address and not a port, so no other port gets a
+    handshake. The outcome is `ok`, `no-answer`, `refused`, `not-tls`, `reset` or `not-probed`.
+  - **Web.** On each open port of 80, 443, 8000, 8080, 8443, 8888 and 9443 it sends `GET /` once for
+    each input hostname that gave the address, with the hostname as the Host (or once with the
+    address as the Host when there is none). It goes over HTTPS when the port is also a TLS port,
+    and HTTP otherwise. It records the status, the `Server` header and the page title; a redirect is
+    reported (its `location`), not followed. The outcome is one of the values above.
+  - **Never contacted.** An address that is not contacted has its reason in `not_contacted`:
+    unspecified, this-network, multicast or broadcast; an IPv6 link-local address ("needs a zone",
+    so a zoned input such as `fe80::1%eth0` is reported, never contacted); a non-public address that
+    only public DNS gave ("non-public address from public DNS"); shared provider infrastructure
+    (`shared provider infrastructure (<provider>, <class>)`: a CDN, SaaS, WAF or shared-hosting
+    provider or one of the built-in provider ranges, but not a hyperscaler, which DigitalOcean and
+    IBM Cloud count as); and an address whose owner could not be found (`owner unknown: cymru
+    <code>`), as nothing can say whether it is shared.
+  - **Results are not failures.** No answer, not TLS and a reset are recorded as results. An error of
+    nyx's own that stops a connection from being made is a `probe` failure, `NETWORK_ERROR`,
+    transient.
+- **`--json`** prints one compact object,
+  `{"data":[…],"meta":{"count":n,"errors":[…],"warnings":[…],"hint":null}}`. `count` is the number of
+  records. `meta.errors` and `meta.warnings` are always present, `[]` when there are none, and
+  `meta.hint` is always `null`. Each `meta.errors` entry has the five keys of the error (see
+  [Errors](#errors)), with `input` mapping `input` to the inputs as given and, for an error of one
+  address, `address` to that address. Text from third parties and the target is written sanitised.
+- **Without `--json`** each record is laid out for reading, as [Terminal layout](#terminal-layout)
+  describes, and records are separated by a blank line. One `error: <input>: <message> (<CODE>)` line
+  for each failure follows the records, and each warning is a `WARN` line on stderr.
+- **Contact.** `nyx ip` keeps no state and writes no files, so a call gives the same result for the
+  same answers, and a crash leaves nothing behind.
+
+**The outcome** of a call depends on how many of its inputs succeeded. An input succeeds when it is
+valid, resolves (for a hostname), and every address it gives is a success. An address is a success
+when every source it needed answered, and a non-public address is always one. A source that failed
+for want of its quota never counts against it: the failure is in the record and the warning, and
+nowhere else. An address for which none of the sources it needed answered is a failed input, with the
+failures' error code, and has no record.
+
+| Outcome | Exit | stdout |
+|---|---|---|
+| Every input succeeded | 0 | The records |
+| At least one record, and anything failed | 7 | The records and the failures |
+| No record, every input failed with one error code | That code's: 1 for `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED` or `UPSTREAM_ERROR`, 2 when all are `INVALID_INPUT`, 3 when all are `NOT_FOUND` | Empty |
+| No record, with different codes | 7 | The failures |
+
+On exit 7 the `PARTIAL` error counts what succeeded and what did not, its `input` lists what failed
+as given, and it is transient when any failure it counts is. Its hint is the command, with the flags
+you gave, that retries the failing addresses themselves, not the CIDR or hostname that gave them,
+after the longest known wait. It lists only failures worth retrying, and leaves out quota failures.
+Past 20 it points at `meta.errors` instead. A signal ends the call with the exit code every command
+uses, and an empty stdout.
+
 ## Exit codes
 
 Every command uses the same exit codes:
@@ -1393,9 +1674,9 @@ Every command uses the same exit codes:
 |---|---|---|
 | 0 | Success: the run did all its work and no check failed. A `not-configured` stage, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
 | 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` |
-| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx cve`, no IDs, or only malformed ones. Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
-| 3 | Not found: an engagement that does not exist, or no CVE ID the NVD holds | `NOT_FOUND` |
-| 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes | `PARTIAL` |
+| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx cve`, no IDs, or only malformed ones; for `nyx ip`, no inputs, only invalid ones, or more than 256 addresses (when hostnames gave them, only their DNS lookups were sent). Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
+| 3 | Not found: an engagement that does not exist, no CVE ID the NVD holds, or for `nyx ip` only names that do not resolve | `NOT_FOUND` |
+| 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes; the same for a `nyx ip` call and its inputs (a quota failure never counts, see [IP lookup](#ip-lookup)) | `PARTIAL` |
 | 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |
 
 **Exit 7 for recon.** A recon run exits 7 when the deadline ended it (see [Deadline](#deadline)) or
@@ -1447,7 +1728,7 @@ first one's code.
 
 Every non-zero exit writes one error to stderr. stdout is empty on every exit but 0 and 7: a recon
 run that exits 7 has written its summary, or its envelope under `--json`, first, and a `nyx cve`
-batch its records (none, in human mode, when no ID succeeded). The error is never
+batch or `nyx ip` call its records (none, in human mode, when no ID succeeded). The error is never
 sent through the log formatter.
 
 ```
@@ -1458,7 +1739,9 @@ hint: nyx recon --help
 A `hint:` line follows when there is a next step, and `retry: may succeed after a wait` when the
 error is transient. A partial result from several targets adds one `error: <input>: <message>
 (<CODE>)` line for each target that failed. `input` is `null` for the `PARTIAL` error of a recon run;
-for `nyx cve` it is `{"id":[…]}`, the IDs that failed as given. Under `--json`, even when the arguments fail to parse,
+for `nyx cve` it is `{"id":[…]}`, the IDs that failed as given, and for `nyx ip` it is
+`{"input":[…]}`, the inputs as given that failed or gave a failed address (the hostname or CIDR, not
+the address), with `"address":"<address>"` as well in a `meta.errors` entry that is one address's. Under `--json`, even when the arguments fail to parse,
 the error is one compact line of JSON with exactly the keys `error`, `code`, `hint`, `input` and
 `transient`, in that order; `hint` and `input` are `null` when there is nothing to say, and `input`
 maps each failing argument to the list of its values as given:
@@ -1472,7 +1755,8 @@ in the error as everywhere else.
 
 **What stays stable.** The exit codes, the error codes, the five keys of the error, the keys of
 the recon `--json` envelope (see [The `--json` envelope](#the---json-envelope)), and the keys of the
-CVE record and of the `nyx cve` envelope (see [CVE lookup](#cve-lookup)) are an interface: a
+CVE record and of the `nyx cve` envelope (see [CVE lookup](#cve-lookup)), and the keys of the
+`nyx ip` record and of its envelope (see [IP lookup](#ip-lookup)) are an interface: a
 new one may be added, but renaming, removing or retyping one is a breaking change. The wording of
 messages and hints may change. The one exception so far is that the default `nyx cve` record no
 longer has the lists `affected_products` and `references`, only their counts: that was a deliberate

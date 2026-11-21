@@ -12,6 +12,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
@@ -136,7 +137,7 @@ func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string) []run.Observation {
 	var obs []run.Observation
 	for _, n := range names {
-		if n = httpsrc.CleanName(n); n == "" || seen["name|"+n] {
+		if n = input.CleanName(n); n == "" || seen["name|"+n] {
 			continue
 		}
 		seen["name|"+n] = true

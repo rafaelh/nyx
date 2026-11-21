@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
 var allNames = []string{"id", "status", "published", "last_modified", "description", "cvss_version", "cvss_score",
@@ -312,7 +314,7 @@ func TestProductLine(t *testing.T) {
 		{AffectedProduct{CPE: "cpe:2.3:a:*:*:*:*:*:*:*:node.js:*:*"}, "cpe:2.3:a:*:*:*:*:*:*:*:node.js:*:*"},
 		{AffectedProduct{Vendor: new("a\nb"), Product: new("c\td"), VersionStartExcluding: new("1\x1b[2J"), VersionEndIncluding: new("2")}, "a b c d (> 1, <= 2)"},
 	} {
-		if got, short := productLine(c.ap, clean, clean), shortForm(c.ap); got != c.want || short != c.want {
+		if got, short := productLine(c.ap, sanitize.Line, sanitize.Line), shortForm(c.ap); got != c.want || short != c.want {
 			t.Errorf("productLine = %q, shortForm = %q, want %q", got, short, c.want)
 		}
 	}

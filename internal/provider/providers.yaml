@@ -96,11 +96,11 @@ asn:
   - {asn: 30148, provider: sucuri, class: cdn}
   - {asn: 394536, provider: vercel, class: cdn}
   - {asn: 62679, provider: shopify, class: saas}
-  - {asn: 36351, provider: softlayer, class: shared-hosting}
+  - {asn: 36351, provider: softlayer, class: hyperscaler}
   - {asn: 46606, provider: unified-layer, class: shared-hosting}
   - {asn: 26496, provider: godaddy, class: shared-hosting}
   - {asn: 398101, provider: godaddy, class: shared-hosting}
-  - {asn: 14061, provider: digitalocean, class: shared-hosting}
+  - {asn: 14061, provider: digitalocean, class: hyperscaler}
   - {asn: 53831, provider: squarespace, class: saas}
   - {asn: 58182, provider: wix, class: saas}
 ranges:

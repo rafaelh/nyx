@@ -4,7 +4,6 @@ package reverseip
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"iter"
 	"net/netip"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	scopeinput "github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
@@ -121,7 +122,7 @@ type found struct {
 
 func (f *found) add(names []string) {
 	for _, n := range names {
-		if n = httpsrc.CleanName(n); n == "" || f.seen[n] {
+		if n = scopeinput.CleanName(n); n == "" || f.seen[n] {
 			continue
 		}
 		f.seen[n] = true
@@ -159,16 +160,11 @@ func gather(ctx context.Context, e egress.Clients, in input, f *found) error {
 // that is not a name means the reply is not a list, which is an error and not "no
 // names".
 func reverseLines(body []byte) ([]string, error) {
-	lines, err := httpsrc.HackerTargetLines(body)
-	if err != nil {
-		return nil, err
+	lines, quota, err := ipsource.ReverseLines(body)
+	if quota {
+		return nil, fmt.Errorf("HackerTarget API count exceeded: %w", run.ErrQuota)
 	}
-	for _, l := range lines {
-		if strings.ContainsAny(l, " \t,<>") {
-			return nil, errors.New("unreadable HackerTarget response")
-		}
-	}
-	return lines, nil
+	return lines, err
 }
 
 // securityTrails adds the domains whose current A or AAAA record is the address.

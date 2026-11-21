@@ -13,6 +13,12 @@ var (
 	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b]*(\x07|\x1b\\)?`)
 )
 
+// lineBreaks are the characters Line turns into spaces, so that words either side stay apart.
+var lineBreaks = strings.NewReplacer("\n", " ", "\r", " ")
+
+// Line is Text on one line: newlines and returns become spaces as well as tabs.
+func Line(s string) string { return Text(lineBreaks.Replace(s)) }
+
 // Text removes terminal escape sequences, control characters and bidi
 // overrides, and turns tabs into spaces.
 func Text(s string) string {

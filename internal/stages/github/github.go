@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	scopeinput "github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/sanitize"
@@ -229,7 +230,7 @@ func (in input) hostnames(it match) []string {
 			if !strings.Contains(tok, ".") { // a plain word; no name under a root
 				continue
 			}
-			n := httpsrc.CleanName(strings.Trim(tok, ".-"))
+			n := scopeinput.CleanName(strings.Trim(tok, ".-"))
 			if n != "" && !slices.Contains(in.roots, n) && in.sc.HostInScope(n) {
 				set[n] = true
 			}

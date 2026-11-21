@@ -284,6 +284,7 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	dropped := d.drop[name]
 	m := new(mdns.Msg)
 	m.SetReply(r)
+	m.RecursionAvailable = true // a recursive resolver says so; Go's resolver reads an empty answer without it as a lame referral
 	if !dropped {
 		d.answer(m, name, q.Qtype)
 	}

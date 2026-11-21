@@ -36,7 +36,7 @@ type cveOptions struct {
 const (
 	// cveConcurrency is how many lookups are in flight at once.
 	cveConcurrency = 4
-	// maxStdinLine is the longest line nyx cve reads from stdin.
+	// maxStdinLine is the longest line nyx cve and nyx ip read from stdin.
 	maxStdinLine = 64 << 10
 	// nyxKeysWarning is the warning of a NYX_KEYS_NVD that cve does not read.
 	nyxKeysWarning = "NYX_KEYS_NVD is not read; set NVD_API_KEY instead"
@@ -121,8 +121,8 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	defer cancel()
 	inputs := args
 	if args[0] == "-" {
-		if inputs, err = readIDs(dctx, d.Stdin); err != nil {
-			return cveEnded(ctx, err)
+		if inputs, err = readLines(dctx, d.Stdin, cveStdin); err != nil {
+			return endedBy(ctx, err)
 		}
 	}
 
@@ -216,8 +216,8 @@ func withWarning(err error, warning, help string, wrote bool) error {
 	return e
 }
 
-// cveEnded is err, or, when a signal ended ctx, the signal's cause.
-func cveEnded(ctx context.Context, err error) error {
+// endedBy is err, or, when a signal ended ctx, the signal's cause.
+func endedBy(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
@@ -239,10 +239,24 @@ func cveKey(env config.Env, settings config.Settings, configPath string) (key, a
 	return "", ""
 }
 
-// readIDs reads the lines of stdin that are not blank, each as given without
+// stdinWords are the words of the errors of reading stdin, which differ by what a command takes
+// from it.
+type stdinWords struct {
+	// plural names what the lines are, as in "no CVE IDs on stdin".
+	plural string
+	// perLine is the hint of a line that is too long, after "give".
+	perLine string
+	// asArgs names what could be passed as arguments instead, as in "pass the IDs as arguments".
+	asArgs string
+}
+
+// cveStdin is what nyx cve reads from stdin.
+var cveStdin = stdinWords{plural: "CVE IDs", perLine: "one CVE ID per line", asArgs: "IDs"}
+
+// readLines reads the lines of stdin that are not blank, each as given without
 // its line ending. The read is abandoned at the deadline or a signal, as a
 // stdin that is never closed would otherwise block the call.
-func readIDs(ctx context.Context, r io.Reader) ([]string, error) {
+func readLines(ctx context.Context, r io.Reader, w stdinWords) ([]string, error) {
 	type read struct {
 		lines []string
 		err   error
@@ -263,17 +277,17 @@ func readIDs(ctx context.Context, r io.Reader) ([]string, error) {
 	case got := <-done:
 		switch {
 		case errors.Is(got.err, bufio.ErrTooLong):
-			return nil, &clierr.Error{Code: clierr.InvalidInput, Message: "a line on stdin is longer than 64 KiB", Hint: "give one CVE ID per line"}
+			return nil, &clierr.Error{Code: clierr.InvalidInput, Message: "a line on stdin is longer than 64 KiB", Hint: "give " + w.perLine}
 		case got.err != nil:
 			return nil, fmt.Errorf("read stdin: %w", got.err)
 		case len(got.lines) == 0:
-			return nil, &clierr.Error{Code: clierr.InvalidInput, Message: "no CVE IDs on stdin", Hint: "nyx --help"}
+			return nil, &clierr.Error{Code: clierr.InvalidInput, Message: "no " + w.plural + " on stdin", Hint: "nyx --help"}
 		}
 		return got.lines, nil
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, &clierr.Error{Code: clierr.Timeout, Message: "stdin was not closed before the deadline",
-				Hint: "close stdin, or pass the IDs as arguments"}
+				Hint: "close stdin, or pass the " + w.asArgs + " as arguments"}
 		}
 		return nil, ctx.Err()
 	}
@@ -383,20 +397,34 @@ func cveRetryCommand(cmd *cobra.Command, jsonMode bool, o *cveOptions) cve.HintF
 	return func(ids []string) string { return "nyx cve " + shellquote.Join(append(slices.Clone(ids), flags...)) }
 }
 
-// cveEnvelope is the --json result of nyx cve.
-type cveEnvelope struct {
-	Data []cve.Projected `json:"data"`
-	Meta cveMeta         `json:"meta"`
+// lookupEnvelope is the --json result of nyx cve and nyx ip.
+type lookupEnvelope[T any] struct {
+	Data []T        `json:"data"`
+	Meta lookupMeta `json:"meta"`
 }
 
-// cveMeta is the envelope's meta. Every key is there every time: errors and warnings are empty
-// lists when there is none, and hint, the note on how to see the lists the default leaves out, is
-// null when there is nothing to say.
-type cveMeta struct {
+// lookupMeta is the envelope's meta. Every key is there every time: errors and warnings are empty
+// lists when there is none, and hint is null when there is nothing to say (nyx cve's note on how
+// to see the lists the default leaves out; nyx ip has none).
+type lookupMeta struct {
 	Count    int         `json:"count"`
 	Errors   []errorLine `json:"errors"`
 	Warnings []string    `json:"warnings"`
 	Hint     *string     `json:"hint"`
+}
+
+// writeEnvelope writes the --json envelope of data, with the meta.errors entries, the warnings
+// and the hint, null when empty.
+func writeEnvelope[T any](inv *invocation, data []T, metaErrs []*clierr.Error, warnings *report.Warnings, hint string, red *config.Redactor) error {
+	env := lookupEnvelope[T]{Data: data,
+		Meta: lookupMeta{Count: len(data), Errors: make([]errorLine, len(metaErrs)), Warnings: warnings.List()}}
+	if hint != "" {
+		env.Meta.Hint = &hint
+	}
+	for i, e := range metaErrs {
+		env.Meta.Errors[i] = newErrorLine(e, red)
+	}
+	return lineEncoder(inv.d.Stdout).Encode(env)
 }
 
 // writeCVE writes the records cut by view: the envelope under --json, else the cve tool's layout,
@@ -418,13 +446,5 @@ func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, v
 		}
 		return nil
 	}
-	env := cveEnvelope{Data: projected,
-		Meta: cveMeta{Count: len(records), Errors: make([]errorLine, len(metaErrs)), Warnings: warnings.List()}}
-	if hint != "" {
-		env.Meta.Hint = &hint
-	}
-	for i, e := range metaErrs {
-		env.Meta.Errors[i] = newErrorLine(e, red)
-	}
-	return lineEncoder(d.Stdout).Encode(env)
+	return writeEnvelope(inv, projected, metaErrs, warnings, hint, red)
 }

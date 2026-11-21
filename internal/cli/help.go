@@ -59,7 +59,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	recon.AddCommand(newExportCommand(inv))
 	help := newHelpCommand(inv, root)
 	stream := inv.helpStream()
-	root.AddCommand(recon, newCVECommand(inv), help,
+	root.AddCommand(recon, newCVECommand(inv), newIPCommand(inv), help,
 		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp, stream),
 		newTopic(inv, "stages", "The stages, in run order, and what each one contacts and does",
 			func(s layout.Stream) string { return stagesHelp(s, inv.d.Stages) }, stream))

@@ -135,7 +135,7 @@ func TestClassify_ASNClassIsPassedThrough(t *testing.T) {
 		{13335, "cloudflare", provider.ClassCDN},
 		{54113, "fastly", provider.ClassCDN},
 		{53831, "squarespace", provider.ClassSaaS},
-		{14061, "digitalocean", "shared-hosting"},
+		{14061, "digitalocean", provider.ClassHyperscaler},
 		{8075, "azure", "hyperscaler"},
 	} {
 		got := db.Classify(ip("100.64.0.1"), provider.Owner{ASN: c.asn, Known: true}, nil)

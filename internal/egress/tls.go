@@ -2,11 +2,19 @@ package egress
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
+	"net"
+	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Trust states of a presented certificate chain, as CertTrust reports them.
@@ -103,4 +111,141 @@ func certTrust(host string, certs []*x509.Certificate, now time.Time, roots *x50
 func selfSigned(c *x509.Certificate) bool {
 	return bytes.Equal(c.RawIssuer, c.RawSubject) &&
 		c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature) == nil
+}
+
+// TLSResult is the outcome of a TLS handshake: a TLSCert, NoService or Refused.
+type TLSResult interface{ tlsResult() }
+
+// TLSCert is what a service presented when a handshake completed. Nothing was sent after it.
+type TLSCert struct {
+	Names    []string // the DNS and IP subject alternative names; an address is in its text form
+	Issuer   string   // the issuer's distinguished name
+	NotAfter time.Time
+	Version  string // the negotiated version, such as "TLS 1.3"
+}
+
+func (TLSCert) tlsResult()   {}
+func (NoService) tlsResult() {}
+func (Refused) tlsResult()   {}
+
+// TargetTLS completes TLS handshakes with target-owned addresses and reads the certificate.
+type TargetTLS interface {
+	Handshake(ctx context.Context, addr netip.Addr, port int, serverName string) (TLSResult, error)
+}
+
+type targetTLS struct{ e *Egress }
+
+func (t *targetTLS) Handshake(ctx context.Context, addr netip.Addr, port int, serverName string) (TLSResult, error) {
+	p := t.e.policy()
+	if r, ok := p.targetRefusal(); ok {
+		return r, nil
+	}
+	if !p.portAllowed(port, false) {
+		return Refused{"port " + strconv.Itoa(port) + " not in the configured list"}, nil
+	}
+	addr = addr.Unmap()
+	if r, refused := p.portIneligible(addr); refused {
+		return r, nil
+	}
+	if err := wait(ctx, t.e.hostLimiter(addr)); err != nil {
+		return nil, err
+	}
+	return t.e.handshake(ctx, addr, port, serverName)
+}
+
+// handshake dials addr, completes a TLS handshake offering serverName and closes the connection
+// without sending anything else. The dial is bounded by ConnectTimeout, and the dial and handshake
+// together by HTTPTimeout. A refused connection, a service that is not TLS, and one that
+// does not answer in time are results; a failure of this machine, and a cancelled ctx, are errors.
+func (e *Egress) handshake(ctx context.Context, addr netip.Addr, port int, serverName string) (TLSResult, error) {
+	hctx, cancel := context.WithTimeout(ctx, e.opts.HTTPTimeout)
+	defer cancel()
+	d := net.Dialer{Timeout: e.opts.ConnectTimeout}
+	raw, err := d.DialContext(hctx, "tcp", e.dialAddr(addr, port))
+	if err != nil {
+		return handshakeFailure(ctx, hctx, localRoute(err, addr, e.routeLookup()), classify)
+	}
+	conn := tls.Client(raw, targetTLSConfig(serverName))
+	defer conn.Close()
+	if err := conn.HandshakeContext(hctx); err != nil {
+		return handshakeFailure(ctx, hctx, err, func(err error) string {
+			if timedOut(err) {
+				return NoServiceTimeout
+			}
+			return NoServiceTLSFailed // not TLS, or reset or closed during the handshake
+		})
+	}
+	state := conn.ConnectionState()
+	out := TLSCert{Version: tls.VersionName(state.Version)}
+	if len(state.PeerCertificates) > 0 {
+		leaf := state.PeerCertificates[0]
+		out.Names = append(slices.Clone(leaf.DNSNames), ipNames(leaf.IPAddresses)...)
+		out.Issuer, out.NotAfter = leaf.Issuer.String(), leaf.NotAfter
+	}
+	return out, nil
+}
+
+// handshakeFailure classifies a dial or handshake that failed, as requestFailure does a request.
+// Cancelling the run, and a failure on this side, are errors; the deadline is a timeout; anything
+// else is the reason the classifier gives.
+func handshakeFailure(parent, ctx context.Context, err error, reason func(error) string) (TLSResult, error) {
+	switch perr := parent.Err(); {
+	case perr != nil && !errors.Is(perr, context.DeadlineExceeded):
+		return nil, perr
+	case ctx.Err() != nil:
+		return NoService{NoServiceTimeout}, nil //nolint:nilerr // the deadline passing is the result, not a failure
+	case localFailure(err):
+		return nil, err
+	}
+	return NoService{reason(err)}, nil
+}
+
+// timedOut reports whether err is a network timeout.
+func timedOut(err error) bool {
+	var ne net.Error
+	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &ne) && ne.Timeout()
+}
+
+func ipNames(ips []net.IP) []string {
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		out = append(out, ip.String())
+	}
+	return out
+}
+
+// Probe is the set of target clients for one address, built with NewProbe. Clients, which the
+// stages get, has no TLS client.
+type Probe struct {
+	TCP  TargetTCP
+	HTTP TargetHTTP
+	TLS  TargetTLS
+}
+
+// ProbePolicy is the Policy of the probe of one address: the address is the only netblock, the
+// hostnames that gave it are the roots and resolve to it, the ports are the only ports, the
+// contact is acknowledged and nothing is shared.
+func ProbePolicy(addr netip.Addr, hostnames []string, ports []int) *Policy {
+	res := map[string][]netip.Addr{}
+	for _, h := range hostnames {
+		res[h] = []netip.Addr{addr}
+	}
+	return &Policy{
+		Scope: scope.New(scope.Config{
+			Roots:       hostnames,
+			Netblocks:   []netip.Prefix{netip.PrefixFrom(addr, addr.BitLen())},
+			Resolutions: res,
+		}),
+		Resolutions: res,
+		Ack:         true,
+		Ports:       ports,
+	}
+}
+
+// NewProbe returns the target clients of a new Egress that enforces only p (ProbePolicy, for
+// one address), whatever the run.
+func NewProbe(o Options, p *Policy) Probe {
+	e := New(o)
+	e.SetPolicy(p)
+	return Probe{TCP: &targetTCP{e: e}, HTTP: &targetHTTP{e: e}, TLS: &targetTLS{e: e}}
 }

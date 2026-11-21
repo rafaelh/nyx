@@ -77,7 +77,7 @@ func (r *resolver) Query(ctx context.Context, name string, qtype uint16) (DNSRes
 	if qtype == dns.TypeAXFR || qtype == dns.TypeIXFR {
 		return DNSResult{}, errors.New("zone transfers are not permitted")
 	}
-	if err := r.e.dnsLim.Wait(ctx); err != nil {
+	if err := wait(ctx, r.e.dnsLim); err != nil {
 		return DNSResult{}, err
 	}
 	m := new(dns.Msg)

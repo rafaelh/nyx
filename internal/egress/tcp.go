@@ -51,7 +51,7 @@ func (t *targetTCP) Connect(ctx context.Context, addr netip.Addr, port int) (TCP
 	if r, refused := p.portIneligible(addr); refused {
 		return r, nil
 	}
-	if err := t.e.hostLimiter(addr).Wait(ctx); err != nil {
+	if err := wait(ctx, t.e.hostLimiter(addr)); err != nil {
 		return nil, err
 	}
 	return t.e.dialAndRead(ctx, addr, port)

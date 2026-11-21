@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"net/url"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/rafaelh/nyx/internal/webpage"
 	"golang.org/x/net/html"
 )
-
-const maxTitleRunes = 200
 
 // page is a parsed text/html body.
 type page struct{ doc *html.Node }
@@ -28,35 +26,8 @@ func attr(n *html.Node, key string) string {
 	return ""
 }
 
-// firstText is the text of the first element match accepts, in document order,
-// with whitespace collapsed and invalid UTF-8 replaced; "" if there is none.
-func (p page) firstText(match func(*html.Node) bool) string {
-	for n := range p.doc.Descendants() {
-		if n.Type == html.ElementNode && match(n) {
-			var b strings.Builder
-			for t := range n.Descendants() {
-				if t.Type == html.TextNode {
-					b.WriteString(t.Data)
-				}
-			}
-			return collapse(b.String())
-		}
-	}
-	return ""
-}
-
-// collapse collapses the whitespace of text and replaces invalid UTF-8.
-func collapse(s string) string {
-	return strings.Join(strings.Fields(strings.ToValidUTF8(s, "�")), " ")
-}
-
-// cutRunes is s cut to at most n runes.
-func cutRunes(s string, n int) string {
-	if utf8.RuneCountInString(s) > n {
-		return string([]rune(s)[:n])
-	}
-	return s
-}
+// firstText is the text of the first element match accepts (webpage.FirstText).
+func (p page) firstText(match func(*html.Node) bool) string { return webpage.FirstText(p.doc, match) }
 
 // withBase is what relative references in a page at u resolve against, as a
 // browser does: the page's first <base href> (baseHref) resolved against u, if
@@ -70,11 +41,8 @@ func withBase(u *url.URL, baseHref string) *url.URL {
 	return u
 }
 
-// title is the first <title>, with whitespace collapsed, invalid UTF-8
-// replaced and at most 200 runes.
-func (p page) title() string {
-	return cutRunes(p.firstText(func(n *html.Node) bool { return n.Data == "title" }), maxTitleRunes)
-}
+// title is the first <title>, by the rule of webpage.Title.
+func (p page) title() string { return webpage.TitleOf(p.doc) }
 
 // links are the references in a page, in document order. follow holds the ones
 // the crawl may fetch (a[href], area[href], iframe[src]); record holds the ones

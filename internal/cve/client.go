@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
 )
@@ -35,7 +36,6 @@ const (
 const (
 	hintNotFound   = "check the ID; the NVD lists only published CVEs"
 	hintRetryLater = "retry later"
-	hintTimeout    = "raise --timeout"
 	hintNoKey      = "; or set NVD_API_KEY for 50 requests per 30s"
 )
 
@@ -223,7 +223,7 @@ func (c *Client) refused() *Failure {
 
 // rateLimited is a transient rate limit that may succeed after wait.
 func (c *Client) rateLimited(msg string, wait time.Duration) *Failure {
-	hint := "retry after " + seconds(wait)
+	hint := "retry after " + batch.Seconds(wait)
 	if !c.cfg.Keyed {
 		hint += hintNoKey
 	}
@@ -246,7 +246,7 @@ func (c *Client) retryPastDeadline(a attempted, d time.Duration) *Failure {
 		return c.rateLimited(a.fail.Message+", and its retry is due after the deadline", d)
 	}
 	return &Failure{Err: &clierr.Error{Code: clierr.Timeout, Message: a.fail.Message + ", and its retry is due after the deadline",
-		Hint: "retry after " + seconds(d) + ", or " + hintTimeout, Transient: true}, Wait: d}
+		Hint: "retry after " + batch.Seconds(d) + ", or " + batch.HintTimeout, Transient: true}, Wait: d}
 }
 
 // ended is the error of a context that ended: a cancel (a signal) as itself,
@@ -255,7 +255,7 @@ func ended(ctx context.Context) error {
 	if err := ctx.Err(); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	return &Failure{Err: &clierr.Error{Code: clierr.Timeout, Message: "no answer from the NVD before the deadline", Hint: hintTimeout, Transient: true}}
+	return &Failure{Err: &clierr.Error{Code: clierr.Timeout, Message: "no answer from the NVD before the deadline", Hint: batch.HintTimeout, Transient: true}}
 }
 
 // retryDelay is the wait before a retry: Retry-After when it is a whole
@@ -267,12 +267,6 @@ func (c *Client) retryDelay(retryAfter string, attempt int) time.Duration {
 	}
 	d := c.backoff << (attempt - 1)
 	return d/2 + rand.N(d)
-}
-
-// seconds is d in whole seconds, rounded up so a caller never retries early,
-// and at least 1s.
-func seconds(d time.Duration) string {
-	return strconv.Itoa(max(int((d+time.Second-1)/time.Second), 1)) + "s"
 }
 
 func (c *Client) debugf(format string, args ...any) {

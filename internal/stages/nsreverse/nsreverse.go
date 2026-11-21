@@ -12,6 +12,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
@@ -130,7 +131,7 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			return true
 		}
 		for _, n := range names {
-			if root, ok := dnsname.ETLDPlusOne(httpsrc.CleanName(n)); ok && !roots[root] {
+			if root, ok := dnsname.ETLDPlusOne(input.CleanName(n)); ok && !roots[root] {
 				roots[root] = true
 				obs = append(obs, kinds.Root.Obs(root))
 			}

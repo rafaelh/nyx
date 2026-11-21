@@ -22,6 +22,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
@@ -131,7 +132,7 @@ func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	seen := map[string]bool{}
 	var obs []run.Observation
 	for _, n := range res.names {
-		n = httpsrc.CleanName(n)
+		n = input.CleanName(n)
 		if n == "" || seen[n] || !dnsname.Under(n, root) {
 			continue
 		}

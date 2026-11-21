@@ -106,9 +106,23 @@ const ClassSaaS = "saas"
 // ClassCDN marks an address served by a content delivery network.
 const ClassCDN = "cdn"
 
+// ClassHyperscaler marks an address of a cloud whose machines are dedicated to a customer. By ASN
+// alone it is Shared, as recon treats it, but it is not SharedInfrastructure.
+const ClassHyperscaler = "hyperscaler"
+
+// ClassSharedHosting marks an address of a host that serves many customers' sites from one
+// address.
+const ClassSharedHosting = "shared-hosting"
+
 // ClassWAF marks a CNAME entry of a web application firewall that fronts a site. An asn entry
 // given this class must be shared, as cdn is.
 const ClassWAF = "waf"
+
+// SharedInfrastructure reports whether the address belongs to a provider that serves many
+// customers from it (a CDN, SaaS, WAF or shared-hosting provider, or a built-in range of one): it
+// is Shared and not a hyperscaler's. A cloud address is Shared by recon's rule yet is not shared
+// infrastructure, since a machine there is one customer's.
+func (r Result) SharedInfrastructure() bool { return r.Shared && r.Class != ClassHyperscaler }
 
 // Entry is a matched CNAME entry of providers.yaml. NXDomain says a chain that
 // dangles into it can be claimed; Body, an RE2 regex, matches the page an

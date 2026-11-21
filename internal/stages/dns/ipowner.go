@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"iter"
 	"net/netip"
-	"strconv"
-	"strings"
 	"sync"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 )
@@ -43,41 +41,18 @@ func (*IPOwner) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 // transient, and leaves the owner unknown.
 func (o *IPOwner) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	addr := c.Input.(netip.Addr)
-	res, err := e.DNS.Query(ctx, dnsname.CymruOrigin(addr), egress.TypeTXT)
+	owner, found, err := ipsource.Origin(ctx, e.DNS, addr)
 	if err != nil {
 		return nil, fmt.Errorf("owner of %s: %w", addr, err)
 	}
-	switch res.RCode {
-	case egress.RCodeSuccess:
-	case egress.RCodeNXDomain:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("owner of %s: resolver answered rcode %d", addr, res.RCode)
-	}
-	var asn int
-	var prefix string
-	for _, a := range res.Answers {
-		if a.Type != "TXT" {
-			continue
-		}
-		f := fields(a.Value)
-		// "13335 | 1.1.1.0/24 | AU | apnic | 2011-08-11"; with several origins, take the first.
-		if len(f) >= 2 {
-			first, _, _ := strings.Cut(f[0], " ")
-			if n, err := strconv.Atoi(first); err == nil {
-				asn, prefix = n, f[1]
-				break
-			}
-		}
-	}
-	if asn == 0 {
+	if !found {
 		return nil, nil
 	}
-	holder, err := o.holder(ctx, asn, e)
+	holder, err := o.holder(ctx, owner.ASN, e)
 	if err != nil {
 		return nil, fmt.Errorf("owner of %s: %w", addr, err)
 	}
-	return []run.Observation{kinds.IPOwner.Obs(addr.String(), kinds.IPOwnerAttrs{ASN: asn, Prefix: prefix, Holder: holder})}, nil
+	return []run.Observation{kinds.IPOwner.Obs(addr.String(), kinds.IPOwnerAttrs{ASN: owner.ASN, Prefix: owner.Prefix, Holder: holder})}, nil
 }
 
 func (o *IPOwner) holder(ctx context.Context, asn int, e egress.Clients) (string, error) {
@@ -87,38 +62,12 @@ func (o *IPOwner) holder(ctx context.Context, asn int, e egress.Clients) (string
 	if ok {
 		return h, nil
 	}
-	res, err := e.DNS.Query(ctx, fmt.Sprintf("AS%d.asn.cymru.com", asn), egress.TypeTXT)
+	h, err := ipsource.ASName(ctx, e.DNS, asn)
 	if err != nil {
 		return "", err
-	}
-	if res.RCode != egress.RCodeSuccess && res.RCode != egress.RCodeNXDomain {
-		return "", fmt.Errorf("resolver answered rcode %d for AS%d", res.RCode, asn)
-	}
-	for _, a := range res.Answers {
-		// "13335 | US | arin | 2010-07-14 | CLOUDFLARENET, US"
-		if f := fields(a.Value); a.Type == "TXT" && len(f) >= 5 {
-			h = trimCountry(f[4])
-			break
-		}
 	}
 	o.mu.Lock()
 	o.holders[asn] = h
 	o.mu.Unlock()
 	return h, nil
-}
-
-func fields(txt string) []string {
-	parts := strings.Split(txt, "|")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	return parts
-}
-
-// trimCountry drops the ", US" country suffix Team Cymru appends to the holder.
-func trimCountry(h string) string {
-	if i := strings.LastIndex(h, ", "); i > 0 && len(h)-i == 4 {
-		return h[:i]
-	}
-	return h
 }

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/run"
 )
 
@@ -96,16 +96,6 @@ func body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse, spent in
 	return resp.Body, nil
 }
 
-// CleanName returns a name a source reported in canonical form: lower case,
-// punycode, with a trailing dot and a leading "*." removed, so a wildcard
-// certificate name yields its base name. It returns "" for anything that is not a
-// valid hostname: an address, a URL or a public suffix.
-func CleanName(n string) string {
-	n = strings.TrimPrefix(strings.TrimSpace(n), "*.") // ParseDomain does the rest of the normalising
-	d, _ := input.ParseDomain(n)
-	return d
-}
-
 // JoinLabels turns labels relative to root ("www", "*.cfe") into names. An empty
 // label and the bare wildcard "*" are the root itself, which is not a new name.
 func JoinLabels(root string, labels []string) []string {
@@ -138,24 +128,28 @@ func GetNames(ctx context.Context, c egress.Clients, u string, parse func([]byte
 // the same as its 429 (GetQuota). The reply rules are written once, for every
 // stage that asks HackerTarget.
 func HackerTargetLines(body []byte) ([]string, error) {
-	text := strings.TrimSpace(string(body))
-	// Only the start is lowered: every reply compared here is shorter than 40
-	// bytes, and a lookup can be thousands of lines.
-	switch lower := strings.ToLower(text[:min(len(text), 40)]); {
-	case lower == "", lower == "no records found", lower == "error check your search parameter",
-		strings.HasPrefix(lower, "no dns a records found"):
-		return nil, nil
-	case strings.HasPrefix(lower, "api count exceeded"):
+	lines, quota := ipsource.HackerTargetLines(body)
+	if quota {
 		return nil, fmt.Errorf("HackerTarget API count exceeded: %w", run.ErrQuota)
-	}
-	var lines []string
-	for line := range strings.SplitSeq(text, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
 	}
 	return lines, nil
 }
+
+// QuotaError makes an error that wraps ipsource.ErrQuota also wrap run.ErrQuota,
+// so the stage stops, and reads as it always has: the text of the error, then
+// run.ErrQuota's. Any other error is returned as it is.
+func QuotaError(err error) error {
+	if err == nil || !errors.Is(err, ipsource.ErrQuota) || errors.Is(err, run.ErrQuota) {
+		return err
+	}
+	return &quotaError{err}
+}
+
+type quotaError struct{ err error }
+
+func (e *quotaError) Error() string { return e.err.Error() + ": " + run.ErrQuota.Error() }
+
+func (e *quotaError) Unwrap() []error { return []error{e.err, run.ErrQuota} }
 
 // Sleep waits for d or the context, whichever ends first.
 func Sleep(ctx context.Context, d time.Duration) error {

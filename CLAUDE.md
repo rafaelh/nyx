@@ -39,14 +39,16 @@ make eol-data                   # refresh internal/eol/data from endoflife.date 
 - **Passive boundary.** Target-owned systems may only receive DNS lookups, TCP handshakes (read the
   unprompted banner, send nothing) and HTTP GET/HEAD to in-scope hosts. Egress enforces this
   through a `Policy` the runner rebuilds whenever the scope changes. Candidates and excluded
-  hosts/addresses are never contacted.
+  hosts/addresses are never contacted. `nyx ip --active` also completes TLS handshakes (no
+  application data), through `egress.NewProbe`'s `Probe`, which alone has a TLS client: `Clients`
+  never does, so recon stages cannot handshake.
 - The cross-target `go vet` in `make test` exists so that an untagged platform-specific call can't
   break one OS/arch unnoticed. If you change the target list, keep `TARGETS` in the `Makefile` in
   step with the list in `boundary_test.go`.
 
 ## Architecture
 
-Flow: `cmd/nyx` → `internal/cli` (the command tree `nyx` → `recon` → `export`, plus `cve`, `help`
+Flow: `cmd/nyx` → `internal/cli` (the command tree `nyx` → `recon` → `export`, plus `cve`, `ip`, `help`
 and the help topics; cobra/viper flags, a pre-scan of the arguments, validation, help, signals, and
 the one place that picks the exit code and writes the error) → `internal/run.Runner` → stages →
 `internal/store` (SQLite via `modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output`
@@ -56,6 +58,11 @@ and the human renderers take a stream where they once took a depth.
 `nyx cve` skips the runner: `internal/cli/cve.go` (flags, stdin, the worker pool, the writing) →
 `internal/cve` (the CVE record and its field table, the NVD client with its sliding window, the human
 layout and the batch outcome), which reaches the NVD through `egress`'s third-party client.
+`nyx ip` skips it too: `internal/cli/ip.go` (flags, stdin and the writing) → `internal/iplookup`
+(the inputs, the sources, active probing, the record and its field table, the outcome and the
+render), which reaches third parties and DNS through `egress` with no `Policy`, and the targets
+through one `egress.NewProbe` per contacted address. Its outcome rules are shared with `nyx cve`
+through `internal/batch`.
 
 **Commands and errors.** `cli.Execute` alone picks the exit code and writes the error: a command
 returns an error and prints none. The error is a `clierr.Error` (code, message, hint, input,
@@ -66,7 +73,8 @@ don't send any; `cli.NotifySignals` in `main`) delivers signals: the first cance
 once. A new command needs only `AddCommand`, an `Example` and its help annotations
 (`internal/cli/help.go`) to be in the root help and the pre-scan. **The exit codes, the error codes,
 the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
-keys of the CVE record and of the `nyx cve` envelope are a stable interface**: adding one is
+keys of the CVE record and of the `nyx cve` envelope, and the keys of the `nyx ip` record and
+envelope are a stable interface**: adding one is
 compatible, renaming, removing or retyping one is a breaking change (README, "Exit codes" and
 "Console and JSON"). The default `nyx cve` selection broke this once, deliberately: it leaves out the
 `affected_products` and `references` lists and has their counts instead (`--fields all` has both).

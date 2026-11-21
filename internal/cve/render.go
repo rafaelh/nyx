@@ -58,7 +58,7 @@ func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor
 // redactRecord is rec with each string cleaned and then redacted. Cleaning again
 // later changes nothing, so the layout is as it is without a redactor.
 func redactRecord(rec Record, red *config.Redactor) Record {
-	str := func(s string) string { return red.Redact(clean(s)) }
+	str := func(s string) string { return red.Redact(sanitize.Line(s)) }
 	ptr := func(p *string) *string {
 		if p == nil {
 			return nil
@@ -106,20 +106,12 @@ type renderer struct {
 	width int
 }
 
-// spaces are the characters clean turns into spaces, so that words either
-// side of them stay apart; sanitize.Text already does so for tabs.
-var spaces = strings.NewReplacer("\n", " ", "\r", " ")
-
-// clean is the NVD's text as it may be shown: newlines, returns and tabs as
-// spaces, and no escape sequence or other control character.
-func clean(s string) string { return sanitize.Text(spaces.Replace(s)) }
-
 // or is *s cleaned, or fallback when s is nil or blank.
 func or(s *string, fallback string) string {
 	if s == nil {
 		return fallback
 	}
-	return orEmpty(clean(*s), fallback)
+	return orEmpty(sanitize.Line(*s), fallback)
 }
 
 func orEmpty(s, fallback string) string {
@@ -131,7 +123,7 @@ func orEmpty(s, fallback string) string {
 
 func (r renderer) record(p Projected) string {
 	rec, has := p.rec, p.f.Has
-	header := r.d.Bold(clean(rec.ID))
+	header := r.d.Bold(sanitize.Line(rec.ID))
 	if has("cvss_severity") {
 		header += "  " + r.badge(or(rec.CVSSSeverity, "UNKNOWN"))
 	}
@@ -144,7 +136,7 @@ func (r renderer) record(p Projected) string {
 	}
 	var dates []string
 	if has("status") {
-		dates = append(dates, r.field("Status", orEmpty(clean(rec.Status), "Unknown")))
+		dates = append(dates, r.field("Status", orEmpty(sanitize.Line(rec.Status), "Unknown")))
 	}
 	if has("published") {
 		dates = append(dates, r.field("Published", timestamp(rec.Published)))
@@ -160,7 +152,7 @@ func (r renderer) record(p Projected) string {
 	if has("weaknesses") {
 		ws := make([]string, len(rec.Weaknesses))
 		for i, w := range rec.Weaknesses {
-			ws[i] = clean(w)
+			ws[i] = sanitize.Line(w)
 		}
 		section("Weaknesses", bullets(ws, "No weaknesses listed.", r.width)...)
 	}
@@ -258,7 +250,7 @@ func (r renderer) cvss(rec Record, has func(string) bool) []string {
 	if has("cvss_score") {
 		score := strconv.FormatFloat(*rec.CVSSScore, 'f', 1, 64)
 		if has("cvss_severity") && rec.CVSSSeverity != nil {
-			score += " (" + clean(*rec.CVSSSeverity) + ")"
+			score += " (" + sanitize.Line(*rec.CVSSSeverity) + ")"
 		}
 		lines = append(lines, r.field("Base Score", score))
 	}
@@ -278,11 +270,11 @@ func (r renderer) cvss(rec Record, has func(string) bool) []string {
 func (r renderer) references(refs []Reference) []string {
 	lines := make([]string, len(refs))
 	for i, ref := range refs {
-		line := r.d.Text(palette.Semantic, "info", clean(ref.URL))
+		line := r.d.Text(palette.Semantic, "info", sanitize.Line(ref.URL))
 		if len(ref.Tags) > 0 {
 			tags := make([]string, len(ref.Tags))
 			for j, t := range ref.Tags {
-				tags[j] = clean(t)
+				tags[j] = sanitize.Line(t)
 			}
 			line += " " + r.d.Text(palette.Chrome, "TIMESTAMP", "["+strings.Join(tags, ", ")+"]")
 		}
@@ -292,7 +284,7 @@ func (r renderer) references(refs []Reference) []string {
 }
 
 // shortForm is how an affected product reads to a person: apache log4j (>= 2.0.1, < 2.3.1).
-func shortForm(ap AffectedProduct) string { return productLine(ap, clean, clean) }
+func shortForm(ap AffectedProduct) string { return productLine(ap, sanitize.Line, sanitize.Line) }
 
 // shortForms are the products' short forms.
 func shortForms(aps []AffectedProduct) []string {
@@ -388,8 +380,8 @@ const unknownSeverity = "UNKNOWN"
 // the bar is the ID and the label in brackets at either end of the line, or the
 // ID alone without hasSeverity. The ID and the severity are cleaned first.
 func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
-	id = clean(id)
-	label := orEmpty(clean(severity), unknownSeverity)
+	id = sanitize.Line(id)
+	label := orEmpty(sanitize.Line(severity), unknownSeverity)
 	cols := s.Cols()
 	d := s.Depth
 	if !s.Coloured() {
@@ -433,7 +425,7 @@ func (r termRenderer) record(p Projected) string {
 	}
 	var dates []kv
 	if has("status") {
-		dates = append(dates, kv{"Status", orEmpty(clean(rec.Status), "Unknown")})
+		dates = append(dates, kv{"Status", orEmpty(sanitize.Line(rec.Status), "Unknown")})
 	}
 	if has("published") {
 		dates = append(dates, kv{"Published", timestamp(rec.Published)})
@@ -449,7 +441,7 @@ func (r termRenderer) record(p Projected) string {
 	if has("weaknesses") {
 		ws := make([]string, len(rec.Weaknesses))
 		for i, w := range rec.Weaknesses {
-			ws[i] = clean(w)
+			ws[i] = sanitize.Line(w)
 		}
 		section("Weaknesses", r.bullets(ws, "No weaknesses listed."))
 	}
@@ -518,7 +510,7 @@ func (r termRenderer) cvss(rec Record, has func(string) bool) []string {
 	if has("cvss_score") {
 		score := strconv.FormatFloat(*rec.CVSSScore, 'f', 1, 64)
 		if has("cvss_severity") && rec.CVSSSeverity != nil {
-			score += " (" + clean(*rec.CVSSSeverity) + ")"
+			score += " (" + sanitize.Line(*rec.CVSSSeverity) + ")"
 		}
 		kvs = append(kvs, kv{"Base Score", score})
 	}
@@ -542,11 +534,11 @@ func (r termRenderer) references(refs []Reference) []string {
 	chrome := func(x string) string { return d.Text(palette.Chrome, "TIMESTAMP", x) }
 	var out []string
 	for _, ref := range refs {
-		spans := []layout.Span{{Text: squash(clean(ref.URL)), Style: info}}
+		spans := []layout.Span{{Text: squash(sanitize.Line(ref.URL)), Style: info}}
 		if len(ref.Tags) > 0 {
 			tags := make([]string, len(ref.Tags))
 			for i, t := range ref.Tags {
-				tags[i] = squash(clean(t))
+				tags[i] = squash(sanitize.Line(t))
 			}
 			spans = append(spans, layout.Span{Text: " "}, layout.Span{Text: "[" + strings.Join(tags, ", ") + "]", Style: chrome})
 		}

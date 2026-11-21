@@ -105,7 +105,7 @@ func (t *thirdParty) Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyRes
 	if err != nil {
 		return ThirdPartyResponse{}, err
 	}
-	if err := e.sourceLimiter(pattern).Wait(ctx); err != nil {
+	if err := wait(ctx, e.sourceLimiter(pattern)); err != nil {
 		return ThirdPartyResponse{}, err
 	}
 	timeout := e.opts.HTTPTimeout

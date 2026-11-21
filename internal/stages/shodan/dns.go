@@ -85,7 +85,7 @@ func (*DNS) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obser
 			return nil, fmt.Errorf("shodan-dns %s: unreadable response", in.root)
 		}
 		for _, n := range httpsrc.JoinLabels(in.root, r.Subdomains) {
-			if n = httpsrc.CleanName(n); n != "" {
+			if n = input.CleanName(n); n != "" {
 				out.hostname(n)
 			}
 		}
@@ -110,7 +110,7 @@ type dnsObs struct {
 	obs  []run.Observation
 }
 
-// hostname records a name already in canonical form (httpsrc.CleanName).
+// hostname records a name already in canonical form (input.CleanName).
 func (o *dnsObs) hostname(name string) {
 	if !o.seen["h|"+name] {
 		o.seen["h|"+name] = true
@@ -130,7 +130,7 @@ func (o *dnsObs) record(sub, typ, value string) {
 	if sub != "" {
 		name = sub + "." + o.in.root
 	}
-	if name = httpsrc.CleanName(name); name == "" {
+	if name = input.CleanName(name); name == "" {
 		return
 	}
 	o.hostname(name)
@@ -151,7 +151,7 @@ func (o *dnsObs) record(sub, typ, value string) {
 		if f := strings.Fields(value); len(f) > 0 {
 			value = f[len(f)-1] // an MX value may begin with its preference
 		}
-		if value = httpsrc.CleanName(value); value == "" {
+		if value = input.CleanName(value); value == "" {
 			return
 		}
 		target = value

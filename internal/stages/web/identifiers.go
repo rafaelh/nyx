@@ -10,6 +10,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/webpage"
 )
 
 // maxCopyrightRunes is the longest copyright line recorded.
@@ -97,7 +98,7 @@ func (p page) visibleLines() []string {
 	var lines []string
 	var cur strings.Builder
 	flush := func() {
-		if s := collapse(cur.String()); s != "" {
+		if s := webpage.Collapse(cur.String()); s != "" {
 			lines = append(lines, s)
 		}
 		cur.Reset()
@@ -133,7 +134,7 @@ func (p page) visibleLines() []string {
 func (p page) copyright() string {
 	for _, line := range p.visibleLines() {
 		if copyrightMark.MatchString(line) {
-			return strings.TrimSpace(cutRunes(sanitize.Text(line), maxCopyrightRunes))
+			return strings.TrimSpace(webpage.CutRunes(sanitize.Text(line), maxCopyrightRunes))
 		}
 	}
 	return ""
