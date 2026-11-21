@@ -7,7 +7,8 @@
 // stage or mechanism that observed it, the item is what linked it (an
 // organisation, an address, a netblock, a root, a service). Sources are grouped
 // into families, and the confidence is decided by how many families agree and
-// by which. See Score for the rules.
+// by which. Each stage names the family of its sources (Families); see Score
+// for the rules.
 package candidates
 
 import (
@@ -40,8 +41,10 @@ func (c Confidence) rank() int {
 	}
 }
 
-// Evidence is one source and the item that linked the candidate.
-type Evidence struct{ Source, Item string }
+// Evidence is one source and the item that linked the candidate, with the
+// family of the source (Families.Of). An empty Family is a family of its own,
+// named after the source.
+type Evidence struct{ Source, Item, Family string }
 
 // Rank is the ranking of one candidate.
 type Rank struct {
@@ -50,62 +53,55 @@ type Rank struct {
 	Confidence Confidence
 }
 
-// The families. A source outside the table is a family of its own, named after it.
+// The families the stages put their sources in. A source no stage puts in one
+// is a family of its own, named after it.
 const (
-	certTransparency = "certificate transparency"
-	webArchive       = "web archive"
-	passiveDNS       = "passive dns"
-	reverseIP        = "reverse ip"
-	registrant       = "registrant"
-	sharedInfra      = "shared infrastructure"
-	webIdentifier    = "web identifier"
+	CertTransparency = "certificate transparency"
+	WebArchive       = "web archive"
+	PassiveDNS       = "passive dns"
+	ReverseIP        = "reverse ip"
+	Registrant       = "registrant"
+	SharedInfra      = "shared infrastructure"
+	WebIdentifier    = "web identifier"
 )
 
-// families maps a source (a stage name, or the mechanism a stage reports) to
-// its family. A source that is its own family is listed with its own name, so
-// that Sources lists every value the sources column can hold. org-asn is a
-// registrant source on the assumption that RIPEstat's organisation search
-// matches registry organisation names; ct-org searches certificates by their
-// organisation, so it is a certificate transparency source.
-var families = map[string]string{
-	"crtsh": certTransparency, "certspotter": certTransparency, "censys": certTransparency, "ct-org": certTransparency,
-	"wayback": webArchive, "commoncrawl": webArchive,
-	// otx and anubis are no longer run; they stay so that what an engagement
-	// stored from them still counts as passive DNS, not as a family of its own.
-	"otx": passiveDNS, "virustotal": passiveDNS, "securitytrails": passiveDNS, "shodan": passiveDNS,
-	"shodan-dns": passiveDNS, "shodan-host": passiveDNS, "chaos": passiveDNS, "urlscan": passiveDNS, "anubis": passiveDNS, "hackertarget": passiveDNS,
-	"reverseip":        reverseIP,
-	"rdap":             registrant,
-	"whoisxml":         registrant,
-	"org-asn":          registrant,
-	"shared-ns":        sharedInfra,
-	"shared-mx":        sharedInfra,
-	"identifier-pivot": webIdentifier,
-	// Their own families.
-	"httpprobe": "httpprobe", "rdns": "rdns", "crawl": "crawl",
+// retired are the families of the sources no stage runs any more (otx and
+// anubis), so that what an engagement stored from them still counts as passive
+// DNS, not as a family of its own.
+var retired = map[string]string{"otx": PassiveDNS, "anubis": PassiveDNS}
+
+// Families maps each source the stages name to its family.
+type Families struct{ m map[string]string }
+
+// NewFamilies returns the families of the named sources (a source to its
+// family), and of the sources no stage runs any more.
+func NewFamilies(named map[string]string) Families {
+	m := maps.Clone(retired)
+	maps.Copy(m, named)
+	return Families{m}
 }
 
-// Family is the family a source belongs to. A source may carry what it found
-// after a colon ("identifier-pivot:G-ABC123"): it belongs to the family of the
-// part before the colon, so that each such value is not a family of its own.
-func Family(source string) string {
-	if f, ok := families[source]; ok {
-		return f
+// Of is the family a source belongs to. A source may carry what it found after
+// a colon ("identifier-pivot:G-ABC123"): it belongs to the family of the part
+// before the colon, so that each such value is not a family of its own.
+func (f Families) Of(source string) string {
+	if fam, ok := f.m[source]; ok {
+		return fam
 	}
 	if name, _, ok := strings.Cut(source, ":"); ok {
-		if f, ok := families[name]; ok {
-			return f
+		if fam, ok := f.m[name]; ok {
+			return fam
 		}
 	}
 	return source
 }
 
-// Sources lists every source the family table names, sorted: the values the
-// sources column can hold for a stage this package knows, apart from a source
-// that carries what it found after a colon (see Family), which is listed by the
-// name before the colon.
-func Sources() []string {
-	return slices.Sorted(maps.Keys(families))
+// Sources lists every source the families name, sorted: the values the sources
+// column can hold for a source with a family, apart from a source that carries
+// what it found after a colon (see Of), which is listed by the name before the
+// colon.
+func (f Families) Sources() []string {
+	return slices.Sorted(maps.Keys(f.m))
 }
 
 // Score ranks a candidate's evidence. orgs are the --org inputs.
@@ -133,12 +129,12 @@ func Score(ev []Evidence, orgs []string) Rank {
 		}
 		pairs[e] = true
 		sources[e.Source] = true
-		f := Family(e.Source)
+		f := cmp.Or(e.Family, e.Source)
 		fams[f] = true
 		switch f {
-		case reverseIP:
+		case ReverseIP:
 			reverseItems[e.Item] = true
-		case registrant:
+		case Registrant:
 			match = match || slices.Contains(orgs, e.Item)
 		}
 	}
@@ -146,7 +142,7 @@ func Score(ev []Evidence, orgs []string) Rank {
 	switch {
 	case match && len(fams) > 1, len(fams) >= 3:
 		r.Confidence = High
-	case len(fams) == 2, fams[sharedInfra], len(reverseItems) >= 2, match:
+	case len(fams) == 2, fams[SharedInfra], len(reverseItems) >= 2, match:
 		r.Confidence = Medium
 	}
 	return r

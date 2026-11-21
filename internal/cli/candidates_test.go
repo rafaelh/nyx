@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
@@ -35,6 +36,20 @@ func newSrc(name string, finds map[string][]run.Observation) *src {
 			return s.finds[c.Key], nil
 		}}
 	return s
+}
+
+// realFamilies are the families the real stages name for their sources.
+var realFamilies = run.CandidateFamilies(cli.DefaultDeps().Stages)
+
+// CandidateSources names every real source with its family, so that a fake
+// named after a real source, or reporting one through Evidence, counts in that
+// source's family.
+func (*src) CandidateSources() map[string]string {
+	m := map[string]string{}
+	for _, s := range realFamilies.Sources() {
+		m[s] = realFamilies.Of(s)
+	}
+	return m
 }
 
 // pivot is a stage whose check keys are "<source>:<item>|<settings>": like a
@@ -401,5 +416,39 @@ func TestCandidates_JSONEnvelope(t *testing.T) {
 	}
 	if high != 23 {
 		t.Errorf("candidates.csv has %d high rows, want 23", high)
+	}
+}
+
+// Each stage names the family of the sources it finds candidates under; a
+// source no longer run keeps its family, and any other is a family of its own.
+func TestCandidates_FamiliesOfTheRealSources(t *testing.T) {
+	t.Parallel()
+	for source, want := range map[string]string{
+		"crtsh": "certificate transparency", "certspotter": "certificate transparency", "censys": "certificate transparency",
+		"ct-org": "certificate transparency", "wayback": "web archive", "commoncrawl": "web archive",
+		"otx": "passive dns", "virustotal": "passive dns", "securitytrails": "passive dns", "shodan": "passive dns",
+		"shodan-dns": "passive dns", "shodan-host": "passive dns",
+		"chaos": "passive dns", "urlscan": "passive dns", "anubis": "passive dns", "hackertarget": "passive dns",
+		"reverseip": "reverse ip",
+		"rdap":      "registrant", "whoisxml": "registrant", "org-asn": "registrant",
+		"shared-ns": "shared infrastructure", "shared-mx": "shared infrastructure",
+		"identifier-pivot": "web identifier", "identifier-pivot:G-AAAAAA1": "web identifier",
+		"httpprobe": "httpprobe", "rdns": "rdns", "crawl": "crawl", "jsparse": "jsparse",
+	} {
+		if got := realFamilies.Of(source); got != want {
+			t.Errorf("family of %q = %q, want %q", source, got, want)
+		}
+	}
+}
+
+// The README lists every source a stage names for the sources column, so a
+// stage that names a new one without documenting it fails here.
+func TestCandidates_READMEListsEverySource(t *testing.T) {
+	t.Parallel()
+	readme := readmeText(t)
+	for _, s := range realFamilies.Sources() {
+		if !strings.Contains(readme, "`"+s+"`") {
+			t.Errorf("README.md does not list the candidate source `%s`", s)
+		}
 	}
 }

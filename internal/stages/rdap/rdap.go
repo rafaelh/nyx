@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
@@ -60,6 +61,11 @@ func (*Stage) Configured(run.Env) (bool, string) { return true, "" }
 // waits for the lookup that finds it (one request, not two), the registries'
 // request rate stays down, and a 429 stops the stage before the next check sends.
 func (*Stage) Workers(config.Settings) int { return 1 }
+
+// CandidateSources: what a registry holds of who registered a range is registrant evidence.
+func (*Stage) CandidateSources() map[string]string {
+	return map[string]string{"rdap": candidates.Registrant}
+}
 
 // Evidence names what a check gives a candidate. An organisation check is
 // evidence about the organisation, however many registries returned the result;

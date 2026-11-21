@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -31,6 +32,11 @@ type DNS struct{ shodanAPI }
 func NewDNS() *DNS { return &DNS{} }
 
 func (*DNS) Name() string { return "shodan-dns" }
+
+// CandidateSources: what Shodan holds is passive DNS.
+func (*DNS) CandidateSources() map[string]string {
+	return map[string]string{"shodan-dns": candidates.PassiveDNS}
+}
 
 // dnsInput is the Check.Input. The scope travels in it so that Run can tell an
 // in-scope CNAME target from one that is not.

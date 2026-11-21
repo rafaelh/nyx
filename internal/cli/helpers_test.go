@@ -8,9 +8,16 @@ import (
 
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/stages/asn"
+	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 func newASN() run.Stage { return asn.New() }
+
+// expander is a fake stage that expands the input ASNs, as the asn stage does: a
+// netblock it observes under a check for an input ASN is in scope.
+type expander struct{ *testkit.Stage }
+
+func (expander) ExpandsInputASNs() {}
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
 

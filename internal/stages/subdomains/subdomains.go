@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -54,6 +55,7 @@ type rootInput struct {
 // Stage is one subdomain source.
 type Stage struct {
 	name    string
+	family  string // of the candidates it finds; see package candidates
 	sources []string
 	keyed   bool
 	// optionalKey is a source that works unkeyed and sends keys.<name> when set.
@@ -68,18 +70,18 @@ type Stage struct {
 // New returns every subdomain stage in registry order.
 func New() []run.Stage {
 	return []run.Stage{
-		&Stage{name: "crtsh", sources: []string{"crt.sh"}, fetch: crtsh},
-		&Stage{name: "wayback", sources: []string{"web.archive.org"}, archive: true, fetch: wayback},
-		&Stage{name: "commoncrawl", sources: []string{"index.commoncrawl.org"}, archive: true, fetch: commoncrawl},
-		&Stage{name: "virustotal", sources: []string{"www.virustotal.com"}, keyed: true, fetch: virustotal},
-		&Stage{name: "securitytrails", sources: []string{"api.securitytrails.com"}, keyed: true, fetch: securitytrails},
-		&Stage{name: "hackertarget", sources: []string{"api.hackertarget.com"}, fetch: hackertarget},
-		&Stage{name: "urlscan", sources: []string{"urlscan.io"}, fetch: urlscan},
-		&Stage{name: "certspotter", sources: []string{"api.certspotter.com"}, optionalKey: true,
+		&Stage{name: "crtsh", family: candidates.CertTransparency, sources: []string{"crt.sh"}, fetch: crtsh},
+		&Stage{name: "wayback", family: candidates.WebArchive, sources: []string{"web.archive.org"}, archive: true, fetch: wayback},
+		&Stage{name: "commoncrawl", family: candidates.WebArchive, sources: []string{"index.commoncrawl.org"}, archive: true, fetch: commoncrawl},
+		&Stage{name: "virustotal", family: candidates.PassiveDNS, sources: []string{"www.virustotal.com"}, keyed: true, fetch: virustotal},
+		&Stage{name: "securitytrails", family: candidates.PassiveDNS, sources: []string{"api.securitytrails.com"}, keyed: true, fetch: securitytrails},
+		&Stage{name: "hackertarget", family: candidates.PassiveDNS, sources: []string{"api.hackertarget.com"}, fetch: hackertarget},
+		&Stage{name: "urlscan", family: candidates.PassiveDNS, sources: []string{"urlscan.io"}, fetch: urlscan},
+		&Stage{name: "certspotter", family: candidates.CertTransparency, sources: []string{"api.certspotter.com"}, optionalKey: true,
 			pageCap: func(c config.Settings) int { return c.Certspotter.MaxPages }, fetch: certspotter},
-		&Stage{name: "censys", sources: []string{"api.platform.censys.io"}, keyed: true,
+		&Stage{name: "censys", family: candidates.CertTransparency, sources: []string{"api.platform.censys.io"}, keyed: true,
 			pageCap: func(c config.Settings) int { return c.Censys.MaxPages }, fetch: censys},
-		&Stage{name: "chaos", sources: []string{"dns.projectdiscovery.io"}, keyed: true,
+		&Stage{name: "chaos", family: candidates.PassiveDNS, sources: []string{"dns.projectdiscovery.io"}, keyed: true,
 			pageCap: func(c config.Settings) int { return c.Chaos.MaxPages }, fetch: chaos},
 	}
 }
@@ -87,6 +89,9 @@ func New() []run.Stage {
 func (s *Stage) Name() string         { return s.name }
 func (s *Stage) Contact() run.Contact { return run.ThirdParty }
 func (s *Stage) Sources() []string    { return s.sources }
+
+// CandidateSources is the family of the stage, the source of what it finds.
+func (s *Stage) CandidateSources() map[string]string { return map[string]string{s.name: s.family} }
 
 // Configured: keyed sources need keys.<source>.
 func (s *Stage) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, s.name, s.keyed) }

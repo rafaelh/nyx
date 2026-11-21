@@ -30,9 +30,6 @@ Confirm each with `/code-review` before fixing.
 
 ## Design changes
 
-- **No hard-coded stage or source names.** Remove the hard-coded "asn" stage name from finding
-  announcements and from `BuildScope`, and take source names from stage data.
-
 - **Scope build.** Separate the egress Policy from the scope build, and derive `scopeKinds` from a
   table.
 

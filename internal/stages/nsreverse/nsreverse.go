@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
@@ -102,8 +103,13 @@ func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] 
 
 func (s server) key() string { return fmt.Sprintf("%s|%s|max=%d", s.role, s.host, s.max) }
 
-// Evidence is the server, under the source "shared-ns" or "shared-mx" that the
-// candidate family table holds. The item leaves out the cap, so changing it does
+// CandidateSources: a self-hosted name server or mail host shared with another
+// domain is shared infrastructure.
+func (*Stage) CandidateSources() map[string]string {
+	return map[string]string{"shared-ns": candidates.SharedInfra, "shared-mx": candidates.SharedInfra}
+}
+
+// Evidence is the server, under the source "shared-ns" or "shared-mx". The item leaves out the cap, so changing it does
 // not count a server twice.
 func (*Stage) Evidence(checkKey string) (source, item string) {
 	role, rest, _ := strings.Cut(checkKey, "|")

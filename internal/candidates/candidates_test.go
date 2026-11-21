@@ -1,19 +1,25 @@
 package candidates_test
 
 import (
-	"os"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
+// families are the families of the sources the tests use, as the stages name them.
+var families = candidates.NewFamilies(map[string]string{
+	"crtsh": candidates.CertTransparency, "certspotter": candidates.CertTransparency, "wayback": candidates.WebArchive,
+	"reverseip": candidates.ReverseIP, "rdap": candidates.Registrant, "whoisxml": candidates.Registrant, "org-asn": candidates.Registrant,
+	"shared-ns": candidates.SharedInfra, "shared-mx": candidates.SharedInfra, "identifier-pivot": candidates.WebIdentifier,
+})
+
+// ev is the evidence of (source, item) pairs, each with its family.
 func ev(pairs ...string) []candidates.Evidence {
 	var out []candidates.Evidence
 	for i := 0; i+1 < len(pairs); i += 2 {
-		out = append(out, candidates.Evidence{Source: pairs[i], Item: pairs[i+1]})
+		out = append(out, candidates.Evidence{Source: pairs[i], Item: pairs[i+1], Family: families.Of(pairs[i])})
 	}
 	return out
 }
@@ -78,27 +84,34 @@ func TestScoreSources(t *testing.T) {
 	}
 }
 
-func TestFamily(t *testing.T) {
+// A source has the family named for it, or for the part before a colon; a
+// source no longer run keeps its family; any other is a family of its own.
+func TestFamiliesOf(t *testing.T) {
 	t.Parallel()
 	for source, want := range map[string]string{
-		"crtsh": "certificate transparency", "certspotter": "certificate transparency", "censys": "certificate transparency",
-		"wayback": "web archive", "commoncrawl": "web archive",
-		"otx": "passive dns", "virustotal": "passive dns", "securitytrails": "passive dns", "shodan": "passive dns",
-		"shodan-dns": "passive dns", "shodan-host": "passive dns",
-		"chaos": "passive dns", "urlscan": "passive dns", "anubis": "passive dns", "hackertarget": "passive dns",
-		"reverseip": "reverse ip",
-		"rdap":      "registrant", "whoisxml": "registrant", "org-asn": "registrant",
-		"shared-ns": "shared infrastructure", "shared-mx": "shared infrastructure",
-		"identifier-pivot": "web identifier",
-		// A source with a colon has the family of the part before it, when the
-		// table has that part.
+		"crtsh": "certificate transparency", "identifier-pivot": "web identifier",
 		"identifier-pivot:G-AAAAAA1": "web identifier", "identifier-pivot:-1165240594": "web identifier",
-		"crtsh:x": "certificate transparency", "something-new:x": "something-new:x",
-		"httpprobe": "httpprobe", "rdns": "rdns", "something-new": "something-new",
+		"crtsh:x": "certificate transparency", "something-new:x": "something-new:x", "something-new": "something-new",
+		"otx": "passive dns", "anubis": "passive dns",
 	} {
-		if got := candidates.Family(source); got != want {
-			t.Errorf("Family(%q) = %q, want %q", source, got, want)
+		if got := families.Of(source); got != want {
+			t.Errorf("Of(%q) = %q, want %q", source, got, want)
 		}
+	}
+}
+
+// A family a stage names takes the place of a retired source's.
+func TestFamiliesNamedOverRetired(t *testing.T) {
+	t.Parallel()
+	f := candidates.NewFamilies(map[string]string{"otx": "otx"})
+	if got := f.Of("otx"); got != "otx" {
+		t.Errorf("Of(otx) = %q, want the family the stage names", got)
+	}
+	if got := f.Of("anubis"); got != candidates.PassiveDNS {
+		t.Errorf("Of(anubis) = %q, want passive dns", got)
+	}
+	if got := f.Sources(); !slices.Equal(got, []string{"anubis", "otx"}) {
+		t.Errorf("Sources() = %v, want the named and the retired sources, sorted", got)
 	}
 }
 
@@ -139,21 +152,6 @@ func TestPromote(t *testing.T) {
 	} {
 		if got := candidates.Promote(c.typ, c.value); got != c.want {
 			t.Errorf("Promote(%q, %q) = %q, want %q", c.typ, c.value, got, c.want)
-		}
-	}
-}
-
-// The README lists every source the sources column can hold, so adding one to
-// the family table without documenting it fails here.
-func TestREADMEListsEverySource(t *testing.T) {
-	t.Parallel()
-	b, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range candidates.Sources() {
-		if !strings.Contains(string(b), "`"+s+"`") {
-			t.Errorf("README.md does not list the candidate source `%s`", s)
 		}
 	}
 }

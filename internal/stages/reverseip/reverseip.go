@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	scopeinput "github.com/rafaelh/nyx/internal/input"
@@ -76,8 +77,12 @@ func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] 
 	}
 }
 
-// Evidence is the address, under the source "reverseip" that the candidate family
-// table holds. The item leaves out the cap, so changing it does not count an
+// CandidateSources: the stage is the reverse IP family.
+func (*Stage) CandidateSources() map[string]string {
+	return map[string]string{"reverseip": candidates.ReverseIP}
+}
+
+// Evidence is the address, under the source "reverseip". The item leaves out the cap, so changing it does not count an
 // address twice, and a root seen on two addresses has two pairs.
 func (*Stage) Evidence(checkKey string) (source, item string) {
 	addr, _, _ := strings.Cut(checkKey, "|")

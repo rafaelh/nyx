@@ -708,6 +708,39 @@ func TestNetblockGuard(t *testing.T) {
 	}
 }
 
+// A netblock is in scope for an input ASN when a stage that expands the input
+// ASNs observes it under that ASN's check, whatever the stage is called; another
+// stage's netblock is not, even one named asn.
+func TestASNNetblocksComeFromTheExpandingStage(t *testing.T) {
+	t.Parallel()
+	announce := func(name, prefix string) *testkit.Stage {
+		return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
+			ChecksFn: func(v run.View) []run.Check {
+				var cs []run.Check
+				for _, a := range v.Inputs().ASNs {
+					cs = append(cs, run.Check{Key: a})
+				}
+				return cs
+			},
+			RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+				return []run.Observation{kinds.Netblock.Obs(prefix, kinds.NetblockAttrs{ASN: c.Key})}, nil
+			}}
+	}
+	h := newHarness(t, expander{announce("announcer", "198.51.100.0/24")}, announce("asn", "203.0.113.0/24"))
+	if code := h.exec("--asn", "64500"); code != 0 {
+		t.Fatal(h.stderr.String())
+	}
+	var got []string
+	for _, r := range h.table("as64500", "scope.csv") {
+		if r["type"] == "netblock" {
+			got = append(got, r["value"]+" "+r["source"])
+		}
+	}
+	if want := []string{"198.51.100.0/24 AS64500"}; !slices.Equal(got, want) {
+		t.Errorf("scope.csv netblocks = %v, want %v", got, want)
+	}
+}
+
 func TestNetblockInputGuard(t *testing.T) {
 	t.Parallel()
 	first := &testkit.Stage{StageName: "first", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("a", 2) }}

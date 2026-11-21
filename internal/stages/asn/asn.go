@@ -27,6 +27,10 @@ func (*Stage) Contact() run.Contact              { return run.ThirdParty }
 func (*Stage) Sources() []string                 { return []string{"stat.ripe.net"} }
 func (*Stage) Configured(run.Env) (bool, string) { return true, "" }
 
+// ExpandsInputASNs marks the stage as the one whose netblocks bring an input
+// ASN's announced netblocks into scope.
+func (*Stage) ExpandsInputASNs() {}
+
 // Checks yields one check per input ASN, keyed "AS<n>".
 func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {

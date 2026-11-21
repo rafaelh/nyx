@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
@@ -168,6 +169,33 @@ type Noter interface {
 // check found.
 type Evidencer interface {
 	Evidence(checkKey string) (source, item string)
+}
+
+// CandidateSourcer is implemented by a stage whose checks find candidates. It
+// maps each source its evidence is given under (its name, or each source its
+// Evidence gives, up to any colon) to the source's family: one of package
+// candidates' families, or the source's own name for a family of its own. A
+// source no stage names is a family of its own.
+type CandidateSourcer interface {
+	CandidateSources() map[string]string
+}
+
+// CandidateFamilies are the families of the sources the stages name.
+func CandidateFamilies(stages []Stage) candidates.Families {
+	named := map[string]string{}
+	for _, s := range stages {
+		if c, ok := s.(CandidateSourcer); ok {
+			maps.Copy(named, c.CandidateSources())
+		}
+	}
+	return candidates.NewFamilies(named)
+}
+
+// ASNExpander is implemented by a stage that expands each input ASN into the
+// netblocks it announces: a netblock it observes under the check keyed by an
+// input ASN is in scope (see BuildScope).
+type ASNExpander interface {
+	ExpandsInputASNs()
 }
 
 // Retiring is implemented by a stage whose check keys carry a hash of the

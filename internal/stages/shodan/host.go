@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -35,6 +36,11 @@ type Host struct{ shodanAPI }
 func NewHost() *Host { return &Host{} }
 
 func (*Host) Name() string { return "shodan-host" }
+
+// CandidateSources: what Shodan holds is passive DNS.
+func (*Host) CandidateSources() map[string]string {
+	return map[string]string{"shodan-host": candidates.PassiveDNS}
+}
 
 // Budget is shodan.max_hosts: each check is one address.
 func (*Host) Budget(s config.Settings) int { return s.Shodan.MaxHosts }

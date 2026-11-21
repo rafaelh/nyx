@@ -25,7 +25,12 @@ type Probe struct{}
 // NewProbe returns the httpprobe stage.
 func NewProbe() *Probe { return &Probe{} }
 
-func (*Probe) Name() string                      { return "httpprobe" }
+func (*Probe) Name() string { return "httpprobe" }
+
+// CandidateSources: the probe is a family of its own.
+func (*Probe) CandidateSources() map[string]string {
+	return map[string]string{"httpprobe": "httpprobe"}
+}
 func (*Probe) Contact() run.Contact              { return run.Target }
 func (*Probe) Sources() []string                 { return nil }
 func (*Probe) Configured(run.Env) (bool, string) { return true, "" }

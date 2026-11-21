@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
@@ -59,12 +60,18 @@ func NewPivot() *Pivot { return &Pivot{} }
 
 func (*Pivot) Name() string { return "identifier-pivot" }
 
+// CandidateSources puts every identifier in one family: its sources are
+// "identifier-pivot:<id>" (see Evidence).
+func (*Pivot) CandidateSources() map[string]string {
+	return map[string]string{"identifier-pivot": candidates.WebIdentifier}
+}
+
 // Budget is identifier_pivot.max_queries: each check is one search.
 func (*Pivot) Budget(s config.Settings) int { return s.IdentifierPivot.MaxQueries }
 
 // Evidence is what a candidate a search found rests on: the identifier it was
 // found by, in the source ("identifier-pivot:G-ABC123"), so that the sources column
-// says which. The candidate family table holds the part before the colon, so every
+// says which. CandidateSources names the part before the colon, so every
 // identifier is one family however many found the candidate.
 func (*Pivot) Evidence(checkKey string) (source, item string) {
 	_, id, _ := strings.Cut(checkKey, "|")

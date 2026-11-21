@@ -149,13 +149,14 @@ func (r *Runner) derive() error {
 
 // evidence is what one completed check contributes to a candidate it observes:
 // the stage's own account of its source and item if it gives one (Evidencer),
-// else the stage and the check key.
+// else the stage and the check key, with the family the stages name for the
+// source.
 func (r *Runner) evidence(stage, check string) candidates.Evidence {
+	source, item := stage, check
 	if e, ok := r.evidencers[stage]; ok {
-		source, item := e.Evidence(check)
-		return candidates.Evidence{Source: source, Item: item}
+		source, item = e.Evidence(check)
 	}
-	return candidates.Evidence{Source: stage, Item: check}
+	return candidates.Evidence{Source: source, Item: item, Family: r.families.Of(source)}
 }
 
 // rankCandidates ranks every candidate from the completed checks that observe

@@ -19,6 +19,9 @@ type RDNS struct{ base }
 // NewRDNS returns the rdns stage.
 func NewRDNS() *RDNS { return &RDNS{base{"rdns"}} }
 
+// CandidateSources: reverse DNS is a family of its own.
+func (*RDNS) CandidateSources() map[string]string { return map[string]string{"rdns": "rdns"} }
+
 // Checks yields one check per address.
 func (*RDNS) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {

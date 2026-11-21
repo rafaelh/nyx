@@ -47,9 +47,11 @@ type Built struct {
 
 // BuildScope builds the Scope and Inventory from the engagement's stored
 // inputs and its current records, the same way for a run and for anything
-// that reads an engagement afterwards. It reads, and writes nothing: the
-// netblock-limit approval and the egress policy belong to the run.
-func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
+// that reads an engagement afterwards. stages are the registry, whose
+// ASNExpanders bring the netblocks of the input ASNs into scope. It reads, and
+// writes nothing: the netblock-limit approval and the egress policy belong to
+// the run.
+func BuildScope(in input.Parsed, stages []Stage, src ScopeSource) (*Built, error) {
 	excl, err := input.ParseExclusions(in.Exclusions)
 	if err != nil {
 		return nil, err
@@ -62,7 +64,7 @@ func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
 		}
 		blocks = append(blocks, p)
 	}
-	asnBlocks, err := asnNetblocks(src, in)
+	asnBlocks, err := asnNetblocks(src, stages, in)
 	if err != nil {
 		return nil, err
 	}
@@ -81,21 +83,27 @@ func BuildScope(in input.Parsed, src ScopeSource) (*Built, error) {
 	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv)}, nil
 }
 
-// asnNetblocks maps each current netblock observed by the asn stage under a
-// check for an input ASN to that ASN. It never depends on a mutable attribute.
-func asnNetblocks(src ScopeSource, in input.Parsed) (map[string]string, error) {
-	rows, err := src.Observations(kinds.Netblock, "asn")
-	if err != nil {
-		return nil, err
-	}
+// asnNetblocks maps each current netblock an ASNExpander of stages observed
+// under a check for an input ASN to that ASN. It never depends on a mutable
+// attribute.
+func asnNetblocks(src ScopeSource, stages []Stage, in input.Parsed) (map[string]string, error) {
 	want := map[string]bool{}
 	for _, a := range in.ASNs {
 		want[a] = true
 	}
 	out := map[string]string{}
-	for _, row := range rows {
-		if want[row.CheckKey] {
-			out[row.Key] = row.CheckKey
+	for _, s := range stages {
+		if _, ok := s.(ASNExpander); !ok {
+			continue
+		}
+		rows, err := src.Observations(kinds.Netblock, s.Name())
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if want[row.CheckKey] {
+				out[row.Key] = row.CheckKey
+			}
 		}
 	}
 	return out, nil

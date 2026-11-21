@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -27,6 +28,7 @@ const maxASNsPerOrg = 10
 // orgStage is the part every organisation stage shares: one check per input organisation.
 type orgStage struct {
 	name    string
+	family  string // of the candidates it finds; see package candidates
 	sources []string
 	keyed   bool
 }
@@ -35,6 +37,9 @@ func (s orgStage) Name() string                        { return s.name }
 func (orgStage) Contact() run.Contact                  { return run.ThirdParty }
 func (s orgStage) Sources() []string                   { return s.sources }
 func (s orgStage) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, s.name, s.keyed) }
+
+// CandidateSources is the family of the stage, the source of what it finds.
+func (s orgStage) CandidateSources() map[string]string { return map[string]string{s.name: s.family} }
 
 func (orgStage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
@@ -66,11 +71,14 @@ func rootObs(names []string) []run.Observation {
 
 // --- ct-org ---
 
-// CTOrg finds roots from the organisation field of certificates in CT logs.
+// CTOrg finds roots from the organisation field of certificates in CT logs. It
+// searches certificates, so it is a certificate transparency source.
 type CTOrg struct{ orgStage }
 
 // NewCTOrg returns the ct-org stage.
-func NewCTOrg() *CTOrg { return &CTOrg{orgStage{name: "ct-org", sources: []string{"crt.sh"}}} }
+func NewCTOrg() *CTOrg {
+	return &CTOrg{orgStage{name: "ct-org", family: candidates.CertTransparency, sources: []string{"crt.sh"}}}
+}
 
 // Run searches crt.sh by organisation (O=) and reduces the names to registrable domains.
 func (*CTOrg) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
@@ -101,7 +109,7 @@ type WhoisXML struct{ orgStage }
 
 // NewWhoisXML returns the whoisxml stage.
 func NewWhoisXML() *WhoisXML {
-	return &WhoisXML{orgStage{name: "whoisxml", sources: []string{"reverse-whois.whoisxmlapi.com"}, keyed: true}}
+	return &WhoisXML{orgStage{name: "whoisxml", family: candidates.Registrant, sources: []string{"reverse-whois.whoisxmlapi.com"}, keyed: true}}
 }
 
 // Run buys the reverse WHOIS result for the organisation. The client puts the key in the body.
@@ -130,11 +138,13 @@ func (*WhoisXML) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.
 
 // OrgASN finds netblocks for an organisation through RIPEstat. Netblocks it
 // records are candidates: only the asn stage's netblocks for input ASNs are in scope.
+// It is a registrant source on the assumption that RIPEstat's organisation
+// search matches registry organisation names.
 type OrgASN struct{ orgStage }
 
 // NewOrgASN returns the org-asn stage.
 func NewOrgASN() *OrgASN {
-	return &OrgASN{orgStage{name: "org-asn", sources: []string{"stat.ripe.net"}}}
+	return &OrgASN{orgStage{name: "org-asn", family: candidates.Registrant, sources: []string{"stat.ripe.net"}}}
 }
 
 // Run finds the organisation's ASNs and their announced prefixes. An ASN is

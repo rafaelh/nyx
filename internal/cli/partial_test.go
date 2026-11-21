@@ -442,7 +442,7 @@ func TestPartial_NetblockLimitComesBeforeTheDeadline(t *testing.T) {
 	t.Parallel()
 	// asn finds a netblock over the limit in its first check, and its second check outlasts the
 	// deadline, so the stage is cut before the runner has rebuilt the scope.
-	asn := &testkit.Stage{StageName: "asn", Kind: run.ThirdParty,
+	asn := expander{&testkit.Stage{StageName: "asn", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
 			var cs []run.Check
 			for _, a := range v.Inputs().ASNs {
@@ -456,7 +456,7 @@ func TestPartial_NetblockLimitComesBeforeTheDeadline(t *testing.T) {
 				return nil, ctx.Err()
 			}
 			return []run.Observation{kinds.Netblock.Obs("10.0.0.0/22", kinds.NetblockAttrs{ASN: c.Key})}, nil
-		}}
+		}}}
 	h := newHarness(t, asn)
 	code := h.exec("--asn", "64500", "--netblock-limit", "1000", "--timeout", "400ms", "--concurrency", "2")
 	f := h.failed(code, 2, false)

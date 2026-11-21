@@ -29,9 +29,12 @@ type Crawl struct{}
 // NewCrawl returns the crawl stage.
 func NewCrawl() *Crawl { return &Crawl{} }
 
-func (*Crawl) Name() string         { return "crawl" }
-func (*Crawl) Contact() run.Contact { return run.Target }
-func (*Crawl) Sources() []string    { return nil }
+func (*Crawl) Name() string { return "crawl" }
+
+// CandidateSources: the crawl is a family of its own.
+func (*Crawl) CandidateSources() map[string]string { return map[string]string{"crawl": "crawl"} }
+func (*Crawl) Contact() run.Contact                { return run.Target }
+func (*Crawl) Sources() []string                   { return nil }
 
 // Configured: crawl.max_pages 0 turns the crawl off.
 func (*Crawl) Configured(e run.Env) (bool, string) {

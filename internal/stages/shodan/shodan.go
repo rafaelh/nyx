@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -66,6 +67,11 @@ type Stage struct{ shodanAPI }
 func New() *Stage { return &Stage{} }
 
 func (*Stage) Name() string { return "shodan" }
+
+// CandidateSources: what Shodan holds is passive DNS.
+func (*Stage) CandidateSources() map[string]string {
+	return map[string]string{"shodan": candidates.PassiveDNS}
+}
 
 // Notes says which netblock searches stopped at the page cap with matches
 // unread, so that the addresses they missed are not mistaken for ones Shodan

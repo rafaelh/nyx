@@ -160,7 +160,7 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 	}
 	defer db.Close() // nothing to save: it cannot write
 
-	data, err := exportSnapshot(db, stageNames(inv.d.Stages), o, red)
+	data, err := exportSnapshot(db, inv.d.Stages, o, red)
 	if err != nil {
 		return err
 	}
@@ -174,9 +174,9 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 // JSON lines to write, inputs and exclusions first and then the records in
 // kind and key order, each classified as a run would. Each line is encoded as
 // it is built, so the cleaned copy of a record's attributes is not kept.
-func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *config.Redactor) ([]byte, error) {
+func exportSnapshot(db *store.ReadOnly, stages []run.Stage, o *exportOptions, red *config.Redactor) ([]byte, error) {
 	var out, exclusions bytes.Buffer
-	x := &exporter{o: o, order: order, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
+	x := &exporter{o: o, stages: stages, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
 	err := db.View(func(r store.Reader) error {
 		out.Reset() // View may call again, for a run that started while it read
 		exclusions.Reset()
@@ -197,7 +197,7 @@ func exportSnapshot(db *store.ReadOnly, order []string, o *exportOptions, red *c
 // exclusions to excl, which is written after the inputs.
 type exporter struct {
 	o         *exportOptions
-	order     []string
+	stages    []run.Stage // the registry, in order
 	red       *config.Redactor
 	enc, excl *json.Encoder
 }
@@ -239,8 +239,8 @@ func (x *exporter) records(r store.Reader, rows []store.Input) error {
 	if len(wanted) == 0 {
 		return nil // only inputs and exclusions: no scope to build
 	}
-	src := &snapshotSource{r: r, order: x.order, all: map[string][]store.Record{}}
-	built, err := run.BuildScope(engagement.ParseInputs(rows), src)
+	src := &snapshotSource{r: r, order: stageNames(x.stages), all: map[string][]store.Record{}}
+	built, err := run.BuildScope(engagement.ParseInputs(rows), x.stages, src)
 	if err != nil {
 		return err
 	}

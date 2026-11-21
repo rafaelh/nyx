@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/engagement"
@@ -106,6 +107,7 @@ type Runner struct {
 	derivers    []*deriver                      // the derived records, findings first (see derive)
 	attribution map[string]findings.StorageAttr // the storage attribution of the last findings derived
 	evidencers  map[string]Evidencer            // the stages that account for their own candidate evidence
+	families    candidates.Families             // the family of each source the stages name
 
 	base       *baseline        // the state the run started from, nil on a first run (see loadBaseline)
 	changes    []output.Change  // what the last render found changed since then
@@ -152,6 +154,7 @@ func New(cfg Config) *Runner {
 			r.evidencers[s.Name()] = e
 		}
 	}
+	r.families = CandidateFamilies(cfg.Stages)
 	r.derivers = r.newDerivers()
 	r.target = targetStages(cfg.Stages)
 	if cfg.Clock == nil {
@@ -338,7 +341,7 @@ func (r *Runner) buildScope() error {
 	r.baseBuilt = nil
 	if built == nil || sig != r.baseSig {
 		var err error
-		if built, err = BuildScope(r.inputs, runnerSource{r}); err != nil {
+		if built, err = BuildScope(r.inputs, r.cfg.Stages, runnerSource{r}); err != nil {
 			return err
 		}
 	}
@@ -354,7 +357,7 @@ func (r *Runner) buildScope() error {
 	p := &egress.Policy{
 		Scope: sc, Ack: r.acked, Passive: r.cfg.Passive,
 		Ports: r.cfg.Settings.Ports, SensitivePaths: sensitivePaths,
-		Resolutions: inv.Addrs(),
+		Resolutions:  inv.Addrs(),
 		Shared:       inv.Shared,
 		OwnerUnknown: func(a netip.Addr) bool { return !inv.OwnerKnown(a, sc) },
 		Excluded:     r.guard,
@@ -728,7 +731,7 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.
 	if snap.Vis = vis; vis == nil {
 		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
 	}
-	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.inputs); err != nil {
+	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.cfg.Stages, r.inputs); err != nil {
 		return output.Snapshot{}, err
 	}
 	return snap, nil

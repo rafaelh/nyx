@@ -96,9 +96,13 @@ compatible, renaming, removing or retyping one is a breaking change (README, "Ex
   `Retiring` (completed checks the stage no longer yields are retired, so their evidence stops
   being current), `Evidencer` (names the source and supporting item a check gives a candidate;
   without it they are the stage name and the check key, so a stage whose key carries a setting
-  must implement it or a changed setting would count twice), and `Budgeted` (a per-run cap on the
-  summed `Check.Cost` of the checks sent; the runner defers the first check that would pass it and
-  all after it, without failing or retiring them, and the summary reports the deferred cost).
+  must implement it or a changed setting would count twice), `CandidateSourcer` (maps each source
+  its evidence is given under to its candidate family; a source no stage names is a family of its
+  own), `ASNExpander` (its netblocks under an input ASN's check are in scope; the asn stage), and
+  `Budgeted` (a per-run cap on the summed `Check.Cost` of the checks sent; the runner defers the
+  first check that would pass it and all after it, without failing or retiring them, and the
+  summary reports the deferred cost). Code outside a stage never names a stage: it asks the
+  stages through these interfaces.
 - Stages read state only through `run.View`, which offers scope, inventory and cached current
   records. Web stages must use `ProbeHostnames()` (wildcard-aware), not the hostname records.
 - The registry order is `defaultStages()` in `internal/cli/cli.go`, and that order matters (see

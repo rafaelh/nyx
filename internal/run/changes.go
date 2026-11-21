@@ -184,7 +184,7 @@ func (r *Runner) loadBaseline() (*baseline, error) {
 		return nil, err
 	}
 	sig := r.kindSig(scopeKinds)
-	built, err := BuildScope(r.inputs, runnerSource{r})
+	built, err := BuildScope(r.inputs, r.cfg.Stages, runnerSource{r})
 	if err != nil {
 		return nil, err
 	}
