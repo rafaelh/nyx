@@ -103,13 +103,9 @@ type Runner struct {
 	guarded sync.Map // value+"\x00"+reason already sent to the guard pseudo-stage
 	warned  sync.Map // warning texts already emitted this run (see warn)
 
-	derivedSig     string                          // what the findings were last derived from (see deriveFindings)
-	attribution    map[string]findings.StorageAttr // the storage attribution of that derivation
-	storedFindings [sha256.Size]byte               // the date and findings last stored (see storeDerived)
-
-	derivers   []*deriver           // the derived records other than findings (see deriveRecords)
-	findingIn  []kinds.Named        // the kinds the findings are derived from (see derivationSignature)
-	evidencers map[string]Evidencer // the stages that account for their own candidate evidence
+	derivers    []*deriver                      // the derived records, findings first (see derive)
+	attribution map[string]findings.StorageAttr // the storage attribution of the last findings derived
+	evidencers  map[string]Evidencer            // the stages that account for their own candidate evidence
 
 	base       *baseline        // the state the run started from, nil on a first run (see loadBaseline)
 	changes    []output.Change  // what the last render found changed since then
@@ -157,7 +153,6 @@ func New(cfg Config) *Runner {
 		}
 	}
 	r.derivers = r.newDerivers()
-	r.findingIn = r.findingInputs()
 	r.target = targetStages(cfg.Stages)
 	if cfg.Clock == nil {
 		r.cfg.Clock = time.Now
@@ -739,56 +734,6 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.
 	return snap, nil
 }
 
-// deriveFindings derives the findings from the evidence and stores them as
-// the "finding" records of the pseudo-stage "findings", its single check key
-// "derived", like guard does. A finding no longer derived loses its only
-// observation, so it becomes not current and keeps its first_seen; a new one
-// is printed once by the store's OnNew callback.
-func (r *Runner) deriveFindings() error {
-	// Nothing Derive reads has changed since the last derivation (a derivation
-	// bumps only "finding"), so the findings are already current.
-	sig := r.derivationSignature()
-	sc, inv := r.sc.Load(), r.inv.Load()
-	if sc == nil || inv == nil || sig == r.derivedSig {
-		return nil
-	}
-	var readErr error
-	in := findings.Input{Scope: sc, Inv: inv, Settings: r.cfg.Settings, Today: r.today(),
-		Records: keepFirstErr(&readErr, r.records), Roots: r.inputs.Roots, Orgs: r.inputs.Orgs, Vis: r.vis.Load()}
-	fs, attribution := findings.DeriveAll(in)
-	if readErr != nil {
-		return readErr
-	}
-	obs := make([]store.Obs, len(fs))
-	for i, f := range fs {
-		obs[i] = kinds.Finding.Obs(f.Key(), f.Attrs)
-	}
-	// A finding whose severity has risen (an unconfirmed port a handshake then
-	// confirmed) is printed again at the new severity; a new one is printed by
-	// the store's callback, and a finding that has fallen is not.
-	prev, err := r.currentRecords(kinds.Finding)
-	if err != nil {
-		return err
-	}
-	stored, err := r.storeDerived("findings", obs, &r.storedFindings)
-	if err != nil {
-		return err
-	}
-	if stored {
-		was := make(map[string]string, len(prev))
-		for _, rec := range prev {
-			was[rec.Key] = rec.Str("severity")
-		}
-		for _, f := range fs {
-			if old, ok := was[f.Key()]; ok && findings.Higher(f.Severity, old) {
-				r.emit("found", foundFields(kinds.Finding.Name(), f.Key(), f.Attrs))
-			}
-		}
-	}
-	r.derivedSig, r.attribution = sig, attribution
-	return nil
-}
-
 // storeDerived stores obs as the records of the pseudo-stage name, its single
 // check key "derived", and reports whether it did: storing the same records
 // again on the same day as last (*last) changes nothing, so it is skipped.
@@ -878,31 +823,6 @@ func (r *Runner) kindSig(ks []kinds.Named) string {
 		fmt.Fprintf(&b, "%s=%d;", k.Name(), r.st.KindVersion(k.Name()))
 	}
 	return b.String()
-}
-
-// derivationSignature changes whenever a record of one of the findings' input
-// kinds or the date changes. The Scope and Inventory are built from nothing
-// else, and the settings and inputs are fixed for the Runner's life.
-func (r *Runner) derivationSignature() string {
-	return r.kindSig(r.findingIn) + r.today()
-}
-
-// findingInputs is every kind but the derived ones ("finding" and those the
-// derivers write). The findings do not read the derived records, so storing
-// them must not derive the findings again.
-func (r *Runner) findingInputs() []kinds.Named {
-	derived := map[string]bool{kinds.Finding.Name(): true}
-	for _, d := range r.derivers {
-		derived[d.writes.Name()] = true
-	}
-	var read []kinds.Named
-	for _, k := range kinds.All() {
-		if !derived[k.Name] {
-			named, _ := kinds.Lookup(k.Name)
-			read = append(read, named)
-		}
-	}
-	return read
 }
 
 // currentRecords returns the current records of a kind. Callers must not

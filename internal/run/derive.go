@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/candidates"
+	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -15,41 +16,96 @@ import (
 )
 
 // deriveInput is what a deriver reads: the current Scope, Inventory and their
-// Visibility, the engagement's inputs, and the store through the records of a
-// kind (current or not) and the completed checks observing them.
+// Visibility, the engagement's inputs, the date, and the store through the
+// records of a kind (current or not) and the completed checks observing them.
 type deriveInput struct {
 	Scope     *scope.Scope
 	Inv       *inventory.Inventory
 	Vis       *kinds.Visibility
 	Inputs    input.Parsed
+	Today     string // YYYY-MM-DD
 	Records   func(kinds.Named) []store.Record
 	Observers func(kinds.Named) map[string][]store.Observer
 }
 
-// deriver computes records from other records, like the findings are, and
-// stores them as the observations of a single check "derived" of the
-// pseudo-stage name. A record it no longer emits loses its only observation, so
-// it stops being current. It runs after every stage that did work and before
-// every render, and is skipped while the version of each kind in reads and the
-// date are unchanged. A deriver must read nothing else, and
-// writes only records of its kind writes, which the findings never read.
+// deriver computes records from other records and stores them as the
+// observations of a single check "derived" of the pseudo-stage name. A record
+// it no longer emits loses its only observation, so it stops being current. It
+// runs after every stage that did work and before every render, and is skipped
+// while the version of each kind in reads and the date are unchanged. A deriver
+// reads nothing else but its own earlier records, and writes only records of
+// its kind writes, which no deriver reads.
+//
+// derive returns the records and, if it needs one, a hook run once they are
+// stored (stored is false when they were the same as last stored, so nothing
+// changed). The hook is not run when a read failed, and the deriver then runs
+// again next time.
 type deriver struct {
 	name   string
 	reads  []kinds.Named
 	writes kinds.Named
-	derive func(deriveInput) []store.Obs
+	derive func(deriveInput) (obs []store.Obs, after func(stored bool))
 
 	sig    string            // what it was last derived from
 	stored [sha256.Size]byte // the date and records last stored (see storeDerived)
 }
 
-// derivers are the derived records other than the findings (which depend on
-// every evidence kind, and whose derivation also returns the storage
-// attribution the render needs; see deriveFindings).
+// newDerivers lists the derivers in the order they run. The findings come
+// first and read every kind but the derived ones, so that storing a derived
+// record never derives the findings again.
 func (r *Runner) newDerivers() []*deriver {
-	return []*deriver{
-		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: r.rankCandidates},
-		{name: "thirdparty-cname", reads: []kinds.Named{kinds.Hostname, kinds.Resolution, kinds.Wildcard}, writes: kinds.ThirdParty, derive: thirdPartyCNAME},
+	others := []*deriver{
+		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: plain(r.rankCandidates)},
+		{name: "thirdparty-cname", reads: []kinds.Named{kinds.Hostname, kinds.Resolution, kinds.Wildcard}, writes: kinds.ThirdParty, derive: plain(thirdPartyCNAME)},
+	}
+	derived := map[string]bool{kinds.Finding.Name(): true}
+	for _, d := range others {
+		derived[d.writes.Name()] = true
+	}
+	var evidence []kinds.Named
+	for _, k := range kinds.All() {
+		if !derived[k.Name] {
+			named, _ := kinds.Lookup(k.Name)
+			evidence = append(evidence, named)
+		}
+	}
+	return append([]*deriver{{name: "findings", reads: evidence, writes: kinds.Finding, derive: r.deriveFindings}}, others...)
+}
+
+// plain adapts a derivation that needs no hook.
+func plain(f func(deriveInput) []store.Obs) func(deriveInput) ([]store.Obs, func(bool)) {
+	return func(in deriveInput) ([]store.Obs, func(bool)) { return f(in), nil }
+}
+
+// deriveFindings derives the findings from the evidence. A new finding is
+// printed once by the store's OnNew callback; its hook prints again a finding
+// whose severity has risen (an unconfirmed port a handshake then confirmed),
+// but not one that has fallen, and keeps the storage attribution the render
+// needs, computed from the same evidence.
+func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
+	fs, attribution := findings.DeriveAll(findings.Input{Scope: in.Scope, Inv: in.Inv, Settings: r.cfg.Settings,
+		Today: in.Today, Records: in.Records, Roots: in.Inputs.Roots, Orgs: in.Inputs.Orgs, Vis: in.Vis})
+	was := map[string]string{} // the severity of each current finding, by key
+	for _, rec := range in.Records(kinds.Finding) {
+		if rec.Current {
+			was[rec.Key] = rec.Str("severity")
+		}
+	}
+	obs := make([]store.Obs, len(fs))
+	var risen []findings.Finding
+	for i, f := range fs {
+		obs[i] = kinds.Finding.Obs(f.Key(), f.Attrs)
+		if old, ok := was[f.Key()]; ok && findings.Higher(f.Severity, old) {
+			risen = append(risen, f)
+		}
+	}
+	return obs, func(stored bool) {
+		if stored {
+			for _, f := range risen {
+				r.emit("found", foundFields(kinds.Finding.Name(), f.Key(), f.Attrs))
+			}
+		}
+		r.attribution = attribution
 	}
 }
 
@@ -60,34 +116,31 @@ func thirdPartyCNAME(in deriveInput) []store.Obs {
 	return thirdparty.CNAME(in.Scope, in.Inv)
 }
 
-// derive derives the findings and then the other derived records. Every place
-// that derives calls it, so that a new derivation cannot be missed at one of them.
+// derive runs the derivers whose inputs have changed. Every place that derives
+// calls it, so that a new derivation cannot be missed at one of them.
 func (r *Runner) derive() error {
-	if err := r.deriveFindings(); err != nil {
-		return err
-	}
-	return r.deriveRecords()
-}
-
-// deriveRecords runs the derivers whose inputs have changed.
-func (r *Runner) deriveRecords() error {
 	sc, inv, vis := r.sc.Load(), r.inv.Load(), r.vis.Load()
 	if sc == nil || inv == nil {
 		return nil
 	}
+	today := r.today()
 	for _, d := range r.derivers {
-		sig := r.kindSig(d.reads) + r.today()
+		sig := r.kindSig(d.reads) + today
 		if sig == d.sig {
 			continue
 		}
 		var readErr error
-		obs := d.derive(deriveInput{Scope: sc, Inv: inv, Vis: vis, Inputs: r.inputs,
+		obs, after := d.derive(deriveInput{Scope: sc, Inv: inv, Vis: vis, Inputs: r.inputs, Today: today,
 			Records: keepFirstErr(&readErr, r.records), Observers: keepFirstErr(&readErr, r.observers)})
 		if readErr != nil {
 			return readErr
 		}
-		if _, err := r.storeDerived(d.name, obs, &d.stored); err != nil {
+		stored, err := r.storeDerived(d.name, obs, &d.stored)
+		if err != nil {
 			return err
+		}
+		if after != nil {
+			after(stored)
 		}
 		d.sig = sig
 	}

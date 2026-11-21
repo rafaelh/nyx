@@ -120,10 +120,12 @@ in-scope, candidate or excluded), `inventory` (wildcards, provider hosts, port e
 `findings` are pure functions of the current records, scope, settings and date. Risk stages
 (`internal/stages/risk`) store only *evidence* kinds. `internal/findings` derives findings from
 the evidence that is shown. A finding that is no longer derived stays on record but is marked not
-current. Records keep `first_seen`/`last_seen`/`current` and are never deleted. Other derived
-records (the `candidate_rank` of each candidate, ranked by `internal/candidates`) come from the
-runner's list of derivers in `internal/run/derive.go`, each stored under its own pseudo-stage and
-re-derived only when the kinds it reads, the inputs or the date change.
+current. Records keep `first_seen`/`last_seen`/`current` and are never deleted. The findings and
+the other derived records (the `candidate_rank` of each candidate, ranked by `internal/candidates`)
+come from the runner's list of derivers in `internal/run/derive.go`, each stored under its own
+pseudo-stage and re-derived only when the kinds it reads, the inputs or the date change. A deriver
+can return a hook that runs once its records are stored (the findings use one to announce a risen
+severity and to keep the storage attribution for the render).
 
 `nyx recon export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
 takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives one snapshot, and

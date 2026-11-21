@@ -30,9 +30,6 @@ Confirm each with `/code-review` before fixing.
 
 ## Design changes
 
-- **Findings derivation as an ordinary deriver.** Run it through the deriver list in
-  `run/derive.go`, with hooks, instead of as a special case.
-
 - **One showing rule.** Make which entities the files list a single Visibility rule (today
   `changes.go` copies the rules from `output`), and keep the "excluded" counting rule in one place.
 
