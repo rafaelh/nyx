@@ -34,6 +34,8 @@ semantic
   error
   warning
   info
+  muted
+  example
 log lines
 09:00:00 | DEBUG | a sample DEBUG message
 09:00:00 | INFO  | a sample INFO message

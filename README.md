@@ -67,8 +67,10 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
   command with its everyday flags and one example, the valid values of each fixed-set flag (the
   stages, the export kinds) and the exit codes. The recon example in `nyx --help` and in
   `nyx recon --help` passes `--json` and `--timeout`, and the root help lists `--timeout` among
-  recon's everyday flags. `nyx help <command>` (or `nyx <command> --help`) is
-  one command's full help; recon's tuning settings are listed only there. The root help also lists
+  recon's everyday flags. `nyx help <command>` (or `nyx <command> --help`, or `nyx <command> help`)
+  is one command's full help; recon's tuning settings are listed only there. `help` reads as
+  `--help` only as a command's first argument: `nyx recon export help` and `nyx recon help export`
+  are export's help, but `help` after an argument or a bare `--` is an argument like any other. The root help also lists
   cve's and ip's flags and the field names `--fields` accepts. `nyx help stages` and
   `nyx help findings` are the two help topics. Help goes to stdout and exits 0.
 - **Shared flags.** Every command takes `--json` (`-J`), `--quiet` (`-q`) and `--debug`, before or
@@ -781,6 +783,8 @@ rules and borders are drawn with ASCII (`-`, `|`, `+`).
   a table; and a table row whose wrapping columns have already shrunk to 10 cells. Such a line runs
   past the width rather than break. A log message that wraps continues under the message column
   (19 cells in, or 21 with colour).
+- **Help examples.** In help, each example's `nyx` call is in the example colour, amber `#FFCA80`
+  (bright yellow with 16 colours); its indent and any `Example:` label before it are uncoloured.
 - **Headings and rules.** Headings are bold in the info colour. Each heading of the summary has a
   rule beneath it, `─` in the separator colour, or `-` without colour.
 - **Tables.** The summary shows its findings ("Findings" and "New findings": SEVERITY, CATEGORY,

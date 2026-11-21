@@ -302,7 +302,7 @@ func (inv *invocation) execute(ctx context.Context) (err error) {
 		inv.printHelp(root, root)
 		return nil
 	}
-	root.SetArgs(inv.args)
+	root.SetArgs(helpWord(inv.args, root))
 	root.SetOut(inv.d.Stdout)
 	root.SetErr(inv.d.Stderr)
 	cmd, perr := root.ExecuteContextC(ctx)

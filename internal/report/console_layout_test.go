@@ -190,7 +190,7 @@ func TestConsoleStateWords(t *testing.T) {
 			{"done", "", " (3 checks, 1 failed)", report.Info, func(x string) string { return d.Text(palette.Semantic, "success", x) }},
 			{"done-previously", "", "", report.Info, func(x string) string { return d.Text(palette.Semantic, "success", x) }},
 			{"failed", "", "", report.Error, func(x string) string { return d.Text(palette.Semantic, "error", x) }},
-			{"not-configured", "passive-only", " (passive-only)", report.Info, func(x string) string { return d.Text(palette.Chrome, "TIMESTAMP", x) }},
+			{"not-configured", "passive-only", " (passive-only)", report.Info, func(x string) string { return d.Text(palette.Semantic, "muted", x) }},
 		} {
 			con := newCons(s, report.Info)
 			con.Emit(ev("stage", map[string]any{"name": "asn", "state": c.state, "reason": c.reason, "checks": 3, "failed": 1}))

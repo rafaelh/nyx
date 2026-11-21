@@ -203,7 +203,7 @@ func TestWrap_NoLineEndsInsideEscape(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.Color16, palette.Color256, palette.TrueColor} {
 		style := func(s string) string { return d.Text(palette.Semantic, "info", s) }
-		bold := func(s string) string { return d.BoldText(palette.Chrome, "TIMESTAMP", s) }
+		bold := func(s string) string { return d.BoldText(palette.Semantic, "muted", s) }
 		spans := []layout.Span{
 			{Text: "the quick brown fox jumps over ", Style: style},
 			{Text: "https://example.com/a/very/long/path", Style: bold},

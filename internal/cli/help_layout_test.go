@@ -223,8 +223,9 @@ func TestHelp_UsageAndExamplesNeverWrap(t *testing.T) {
 		}
 	}
 	// A line of a table or paragraph is held to the width, which only these lines may pass.
-	if got := helpOn(t, palette.TrueColor, 80, "recon", "--help"); !strings.Contains(got, longExample+"\n") {
-		t.Error("coloured recon --help breaks or colours the example")
+	d := palette.TrueColor
+	if got := helpOn(t, d, 80, "recon", "--help"); !strings.Contains(got, "  "+d.Text(palette.Semantic, "example", strings.TrimPrefix(longExample, "  "))+"\n") {
+		t.Error("coloured recon --help breaks the example")
 	}
 }
 
@@ -390,7 +391,7 @@ func TestHelp_FindingsTopicTable(t *testing.T) {
 	d := palette.TrueColor
 	coloured := helpOn(t, d, 80, "help", "findings")
 	for _, want := range []string{"┌", "┬", "┐", "│", "├", "┼", "┤", "└", "┴", "┘", d.Value(palette.Severity, "high"), d.Value(palette.Severity, "medium"),
-		d.Value(palette.Severity, "low"), d.BoldText(palette.Chrome, "TIMESTAMP", "CATEGORY"), d.Text(palette.Chrome, "SEPARATOR", "│")} {
+		d.Value(palette.Severity, "low"), d.BoldText(palette.Semantic, "muted", "CATEGORY"), d.Text(palette.Chrome, "SEPARATOR", "│")} {
 		if !strings.Contains(coloured, want) {
 			t.Errorf("the coloured findings topic lacks %q", want)
 		}
@@ -407,8 +408,8 @@ func TestHelp_StagesTopicTable(t *testing.T) {
 	d := palette.TrueColor
 	got := helpOn(t, d, 80, "help", "stages")
 	for _, want := range []string{"┌", "│", "└", d.Text(palette.Semantic, "warning", "target"), d.Text(palette.Semantic, "success", "third party"),
-		d.Text(palette.Semantic, "info", "resolve*"), d.Text(palette.Semantic, "info", "ports"), d.Text(palette.Chrome, "TIMESTAMP", "securitytrails"),
-		d.BoldText(palette.Chrome, "TIMESTAMP", "WHAT IT DOES")} {
+		d.Text(palette.Semantic, "info", "resolve*"), d.Text(palette.Semantic, "info", "ports"), d.Text(palette.Semantic, "muted", "securitytrails"),
+		d.BoldText(palette.Semantic, "muted", "WHAT IT DOES")} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the coloured stages topic lacks %q", want)
 		}
@@ -491,7 +492,7 @@ func TestHelp_EverySequenceIsThePalettes(t *testing.T) {
 			t.Parallel()
 			var palettes strings.Builder
 			palettes.WriteString(d.Bold("x"))
-			for _, g := range [][2]string{{"semantic", "info"}, {"semantic", "success"}, {"semantic", "warning"}, {"chrome", "TIMESTAMP"}, {"chrome", "SEPARATOR"}} {
+			for _, g := range [][2]string{{"semantic", "info"}, {"semantic", "success"}, {"semantic", "warning"}, {"semantic", "muted"}, {"semantic", "example"}, {"chrome", "SEPARATOR"}} {
 				palettes.WriteString(d.Text(palette.Group(g[0]), g[1], "x") + d.BoldText(palette.Group(g[0]), g[1], "x"))
 			}
 			for _, sev := range []string{"high", "medium", "low"} {

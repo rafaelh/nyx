@@ -1,31 +1,17 @@
 # Features to add
 
-- `help` should be usable as `--help` for any command. Colour the examples of using the commands as #FFCA80
-
-- Standalone IP enumeration as `ip` subcommand. Should take one or more IPs and return a table of
-  results for a human, or json output for an agent. example usage: `nyx ip --json 8.8.8.8 1.1.1.1`.
-  Internal IP addresses and invalid IP addresses should be caught by default.
-
 - Standalone domain enumeration as `domain`. Find and print subdomains and other obtainable records,
   print DMARC with any issues.
 
 - Add the capability to define an internal scope of assets, IPs, domains, etc to identify automatically.
   If a domain has been reconned recently, should it resolve from those files?
 
-- Add a newline before printing help text in the console, and colourize examples
-
 - Evaluate the difference in approach that  https://github.com/blacklanternsecurity/bbot uses for scanning.
 
 
 # CI improvements/fixes
 
-## Linters that need configuration before they are worth enabling
-
-- `gosec`: 124 issues, mostly noise. Exclude `_test.go` files (the TLS tests use weak ciphers on
-  purpose), G104 (repeats errcheck) and probably G304 (file paths from variables). That leaves
-  about a dozen in non-test code: integer-overflow conversions (G115) in `run/runner.go`,
-  `scope/scope.go`, `stages/ports/ports.go` and `stages/web/favicon.go`, and the deliberate
-  `InsecureSkipVerify` in `egress/tls.go`, which needs a `//nolint:gosec` that says why.
+None currently.
 
 # Refactoring opportunities
 

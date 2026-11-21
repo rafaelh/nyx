@@ -237,7 +237,7 @@ func TestRender_CleansBeforeWrapping(t *testing.T) {
 			d.Bold("CVE-2021-44228") + "  " + d.Badge(palette.Severity, "CRITICAL"),
 			d.Bold("Description"),
 			d.Text(palette.Semantic, "info", "https://example.com/x"),
-			d.Text(palette.Chrome, "TIMESTAMP", "[Patch]"),
+			d.Text(palette.Semantic, "muted", "[Patch]"),
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("depth %d: the palette's %q is not in the output:\n%q", d, want, got)
@@ -490,7 +490,7 @@ func TestRender_TerminalColour(t *testing.T) {
 			"\n  " + d.Bold("Status") + "         Analyzed",
 			"\n  " + d.Bold("Base Score") + "  10.0 (CRITICAL)",
 			"\n  " + d.Text(palette.Semantic, "info", "https://logging.apache.org/log4j/2.x/security.html") +
-				" " + d.Text(palette.Chrome, "TIMESTAMP", "[Vendor Advisory]") + "\n",
+				" " + d.Text(palette.Semantic, "muted", "[Vendor Advisory]") + "\n",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("depth %d: lacks %q:\n%q", d, want, got)
@@ -510,8 +510,8 @@ func TestRender_TerminalColourListTip(t *testing.T) {
 	for _, d := range colourDepths {
 		got := renderTerm(t, []Record{log4shell()}, "id,affected_products_count,references_count", d, 80)
 		for _, want := range []string{
-			"\n\n" + d.BoldText(palette.Semantic, "info", "Affected Products") + " " + d.Text(palette.Chrome, "TIMESTAMP", "(--fields affected_products)") + "\n",
-			"\n\n" + d.BoldText(palette.Semantic, "info", "References") + " " + d.Text(palette.Chrome, "TIMESTAMP", "(--fields references)") + "\n",
+			"\n\n" + d.BoldText(palette.Semantic, "info", "Affected Products") + " " + d.Text(palette.Semantic, "muted", "(--fields affected_products)") + "\n",
+			"\n\n" + d.BoldText(palette.Semantic, "info", "References") + " " + d.Text(palette.Semantic, "muted", "(--fields references)") + "\n",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("depth %d: lacks %q:\n%q", d, want, got)
@@ -622,7 +622,7 @@ func TestRender_TerminalReferenceWraps(t *testing.T) {
 				t.Errorf("a line with %d sequences and %d resets: %q", opens, closes, l)
 			}
 		}
-		if !strings.Contains(got, d.Text(palette.Semantic, "info", url)+" "+d.Text(palette.Chrome, "TIMESTAMP", "[Vendor Advisory,")) {
+		if !strings.Contains(got, d.Text(palette.Semantic, "info", url)+" "+d.Text(palette.Semantic, "muted", "[Vendor Advisory,")) {
 			t.Errorf("the URL is not whole in info, with the tags in the timestamp colour: %q", got)
 		}
 	}
@@ -674,7 +674,7 @@ func TestRender_TerminalWritesOnlyPaletteSequences(t *testing.T) {
 		add(d.Bold("x"))
 		add(d.BoldText(palette.Semantic, "info", "x"))
 		add(d.Text(palette.Semantic, "info", "x"))
-		add(d.Text(palette.Chrome, "TIMESTAMP", "x"))
+		add(d.Text(palette.Semantic, "muted", "x"))
 		for _, sev := range []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN", "NONE"} {
 			add(d.BadgeText(palette.Severity, sev, "x"))
 		}

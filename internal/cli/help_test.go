@@ -36,7 +36,7 @@ func TestHelp_Colour(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
 	heading := func(s string) string { return d.BoldText(palette.Semantic, "info", s) }
-	muted := func(s string) string { return d.Text(palette.Chrome, "TIMESTAMP", s) }
+	muted := func(s string) string { return d.Text(palette.Semantic, "muted", s) }
 
 	// The root help is coloured by the same rules.
 	rootPlain, rootColoured := helpOff(t, "--help"), helpOn(t, d, 300, "--help")
@@ -55,6 +55,16 @@ func TestHelp_Colour(t *testing.T) {
 		if !strings.Contains(coloured, want) {
 			t.Errorf("coloured help lacks %q", want)
 		}
+	}
+	// An example's nyx call is in the example colour, and its indent and label are not.
+	example := func(s string) string { return d.Text(palette.Semantic, "example", s) }
+	for _, want := range []string{"\n  " + example("nyx recon example.com --json --timeout 30m") + "\n"} {
+		if !strings.Contains(coloured, want) {
+			t.Errorf("recon --help lacks the coloured example %q", want)
+		}
+	}
+	if want := "\n  Example: " + example("nyx cve CVE-2021-44228 CVE-2024-3094 --json") + "\n"; !strings.Contains(rootColoured, want) {
+		t.Errorf("root help lacks the coloured example %q", want)
 	}
 	// Taking the colour away leaves the plain words, in the same order, but for the lines of
 	// running text, which re-flow to the width.
@@ -78,6 +88,31 @@ func TestHelp_Colour(t *testing.T) {
 	}
 	if got := helpOn(t, palette.None, 300, "recon", "--help"); strings.Contains(got, "\x1b") || strings.Join(strings.Fields(got), " ") != strings.Join(strings.Fields(plain), " ") {
 		t.Error("help under NO_COLOR differs from the plain help in more than layout")
+	}
+}
+
+// The word help as a command's first argument is --help, after any subcommand names and flag
+// values; after another argument or a bare -- it is an argument like any other.
+func TestHelp_HelpWord(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ args, same []string }{
+		{[]string{"recon", "help"}, []string{"help", "recon"}},
+		{[]string{"recon", "export", "help"}, []string{"help", "recon", "export"}},
+		{[]string{"recon", "help", "export"}, []string{"help", "recon", "export"}},
+		{[]string{"recon", "-e", "help", "help"}, []string{"help", "recon"}},
+		{[]string{"cve", "help"}, []string{"help", "cve"}},
+		{[]string{"ip", "--json", "help"}, []string{"help", "ip"}},
+		{[]string{"help", "help"}, []string{"help"}},
+	} {
+		if got, want := helpOff(t, tc.args...), helpOff(t, tc.same...); got != want {
+			t.Errorf("%v is not the help of %v:\n%s", tc.args, tc.same, got)
+		}
+	}
+	for _, args := range [][]string{{"recon", "--", "help"}, {"ip", "--", "help"}, {"recon", "example.com", "help"}} {
+		h := newHarness(t, noop())
+		if code := h.execRoot(args...); code != 2 || strings.Contains(h.stdout.String(), "Usage:") {
+			t.Errorf("%v: exit %d, stdout %q, want a usage error", args, code, h.stdout.String())
+		}
 	}
 }
 

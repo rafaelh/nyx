@@ -158,6 +158,47 @@ func classify(args []string, root *cobra.Command) scan {
 	return scan{err: &clierr.Error{Code: clierr.InvalidInput, Message: "no command given", Hint: "nyx --help"}}
 }
 
+// helpWord is args with the word help read as --help when it is a command's first positional
+// argument, so nyx recon help, nyx recon export help and nyx cve help each print that command's
+// help as nyx help <command> does. Words that name subcommands are followed first, a flag's value
+// is skipped, and help after a bare -- or after another positional argument is left as it is.
+func helpWord(args []string, root *cobra.Command) []string {
+	c := root
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			break
+		}
+		if isFlag(a) {
+			if _, next := describeFlag(a, []*cobra.Command{c}); next {
+				i++ // its value
+			}
+			continue
+		}
+		if sub := subcommand(c, a); sub != nil {
+			c = sub
+			continue
+		}
+		if a == "help" && c != root && c.Name() != "help" {
+			out := slices.Clone(args)
+			out[i] = "--help"
+			return out
+		}
+		break
+	}
+	return args
+}
+
+// subcommand is c's visible subcommand named name, or nil.
+func subcommand(c *cobra.Command, name string) *cobra.Command {
+	for _, sub := range c.Commands() {
+		if !sub.Hidden && sub.Name() == name {
+			return sub
+		}
+	}
+	return nil
+}
+
 // oldFormWord reports whether a positional argument marks the old form of a
 // call: export, or a word with a dot.
 func oldFormWord(a string) bool { return a == "export" || strings.Contains(a, ".") }

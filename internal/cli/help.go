@@ -155,7 +155,7 @@ type blockKind int
 const (
 	blockHeading   blockKind = iota // an unindented line ending in a colon
 	blockUsage                      // a usage line: never wraps
-	blockExample                    // an example line: never wraps
+	blockExample                    // an example line: never wraps, its nyx call in the example colour
 	blockSummary                    // a command's indented one-line summary
 	blockFlags                      // pflag's flag list, a row to a line
 	blockCommands                   // the rows of a command list: a name and its summary
@@ -215,15 +215,19 @@ func layoutBlock(b helpBlock, s layout.Stream) string {
 	}
 	cols := s.Cols()
 	info := func(x string) string { return s.Depth.Text(palette.Semantic, "info", x) }
-	muted := func(x string) string { return s.Depth.Text(palette.Chrome, "TIMESTAMP", x) }
+	muted := func(x string) string { return s.Depth.Text(palette.Semantic, "muted", x) }
 	var lines []string
 	switch b.kind {
 	case blockHeading:
 		for _, l := range b.lines {
 			lines = append(lines, layout.Heading(s, l, false)...)
 		}
-	case blockUsage, blockExample, blockBlank, blockTable: // a table returned above; listed for the exhaustive lint
+	case blockUsage, blockBlank, blockTable: // a table returned above; listed for the exhaustive lint
 		lines = b.lines
+	case blockExample:
+		for _, l := range b.lines {
+			lines = append(lines, exampleLine(l, s.Depth))
+		}
 	case blockSummary, blockParagraph:
 		lines = reflow(b.lines, cols)
 	case blockFlags:
@@ -260,6 +264,16 @@ func layoutBlock(b helpBlock, s layout.Stream) string {
 		out.WriteString(l + "\n")
 	}
 	return out.String()
+}
+
+// exampleLine is an example line with its nyx call, from "nyx" to the end of the line, in the
+// example colour; its indent and any label before the call stay plain.
+func exampleLine(l string, d palette.Depth) string {
+	at := strings.Index(l, "nyx ")
+	if at < 0 {
+		return l
+	}
+	return l[:at] + d.Text(palette.Semantic, "example", l[at:])
 }
 
 // reflow is the lines of a paragraph joined by spaces and wrapped to cols, its first line and its

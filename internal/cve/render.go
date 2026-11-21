@@ -247,9 +247,9 @@ func (r renderer) fields(kvs []kv) []string {
 	return lines
 }
 
-// muted is the style of the muted timestamp colour.
+// muted is the style of the muted colour.
 func muted(d palette.Depth) func(string) string {
-	return func(s string) string { return d.Text(palette.Chrome, "TIMESTAMP", s) }
+	return func(s string) string { return d.Text(palette.Semantic, "muted", s) }
 }
 
 // cleaned is each of ss cleaned of anything that would act on a terminal.
@@ -461,7 +461,7 @@ const indent = 2
 func (r termRenderer) record(p Projected) string {
 	rec, has := p.rec, p.f.Has
 	lines := []string{Bar(r.s, rec.ID, or(rec.CVSSSeverity, ""), has("cvss_severity"))}
-	// A tip follows the heading in the muted timestamp colour, and is not broken.
+	// A tip follows the heading in the muted colour, and is not broken.
 	section := func(heading, tip string, body []string) {
 		if len(body) > 0 {
 			var after []layout.Span
@@ -539,7 +539,7 @@ func (r termRenderer) bullets(items []string, fallback string) []string {
 }
 
 // references are each URL, whole, in the info colour, then the NVD's tags for it
-// as a list in the timestamp colour that wraps at spaces, under the URL's text at 4.
+// as a list in the muted colour that wraps at spaces, under the URL's text at 4.
 func (r termRenderer) references(refs []Reference) []string {
 	d := r.s.Depth
 	info := func(x string) string { return d.Text(palette.Semantic, "info", x) }

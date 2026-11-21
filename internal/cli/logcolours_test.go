@@ -601,7 +601,7 @@ func TestLog_Summary(t *testing.T) {
 		}
 	}
 	for _, header := range []string{"SEVERITY", "CATEGORY", "TARGET", "DETAIL"} {
-		if !strings.Contains(out, d.BoldText(palette.Chrome, "TIMESTAMP", header)) {
+		if !strings.Contains(out, d.BoldText(palette.Semantic, "muted", header)) {
 			t.Errorf("table header %s is not bold in the timestamp colour:\n%q", header, out)
 		}
 	}
@@ -931,12 +931,12 @@ func TestLog_Palette(t *testing.T) {
 	d := palette.TrueColor
 	for _, want := range []string{
 		"\n" + d.BoldText(palette.Semantic, "info", "layout") + "\n",
-		d.BoldText(palette.Chrome, "TIMESTAMP", "SEVERITY"),
+		d.BoldText(palette.Semantic, "muted", "SEVERITY"),
 		strings.TrimSuffix(d.BadgeText(palette.Severity, "HIGH", "x"), "x\x1b[0m") + " CVE-2021-44228 ",
 		strings.TrimSuffix(d.BadgeText(palette.Severity, "NONE", "x"), "x\x1b[0m") + " CVE-2021-44228 ",
 		" " + d.Text(palette.Semantic, "success", "done-previously"),
 		" " + d.Text(palette.Semantic, "error", "failed"),
-		" " + d.Text(palette.Chrome, "TIMESTAMP", "not-configured"),
+		" " + d.Text(palette.Semantic, "muted", "not-configured"),
 		d.Text(palette.Semantic, "success", "+") + " " + d.Value(palette.Severity, "high"),
 		d.Text(palette.Semantic, "info", "host") + ": www.example.com",
 	} {

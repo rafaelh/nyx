@@ -265,8 +265,13 @@ func TestCategoryTables(t *testing.T) {
 	if got := len(palette.Labels(palette.Severity)); got != 5 {
 		t.Errorf("%d severity labels, want 5", got)
 	}
-	if got := palette.Names(palette.Semantic); len(got) != 4 {
+	if got := palette.Names(palette.Semantic); len(got) != 6 {
 		t.Errorf("semantic names = %v", got)
+	}
+	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
+		if d.Text(palette.Semantic, "muted", "x") != d.Text(palette.Chrome, "TIMESTAMP", "x") {
+			t.Errorf("depth %d: muted is not the timestamp grey", d)
+		}
 	}
 	if got := palette.Names(palette.Method); len(got) != 5 {
 		t.Errorf("method names = %v", got)

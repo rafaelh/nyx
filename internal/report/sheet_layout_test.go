@@ -58,7 +58,7 @@ func TestSheetLayoutPart(t *testing.T) {
 func checkSheetTable(t *testing.T, d palette.Depth, added string) {
 	t.Helper()
 	for _, h := range []string{"SEVERITY", "CATEGORY", "TARGET", "DETAIL"} {
-		if !strings.Contains(added, d.BoldText(palette.Chrome, "TIMESTAMP", h)) {
+		if !strings.Contains(added, d.BoldText(palette.Semantic, "muted", h)) {
 			t.Errorf("depth %d: the sample table lacks the header %s", d, h)
 		}
 	}
@@ -87,7 +87,7 @@ func checkSheetStageLines(t *testing.T, d palette.Depth, added string) {
 	}{
 		{"running", palette.Semantic, "info"}, {"done", palette.Semantic, "success"},
 		{"done-previously", palette.Semantic, "success"}, {"failed", palette.Semantic, "error"},
-		{"not-configured", palette.Chrome, "TIMESTAMP"},
+		{"not-configured", palette.Semantic, "muted"},
 	} {
 		if !strings.Contains(added, " "+d.Text(c.group, c.name, c.state)) {
 			t.Errorf("depth %d: no stage line for %s", d, c.state)

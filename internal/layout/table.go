@@ -50,7 +50,7 @@ const minShrink = 10
 // unbreakable token in it (a protected word or a Keep span). A table that still
 // does not fit runs past the width.
 //
-// The header row is bold, in the chrome TIMESTAMP colour; uncoloured it is plain.
+// The header row is bold, in the muted colour; uncoloured it is plain.
 // Borders are box-drawing characters in the chrome SEPARATOR colour when the
 // stream is coloured, and ASCII (- | +) when it is not. At no depth other than
 // None is any other escape written, and at None there is no escape byte at all.
@@ -60,7 +60,7 @@ func (t Table) Render(s Stream) string {
 	}
 	n := len(t.Columns)
 	header := make([]Cell, n)
-	hstyle := func(x string) string { return s.Depth.BoldText(palette.Chrome, "TIMESTAMP", x) }
+	hstyle := func(x string) string { return s.Depth.BoldText(palette.Semantic, "muted", x) }
 	for i, c := range t.Columns {
 		header[i] = []Span{{Text: c.Header, Style: hstyle}}
 	}

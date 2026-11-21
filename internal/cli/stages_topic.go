@@ -142,7 +142,7 @@ func stagesTable(s layout.Stream, rows []stageRow) layout.Table {
 		t.Rows = append(t.Rows, []layout.Cell{
 			{{Text: r.name, Style: text(palette.Semantic, "info")}},
 			{{Text: r.contact, Style: contact}},
-			{{Text: r.key, Style: text(palette.Chrome, "TIMESTAMP")}},
+			{{Text: r.key, Style: text(palette.Semantic, "muted")}},
 			layout.Plain(r.does),
 		})
 	}

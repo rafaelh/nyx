@@ -106,7 +106,8 @@ func screens(t *testing.T) map[string][]helpBlock {
 }
 
 // At 80 columns every line of every help screen is at most 80 cells wide, coloured or not, but for
-// a usage or example block, which is never broken and so is held to be written as it is.
+// a usage or example block, which is never broken and so is held to be written as it is, but for
+// an example's colour.
 func TestHelp_EveryScreenFitsEighty(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
@@ -116,7 +117,7 @@ func TestHelp_EveryScreenFitsEighty(t *testing.T) {
 				got := layoutBlock(b, s)
 				switch b.kind {
 				case blockUsage, blockExample:
-					if want := plainHelp([]helpBlock{b}); got != want {
+					if want := plainHelp([]helpBlock{b}); sgrStrip(got) != want {
 						t.Errorf("%s: a %d block was laid out as %q, want %q", name, b.kind, got, want)
 					}
 					continue

@@ -252,6 +252,9 @@ type fgGroup struct {
 	entries []fgEntry
 }
 
+// timestamp is the grey of a log line's timestamp. The muted role shares it.
+var timestamp = fgOnly([3]uint8{124, 129, 145}, 90)
+
 var fgGroups = []fgGroup{
 	{Method, []fgEntry{
 		{"GET", fgOnly([3]uint8{125, 207, 255}, 96)},
@@ -261,15 +264,19 @@ var fgGroups = []fgGroup{
 		{"DELETE", fgOnly([3]uint8{224, 108, 117}, 91)},
 	}},
 	{Chrome, []fgEntry{
-		{"TIMESTAMP", fgOnly([3]uint8{124, 129, 145}, 90)},
+		{"TIMESTAMP", timestamp},
 		{"SEPARATOR", fgOnly([3]uint8{74, 79, 92}, 90)},
 	}},
-	// The semantic text colours are the foregrounds of four base styles.
+	// The semantic text colours are the foregrounds of four base styles, muted (text that steps
+	// back: asides, tips, keys, table headers) is the timestamp grey, and example is the warm
+	// amber of a nyx call shown as an example in the help.
 	{Semantic, []fgEntry{
 		{"success", styleNamed("PASS").fgStyle},
 		{"error", styleNamed("ERROR").fgStyle},
 		{"warning", styleNamed("WARN").fgStyle},
 		{"info", styleNamed("INFO").fgStyle},
+		{"muted", timestamp},
+		{"example", fgOnly([3]uint8{255, 202, 128}, 93)},
 	}},
 }
 

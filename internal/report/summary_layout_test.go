@@ -167,7 +167,7 @@ func TestSummaryTerminalTableStyle(t *testing.T) {
 	for _, d := range depths {
 		out := termSummary(d, 100, withData(report.Summary{Findings: headlineRows(), Candidates: []report.CandidateRow{candidateRow("x.org", "-d x.org", 2)}, CandidatesTotal: 1}))
 		for _, h := range []string{"SEVERITY", "CATEGORY", "TARGET", "DETAIL", "VALUE", "EVIDENCE", "SOURCES", "PROMOTE"} {
-			if !strings.Contains(out, d.BoldText(palette.Chrome, "TIMESTAMP", h)) {
+			if !strings.Contains(out, d.BoldText(palette.Semantic, "muted", h)) {
 				t.Errorf("depth %d: header %s is not bold in the timestamp colour", d, h)
 			}
 		}

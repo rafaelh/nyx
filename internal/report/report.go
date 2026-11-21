@@ -207,7 +207,7 @@ func textStyle(s layout.Stream, g palette.Group, name string) func(string) strin
 }
 
 // stateStyle is the style of a stage's state word: running is info, done and done-previously are
-// success, failed is error and not-configured takes the timestamp colour.
+// success, failed is error and not-configured is muted.
 func stateStyle(s layout.Stream, state string) func(string) string {
 	switch state {
 	case "running":
@@ -217,7 +217,7 @@ func stateStyle(s layout.Stream, state string) func(string) string {
 	case "failed":
 		return textStyle(s, palette.Semantic, "error")
 	case "not-configured":
-		return textStyle(s, palette.Chrome, "TIMESTAMP")
+		return textStyle(s, palette.Semantic, "muted")
 	}
 	return nil
 }
