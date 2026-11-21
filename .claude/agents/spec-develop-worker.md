@@ -6,7 +6,7 @@ description: >
   workers and never writes to git. Writes its full report to a file and returns a short summary
   plus the file's path.
 tools: Bash, Read, Edit, Write, Grep, Glob
-model: inherit
+model: sonnet
 ---
 
 # Spec-develop worker
@@ -29,16 +29,15 @@ working tree at the same time.
   commit doesn't find them:
 
   ```bash
-  uv run --frozen ruff check <your files>
-  uv run --frozen ruff format --check <your files>
-  uv run --frozen pyright <your files>
-  uv run --frozen pytest <your test files>
+  gofmt -l <your files>                                  # must print nothing
+  go vet <your packages>
+  go test <your packages> -run '<your test regex>' -count=1
   ```
 
   Errors in files you don't own are another worker's unfinished work: ignore them and leave them
   out of your report. Every error in a file you own is yours, even one you didn't expect.
-- **Run mutation checks with `PYTHONDONTWRITEBYTECODE=1`** if your brief asks for them, so stale
-  bytecode can't credit a failure to the wrong test.
+- **Run mutation checks with `-count=1` if your brief asks for them, so a cached test result can't
+  credit a failure to the wrong test.
 - **Don't claim what you haven't checked.** Before you call code dead, a branch unreachable or a
   spec fact wrong, run something that shows it, and say what you ran.
 
