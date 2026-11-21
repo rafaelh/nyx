@@ -7,6 +7,9 @@ import (
 	"github.com/rafaelh/nyx/internal/origin"
 )
 
+// originArrow joins the hostname and the address of an origin exposure's target.
+const originArrow = " -> "
+
 // originTarget is the target of an origin exposure: the hostname and the address it may be exposed
 // at. The record key holds the same two parts, so a pair keeps one row whether it is a possible
 // origin or a confirmed one.

@@ -14,47 +14,149 @@ import (
 )
 
 // This file is everything outside the package needs to know about a stored
-// finding record: its key, how to read one back, which ones the summary lists,
-// and the files that list them. Adding a category changes only this package.
+// finding record: its key, how to read one back, its found line, which ones the
+// summary lists, and the files that list them, each category's in its entry of
+// categories. Adding a category changes only this package.
 
-// originArrow joins the hostname and the address of an origin exposure's target.
-const originArrow = " -> "
+// category is everything about the stored finding records of one category: how a finding's key is
+// made and read back, the text its found line prints, and its risk file. A category not in
+// categories, or a field left nil, has the default: the key "<category>|<type>|<target>", no found
+// text and no file.
+type category struct {
+	name string
+	// key is the part of the record key after "<category>|", and parse reads the type and target
+	// back from that part.
+	key   func(Finding) string
+	parse func(rest string) (typ, target string)
+	// found is the text the console prints for a newly found finding in place of its category and
+	// target.
+	found func(Finding) string
+	// columns are those of the category's risk-<category>.csv, and fromKey the columns a finding
+	// no longer derived takes from its key, its type and target already parsed from it.
+	columns []string
+	fromKey func(key, typ, target string) map[string]string
+}
 
-// Key is the finding's record key: one per hostname for takeovers, one per hostname and address for
-// origin exposures (so the row is the same while it moves between possible and confirmed), one per
-// type, target and product for end-of-life software (each product on a service is its own finding),
-// otherwise category, type and target. ParseKey reverses it, apart from the product.
+// categories are the finding categories, in the order of their files.
+var categories = []category{
+	{
+		// One per hostname, whatever the takeover's type.
+		name:    Takeover,
+		key:     func(f Finding) string { return f.Target },
+		parse:   func(rest string) (string, string) { return "", rest },
+		columns: []string{"severity", "target", "type", "service", "cname", "detail"},
+	},
+	{
+		name:    Storage,
+		columns: []string{"severity", "provider", "name", "url", "exists", "public", "listable", "object_count", "first_keys", "referenced_by"},
+		fromKey: targetAs("url"),
+	},
+	{name: StorageUnattributed}, // listed in storage-unattributed.csv, from the storage records
+	{
+		name:    SensitivePaths,
+		columns: []string{"severity", "url", "path", "status", "size", "signature"},
+		fromKey: func(_, typ, target string) map[string]string { return map[string]string{"path": typ, "url": target} },
+	},
+	{name: Email, columns: []string{"severity", "root", "type", "detail"}, fromKey: targetAs("root")},
+	{
+		name:    Ports,
+		columns: []string{"severity", "ip", "port", "banner", "hostnames", "confirmed"},
+		fromKey: func(_, _, target string) map[string]string {
+			ap, err := netip.ParseAddrPort(target)
+			if err != nil {
+				return nil
+			}
+			return map[string]string{"ip": ap.Addr().String(), "port": strconv.Itoa(int(ap.Port()))}
+		},
+	},
+	{name: Certificates, columns: []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"}, fromKey: targetAs("url")},
+	{name: WebPosture, columns: []string{"severity", "url", "type", "detail"}, fromKey: targetAs("url")},
+	{
+		// One per hostname and address, so the row is the same while it moves between possible
+		// and confirmed. The found line reads "[possible ]origin exposure <host> -> <address>
+		// (behind <provider>)".
+		name: OriginExposure,
+		key: func(f Finding) string {
+			host, addr := splitOriginTarget(f.Target)
+			return host + "|" + addr
+		},
+		parse: func(rest string) (string, string) {
+			host, addr, _ := strings.Cut(rest, "|")
+			return "", originTarget(host, addr)
+		},
+		found: func(f Finding) string {
+			provider, _ := f.Attrs["provider"].(string)
+			text := "origin exposure " + f.Target + " (behind " + provider + ")"
+			if f.Type != "confirmed" {
+				text = "possible " + text
+			}
+			return text
+		},
+		columns: []string{"severity", "hostname", "provider", "address", "found_by", "confirmed_by", "confirmed"},
+		fromKey: func(_, _, target string) map[string]string {
+			host, addr := splitOriginTarget(target)
+			return map[string]string{"hostname": host, "address": addr}
+		},
+	},
+	{
+		// One per type, target and product: each product on a service is its own finding. The
+		// product is not part of the target. The found line reads "end-of-life <product>
+		// <version> on <target>" (or "end of support approaching for ...").
+		name: EOLSoftware,
+		key: func(f Finding) string {
+			product, _ := f.Attrs["product"].(string)
+			return f.Type + "|" + f.Target + "|" + product
+		},
+		parse: func(rest string) (string, string) {
+			typ, target, _ := strings.Cut(rest, "|")
+			target, _, _ = strings.CutLast(target, "|")
+			return typ, target
+		},
+		found: func(f Finding) string {
+			product, _ := f.Attrs["product"].(string)
+			version, _ := f.Attrs["version"].(string)
+			what := product + " " + version + " on " + f.Target
+			if f.Type == "eol-approaching" {
+				return "end of support approaching for " + what
+			}
+			return "end-of-life " + what
+		},
+		columns: []string{"severity", "target", "hostnames", "type", "product", "version", "end_date", "seen", "confirmed"},
+		fromKey: func(key, _, _ string) map[string]string {
+			_, product, _ := strings.CutLast(key, "|")
+			return map[string]string{"product": product}
+		},
+	},
+}
+
+// categoryOf is the category of a name, with only defaults for one not in categories.
+func categoryOf(name string) category {
+	for _, c := range categories {
+		if c.name == name {
+			return c
+		}
+	}
+	return category{name: name}
+}
+
+// Key is the finding's record key, as its category makes it (by default "<category>|<type>|<target>").
+// ParseKey reverses it, apart from what a category's key holds beyond its type and target.
 func (f Finding) Key() string {
-	if f.Category == Takeover {
-		return f.Category + "|" + f.Target
-	}
-	if f.Category == OriginExposure {
-		host, addr := splitOriginTarget(f.Target)
-		return f.Category + "|" + host + "|" + addr
-	}
-	if f.Category == EOLSoftware {
-		product, _ := f.Attrs["product"].(string)
-		return f.Category + "|" + f.Type + "|" + f.Target + "|" + product
+	if c := categoryOf(f.Category); c.key != nil {
+		return f.Category + "|" + c.key(f)
 	}
 	return f.Category + "|" + f.Type + "|" + f.Target
 }
 
 // ParseKey reads the category, type and target from a finding's record key. A
-// takeover or origin-exposure key carries no type, and an end-of-life key's product is not part of
-// its target (its file's fromKey reads it).
+// takeover or origin-exposure key carries no type.
 func ParseKey(key string) (category, typ, target string) {
 	category, rest, _ := strings.Cut(key, "|")
-	if category == Takeover {
-		return category, "", rest
-	}
-	if category == OriginExposure {
-		host, addr, _ := strings.Cut(rest, "|")
-		return category, "", originTarget(host, addr)
+	if c := categoryOf(category); c.parse != nil {
+		typ, target = c.parse(rest)
+		return category, typ, target
 	}
 	typ, target, _ = strings.Cut(rest, "|")
-	if category == EOLSoftware {
-		target, _, _ = strings.CutLast(target, "|")
-	}
 	return category, typ, target
 }
 
@@ -74,28 +176,30 @@ func FromRecord(r store.Record) Finding {
 }
 
 // FoundText is the text the console prints for a newly found finding in place of its category and
-// target, or "" when the category has none. An origin exposure reads "[possible ]origin exposure
-// <host> -> <address> (behind <provider>)", and an end-of-life finding "end-of-life <product>
-// <version> on <target>" (or "end of support approaching for ...").
+// target, or "" when the category has none.
 func (f Finding) FoundText() string {
-	if f.Category == EOLSoftware {
-		product, _ := f.Attrs["product"].(string)
-		version, _ := f.Attrs["version"].(string)
-		what := product + " " + version + " on " + f.Target
-		if f.Type == "eol-approaching" {
-			return "end of support approaching for " + what
-		}
-		return "end-of-life " + what
+	if c := categoryOf(f.Category); c.found != nil {
+		return c.found(f)
 	}
-	if f.Category != OriginExposure {
-		return ""
+	return ""
+}
+
+// The finding kind's found line is this package's: kinds cannot import it.
+func init() { kinds.SetFindingFound(found) }
+
+// found describes the found line of a finding record (see kinds.Kind.Found): it is listed under
+// "finding <category>" with its target, its severity, and its category's found text if it has one.
+func found(r store.Record) map[string]any {
+	f := FromRecord(r)
+	k, _ := kinds.Get(kinds.Finding.Name())
+	out := map[string]any{"category": k.Singular + " " + f.Category, "value": f.Target}
+	if f.Severity != "" {
+		out["severity"] = f.Severity
 	}
-	provider, _ := f.Attrs["provider"].(string)
-	text := "origin exposure " + f.Target + " (behind " + provider + ")"
-	if f.Type != "confirmed" {
-		text = "possible " + text
+	if text := f.FoundText(); text != "" {
+		out["text"] = text
 	}
-	return text
+	return out
 }
 
 // Headline lists the current high and medium findings among recs, high first,
@@ -147,42 +251,6 @@ type FileRow struct {
 	Cells  []string
 }
 
-// riskFiles are the categories with a risk-<category>.csv file, its columns, and
-// for a finding no longer derived, the columns its key (with its type and target already parsed
-// from it) identifies.
-var riskFiles = []struct {
-	category string
-	columns  []string
-	fromKey  func(key, typ, target string) map[string]string
-}{
-	{Takeover, []string{"severity", "target", "type", "service", "cname", "detail"}, nil},
-	{Storage, []string{"severity", "provider", "name", "url", "exists", "public", "listable", "object_count", "first_keys", "referenced_by"},
-		targetAs("url")},
-	{SensitivePaths, []string{"severity", "url", "path", "status", "size", "signature"},
-		func(_, typ, target string) map[string]string { return map[string]string{"path": typ, "url": target} }},
-	{Email, []string{"severity", "root", "type", "detail"}, targetAs("root")},
-	{Ports, []string{"severity", "ip", "port", "banner", "hostnames", "confirmed"},
-		func(_, _, target string) map[string]string {
-			ap, err := netip.ParseAddrPort(target)
-			if err != nil {
-				return nil
-			}
-			return map[string]string{"ip": ap.Addr().String(), "port": strconv.Itoa(int(ap.Port()))}
-		}},
-	{Certificates, []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"}, targetAs("url")},
-	{WebPosture, []string{"severity", "url", "type", "detail"}, targetAs("url")},
-	{OriginExposure, []string{"severity", "hostname", "provider", "address", "found_by", "confirmed_by", "confirmed"},
-		func(_, _, target string) map[string]string {
-			host, addr := splitOriginTarget(target)
-			return map[string]string{"hostname": host, "address": addr}
-		}},
-	{EOLSoftware, []string{"severity", "target", "hostnames", "type", "product", "version", "end_date", "seen", "confirmed"},
-		func(key, _, _ string) map[string]string {
-			_, product, _ := strings.CutLast(key, "|")
-			return map[string]string{"product": product}
-		}},
-}
-
 // targetAs is a fromKey that puts the target in column col.
 func targetAs(col string) func(key, typ, target string) map[string]string {
 	return func(_, _, target string) map[string]string { return map[string]string{col: target} }
@@ -192,8 +260,10 @@ func targetAs(col string) func(key, typ, target string) map[string]string {
 // risk-<category>.csv per category.
 func Files() []File {
 	files := []File{{Name: "storage-unattributed.csv", Columns: storageUnattributedColumns, Rows: storageUnattributedRows}}
-	for _, rf := range riskFiles {
-		files = append(files, riskFile(rf.category, rf.columns, rf.fromKey))
+	for _, c := range categories {
+		if c.columns != nil {
+			files = append(files, riskFile(c.name, c.columns, c.fromKey))
+		}
 	}
 	return files
 }

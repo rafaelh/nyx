@@ -1,10 +1,12 @@
 package findings_test
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/store"
 )
 
@@ -61,6 +63,52 @@ func TestKeyRoundTrip(t *testing.T) {
 		if cat != f.Category || typ != wantType || target != f.Target {
 			t.Errorf("ParseKey(%q) = %q %q %q", f.Key(), cat, typ, target)
 		}
+	}
+}
+
+// The stored key of each category is pinned byte for byte: a changed key would make every stored
+// finding of the category a new one, and the old one gone.
+func TestKeyFormats(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		f    findings.Finding
+		want string
+	}{
+		{findings.Finding{Category: findings.Takeover, Type: "dns-nxdomain", Target: "shop.example.com"}, "takeover|shop.example.com"},
+		{findings.Finding{Category: findings.Storage, Type: "listable", Target: "https://b.s3.amazonaws.com/"}, "storage|listable|https://b.s3.amazonaws.com/"},
+		{findings.Finding{Category: findings.StorageUnattributed, Type: "public", Target: "https://b.s3.amazonaws.com/"}, "storage-unattributed|public|https://b.s3.amazonaws.com/"},
+		{findings.Finding{Category: findings.SensitivePaths, Type: "/.env", Target: "https://www.example.com/.env"}, "sensitive-paths|/.env|https://www.example.com/.env"},
+		{findings.Finding{Category: findings.Email, Type: "spf-missing", Target: "example.com"}, "email|spf-missing|example.com"},
+		{findings.Finding{Category: findings.Ports, Type: "risky-port", Target: "198.51.100.5:3389"}, "ports|risky-port|198.51.100.5:3389"},
+		{findings.Finding{Category: findings.Certificates, Type: "expired;self-signed", Target: "https://www.example.com"}, "certificates|expired;self-signed|https://www.example.com"},
+		{findings.Finding{Category: findings.WebPosture, Type: "missing-hsts", Target: "https://www.example.com"}, "web-posture|missing-hsts|https://www.example.com"},
+		{findings.Finding{Category: findings.OriginExposure, Type: "possible", Target: "www.example.com -> 198.51.100.7"}, "origin-exposure|www.example.com|198.51.100.7"},
+		{findings.Finding{Category: findings.EOLSoftware, Type: "eol", Target: "https://www.example.com", Attrs: map[string]any{"product": "Nginx"}},
+			"eol-software|eol|https://www.example.com|Nginx"},
+	} {
+		if got := c.f.Key(); got != c.want {
+			t.Errorf("%s key = %q, want %q", c.f.Category, got, c.want)
+		}
+	}
+}
+
+// A new finding's found line is the finding kind's Found: it is listed as "finding <category>"
+// with its target and severity, and with its category's text when it has one.
+func TestFindingFound(t *testing.T) {
+	t.Parallel()
+	k, _ := kinds.Get(kinds.Finding.Name())
+	if k.Found == nil {
+		t.Fatal("the finding kind has no Found")
+	}
+	got := k.Found(srec("finding", "email|spf-missing|example.com", true,
+		"category", "email", "type", "spf-missing", "severity", "medium", "target", "example.com"))
+	if want := map[string]any{"category": "finding email", "value": "example.com", "severity": "medium"}; !maps.Equal(got, want) {
+		t.Errorf("email found = %v, want %v", got, want)
+	}
+	got = k.Found(srec("finding", "origin-exposure|www.example.com|198.51.100.7", true,
+		"category", "origin-exposure", "type", "confirmed", "severity", "medium", "target", "www.example.com -> 198.51.100.7", "provider", "Cloudflare"))
+	if want := "origin exposure www.example.com -> 198.51.100.7 (behind Cloudflare)"; got["text"] != want {
+		t.Errorf("origin text = %v, want %q", got["text"], want)
 	}
 }
 

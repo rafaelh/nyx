@@ -6,6 +6,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/store"
 )
 
 // The record kinds. Each is a handle (Of or Bare) with its showing rules and,
@@ -226,9 +227,18 @@ type OpenPortAttrs struct {
 	Banner string `json:"banner"`
 }
 
-// Findings, derived by the findings package. Their attributes depend on the
-// finding's category, which the findings package owns.
-var Finding = define[map[string]any](Kind{Name: "finding", Singular: "finding", Category: "findings", Printed: true, Change: LabelFinding})
+// Findings, derived by the findings package. Their attributes and found line
+// depend on the finding's category, which the findings package owns: it
+// describes the line with SetFindingFound, as kinds cannot import it.
+var Finding = define[map[string]any](Kind{Name: "finding", Singular: "finding", Category: "findings", Printed: true, Change: LabelFinding,
+	Found: func(r store.Record) map[string]any { return findingFound(r) }})
+
+// findingFound describes a finding's found line; see SetFindingFound.
+var findingFound = func(store.Record) map[string]any { return nil }
+
+// SetFindingFound sets what describes a finding's found line (see Kind.Found).
+// The findings package calls it as it is initialised, before any record is read.
+func SetFindingFound(found func(store.Record) map[string]any) { findingFound = found }
 
 // Evidence: stages store these, the findings package derives findings from them.
 var (

@@ -678,16 +678,6 @@ func foundFields(kind, key string, attrs map[string]any) map[string]any {
 	if k.Found != nil {
 		maps.Copy(f, k.Found(store.Record{Kind: kind, Key: key, Attrs: attrs}))
 	}
-	if kind == kinds.Finding.Name() {
-		fd := findings.FromRecord(store.Record{Key: key, Attrs: attrs})
-		f["category"], f["value"] = k.Singular+" "+fd.Category, fd.Target
-		if fd.Severity != "" {
-			f["severity"] = fd.Severity
-		}
-		if text := fd.FoundText(); text != "" {
-			f["text"] = text
-		}
-	}
 	return f
 }
 

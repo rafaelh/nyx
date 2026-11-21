@@ -30,11 +30,6 @@ Confirm each with `/code-review` before fixing.
 
 ## Design changes
 
-- **One table per findings category.** Key format, key parsing, found text and how the finding is
-  announced, all held by the finding kind. Replaces the `foundFields` special case with a
-  `Kind.Found`, and moves the finding kind's found line inside the Found hook. The stored key
-  strings must stay byte-for-byte the same.
-
 - **Findings derivation as an ordinary deriver.** Run it through the deriver list in
   `run/derive.go`, with hooks, instead of as a special case.
 

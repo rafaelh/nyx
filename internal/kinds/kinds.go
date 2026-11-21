@@ -54,7 +54,8 @@ type Kind struct {
 	// outside), decided when it is read, on top of any other rule.
 	OutsideAttr string
 	// Found, if set, describes a new record's found line: its fields are added
-	// to the found event, and its "text" is what the console prints after "+".
+	// to the found event, replacing its "category" and "value" if it has them,
+	// and its "text" is what the console prints after "+".
 	Found func(store.Record) map[string]any
 	// Change is the label changes.csv lists a record of the kind under, and the
 	// kinds whose records share one output file row share one (a resolution and a
