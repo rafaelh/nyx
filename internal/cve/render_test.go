@@ -510,8 +510,8 @@ func TestRender_TerminalColourListTip(t *testing.T) {
 	for _, d := range colourDepths {
 		got := renderTerm(t, []Record{log4shell()}, "id,affected_products_count,references_count", d, 80)
 		for _, want := range []string{
-			"\n\n" + d.BoldText(palette.Semantic, "info", "Affected Products") + " " + d.Text(palette.Semantic, "muted", "(--fields affected_products)") + "\n",
-			"\n\n" + d.BoldText(palette.Semantic, "info", "References") + " " + d.Text(palette.Semantic, "muted", "(--fields references)") + "\n",
+			"\n\n" + d.BoldText(palette.Semantic, "info", "Affected Products") + " " + d.Text(palette.Semantic, "muted", "(--fields affected_products to show)") + "\n",
+			"\n\n" + d.BoldText(palette.Semantic, "info", "References") + " " + d.Text(palette.Semantic, "muted", "(--fields references to show)") + "\n",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("depth %d: lacks %q:\n%q", d, want, got)
@@ -856,8 +856,8 @@ func sectionLines(t *testing.T, out, name string) []string {
 const (
 	nothingMatchesProducts = "No affected products match."
 	nothingListedProducts  = "No affected products listed."
-	tippedProducts         = "Affected Products (--fields affected_products)"
-	tippedRefs             = "References (--fields references)"
+	tippedProducts         = "Affected Products (--fields affected_products to show)"
+	tippedRefs             = "References (--fields references to show)"
 )
 
 // Each list's section says how many entries there are, as the count and the

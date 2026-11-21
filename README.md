@@ -1360,9 +1360,9 @@ nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --jso
   record has entries in (matching entries, under `--match`), the call says once how to see it,
   naming only the lists that have some: `use --fields affected_products,references (or --fields all)
   to list them`. Under `--json` it is `meta.hint`. In human mode a list shown only as its count has
-  the flag that lists it after its heading, `Affected Products (--fields affected_products)`, in the
-  muted timestamp colour, and nothing is written to stderr; a list left out with its count has no
-  section to say it in. Nothing is said when nothing was left out, or what was left out has no
+  the flag that lists it after its heading,
+  `Affected Products (--fields affected_products to show)`, in the muted colour, and nothing is
+  written to stderr; a list left out with its count has no section to say it in. Nothing is said when nothing was left out, or what was left out has no
   entries.
 - **`--limit N`** shows at most the first N entries of each list that is shown, in the NVD's order,
   and says how many were left out: `"omitted":k` in the count under `--json` (`0` when none were),

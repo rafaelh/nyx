@@ -1308,8 +1308,8 @@ const (
 	hintRefs     = "use --fields references (or --fields all) to list them"
 
 	// The heading of each list in human mode when its count is shown and it has entries.
-	tippedProducts = "Affected Products (--fields affected_products)"
-	tippedRefs     = "References (--fields references)"
+	tippedProducts = "Affected Products (--fields affected_products to show)"
+	tippedRefs     = "References (--fields references to show)"
 )
 
 // recordOf is a record of data as its keys and their JSON.
