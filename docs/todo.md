@@ -1,5 +1,7 @@
 # Features to add
 
+- `help` should be usable as `--help` for any command. Colour the examples of using the commands as #FFCA80
+
 - Standalone IP enumeration as `ip` subcommand. Should take one or more IPs and return a table of
   results for a human, or json output for an agent. example usage: `nyx ip --json 8.8.8.8 1.1.1.1`.
   Internal IP addresses and invalid IP addresses should be caught by default.
@@ -11,6 +13,10 @@
   If a domain has been reconned recently, should it resolve from those files?
 
 - Add a newline before printing help text in the console, and colourize examples
+
+- Evaluate the difference in approach that  https://github.com/blacklanternsecurity/bbot uses for scanning.
+
+- Change CVE sub-command so that the severity line at the top has two blank spaces at the end that aren't coloured. Additionally, Change the header for `Affected Products` to have `(--fields affected_products)` in dark grey after it. With `References` it should have `(--fields references)`. Remove the stderr log line that shows `12:29:54 │  INFO   │ use --fields affected_products,references (or --fields all) to list them`. Last, render the human facing (non-json) version of the `Published` and `Last Modified` dates in local time, YYYY-MM-DD 12hr clock, with a `(UTC 2000-07-13T04:00:00Z)` after it.
 
 # CI improvements/fixes
 
