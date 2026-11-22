@@ -34,7 +34,7 @@ type Row struct {
 }
 
 // table is the one severity table. Severities are fixed in code, documented in
-// nyx help findings and the README, and not configurable. Unattributed storage is low by
+// nyx help findings and the docs, and not configurable. Unattributed storage is low by
 // construction, so it never reaches the summary's high and medium list.
 var table = []Row{
 	{Takeover, "dns-nxdomain", High, "a CNAME dangles (NXDOMAIN) into a provider whose names anyone can claim"},

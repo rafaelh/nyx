@@ -127,6 +127,8 @@ type Inventory struct {
 
 	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
 
+	hosts map[*scope.Scope]map[netip.Addr][]string // see HostnamesByIP; guarded by mu
+
 	servers map[string][]netip.Addr // name server or mail host -> looked-up addresses
 
 	regs       []Registration // narrowest first: by start address, highest first
@@ -144,7 +146,8 @@ type registrantInfo struct {
 func New(d Data, db *provider.DB) *Inventory {
 	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{}, srv: map[string][]uint16{},
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
-		class: map[netip.Addr]provider.Result{}, regOf: map[netip.Addr]int{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{}}
+		class: map[netip.Addr]provider.Result{}, regOf: map[netip.Addr]int{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{},
+		hosts: map[*scope.Scope]map[netip.Addr][]string{}}
 	for _, s := range d.ServerAddresses {
 		host := dnsname.Normalise(s.Host)
 		i.servers[host] = append(i.servers[host], s.Addr.Unmap())
@@ -541,17 +544,27 @@ func (i *Inventory) served(host string, byCNAME func(provider.Entry) bool, byAdd
 
 // HostnamesByIP maps every known address to the sorted names, not excluded,
 // that resolve to it or that rDNS gave it: the hostnames column of ips.csv.
+// It is worked out once per scope; callers must not modify the map or its lists.
 func (i *Inventory) HostnamesByIP(sc *scope.Scope) map[netip.Addr][]string {
-	out := map[netip.Addr][]string{}
+	i.mu.Lock()
+	out, ok := i.hosts[sc]
+	i.mu.Unlock()
+	if ok {
+		return out
+	}
+	out = map[netip.Addr][]string{}
 	for a, names := range i.namesByIP(sc) {
 		out[a] = slices.Sorted(maps.Keys(names))
 	}
+	i.mu.Lock()
+	i.hosts[sc] = out
+	i.mu.Unlock()
 	return out
 }
 
 // KnownAddrs are the addresses of HostnamesByIP, in address order.
 func (i *Inventory) KnownAddrs(sc *scope.Scope) []netip.Addr {
-	return slices.SortedFunc(maps.Keys(i.namesByIP(sc)), netip.Addr.Compare)
+	return slices.SortedFunc(maps.Keys(i.HostnamesByIP(sc)), netip.Addr.Compare)
 }
 
 func (i *Inventory) namesByIP(sc *scope.Scope) map[netip.Addr]map[string]bool {

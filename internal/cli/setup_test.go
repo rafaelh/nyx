@@ -158,7 +158,7 @@ func TestSetup_NoTerminalExitsTwo(t *testing.T) {
 				if f.code != "INVALID_INPUT" || !strings.Contains(f.msg, path) {
 					t.Errorf("error %+v: it should name the config file %s", f, path)
 				}
-				if !strings.Contains(f.hint, "edit "+path+" by hand") || !strings.Contains(f.hint, "README") {
+				if !strings.Contains(f.hint, "edit "+path+" by hand") || !strings.Contains(f.hint, "docs/configuration.md") {
 					t.Errorf("hint %q should say to edit the file by hand", f.hint)
 				}
 				if _, err := os.Stat(path); err == nil {

@@ -252,13 +252,18 @@ type network struct {
 	start, end netip.Addr
 	sizeHi     uint64 // the range's size less one, as a 128-bit number
 	sizeLo     uint64
+	order      int // the entry's place in its list, the last tiebreak between matches
 	match      NetworkMatch
 }
 
-// index is a snapshot ready to match: text formatted and sanitised once.
+// index is a snapshot ready to match: text formatted and sanitised once. nets is sorted by start
+// (every IPv4 range before every IPv6 one), and maxEnd[i] is the greatest end among nets[:i+1], so
+// a lookup finds the ranges that start at or before an address by binary search and walks back
+// only while one of them could still reach it.
 type index struct {
-	nets []network
-	asns map[int]ASNMatch
+	nets   []network
+	maxEnd []netip.Addr
+	asns   map[int]ASNMatch
 }
 
 // Load returns the snapshot prepared for matching.
@@ -276,9 +281,17 @@ func build(s Snapshot) *index {
 		}
 		start, end := e.Start.Unmap(), e.End.Unmap()
 		hi, lo := span(start, end)
-		ix.nets = append(ix.nets, network{start: start, end: end, sizeHi: hi, sizeLo: lo, match: NetworkMatch{
+		ix.nets = append(ix.nets, network{start: start, end: end, sizeHi: hi, sizeLo: lo, order: len(ix.nets), match: NetworkMatch{
 			Network: sanitize.Line(text), Rank: e.Rank, ScoreTag: sanitize.Line(e.ScoreTag), AbuseScore: e.AbuseScore,
 			Org: sanitize.Line(e.Org), OrgType: sanitize.Line(e.OrgType), Updated: s.Nets.Updated}})
+	}
+	slices.SortFunc(ix.nets, func(x, y network) int { return x.start.Compare(y.start) })
+	ix.maxEnd = make([]netip.Addr, len(ix.nets))
+	for i, n := range ix.nets {
+		ix.maxEnd[i] = n.end
+		if i > 0 && ix.maxEnd[i-1].Compare(n.end) > 0 {
+			ix.maxEnd[i] = ix.maxEnd[i-1]
+		}
 	}
 	for _, e := range s.ASNs.Entries {
 		ix.asns[e.ASN] = ASNMatch{ASN: e.ASN, Rank: e.Rank, ScoreTag: sanitize.Line(e.ScoreTag), AbuseScore: e.AbuseScore,
@@ -301,12 +314,21 @@ func span(start, end netip.Addr) (hi, lo uint64) {
 func (s *Snapshot) Networks(a netip.Addr) []NetworkMatch {
 	a = a.Unmap()
 	var hits []network
-	for _, n := range s.idx.nets {
-		if n.start.Is4() == a.Is4() && n.start.Compare(a) <= 0 && a.Compare(n.end) <= 0 {
+	ix := s.idx
+	// The ranges that start after a cannot hold it; of the others, none at or before i reaches a
+	// once maxEnd[i] is below it.
+	i, _ := slices.BinarySearchFunc(ix.nets, a, func(n network, a netip.Addr) int {
+		if n.start.Compare(a) <= 0 {
+			return -1
+		}
+		return 1
+	})
+	for i--; i >= 0 && ix.maxEnd[i].Compare(a) >= 0; i-- {
+		if n := ix.nets[i]; n.start.Is4() == a.Is4() && a.Compare(n.end) <= 0 {
 			hits = append(hits, n)
 		}
 	}
-	slices.SortStableFunc(hits, func(x, y network) int {
+	slices.SortFunc(hits, func(x, y network) int {
 		if c := cmp.Compare(x.sizeHi, y.sizeHi); c != 0 {
 			return c
 		}
@@ -316,7 +338,10 @@ func (s *Snapshot) Networks(a netip.Addr) []NetworkMatch {
 		if c := x.match.Rank - y.match.Rank; c != 0 {
 			return c
 		}
-		return x.start.Compare(y.start)
+		if c := x.start.Compare(y.start); c != 0 {
+			return c
+		}
+		return cmp.Compare(x.order, y.order)
 	})
 	out := make([]NetworkMatch, 0, len(hits))
 	for _, h := range hits {

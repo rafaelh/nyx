@@ -57,7 +57,7 @@ eol-data:
 # each page to a file in a temporary directory, so that a failed download stops the target before
 # the parser runs, and the directory is removed however the target ends. The parser checks both
 # pages, prints what changed and replaces the snapshot as a whole, or not at all. Review the diff,
-# update the two dates in README.md (the summary says to) and commit. No nyx command contacts
+# update the two dates in docs/abusive-networks.md (the summary says to) and commit. No nyx command contacts
 # ipapi.is.
 abusive-data:
 	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \

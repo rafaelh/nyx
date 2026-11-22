@@ -133,7 +133,7 @@ func Of(a netip.Addr) Kind {
 	return Public
 }
 
-// names are the non-public kinds, in the order the README lists them.
+// names are the non-public kinds, in the order docs/ip.md lists them.
 var names = []string{
 	"private", "ula", "loopback", "link-local", "cgnat", "multicast", "unspecified", "this-network",
 	"broadcast", "documentation", "benchmarking", "reserved", "ietf-protocol", "6to4", "teredo",

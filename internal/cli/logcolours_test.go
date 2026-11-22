@@ -958,7 +958,7 @@ func TestLog_Palette(t *testing.T) {
 }
 
 // --help describes the new flags and the streams they write to, and not the
-// removed one; the README, not --help, describes the console in full.
+// removed one; the docs, not --help, describes the console in full.
 func TestLog_Help(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())

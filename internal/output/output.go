@@ -5,6 +5,7 @@ package output
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/csv"
 	"fmt"
 	"maps"
@@ -73,13 +74,33 @@ type File struct {
 // disk before it is renamed, so a power loss cannot leave a renamed but empty file. On macOS that
 // costs a full flush of the drive's cache per file, so tests turn it off.
 func Render(dir string, files []File, snap Snapshot, fsync bool) error {
+	return NewWriter(dir, fsync).Render(files, snap)
+}
+
+// Writer renders the files of one engagement again and again (a run renders after every pass),
+// and rewrites only the files whose contents changed since it last wrote them. What it last wrote
+// is kept in memory rather than compared with the files on disk, so the first render of every
+// process writes every file.
+type Writer struct {
+	dir   string
+	fsync bool
+	wrote map[string][sha256.Size]byte // file name -> hash of the contents last written
+}
+
+// NewWriter returns a Writer for the engagement directory dir (see Render for fsync).
+func NewWriter(dir string, fsync bool) *Writer {
+	return &Writer{dir: dir, fsync: fsync, wrote: map[string][sha256.Size]byte{}}
+}
+
+// Render writes every file whose contents changed (see Writer).
+func (w *Writer) Render(files []File, snap Snapshot) error {
 	snap.Vis = snap.vis()
-	tmp := filepath.Join(dir, ".nyx", "tmp")
+	tmp := filepath.Join(w.dir, ".nyx", "tmp")
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return err
 	}
 	for _, f := range files {
-		if err := renderFile(dir, tmp, f, snap, fsync); err != nil {
+		if err := w.renderFile(tmp, f, snap); err != nil {
 			return fmt.Errorf("render %s: %w", f.Name, err)
 		}
 	}
@@ -108,13 +129,14 @@ func Sweep(dir string) error {
 // lists only current rows), so an empty file is never left in the engagement.
 // This is deliberate: a file with only a header row tells the operator nothing,
 // so a file's presence is itself the signal that there is something to read.
-func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
+func (w *Writer) renderFile(tmp string, f File, snap Snapshot) error {
 	rows := f.Rows(snap)
 	if f.Format == TXT {
 		rows = listedRows(rows)
 	}
 	if len(rows) == 0 {
-		if err := os.Remove(filepath.Join(dir, f.Name)); err != nil && !os.IsNotExist(err) {
+		delete(w.wrote, f.Name)
+		if err := os.Remove(filepath.Join(w.dir, f.Name)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		return nil
@@ -136,7 +158,19 @@ func renderFile(dir, tmp string, f File, snap Snapshot, fsync bool) error {
 			return err
 		}
 	}
-	return writeAtomic(dir, tmp, f.Name, buf.Bytes(), fsync)
+	sum := sha256.Sum256(buf.Bytes())
+	if last, ok := w.wrote[f.Name]; ok && last == sum {
+		// Unchanged since this Writer wrote it, unless someone has removed it since.
+		if _, err := os.Lstat(filepath.Join(w.dir, f.Name)); err == nil {
+			return nil
+		}
+	}
+	delete(w.wrote, f.Name) // a failed write leaves the file as it was, which may not be sum
+	if err := writeAtomic(w.dir, tmp, f.Name, buf.Bytes(), w.fsync); err != nil {
+		return err
+	}
+	w.wrote[f.Name] = sum
+	return nil
 }
 
 // listedRows are the rows a TXT file lists: the current ones with a value.

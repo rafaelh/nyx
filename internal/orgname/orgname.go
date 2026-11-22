@@ -30,13 +30,23 @@ func Tokens(org string) []string {
 
 // Matches reports whether name contains every word of org. An organisation
 // with no words (only legal suffixes, or nothing) matches nothing.
-func Matches(org, name string) bool {
-	want := Tokens(org)
-	if len(want) == 0 {
+func Matches(org, name string) bool { return New(org).Matches(name) }
+
+// Org is an organisation name split into its words once, for a caller that
+// matches many names against it.
+type Org struct{ words []string }
+
+// New returns org ready to match names against.
+func New(org string) Org { return Org{Tokens(org)} }
+
+// Matches reports whether name contains every word of the organisation (see
+// the package function Matches).
+func (o Org) Matches(name string) bool {
+	if len(o.words) == 0 {
 		return false
 	}
 	name = strings.ToLower(name)
-	for _, t := range want {
+	for _, t := range o.words {
 		if !strings.Contains(name, t) {
 			return false
 		}

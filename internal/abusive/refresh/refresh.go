@@ -513,7 +513,7 @@ func summary(old, next abusive.Snapshot) string {
 	var b strings.Builder
 	writeList(&b, "networks", old.Nets.Updated, next.Nets.Updated, networkEntries(old), networkEntries(next))
 	writeList(&b, "asns", old.ASNs.Updated, next.ASNs.Updated, asnEntries(old), asnEntries(next))
-	fmt.Fprintf(&b, "Update README.md to give the new dates: networks %s, ASNs %s.\n", next.Nets.Updated, next.ASNs.Updated)
+	fmt.Fprintf(&b, "Update docs/abusive-networks.md to give the new dates: networks %s, ASNs %s.\n", next.Nets.Updated, next.ASNs.Updated)
 	return b.String()
 }
 

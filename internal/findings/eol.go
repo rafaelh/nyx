@@ -78,8 +78,7 @@ func (a *eolAssessor) webServices() {
 			headers[r.Key] = strings.Split(v, ";")
 		}
 	}
-	for key, r := range d.services() {
-		attrs := kinds.WebService.Attrs(r)
+	for key, attrs := range d.serviceAttrs() {
 		values := append([]string{attrs.Server}, headers[key]...)
 		for tech := range strings.SplitSeq(attrs.Technologies, ";") {
 			if name, version, ok := strings.Cut(tech, ":"); ok && version != "" {

@@ -10,25 +10,25 @@ import (
 	"github.com/rafaelh/nyx/internal/iplookup"
 )
 
-// The README names ipapi.is as the source, gives both lists' dates, says how to refresh the snapshot
-// and covers the finding, its file, the keys, the stage and the passive boundary.
-func TestAbusiveDocs_ReadmeGivesTheSnapshotDates(t *testing.T) {
+// The docs name ipapi.is as the source, give both lists' dates, say how to refresh the snapshot
+// and cover the finding, its file, the keys, the stage and the passive boundary.
+func TestAbusiveDocs_GiveTheSnapshotDates(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
+	docs := docsText(t)
 	d := abusive.Default()
 	for _, want := range []string{
 		d.Nets.Updated, d.ASNs.Updated, "ipapi.is", "make abusive-data", "risk-abusive-network.csv", "abusive-network",
 		"abusive_networks", "abusive_asn", "netblockowner", "Most Abusive Networks", "Most Abusive ASNs",
 		"No command contacts ipapi.is", "Team Cymru",
 	} {
-		if !strings.Contains(readme, want) {
-			t.Errorf("README does not mention %q", want)
+		if !strings.Contains(docs, want) {
+			t.Errorf("the docs do not mention %q", want)
 		}
 	}
-	flat := flatWords(readme)
+	flat := flatWords(docs)
 	for _, want := range []string{"nyx never contacts ipapi.is", "medium", "only its as is listed", "once for each covering /24"} {
 		if !strings.Contains(flat, want) {
-			t.Errorf("README does not say %q", want)
+			t.Errorf("the docs do not say %q", want)
 		}
 	}
 }

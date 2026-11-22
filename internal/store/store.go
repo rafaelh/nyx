@@ -97,6 +97,63 @@ type Store struct {
 	// versions counts the committed transactions that changed records of a kind.
 	versions map[string]uint64
 	once     sync.Once
+	stmts    writeStmts // the writer's statements, prepared once
+
+	// shown is the baseline as the store last read or saved it, when shownKnown (see SaveShown).
+	shownMu    sync.Mutex
+	shown      []ShownRow
+	shownKnown bool
+}
+
+// writeStmts are the statements the writer runs for every observation, prepared once when the
+// store opens so a commit never parses SQL again.
+type writeStmts struct {
+	insertRecord, touchRecord, upsertObs, checkObs, deleteObs, refresh, complete *sql.Stmt
+}
+
+// writeSQL is the text of each of writeStmts, in field order.
+var writeSQL = []string{
+	// A record is new exactly when this inserts it; one observed now is current.
+	"INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1) ON CONFLICT(kind,key) DO NOTHING",
+	"UPDATE records SET last_seen=?, current=1 WHERE kind=? AND key=?",
+	`INSERT INTO observations(kind,key,stage,check_key,attrs,seen) VALUES(?,?,?,?,?,?)
+		ON CONFLICT(kind,key,stage,check_key) DO UPDATE SET attrs=excluded.attrs, seen=excluded.seen`,
+	"SELECT kind,key FROM observations WHERE stage=? AND check_key=?",
+	"DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?",
+	refreshSQL,
+	"INSERT OR REPLACE INTO checks(stage,key,completed_at) VALUES(?,?,?)",
+}
+
+// prepare prepares the writer's statements on db.
+func (w *writeStmts) prepare(db *sql.DB) error {
+	ptrs := []**sql.Stmt{&w.insertRecord, &w.touchRecord, &w.upsertObs, &w.checkObs, &w.deleteObs, &w.refresh, &w.complete}
+	for i, q := range writeSQL {
+		st, err := db.Prepare(q)
+		if err != nil {
+			w.close()
+			return err
+		}
+		*ptrs[i] = st
+	}
+	return nil
+}
+
+func (w *writeStmts) close() {
+	for _, st := range []*sql.Stmt{w.insertRecord, w.touchRecord, w.upsertObs, w.checkObs, w.deleteObs, w.refresh, w.complete} {
+		if st != nil {
+			_ = st.Close()
+		}
+	}
+}
+
+// txStmts are writeStmts bound to one transaction.
+type txStmts struct {
+	insertRecord, touchRecord, upsertObs, checkObs, deleteObs, refresh, complete *sql.Stmt
+}
+
+func (w *writeStmts) in(tx *sql.Tx) txStmts {
+	return txStmts{tx.Stmt(w.insertRecord), tx.Stmt(w.touchRecord), tx.Stmt(w.upsertObs), tx.Stmt(w.checkObs),
+		tx.Stmt(w.deleteObs), tx.Stmt(w.refresh), tx.Stmt(w.complete)}
 }
 
 // Open opens or initialises the state database at path.
@@ -119,6 +176,10 @@ func Open(path string, o Options) (*Store, error) {
 		clock = time.Now
 	}
 	s := &Store{db: db, clock: clock, red: o.Redactor, ch: make(chan op, 1024), versions: map[string]uint64{}}
+	if err := s.stmts.prepare(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("state database %s: %w", path, err)
+	}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
@@ -347,6 +408,7 @@ func (s *Store) Close() error {
 		close(s.ch)
 		s.chMu.Unlock()
 		s.wg.Wait()
+		s.stmts.close()
 		if cerr := s.db.Close(); err == nil {
 			err = cerr
 		}
@@ -447,11 +509,12 @@ func (s *Store) commitOps(batch []op) []Obs {
 	var news []Obs
 	kinds := map[string]bool{}
 	wrote := false
+	st := s.stmts.in(tx)
 	for _, o := range batch {
 		if o.done != nil {
 			continue
 		}
-		n, err := s.applyComplete(tx, o, today, kinds)
+		n, err := s.applyComplete(st, o, today, kinds)
 		if err != nil {
 			s.setErr(err)
 			return nil
@@ -473,7 +536,7 @@ func (s *Store) commitOps(batch []op) []Obs {
 }
 
 // applyComplete adds the kind of every record it touches to kinds.
-func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]bool) ([]Obs, error) {
+func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]bool) ([]Obs, error) {
 	// Later observations of the same record in one check win.
 	type rk struct{ kind, key string }
 	seen := map[rk]Obs{}
@@ -487,7 +550,6 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		seen[k] = ob
 	}
 	var news []Obs
-	touched := map[rk]bool{}
 	for _, k := range order {
 		ob := seen[k]
 		attrs := ob.Attrs
@@ -499,30 +561,30 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		if err != nil {
 			return nil, fmt.Errorf("observation %s/%s attrs: %w", k.kind, k.key, err)
 		}
-		var one int
-		err = tx.QueryRow("SELECT 1 FROM records WHERE kind=? AND key=?", k.kind, k.key).Scan(&one)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			news = append(news, Obs{k.kind, k.key, attrs})
-			_, err = tx.Exec("INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1)", k.kind, k.key, today, today)
-		case err == nil:
-			_, err = tx.Exec("UPDATE records SET last_seen=? WHERE kind=? AND key=?", today, k.kind, k.key)
-		}
+		// The record holds an observation once this commits, so it is current.
+		res, err := st.insertRecord.Exec(k.kind, k.key, today, today)
 		if err != nil {
 			return nil, err
 		}
-		if _, err = tx.Exec(`INSERT INTO observations(kind,key,stage,check_key,attrs,seen) VALUES(?,?,?,?,?,?)
-			ON CONFLICT(kind,key,stage,check_key) DO UPDATE SET attrs=excluded.attrs, seen=excluded.seen`,
-			k.kind, k.key, o.stage, o.check, string(blob), today); err != nil {
+		if n, err := res.RowsAffected(); err != nil {
+			return nil, err
+		} else if n == 1 {
+			news = append(news, Obs{k.kind, k.key, attrs})
+		} else if _, err := st.touchRecord.Exec(today, k.kind, k.key); err != nil {
 			return nil, err
 		}
-		touched[k] = true
+		if _, err := st.upsertObs.Exec(k.kind, k.key, o.stage, o.check, string(blob), today); err != nil {
+			return nil, err
+		}
+		kinds[k.kind] = true
 	}
-	// Drop this check's observations that it no longer produces.
-	stored, err := queryAll(tx, func(r *sql.Rows) (k rk, err error) {
+	// Drop this check's observations that it no longer produces, and refresh the records that
+	// lost one: another check may still observe them.
+	rows, err := st.checkObs.Query(o.stage, o.check)
+	stored, err := scanAll(rows, err, func(r *sql.Rows) (k rk, err error) {
 		err = r.Scan(&k.kind, &k.key)
 		return k, err
-	}, "SELECT kind,key FROM observations WHERE stage=? AND check_key=?", o.stage, o.check)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -530,24 +592,24 @@ func (s *Store) applyComplete(tx *sql.Tx, o op, today string, kinds map[string]b
 		if _, ok := seen[k]; ok {
 			continue
 		}
-		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?", k.kind, k.key, o.stage, o.check); err != nil {
+		if _, err := st.deleteObs.Exec(k.kind, k.key, o.stage, o.check); err != nil {
 			return nil, err
 		}
-		touched[k] = true
-	}
-	for k := range touched {
-		if err := refreshCurrent(tx, k.kind, k.key); err != nil {
+		if _, err := st.refresh.Exec(k.kind, k.key); err != nil {
 			return nil, err
 		}
 		kinds[k.kind] = true
 	}
-	_, err = tx.Exec("INSERT OR REPLACE INTO checks(stage,key,completed_at) VALUES(?,?,?)", o.stage, o.check, today)
+	_, err = st.complete.Exec(o.stage, o.check, today)
 	return news, err
 }
 
+// refreshSQL sets a record current exactly when an observation of it is stored.
+const refreshSQL = `UPDATE records SET current = EXISTS(SELECT 1 FROM observations o WHERE o.kind=records.kind AND o.key=records.key)
+		WHERE kind=? AND key=?`
+
 func refreshCurrent(tx *sql.Tx, kind, key string) error {
-	_, err := tx.Exec(`UPDATE records SET current = EXISTS(SELECT 1 FROM observations o WHERE o.kind=records.kind AND o.key=records.key)
-		WHERE kind=? AND key=?`, kind, key)
+	_, err := tx.Exec(refreshSQL, kind, key)
 	return err
 }
 
@@ -569,6 +631,11 @@ type querier interface {
 // queryAll runs query through q and returns its rows, each read by scan.
 func queryAll[T any](q querier, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
 	rows, err := q.Query(query, args...)
+	return scanAll(rows, err, scan)
+}
+
+// scanAll reads the rows of a query that returned rows and err, each read by scan.
+func scanAll[T any](rows *sql.Rows, err error, scan func(*sql.Rows) (T, error)) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -890,25 +957,72 @@ func (r ShownRow) Equal(o ShownRow) bool {
 	return r.Kind == o.Kind && r.Key == o.Key && r.Scope == o.Scope && r.Severity == o.Severity && slices.Equal(r.Stages, o.Stages)
 }
 
-// SaveShown replaces the baseline with rows, in one transaction.
+// SaveShown replaces the baseline with rows, in one transaction. Once the store has read the
+// baseline (Shown) or saved one, it writes only the rows that differ from that one; rows must not
+// be modified after the call.
 func (s *Store) SaveShown(rows []ShownRow) error {
-	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
-		if _, err := tx.Exec("DELETE FROM shown"); err != nil {
-			return nil, err
-		}
-		ins, err := tx.Prepare("INSERT OR REPLACE INTO shown(kind,key,stages,scope,severity) VALUES(?,?,?,?,?)")
-		if err != nil {
-			return nil, err
-		}
-		defer ins.Close()
-		for _, r := range rows {
-			if _, err := ins.Exec(r.Kind, r.Key, strings.Join(r.Stages, ","), r.Scope, r.Severity); err != nil {
-				return nil, err
+	s.shownMu.Lock()
+	defer s.shownMu.Unlock()
+	err := s.update(func(tx *sql.Tx) (map[string]bool, error) {
+		var old map[shownKey]ShownRow // nil: the stored rows are not known, so all are replaced
+		if s.shownKnown {
+			old = make(map[shownKey]ShownRow, len(s.shown))
+			for _, r := range s.shown {
+				old[shownKey{r.Kind, r.Key}] = r
 			}
+		} else if _, err := tx.Exec("DELETE FROM shown"); err != nil {
+			return nil, err
 		}
-		_, err = tx.Exec(setMetaSQL, shownMeta, s.today())
+		if err := writeShown(tx, old, rows); err != nil {
+			return nil, err
+		}
+		_, err := tx.Exec(setMetaSQL, shownMeta, s.today())
 		return nil, err
 	})
+	if err != nil {
+		s.shown, s.shownKnown = nil, false // the next save rewrites the table
+		return err
+	}
+	s.shown, s.shownKnown = rows, true
+	return nil
+}
+
+type shownKey struct{ kind, key string }
+
+// writeShown makes the shown table, which holds old, hold rows: it writes each row that is new or
+// differs from old's, and deletes old's rows that rows lacks.
+func writeShown(tx *sql.Tx, old map[shownKey]ShownRow, rows []ShownRow) error {
+	ins, err := tx.Prepare("INSERT OR REPLACE INTO shown(kind,key,stages,scope,severity) VALUES(?,?,?,?,?)")
+	if err != nil {
+		return err
+	}
+	defer ins.Close()
+	for _, r := range rows {
+		k := shownKey{r.Kind, r.Key}
+		if o, ok := old[k]; ok {
+			delete(old, k)
+			if o.Equal(r) {
+				continue
+			}
+		}
+		if _, err := ins.Exec(r.Kind, r.Key, strings.Join(r.Stages, ","), r.Scope, r.Severity); err != nil {
+			return err
+		}
+	}
+	if len(old) == 0 {
+		return nil
+	}
+	del, err := tx.Prepare("DELETE FROM shown WHERE kind=? AND key=?")
+	if err != nil {
+		return err
+	}
+	defer del.Close()
+	for k := range old {
+		if _, err := del.Exec(k.kind, k.key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Shown returns the baseline, ordered by kind then key, and whether one was ever
@@ -933,6 +1047,11 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
+	// A copy, so a caller that changes the rows it was given cannot change what SaveShown
+	// compares with.
+	s.shownMu.Lock()
+	s.shown, s.shownKnown = slices.Clone(rows), true
+	s.shownMu.Unlock()
 	return rows, true, nil
 }
 

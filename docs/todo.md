@@ -71,27 +71,4 @@ Confirm each with `/code-review` before fixing.
 - **Numeric port order.** Sort `OpenPorts` with `AddrPort.Compare`. Changes the order users see
   from text to numeric.
 
-## Performance
 
-- **Skip rewriting unchanged output files.** The biggest win found: up to about 33 fsyncs per pass.
-  Comparing with the file on disk would stop the `render-mid-file` crash test reaching its fault
-  point, so the runner must keep state between passes instead.
-
-- **Presorted output rows.**
-
-- **Store write path.** Prepared statements, fewer SQL statements per observation, encoding
-  observation attributes to JSON only once, and diffing `SaveShown` instead of rewriting every row.
-
-- **Incremental passes.** Cache each stage's completed checks between passes, and refresh changed
-  records incrementally.
-
-- **HTTP connection reuse.** Needs rate limiting reworked.
-
-- **Small gains, left alone so far.** Each is minor on its own:
-  - cache the inventory's CNAME chains and per-scope results (about 5–10 ms per stage, but touches
-    shared infrastructure);
-  - cache the per-address hostname lookup that is computed three times per render;
-  - let a caller in `scope` or the stages tokenise an organisation name once, not on every match;
-  - speed up `indexRegistrants` (runs once per inventory);
-  - decode each web service's attributes only once (about 3 ms per 5k services);
-  - a non-JSON fast path for encoding finding attributes (risks changing stored values).

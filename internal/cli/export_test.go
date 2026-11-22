@@ -324,7 +324,7 @@ func checkExportNothingElse(t *testing.T, stdout string, lines []exLine) {
 	}
 }
 
-// A line names its fields in the order the README gives them.
+// A line names its fields in the order the docs give them.
 func TestExport_FieldOrder(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)

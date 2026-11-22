@@ -703,7 +703,7 @@ func TestOrigin_PassiveSkipsOriginCheckAndRunsDNSHistory(t *testing.T) {
 	x.wantRow(histOutside, "low", "historical", "", "no", "true")
 }
 
-// --- help and README ---
+// --- help and docs ---
 
 // The flags and stages are documented, and the severity list names both finding types.
 func TestOrigin_Help(t *testing.T) {
@@ -734,32 +734,32 @@ func TestOrigin_Help(t *testing.T) {
 	}
 }
 
-// The README states the one new request the target can receive, and why, and lists origincheck among
+// The docs state the one new request the target can receive, and why, and list origincheck among
 // the stages --passive skips, the new file and the settings.
-func TestOrigin_ReadmeStatesTheBoundary(t *testing.T) {
+func TestOrigin_DocsStateTheBoundary(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
-	flat := flatWords(readme)
-	i := strings.Index(readme, "## Passive boundary")
-	j := strings.Index(readme, "## Passive-only mode")
+	docs := docsText(t)
+	flat := flatWords(docs)
+	i := strings.Index(docs, "## Passive boundary")
+	j := strings.Index(docs, "## Passive-only mode")
 	if i < 0 || j < i {
-		t.Fatal("README has no passive boundary section")
+		t.Fatal("the docs have no passive boundary section")
 	}
-	boundary := flatWords(readme[i:j])
+	boundary := flatWords(docs[i:j])
 	for _, want := range []string{"one get of `/` to an address it is already allowed to contact",
 		"in-scope hostname as the server name and the host header", "whether a hostname behind a cdn or waf is also served directly"} {
 		if !strings.Contains(boundary, want) {
 			t.Errorf("the passive boundary does not say %q", want)
 		}
 	}
-	passive := readme[j:min(len(readme), j+600)]
+	passive := docs[j:min(len(docs), j+600)]
 	if !strings.Contains(passive, "`origincheck`") {
 		t.Errorf("the --passive stage list does not name origincheck: %q", passive)
 	}
 	for _, want := range []string{"risk-origin-exposure.csv", "dnshistory.max_hosts", "origincheck.max_candidates", "a-historical",
 		"historical_first_seen", "hostnames for `dnshistory`"} {
 		if !strings.Contains(flat, strings.ToLower(want)) {
-			t.Errorf("README does not mention %q", want)
+			t.Errorf("the docs do not mention %q", want)
 		}
 	}
 }

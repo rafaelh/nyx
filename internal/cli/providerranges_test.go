@@ -363,13 +363,13 @@ func TestProviderRanges_CNAMEIntoProviderStillMakesAHostShared(t *testing.T) {
 	}
 }
 
-// --- README ---
+// --- the docs ---
 
 // The passive-boundary section names every range publisher the stage contacts,
 // and says why Azure is not one of them.
-func TestReadme_NamesEveryRangePublisher(t *testing.T) {
+func TestDocs_NameEveryRangePublisher(t *testing.T) {
 	t.Parallel()
-	section, whole := readmeSection(t, "## Passive boundary")
+	section, whole := docsSection(t, "## Passive boundary")
 	for _, p := range []string{"aws", "gcp", "cloudflare", "fastly", "digitalocean", "oracle", "linode"} {
 		if !strings.Contains(section, p) {
 			t.Errorf("the passive-boundary section does not name %q as a range publisher", p)
@@ -379,6 +379,6 @@ func TestReadme_NamesEveryRangePublisher(t *testing.T) {
 		t.Error("the passive-boundary section does not say Azure is classified by ASN only")
 	}
 	if !strings.Contains(strings.ToLower(whole), "digitalocean addresses") {
-		t.Error("the README does not note that DigitalOcean addresses may now be port-checked")
+		t.Error("the docs do not note that DigitalOcean addresses may now be port-checked")
 	}
 }

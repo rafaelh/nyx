@@ -28,7 +28,7 @@ const maxPivotHosts = 200
 // defaultFavicons are the favicon hashes that are not pivoted: the empty file,
 // which a server with no icon may answer with, and the default icons of common
 // frameworks, which every installation that has not changed them shares. The
-// README lists them.
+// docs/web.md lists them.
 var defaultFavicons = map[string]string{
 	"0":          "the empty file",
 	"116323821":  "Spring Boot",

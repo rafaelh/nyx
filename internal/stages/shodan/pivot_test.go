@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// The README lists the favicon hashes that are never pivoted, so adding one to
+// docs/web.md lists the favicon hashes that are never pivoted, so adding one to
 // the built-in list without documenting it fails here.
-func TestREADMEListsEveryDefaultFavicon(t *testing.T) {
+func TestDocsListEveryDefaultFavicon(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile("../../../README.md")
+	b, err := os.ReadFile("../../../docs/web.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestREADMEListsEveryDefaultFavicon(t *testing.T) {
 	}
 	for hash, what := range defaultFavicons {
 		if !strings.Contains(string(b), "`"+hash+"`") {
-			t.Errorf("README.md does not list the default favicon `%s` (%s)", hash, what)
+			t.Errorf("docs/web.md does not list the default favicon `%s` (%s)", hash, what)
 		}
 	}
 }

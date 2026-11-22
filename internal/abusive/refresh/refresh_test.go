@@ -436,7 +436,7 @@ func TestRefresh_Idempotent(t *testing.T) {
 }
 
 // The summary lists additions, removals and a change of each of the four fields, not a rank that
-// moved alone, and ends with the reminder to update the README.
+// moved alone, and ends with the reminder to update docs/abusive-networks.md.
 func TestRefresh_Summary(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -467,7 +467,7 @@ func TestRefresh_Summary(t *testing.T) {
 		"198.51.100.0/24", "org: Some University -> Some College",
 		"192.0.2.0/24", "org_type: banking -> government",
 		"AS64501", "org: Plain Net Ltd -> Renamed Net Ltd",
-		"README.md", "2026-11-21",
+		"docs/abusive-networks.md", "2026-11-21",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the summary lacks %q:\n%s", want, out)

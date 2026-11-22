@@ -294,17 +294,17 @@ func TestEOL_StaleDataWarning(t *testing.T) {
 	}
 }
 
-// The README lists the products and where the data came from and when, the banners nyx
+// The docs list the products and where the data came from and when, the banners nyx
 // recognises and the output file; --help and the findings topic list the setting and the types.
-func TestEOL_DocumentedInReadmeAndHelp(t *testing.T) {
+func TestEOL_DocumentedInDocsAndHelp(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
+	docs := docsText(t)
 	wants := []string{"endoflife.date", eol.DataDate(), eolFile, "eol_warn_days", "--eol-warn-days", "eol-approaching",
 		"OpenSSH", "Dropbear", "ProFTPD", "vsftpd", "Pure-FTPd", "Postfix", "Exim", "Sendmail", "Microsoft IIS FTP", "Microsoft Exchange"}
 	wants = append(wants, eol.Names()...)
 	for _, want := range wants {
-		if !strings.Contains(readme, want) {
-			t.Errorf("README does not mention %q", want)
+		if !strings.Contains(docs, want) {
+			t.Errorf("the docs do not mention %q", want)
 		}
 	}
 	h := newHarness(t, noop())

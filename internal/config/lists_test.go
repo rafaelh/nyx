@@ -69,11 +69,11 @@ func TestBuiltinWordlistAttribution(t *testing.T) {
 	}
 }
 
-// The README credits SecLists, says what a run costs, and gives the request
+// docs/lists-and-limits.md credits SecLists, says what a run costs, and gives the request
 // formula for the sensitive paths.
-func TestREADMEStatesListsAndVolume(t *testing.T) {
+func TestDocsStateListsAndVolume(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "lists-and-limits.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestREADMEStatesListsAndVolume(t *testing.T) {
 		fmt.Sprintf("%d entries", len(s.SensitivePathEntries)),
 	} {
 		if !strings.Contains(readme, want) {
-			t.Errorf("README does not mention %q", want)
+			t.Errorf("docs/lists-and-limits.md does not mention %q", want)
 		}
 	}
 }

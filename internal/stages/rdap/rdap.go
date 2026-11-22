@@ -200,9 +200,10 @@ func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observ
 	}
 
 	c := &orgResults{in: in, seen: map[string]bool{}}
+	org := orgname.New(in.org)
 	for _, ent := range found {
 		name := ent.name()
-		if !orgname.Matches(in.org, name) {
+		if !org.Matches(name) {
 			continue
 		}
 		full, ok, err := withNetworks(ctx, e, in, ent)

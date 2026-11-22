@@ -174,12 +174,13 @@ func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Ob
 		return nil, fmt.Errorf("org-asn %s: unreadable RIPEstat response", c.Key)
 	}
 	var asns []string
+	org := orgname.New(c.Key)
 	for _, cat := range sc.Data.Categories {
 		if cat.Category != "ASNs" {
 			continue
 		}
 		for _, s := range cat.Suggestions {
-			if orgname.Matches(c.Key, s.Description) && len(asns) < maxASNsPerOrg {
+			if org.Matches(s.Description) && len(asns) < maxASNsPerOrg {
 				asns = append(asns, strings.ToUpper(s.Value))
 			}
 		}

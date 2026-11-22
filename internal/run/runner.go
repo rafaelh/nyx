@@ -119,6 +119,10 @@ type Runner struct {
 	target     map[string]bool  // the stages that make contact with the target
 	lastShown  []store.ShownRow // the baseline last saved, and whether one was (see saveShown)
 	shownSaved bool
+	out        *output.Writer // writes the files, each only when it changed since the last render
+	// renderSig is what the last render was made from, and rendered its snapshot (see render).
+	renderSig string
+	rendered  output.Snapshot
 }
 
 // recordsCache holds the records of a kind, and the current ones among them,
@@ -169,6 +173,7 @@ func New(cfg Config) *Runner {
 	r.families = CandidateFamilies(cfg.Stages)
 	r.derivers = r.newDerivers()
 	r.target = targetStages(cfg.Stages)
+	r.out = output.NewWriter(cfg.Engagement.Dir(), !cfg.NoFsync)
 	if cfg.Clock == nil {
 		r.cfg.Clock = time.Now
 	}
@@ -703,7 +708,12 @@ func (r *Runner) render() (output.Snapshot, error) {
 	if err := r.derive(); err != nil {
 		return output.Snapshot{}, err
 	}
-	eng := r.cfg.Engagement
+	// The files are made from the records, the scope they are shown under and the day; the
+	// inputs and the baseline are fixed for the run. A render from the same is the last one.
+	sig := r.renderInputs()
+	if sig == r.renderSig {
+		return r.rendered, nil
+	}
 	snap, err := r.snapshot(r.sc.Load(), r.inv.Load(), r.vis.Load())
 	if err != nil {
 		return output.Snapshot{}, err
@@ -712,10 +722,25 @@ func (r *Runner) render() (output.Snapshot, error) {
 	var carried []store.ShownRow
 	snap.Changes, carried = r.base.compare(entries, r.cfg.Passive, r.target)
 	r.changes = snap.Changes
-	if err := output.Render(eng.Dir(), r.cfg.Files, snap, !r.cfg.NoFsync); err != nil {
+	if err := r.out.Render(r.cfg.Files, snap); err != nil {
 		return output.Snapshot{}, err
 	}
-	return snap, r.saveShown(entries, carried)
+	if err := r.saveShown(entries, carried); err != nil {
+		return output.Snapshot{}, err
+	}
+	r.renderSig, r.rendered = sig, snap
+	return snap, nil
+}
+
+// renderInputs changes whenever what render makes the files from might: a record of any kind,
+// the scope or the day.
+func (r *Runner) renderInputs() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s|%p|%p|%p|", r.today(), r.sc.Load(), r.inv.Load(), r.vis.Load())
+	for _, k := range kinds.All() {
+		fmt.Fprintf(&b, "%s=%d;", k.Name, r.st.KindVersion(k.Name))
+	}
+	return b.String()
 }
 
 // snapshot reads the records of every kind, which it does so that a new kind's

@@ -759,15 +759,15 @@ func TestShodanHost_CandidateRootFromBothIsOneFamily(t *testing.T) {
 
 // --- The documentation ---
 
-func TestShodanHost_ReadmeSaysWhatItDoes(t *testing.T) {
+func TestShodanHost_DocsSayWhatItDoes(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
+	docs := docsText(t)
 	for _, want := range []string{
 		"shodan-host", "--redo shodan-host", "--redo shodan", "shodan.max_hosts", "--shodan-max-hosts",
 		"shodan_last_seen", "third-party reported", "unconfirmed", "per dedicated in-scope address", "rate-limited",
 	} {
-		if !strings.Contains(readme, want) {
-			t.Errorf("README does not mention %q", want)
+		if !strings.Contains(docs, want) {
+			t.Errorf("the docs do not mention %q", want)
 		}
 	}
 }

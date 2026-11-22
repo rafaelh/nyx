@@ -626,7 +626,7 @@ func TestReverseIP_OncePerEngagementUntilRedo(t *testing.T) {
 	}
 }
 
-// --- Registry, help and README ---
+// --- Registry, help and docs ---
 
 // The registry order is pinned by TestRiskStageRegistry.
 func TestReverseIP_HelpAndSetting(t *testing.T) {
@@ -643,21 +643,21 @@ func TestReverseIP_HelpAndSetting(t *testing.T) {
 	}
 }
 
-func TestReverseIP_ReadmeSaysWhatItDoes(t *testing.T) {
+func TestReverseIP_DocsSayWhatItDoes(t *testing.T) {
 	t.Parallel()
-	boundary, readme := readmeSection(t, "## Passive boundary")
+	boundary, docs := docsSection(t, "## Passive boundary")
 	for _, want := range []string{
 		"reverseip", "--redo reverseip", "reverseip.max_domains", "--reverseip-max-domains", "HackerTarget",
 		"reverse IP", "shared hosting",
 	} {
-		if !strings.Contains(readme, want) {
-			t.Errorf("README does not mention %q", want)
+		if !strings.Contains(docs, want) {
+			t.Errorf("the docs do not mention %q", want)
 		}
 	}
 	// The sentence that lists the reserved names no longer names reverseip.
-	if i := strings.Index(readme, "are reserved for stages that are not built yet"); i >= 0 {
-		if sentence := readme[strings.LastIndex(readme[:i], "The names"):i]; strings.Contains(sentence, "`reverseip`") {
-			t.Errorf("the README still lists reverseip among the reserved names: %q", sentence)
+	if i := strings.Index(docs, "are reserved for stages that are not built yet"); i >= 0 {
+		if sentence := docs[strings.LastIndex(docs[:i], "The names"):i]; strings.Contains(sentence, "`reverseip`") {
+			t.Errorf("the docs still list reverseip among the reserved names: %q", sentence)
 		}
 	}
 	// The passive-boundary section names HackerTarget's reverse IP lookup.

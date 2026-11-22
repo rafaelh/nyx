@@ -116,3 +116,41 @@ func TestHasRecords(t *testing.T) {
 		t.Errorf("a store with a record: %v, %v", has, err)
 	}
 }
+
+// Saves that follow a read or a save write only what differs, and the table ends up holding
+// exactly the last rows saved: changed rows are replaced, new ones added and missing ones removed.
+func TestShown_SuccessiveSavesLeaveTheLastRows(t *testing.T) {
+	t.Parallel()
+	c := newClock()
+	s, p := open(t, c, nil)
+	row := func(key, scope string, stages ...string) store.ShownRow {
+		return store.ShownRow{Kind: "hostname", Key: key, Scope: scope, Stages: stages}
+	}
+	saves := [][]store.ShownRow{
+		{row("a.a.com", "in-scope", "crtsh"), row("b.a.com", "in-scope"), row("c.a.com", "candidate")},
+		{row("a.a.com", "in-scope", "crtsh", "resolve"), row("c.a.com", "candidate"), row("d.a.com", "excluded")},
+		{row("a.a.com", "in-scope", "crtsh", "resolve"), row("c.a.com", "in-scope"), row("d.a.com", "excluded")},
+	}
+	for _, rows := range saves[:2] {
+		if err := s.SaveShown(rows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// A new store knows the baseline only once it has read it.
+	s2 := reopen(t, c, p)
+	if got, _, _ := s2.Shown(); !slices.EqualFunc(got, saves[1], store.ShownRow.Equal) {
+		t.Fatalf("after two saves: %+v, want %+v", got, saves[1])
+	}
+	if err := s2.SaveShown(saves[2]); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := reopen(t, c, p).Shown(); !slices.EqualFunc(got, saves[2], store.ShownRow.Equal) {
+		t.Errorf("after the third save: %+v, want %+v", got, saves[2])
+	}
+}

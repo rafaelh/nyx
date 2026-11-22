@@ -751,22 +751,22 @@ func TestCertSpotter_MaxPagesMustBePositive(t *testing.T) {
 	}
 }
 
-// --- README ---
+// --- the docs ---
 
-func TestReadme_NamesTheNewSources(t *testing.T) {
+func TestDocs_NameTheNewSources(t *testing.T) {
 	t.Parallel()
-	section, readme := readmeSection(t, "## Passive boundary")
+	section, docs := docsSection(t, "## Passive boundary")
 	for _, src := range []string{"hackertarget", "urlscan", "cert spotter"} {
 		if !strings.Contains(section, src) {
 			t.Errorf("the passive-boundary section does not name %q", src)
 		}
 	}
-	keyed := keyedSourcesBullet(readme)
+	keyed := keyedSourcesBullet(docs)
 	if !strings.Contains(keyed, "certspotter") || !strings.Contains(keyed, "optional") {
 		t.Errorf("the keyed-sources entry must name certspotter as optional: %q", keyed)
 	}
-	if !strings.Contains(readme, "--skip") {
-		t.Error("README does not document --skip")
+	if !strings.Contains(docs, "--skip") {
+		t.Error("the docs do not document --skip")
 	}
 }
 
@@ -802,12 +802,12 @@ func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 	}
 }
 
-// keyedSourcesBullet is the README's "Keyed sources" bullet, which may wrap onto
+// keyedSourcesBullet is the "Keyed sources" bullet of the docs, which may wrap onto
 // indented continuation lines, as one line.
-func keyedSourcesBullet(readme string) string {
+func keyedSourcesBullet(docs string) string {
 	var keyed string
 	in := false
-	for line := range strings.SplitSeq(readme, "\n") {
+	for line := range strings.SplitSeq(docs, "\n") {
 		switch {
 		case strings.HasPrefix(line, "- **Keyed sources:**"):
 			in, keyed = true, line

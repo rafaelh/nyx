@@ -2,7 +2,11 @@ package abusive_test
 
 import (
 	"bytes"
+	"cmp"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"math/rand/v2"
 	"net/netip"
 	"slices"
 	"strings"
@@ -313,4 +317,68 @@ func TestSnapshot_ConcurrentUse(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// TestNetworks_AgreesWithAScanOfEveryEntry checks the index against reading every entry, over
+// random ranges that nest, overlap and repeat, in both families, at addresses on and off their
+// edges.
+func TestNetworks_AgreesWithAScanOfEveryEntry(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(1, 2))
+	at := func(v6 bool, n uint32) netip.Addr {
+		if v6 {
+			var b [16]byte
+			b[0], b[1] = 0x20, 0x01
+			binary.BigEndian.PutUint32(b[12:], n)
+			return netip.AddrFrom16(b)
+		}
+		var b [4]byte
+		binary.BigEndian.PutUint32(b[:], n)
+		return netip.AddrFrom4(b)
+	}
+	type span struct {
+		v6     bool
+		lo, hi uint32
+		rank   int
+	}
+	const space = 1 << 12
+	var spans []span
+	for i := range 400 {
+		lo := rng.Uint32N(space)
+		sp := span{v6: i%3 == 0, lo: lo, hi: min(lo+rng.Uint32N(space/(1+rng.Uint32N(64))), space), rank: 1 + rng.IntN(20)}
+		spans = append(spans, sp)
+		if i%25 == 0 {
+			spans = append(spans, sp) // a repeated entry
+		}
+	}
+	entries := make([]abusive.NetworkEntry, len(spans))
+	single := make([]abusive.NetworkMatch, len(spans)) // each entry's match on its own
+	for i, sp := range spans {
+		entries[i] = abusive.NetworkEntry{Rank: sp.rank, Start: at(sp.v6, sp.lo), End: at(sp.v6, sp.hi), ScoreTag: "High", Org: fmt.Sprint("org", i), OrgType: "isp"}
+		one := abusive.Load(abusive.Snapshot{Nets: abusive.List[abusive.NetworkEntry]{Updated: "2026-11-21", Entries: entries[i : i+1]}})
+		single[i] = one.Networks(entries[i].Start)[0]
+	}
+	s := abusive.Load(abusive.Snapshot{Nets: abusive.List[abusive.NetworkEntry]{Updated: "2026-11-21", Entries: entries}})
+	for n := range uint32(space + 2) {
+		for _, v6 := range []bool{false, true} {
+			var held []int
+			for i, sp := range spans {
+				if sp.v6 == v6 && sp.lo <= n && n <= sp.hi {
+					held = append(held, i)
+				}
+			}
+			// The smallest range first, then by rank, then by start, then in list order.
+			slices.SortStableFunc(held, func(x, y int) int {
+				a, b := spans[x], spans[y]
+				return cmp.Or(cmp.Compare(a.hi-a.lo, b.hi-b.lo), cmp.Compare(a.rank, b.rank), cmp.Compare(a.lo, b.lo))
+			})
+			want := []abusive.NetworkMatch{}
+			for _, i := range held {
+				want = append(want, single[i])
+			}
+			if got := s.Networks(at(v6, n)); !slices.Equal(got, want) {
+				t.Fatalf("Networks(%s) = %v, want %v", at(v6, n), got, want)
+			}
+		}
+	}
 }

@@ -248,3 +248,59 @@ func TestChangesFile(t *testing.T) {
 		t.Errorf("a snapshot with no changes left changes.csv: %v", err)
 	}
 }
+
+// A Writer replaces a file only when its contents change, or when the file has gone since it
+// wrote it; a new Writer writes every file.
+func TestWriter_RewritesOnlyChangedFiles(t *testing.T) {
+	t.Parallel()
+	dir := newDir(t)
+	host := "a.example.com"
+	files := []output.File{
+		{Name: "fixed.txt", Format: output.TXT, Rows: rows(output.Row{Cells: []string{"fixed"}, Current: true})},
+		{Name: "moving.txt", Format: output.TXT, Rows: func(output.Snapshot) []output.Row {
+			return []output.Row{{Cells: []string{host}, Current: true}}
+		}},
+	}
+	stat := func(name string) os.FileInfo {
+		t.Helper()
+		fi, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fi
+	}
+	w := output.NewWriter(dir, false)
+	if err := w.Render(files, output.Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	fixed, moving := stat("fixed.txt"), stat("moving.txt")
+
+	host = "b.example.com"
+	if err := w.Render(files, output.Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(fixed, stat("fixed.txt")) {
+		t.Error("fixed.txt was rewritten with the same contents")
+	}
+	if os.SameFile(moving, stat("moving.txt")) || read(t, dir, "moving.txt") != "b.example.com\n" {
+		t.Errorf("moving.txt was not rewritten: %q", read(t, dir, "moving.txt"))
+	}
+
+	if err := os.Remove(filepath.Join(dir, "fixed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Render(files, output.Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, dir, "fixed.txt"); got != "fixed\n" {
+		t.Errorf("a removed file was not written again: %q", got)
+	}
+
+	fixed = stat("fixed.txt")
+	if err := output.NewWriter(dir, false).Render(files, output.Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(fixed, stat("fixed.txt")) {
+		t.Error("a new Writer did not write every file")
+	}
+}

@@ -330,7 +330,7 @@ func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 // pagedSource serves three pages of names p1..p3 for the root.
 type pagedSource struct {
 	stage, host, source, key, flag string
-	serve                       func(w *world)
+	serve                          func(w *world)
 }
 
 func pagedSources() []pagedSource {
@@ -668,7 +668,7 @@ func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
 	}
 }
 
-// --- registry, help and README ---
+// --- registry, help and docs ---
 
 func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 	t.Parallel()
@@ -700,16 +700,16 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 	}
 }
 
-func TestKeyed_ReadmeNamesTheSources(t *testing.T) {
+func TestKeyed_DocsNameTheSources(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
-	keyed := keyedSourcesBullet(readme)
+	docs := docsText(t)
+	keyed := keyedSourcesBullet(docs)
 	for _, want := range []string{"censys", "chaos", "shodan-dns", "query credit"} {
 		if !strings.Contains(keyed, want) {
 			t.Errorf("the keyed-sources entry does not mention %q: %q", want, keyed)
 		}
 	}
-	if !strings.Contains(readme, "source") || !strings.Contains(readme, "resolve;shodan") {
-		t.Error("README does not describe the source column of resolutions.csv")
+	if !strings.Contains(docs, "source") || !strings.Contains(docs, "resolve;shodan") {
+		t.Error("the docs do not describe the source column of resolutions.csv")
 	}
 }

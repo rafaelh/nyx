@@ -135,7 +135,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	if !d.StdinIsTTY() || !inv.st.out.Terminal {
 		return &clierr.Error{Code: clierr.InvalidInput,
 			Message: fmt.Sprintf("nyx setup needs a terminal for stdin and stdout, to edit %s", abs),
-			Hint:    fmt.Sprintf("edit %s by hand; see the README's Configuration section", abs),
+			Hint:    fmt.Sprintf("edit %s by hand; see docs/configuration.md in nyx's repository", abs),
 			Input:   map[string][]string{"config": {abs}}}
 	}
 

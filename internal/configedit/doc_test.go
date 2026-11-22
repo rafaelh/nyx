@@ -344,8 +344,8 @@ func TestDecodedText(t *testing.T) {
 	}
 }
 
-// The sample config of the README, edited: nothing but the edited values changes.
-func TestDoc_TheReadmeSampleConfig(t *testing.T) {
+// The sample config in docs/configuration.md, edited: nothing but the edited values changes.
+func TestDoc_TheDocsSampleConfig(t *testing.T) {
 	t.Parallel()
 	const sample = `output_dir: ~/engagements
 concurrency: 10

@@ -100,6 +100,8 @@ type deriver struct {
 	vis  *kinds.Visibility
 	refs []cloudstorage.Reference // see references
 	svcs map[string]store.Record  // see services
+	// svcAttrs are the decoded attributes of svcs (see serviceAttrs).
+	svcAttrs map[string]kinds.WebServiceAttrs
 
 	public map[string][]bool // see publicStates
 
@@ -138,6 +140,18 @@ func (d *deriver) services() map[string]store.Record {
 		}
 	}
 	return d.svcs
+}
+
+// serviceAttrs are the attributes of each of services, by key, decoded once.
+func (d *deriver) serviceAttrs() map[string]kinds.WebServiceAttrs {
+	if d.svcAttrs != nil {
+		return d.svcAttrs
+	}
+	d.svcAttrs = make(map[string]kinds.WebServiceAttrs, len(d.services()))
+	for key, r := range d.services() {
+		d.svcAttrs[key] = kinds.WebService.Attrs(r)
+	}
+	return d.svcAttrs
 }
 
 // hostnamesByIP is the in-scope hostnames behind each address, computed once.
@@ -294,8 +308,7 @@ func (d *deriver) certificates() []Finding {
 		return nil
 	}
 	var out []Finding
-	for _, r := range d.services() {
-		a := kinds.WebService.Attrs(r)
+	for key, a := range d.serviceAttrs() {
 		var types []string
 		expiry := a.TLSExpiry
 		switch {
@@ -323,8 +336,8 @@ func (d *deriver) certificates() []Finding {
 		if legacy {
 			detail += ", negotiated " + a.TLSVersion
 		}
-		out = append(out, newFinding(Certificates, typ, Severity(Certificates, typ), r.Key, detail,
-			map[string]any{"url": r.Key, "tls_subject": a.TLSSubject, "tls_issuer": a.TLSIssuer, "tls_expiry": expiry}))
+		out = append(out, newFinding(Certificates, typ, Severity(Certificates, typ), key, detail,
+			map[string]any{"url": key, "tls_subject": a.TLSSubject, "tls_issuer": a.TLSIssuer, "tls_expiry": expiry}))
 	}
 	return out
 }

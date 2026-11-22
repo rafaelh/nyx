@@ -57,16 +57,19 @@ type Scope struct {
 	exclAddrs map[netip.Addr]string // addresses of hosts excluded by name
 	hostAddrs map[netip.Addr]bool   // addresses of in-scope, non-wildcard-only hostnames
 	asns      map[string]bool
-	orgs      []string
+	orgs      []orgname.Org
 }
 
 // New builds a Scope.
 func New(c Config) *Scope {
 	s := &Scope{roots: normaliseAll(c.Roots), netblocks: c.Netblocks, blockSet: map[netip.Prefix]bool{},
 		resolved: map[string][]netip.Addr{}, exclAddrs: map[netip.Addr]string{}, hostAddrs: map[netip.Addr]bool{},
-		asns: map[string]bool{}, orgs: slices.Clone(c.Orgs)}
+		asns: map[string]bool{}}
 	for _, a := range c.ASNs {
 		s.asns[a] = true
+	}
+	for _, o := range c.Orgs {
+		s.orgs = append(s.orgs, orgname.New(o))
 	}
 	for _, p := range c.Netblocks {
 		s.blockSet[p] = true
@@ -244,7 +247,7 @@ func (s *Scope) HasASN(key string) bool { return s.asns[key] }
 // MatchesOrg reports whether the name belongs to an --org input, by the word
 // rule of package orgname.
 func (s *Scope) MatchesOrg(name string) bool {
-	return slices.ContainsFunc(s.orgs, func(org string) bool { return orgname.Matches(org, name) })
+	return slices.ContainsFunc(s.orgs, func(org orgname.Org) bool { return org.Matches(name) })
 }
 
 // HasNetblock reports whether key, a CIDR, is one of the in-scope netblocks.

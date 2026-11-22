@@ -708,7 +708,7 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 	}
 }
 
-// --- registry, help and README ---
+// --- registry, help and docs ---
 
 func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 	t.Parallel()
@@ -742,12 +742,12 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 	}
 }
 
-func TestGitHub_ReadmeStatesWhatIsAndIsNotRecorded(t *testing.T) {
+func TestGitHub_DocsStateWhatIsAndIsNotRecorded(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
+	docs := docsText(t)
 	// Phrases wrap across lines and start sentences, so they are matched on words.
-	flat := flatWords(readme)
-	if keyed := keyedSourcesBullet(readme); !strings.Contains(keyed, "`github`") || !strings.Contains(keyed, "github.max_results") {
+	flat := flatWords(docs)
+	if keyed := keyedSourcesBullet(docs); !strings.Contains(keyed, "`github`") || !strings.Contains(keyed, "github.max_results") {
 		t.Errorf("the keyed-sources entry does not name github and github.max_results: %q", keyed)
 	}
 	for _, want := range []string{
@@ -759,12 +759,12 @@ func TestGitHub_ReadmeStatesWhatIsAndIsNotRecorded(t *testing.T) {
 		"--redo github",
 	} {
 		if !strings.Contains(flat, strings.ToLower(want)) {
-			t.Errorf("README does not say %q", want)
+			t.Errorf("the docs do not say %q", want)
 		}
 	}
 	// The passive-boundary list of third parties names GitHub.
-	i := strings.Index(readme, "Everything else comes from third parties:")
-	if i < 0 || !strings.Contains(readme[i:min(len(readme), i+900)], "GitHub") {
+	i := strings.Index(docs, "Everything else comes from third parties:")
+	if i < 0 || !strings.Contains(docs[i:min(len(docs), i+900)], "GitHub") {
 		t.Error("the list of third parties in the passive boundary does not name GitHub")
 	}
 }

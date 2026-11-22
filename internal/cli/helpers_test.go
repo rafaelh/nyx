@@ -3,6 +3,7 @@ package cli_test
 import (
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,32 +22,48 @@ func (expander) ExpandsInputASNs() {}
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// readmeText is the text of README.md.
-func readmeText(t *testing.T) string {
+// docsText is the user documentation: README.md and then each docs/*.md page but the to-do
+// list, in name order. Each page starts with its "# " title.
+func docsText(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("../../README.md")
+	pages, err := filepath.Glob("../../docs/*.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	var b strings.Builder
+	for _, p := range append([]string{"../../README.md"}, pages...) {
+		if filepath.Base(p) == "todo.md" {
+			continue
+		}
+		text, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Write(text)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // flatWords is s in lower case with each run of white space one space, so a
 // phrase that wraps across lines or starts a sentence still matches.
 func flatWords(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
 
-// readmeSection is the README's section that starts at heading, up to the next
-// "## " heading, in lower case, and the whole README.
-func readmeSection(t *testing.T, heading string) (section, whole string) {
+// docsSection is the documentation's section that starts at heading, up to the next "## "
+// heading or the end of its page, in lower case, and the whole documentation.
+func docsSection(t *testing.T, heading string) (section, whole string) {
 	t.Helper()
-	whole = readmeText(t)
+	whole = docsText(t)
 	start := strings.Index(whole, heading)
 	if start < 0 {
-		t.Fatalf("README has no %q section", heading)
+		t.Fatalf("the docs have no %q section", heading)
 	}
-	end := strings.Index(whole[start+1:], "\n## ")
-	if end < 0 {
-		t.Fatalf("README has nothing after %q", heading)
+	rest := whole[start+1:]
+	end := len(rest)
+	for _, next := range []string{"\n## ", "\n# "} {
+		if i := strings.Index(rest, next); i >= 0 && i < end {
+			end = i
+		}
 	}
 	return strings.ToLower(whole[start : start+1+end]), whole
 }

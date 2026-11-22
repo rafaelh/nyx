@@ -441,14 +441,14 @@ func TestCandidates_FamiliesOfTheRealSources(t *testing.T) {
 	}
 }
 
-// The README lists every source a stage names for the sources column, so a
+// The docs list every source a stage names for the sources column, so a
 // stage that names a new one without documenting it fails here.
-func TestCandidates_READMEListsEverySource(t *testing.T) {
+func TestCandidates_DocsListEverySource(t *testing.T) {
 	t.Parallel()
-	readme := readmeText(t)
+	docs := docsText(t)
 	for _, s := range realFamilies.Sources() {
-		if !strings.Contains(readme, "`"+s+"`") {
-			t.Errorf("README.md does not list the candidate source `%s`", s)
+		if !strings.Contains(docs, "`"+s+"`") {
+			t.Errorf("the docs do not list the candidate source `%s`", s)
 		}
 	}
 }
