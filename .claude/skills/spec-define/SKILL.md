@@ -5,7 +5,7 @@ description: >
   before making a significant change.
 argument-hint: What are you trying to achieve? Write your goal and any desired behaviours.
 metadata:
-  version: "1.3"
+  version: "1.4"
 ---
 
 Interview the user to establish what their goal is and help them write into a document a
@@ -70,7 +70,9 @@ class, event, file and field names to `/spec-design`, including when they come f
 # Skeleton
 
 Every step writes only its own sections, with exactly these headings, in this order. A step that
-adds a section puts it before `# Follow-ups`.
+adds a section puts it before `# Follow-ups`. The exceptions: `/spec-design` and `/spec-develop`
+amend a behaviour that an agreed decision changes, ending it with `(amended by Dn)`, and
+`/spec-develop` adds each decision it settles with the user to `## Decisions`.
 
 ```markdown
 # Spec: <title>                 (in a series: # Spec <n> of <m>: <title>)
@@ -85,13 +87,13 @@ adds a section puts it before `# Follow-ups`.
 ## Conventions
 ## Handed to later specs        (series only)
 # Implementation                (spec-develop)
-## Develop
+## Develop                      (first line: Base commit: <sha>)
 ## Known limitations
 ## Simplify                     (spec-simplify)
 # Verification                  (spec-verify)
 ## Result
 ## Code review
-# Follow-ups                    (any step adds; spec-verify finalises)
+# Follow-ups                    (any step adds; spec-verify sorts; spec-develop settles)
 ```
 
 `## Out of scope` holds only what the user agreed to leave out. Gaps found while building go in

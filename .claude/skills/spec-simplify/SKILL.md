@@ -7,15 +7,16 @@ context: fork
 background: false
 model: opus
 metadata:
-  version: "1.4"
+  version: "1.5"
 ---
 
 Don't stash, reset or commit.
 
-1. Find the change: every file that differs from the default branch (usually `main`) on this
-   branch, whether committed, uncommitted or untracked. Run `git add -N` on untracked files so they
-   show in the diff, then list the files with
-   `git diff --name-only $(git merge-base <default branch> HEAD)`.
+1. Find the change: every file that differs from the base commit on the first line of `## Develop`
+   in the specification file at $ARGUMENTS (if there is none, the merge-base with the default
+   branch, usually `main`), whether committed, uncommitted or untracked. Run `git add -N` on
+   untracked files so they show in the diff, then list the files with
+   `git diff --name-only <base>`.
 
 2. Run /simplify on those files. Wait until every reviewer it starts has reported, then apply or
    reject each finding yourself. Don't move on while any reviewer is still running.

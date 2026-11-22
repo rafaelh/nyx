@@ -6,7 +6,7 @@ description: >
   specification file.
 argument-hint: Which spec.md are we making a plan for?
 metadata:
-  version: "1.3"
+  version: "1.4"
 ---
 
 Create a technical implementation plan for a user's specification, supplied in a markdown file. If a
@@ -36,12 +36,15 @@ file yourself when you already know which one you need and want its detail.
 
 3. **Check the external facts.** List every fact about something outside this codebase that the
    plan relies on: a vendor API's request and response shapes, its error responses, limits and
-   paging, or how a third-party tool or platform behaves. Tag each one *confirmed live*, *from
-   docs* or *assumed*. Before settling a decision that rests on an *assumed* fact, or on a *from
-   docs* fact that would change the design if it were wrong, confirm the fact with a read-only
-   probe: a read call, the tool's `--help`, or its source. If confirming it needs something only
-   the user can do, such as credentials, a write or data they must create, ask for it now rather
-   than leaving it for `/spec-develop`. Facts that still can't be confirmed keep their tag.
+   paging, how a third-party tool or platform behaves, or data the code will embed or encode from
+   outside the codebase, such as a registry, a published list or a standard's table. Tag each one
+   *confirmed live*, *from docs* or *assumed*. Before settling a decision that rests on an
+   *assumed* fact, or on a *from docs* fact that would change the design if it were wrong, confirm
+   the fact with a read-only probe: a read call, the tool's `--help`, or its source. Fetch external
+   data now, so that `/spec-develop` builds from the source and not from memory. If confirming a
+   fact needs something only the user can do, such as credentials, a write or data they must
+   create, ask for it now rather than leaving it for `/spec-develop`. Facts that still can't be
+   confirmed keep their tag.
 
 4. **Ask** Use `AskUserQuestion` and put every decision whose answer doesn't depend on another open
    decision into one call (up to four). Hold dependent decisions back until their roots are
@@ -51,13 +54,18 @@ file yourself when you already know which one you need and want its detail.
 5. **After each answer, re-scan for new branches** the answer opened up and add them to the queue.
 
 6. **Stop** when every decision has an answer. Answers can be from those that are clearly right,
-   from reading the codebase, or from the user.
+   from reading the codebase, or from the user. Then read each behaviour word by word against the
+   decisions that touch it, and each behaviour against the others. A decision that narrows, widens
+   or contradicts a behaviour's wording changes that behaviour, and so does one that settles two
+   behaviours which can't both hold. Each is the user's to make: put it to them as in step 4.
 
 7. **Get an adversarial review.** For plans that produce code, spawn the `critic-architecture` agent
    before the handoff. It starts cold, so the prompt must carry the whole settled plan: the goal,
    each decision with its answer and rationale, the modules and files it touches, what tests are
-   needed to pin the desired behaviour and what is out of scope. Ask it to challenge
-   over-engineering, missed requirements and simpler alternatives. Then triage what comes back, the
+   needed to pin the desired behaviour and what is out of scope. Paste the behaviours verbatim, as
+   amended. Ask it to challenge over-engineering, missed requirements and simpler alternatives,
+   and to quote any decision that contradicts the wording of a behaviour, or any two behaviours
+   that can't both hold. Then triage what comes back, the
    same way as step 2:
    - **Wrong about the codebase or a missed requirement** — fix the plan and say what changed.
    - **Contradicts a decision the user made** — don't quietly overrule either side. Put it back to
@@ -75,7 +83,8 @@ file yourself when you already know which one you need and want its detail.
    - **Amended behaviours.** When an agreed decision changes what a behaviour says, edit that
      behaviour in `## Behaviours` and end it with `(amended by Dn)`, so later steps judge against
      the current wording. Add anything the user agreed to drop to `## Out of scope`.
-   - `## External facts`: each fact from step 3 with its tag.
+   - `## External facts`: each fact from step 3 with its tag. For external data, also give its
+     source, the date it was fetched, and the command that fetches it again.
    - `## Decisions`: each decision, its answer and why.
    - `## Files`: the files and modules to change.
    - `## Tests`: the tests that pin each behaviour. For each behaviour, cover each of these that
