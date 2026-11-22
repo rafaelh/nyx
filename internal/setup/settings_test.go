@@ -11,7 +11,7 @@ func TestSettingsTab_ShowsFileValueOrDefaultAndTheRelativeExample(t *testing.T) 
 	b := newFake()
 	b.snap.Settings["concurrency"] = Value{Text: "16", Set: true, Default: "8"} // the file said 0x10
 	b.snap.Settings["wordlist"] = Value{Text: "words.txt", Set: true, Default: "built-in (1000 words)",
-		Relative: "relative: resolves against the directory nyx runs from, e.g. /work/words.txt"}
+		Relative: "Relative: resolves against the directory nyx runs from, e.g. /work/words.txt"}
 	h := newTH(t, b)
 	h.press("tab")
 	f := h.view()
@@ -26,8 +26,8 @@ func TestSettingsTab_ShowsFileValueOrDefaultAndTheRelativeExample(t *testing.T) 
 	mustHave(t, lineFor(f, "wordlist"), "words.txt")
 	mustHave(t, lineFor(f, "sensitive_paths"), "built-in (40 paths)", "(default)")
 	mustHave(t, f,
-		"relative: resolves against the directory nyx runs from, e.g. /work/out",
-		"relative: resolves against the directory nyx runs from, e.g. /work/words.txt")
+		"Relative: resolves against the directory nyx runs from, e.g. /work/out",
+		"Relative: resolves against the directory nyx runs from, e.g. /work/words.txt")
 }
 
 func TestSettingsTab_EditChecksTheValueAndStoresWhatCheckReturns(t *testing.T) {

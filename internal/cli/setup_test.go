@@ -317,6 +317,28 @@ func TestSetup_EditSaveAndQuit(t *testing.T) {
 	}
 }
 
+// A key entered and saved without a test is shown and recorded as not tested, dated by the clock,
+// and the record does not stop nyx recon reading the file.
+func TestSetup_EnteredKeyIsRecordedAsNotTested(t *testing.T) {
+	t.Parallel()
+	h := setupHarness(t)
+	path := filepath.Join(t.TempDir(), "nyx.yaml")
+	const key = "sh0dan-KEY-abcdefghijklmnop-WXYZ"
+	if code := h.setup([]string{"--config", path}, append(typedKey(1, key), keyCtrlS, "q")...); code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
+	}
+	got := readFileOrEmpty(t, path)
+	if !strings.Contains(got, "key_tests:\n  shodan:\n    result: not tested\n    date: \"2026-11-01\"\n    key: ") {
+		t.Errorf("the file does not record the key as not tested on the clock's day:\n%s", got)
+	}
+	if !strings.Contains(h.stdout.String(), "not tested") {
+		t.Error("the entered key is not shown as not tested")
+	}
+	if loaded(t, path).Keys["shodan"].Reveal() != key {
+		t.Error("the key did not load back")
+	}
+}
+
 // Discarding leaves the file as it was and exits 0; so does going back, then discarding.
 func TestSetup_DiscardLeavesTheFile(t *testing.T) {
 	t.Parallel()
@@ -476,7 +498,7 @@ func TestSetup_FailedSaveKeepsTheEdits(t *testing.T) {
 		t.Errorf("the file changed: %q", got)
 	}
 	out := h.stdout.String()
-	if !strings.Contains(out, "could not save: ") || !strings.Contains(out, "file: "+path) || !strings.Contains(out, "permission denied") {
+	if !strings.Contains(out, "Could not save: ") || !strings.Contains(out, "File: "+path) || !strings.Contains(out, "permission denied") {
 		t.Errorf("the screen does not give the reason and the path:\n%q", out)
 	}
 	if !strings.Contains(out, "Save, discard") && !strings.Contains(strings.ToLower(out), "unsaved") {

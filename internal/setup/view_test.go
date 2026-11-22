@@ -10,7 +10,7 @@ import (
 
 func TestView_TooSmallShowsOnlyTheSizeMessage(t *testing.T) {
 	t.Parallel()
-	const msg = "make the terminal at least 60×16"
+	const msg = "Make the terminal at least 60×16"
 	for _, tc := range []struct {
 		w, h   int
 		onlyIt bool
@@ -31,7 +31,7 @@ func TestView_TooSmallShowsOnlyTheSizeMessage(t *testing.T) {
 				mustNotHave(t, f, "securitytrails", "Settings")
 				return
 			}
-			mustHave(t, f, "securitytrails", "Keys", "Settings", "Skip", "q quit")
+			mustHave(t, f, "securitytrails", "Keys", "Settings", "Skip", "q/esc Quit")
 			mustNotHave(t, f, "terminal at least")
 			if maxWidth(f) > tc.w || lineCount(f) > tc.h {
 				t.Errorf("frame is %dx%d at %dx%d:\n%s", maxWidth(f), lineCount(f), tc.w, tc.h, f)
@@ -109,7 +109,7 @@ func TestView_TheSelectedRowIsMarkedAndTabSwitchingWraps(t *testing.T) {
 		t.Errorf("selection left the list:\n%s", h.view())
 	}
 	h.press("shift+tab")
-	mustHave(t, h.view(), "[ ] dns")
+	mustHave(t, h.view(), "[x] dns")
 	h.press("tab")
 	mustHave(t, h.view(), "securitytrails")
 }
@@ -118,7 +118,7 @@ func TestView_EveryFrameFitsInTheMinimumSize(t *testing.T) {
 	t.Parallel()
 	b := newFake()
 	withKey(b, "shodan", "abcdefghijklmnop")
-	b.snap.Settings["output_dir"] = Value{Text: "/a/very/long/path/to/an/output/directory/that/is/long", Set: true, Default: ".", Relative: "relative: resolves against the directory nyx runs from, e.g. /a/very/long/path/to/an/output/directory"}
+	b.snap.Settings["output_dir"] = Value{Text: "/a/very/long/path/to/an/output/directory/that/is/long", Set: true, Default: ".", Relative: "Relative: resolves against the directory nyx runs from, e.g. /a/very/long/path/to/an/output/directory"}
 	b.snap.Settings["wordlist"] = Value{Text: "x", Set: true, Default: "d", Problem: "wordlist: cannot read /some/long/path/to/a/word/list/file.txt: no such file or directory"}
 	h := newTH(t, b, atSize(60, 16))
 	h.press("enter")

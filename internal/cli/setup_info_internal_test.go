@@ -24,10 +24,10 @@ func TestKeyTurnsOn(t *testing.T) {
 		"virustotal":     {"virustotal"},
 		"whoisxml":       {"whoisxml"},
 		"censys":         {"censys"},
-		"chaos":          {"chaos"},
+		"chaos":          {"Turns on chaos"},
 		"github":         {"github"},
-		"certspotter":    {"adds to certspotter", "also works without a key"},
-		"nvd":            {"nyx cve: 50 requests per 30 s instead of 5"},
+		"certspotter":    {"Adds to certspotter", "also works without a key"},
+		"nvd":            {"Increases cve requests from 5 per 30 seconds to 50"},
 	} {
 		for _, w := range wants {
 			if !strings.Contains(got[source], w) {

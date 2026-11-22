@@ -71,7 +71,7 @@ func testSnapshot() Snapshot {
 		Token: 1,
 		Keys:  map[string]KeyState{},
 		Settings: map[string]Value{
-			"output_dir":      {Default: ".", Relative: "relative: resolves against the directory nyx runs from, e.g. /work/out"},
+			"output_dir":      {Default: ".", Relative: "Relative: resolves against the directory nyx runs from, e.g. /work/out"},
 			"concurrency":     {Default: "8"},
 			"rate.per_host":   {Default: "2"},
 			"rate.per_source": {Default: "5"},
@@ -136,6 +136,12 @@ func (f *fakeBackend) applied(base Snapshot, e Edits) Snapshot {
 		cur := out.Settings[k]
 		cur.Text, cur.Set, cur.Problem = "", false, ""
 		out.Settings[k] = cur
+	}
+	for name, rec := range e.Records {
+		if ks := out.Keys[name]; ks.Value != "" {
+			ks.Record = &rec
+			out.Keys[name] = ks
+		}
 	}
 	if e.Skip != nil {
 		out.Skip = e.Skip

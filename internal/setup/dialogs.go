@@ -18,10 +18,30 @@ func plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
+// plainLines are lines of text in one role, or unstyled when role is "".
+func (m *model) plainLines(role string, lines []string) []line {
+	out := make([]line, len(lines))
+	for i, l := range lines {
+		out[i] = line{plain(l)}
+		if role != "" {
+			out[i] = line{m.paint(role, l)}
+		}
+	}
+	return out
+}
+
+// title is a dialog's first line.
+func (m *model) title(s string) line { return line{m.strong(roleName, s)} }
+
+// choice is a dialog's line for a key: the key, then what it does.
+func (m *model) choice(key, does string) line {
+	return line{plain("  "), m.paint(roleKey, key), plain(layout.PadRight("", 5-layout.Measure(key))), plain(does)}
+}
+
 // dialogLines is the body while a dialog is open, cut to room lines.
 func (m *model) dialogLines(room int) []string {
 	w := m.width - 2
-	var lines []string
+	var lines []line
 	switch m.mode {
 	case modeQuit:
 		lines = m.quitLines(w)
@@ -32,43 +52,45 @@ func (m *model) dialogLines(room int) []string {
 	if len(lines) > room {
 		lines = lines[:room]
 	}
+	out := make([]string, len(lines))
 	for i, l := range lines {
-		lines[i] = fitTo(l, m.width)
+		out[i] = fit(l, m.width)
 	}
-	return lines
+	return out
 }
 
-func (m *model) quitLines(w int) []string {
-	lines := []string{"Unsaved changes", ""}
-	lines = append(lines, wrap(fmt.Sprintf("You have %s to %s.", plural(m.changes(), "unsaved change", "unsaved changes"), m.info.Path), w, 0)...)
-	lines = append(lines, "", "Save them before quitting?", "", "  s    save and quit", "  d    discard them and quit", "  esc  go back")
-	return lines
+func (m *model) quitLines(w int) []line {
+	lines := []line{m.title("Unsaved changes"), nil}
+	lines = append(lines, m.plainLines("", wrap(fmt.Sprintf("You have %s to %s.", plural(m.changes(), "unsaved change", "unsaved changes"), m.info.Path), w, 0))...)
+	return append(lines, nil, line{plain("Save them before quitting?")}, nil,
+		m.choice("s", "Save and quit"),
+		m.choice("d", "Discard them and quit"),
+		m.choice("esc", "Go back"))
 }
 
-func (m *model) conflictLines(w, room int) []string {
+func (m *model) conflictLines(w, room int) []line {
 	n := plural(m.changes(), "unsaved change", "unsaved changes")
 	if len(m.dlg.problems) == 0 {
-		lines := []string{"The config file changed on disk", ""}
-		lines = append(lines, wrap("It changed after setup read it or last saved it: "+m.info.Path, w, 0)...)
-		lines = append(lines, "",
-			"  r    reload it, which discards your "+n,
-			"  o    overwrite it with your changes",
-			"  esc  go back")
-		return lines
+		lines := []line{m.title("The config file changed on disk"), nil}
+		lines = append(lines, m.plainLines("", wrap("It changed after setup read it or last saved it: "+m.info.Path, w, 0))...)
+		return append(lines, nil,
+			m.choice("r", "Reload it, which discards your "+n),
+			m.choice("o", "Overwrite it with your changes"),
+			m.choice("esc", "Go back"))
 	}
-	head := []string{"Reloading the config file found problems", ""}
-	head = append(head, wrap(m.text(m.dlg.path)+":", w, 0)...)
-	tail := []string{"", "Your " + n + " are kept.",
-		"  o    overwrite the file with them",
-		"  r    reload again",
-		"  esc  go back"}
-	var problems []string
+	head := []line{m.title("Reloading the config file found problems"), nil}
+	head = append(head, m.plainLines("", wrap(m.text(m.dlg.path)+":", w, 0))...)
+	tail := []line{nil, line{plain("Your " + n + " are kept.")},
+		m.choice("o", "Overwrite the file with them"),
+		m.choice("r", "Reload again"),
+		m.choice("esc", "Go back")}
+	var problems []line
 	for _, p := range m.dlg.problems {
-		problems = append(problems, wrap("- "+m.text(p), w, 2)...)
+		problems = append(problems, m.plainLines(roleBad, wrap("- "+m.text(p), w, 2))...)
 	}
 	if free := room - len(head) - len(tail); len(problems) > free {
 		shown := max(free-1, 0)
-		problems = append(problems[:shown], fmt.Sprintf("… and more (%s in all)", plural(len(m.dlg.problems), "problem", "problems")))
+		problems = append(problems[:shown], line{m.paint(roleHelp, fmt.Sprintf("… and more (%s in all)", plural(len(m.dlg.problems), "problem", "problems")))})
 	}
 	return append(append(head, problems...), tail...)
 }

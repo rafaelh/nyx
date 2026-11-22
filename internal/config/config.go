@@ -496,6 +496,9 @@ type rawSettings struct {
 	NSReverse   struct {
 		MaxDomains string `mapstructure:"max_domains"`
 	} `mapstructure:"nsreverse"`
+	// KeyTests is nyx setup's record of when each key was last tested. Nothing else reads it, so it
+	// is accepted whatever it holds: setup ignores a record it cannot read.
+	KeyTests any `mapstructure:"key_tests"`
 }
 
 // Load merges defaults, the config file, the NYX_* variables in env and the flags in fs that were

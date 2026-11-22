@@ -1,6 +1,8 @@
 package configedit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
@@ -75,7 +78,7 @@ const (
 	// file seems to say, for example one merged from an anchor.
 	unreadMessage = "the file's entry for this is not read as it is written (check how it is spelled in the file); edit or clear it"
 	// relativeNote begins the line shown beside a path that resolves against the working directory.
-	relativeNote = "relative: resolves against the directory nyx runs from"
+	relativeNote = "Relative: resolves against the directory nyx runs from"
 )
 
 // read is the file's bytes, or absent when there is none (a link to nowhere included).
@@ -237,7 +240,76 @@ func (s *Store) keyState(doc *Doc, settings config.Settings, name string) setup.
 	case settings.Keys[name].Reveal() != text:
 		ks.Problem = unreadMessage
 	}
+	if text != "" {
+		ks.Record = readRecord(doc, name, text)
+	}
 	return ks
+}
+
+// recordsKey is the block nyx setup records key tests in: key_tests.<source> holds the result, the
+// day and the fingerprint of the key it was given for.
+const recordsKey = "key_tests"
+
+// recordDay is how a record's day is written.
+const recordDay = "2006-01-02"
+
+// fingerprint identifies a key value in its record without holding the key: the first 8 hex digits
+// of its SHA-256. A key changed by hand no longer matches its record.
+func fingerprint(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:4])
+}
+
+// readRecord is the file's record of source's key, which is key: nil when there is none, it cannot
+// be read, or it was made for another key.
+func readRecord(doc *Doc, source, key string) *setup.KeyRecord {
+	// A field is read as the text it is written as: an unquoted date is a timestamp to YAML.
+	field := func(name string) string {
+		e := doc.Lookup(recordsKey + "." + source + "." + name)
+		n := e.Node
+		for n != nil && n.Kind == yaml.AliasNode {
+			n = n.Alias
+		}
+		if e.Variants != nil || n == nil || n.Kind != yaml.ScalarNode {
+			return ""
+		}
+		return strings.TrimSpace(n.Value)
+	}
+	result := field("result")
+	if result != setup.RecordAccepted && result != setup.RecordRejected && result != setup.RecordNotTested {
+		return nil
+	}
+	day, err := time.Parse(recordDay, field("date"))
+	if err != nil || field("key") != fingerprint(key) {
+		return nil
+	}
+	return &setup.KeyRecord{Result: result, Day: day}
+}
+
+// records writes the records of edits and removes the record of each known source whose key the
+// document no longer holds.
+func (s *Store) records(doc *Doc, edits setup.Edits) error {
+	for _, src := range s.o.Sources {
+		at := recordsKey + "." + src.Name
+		key := ""
+		if e := doc.Lookup(setup.KeyPrefix + src.Name); e.Node != nil {
+			key, _ = DecodedText(e.Node)
+		}
+		rec, ok := edits.Records[src.Name]
+		switch {
+		case key == "":
+			doc.Clear(at)
+		case ok:
+			for _, f := range [][2]string{
+				{"result", rec.Result}, {"date", rec.Day.Format(recordDay)}, {"key", fingerprint(key)},
+			} {
+				if err := doc.SetString(at+"."+f[0], f[1]); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // number reads text as the loader does, giving its canonical form: ok is false when it is not one.
@@ -495,7 +567,9 @@ func (s *Store) edit(doc *Doc, edits setup.Edits) error {
 		}
 	}
 	if edits.Skip != nil {
-		return doc.SetList(setup.SkipKey, edits.Skip)
+		if err := doc.SetList(setup.SkipKey, edits.Skip); err != nil {
+			return err
+		}
 	}
-	return nil
+	return s.records(doc, edits)
 }

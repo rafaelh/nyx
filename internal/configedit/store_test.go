@@ -184,7 +184,7 @@ func TestStore_AMissingFileIsDefaults(t *testing.T) {
 					t.Errorf("Settings[%s] = %+v", k, v)
 				}
 			}
-			if want := "relative: resolves against the directory nyx runs from, e.g. " + w.cwd; snap.Settings["output_dir"].Relative != want {
+			if want := "Relative: resolves against the directory nyx runs from, e.g. " + w.cwd; snap.Settings["output_dir"].Relative != want {
 				t.Errorf("output_dir Relative = %q, want %q", snap.Settings["output_dir"].Relative, want)
 			}
 			if len(snap.Skip) != 0 || len(snap.SkipProblems) != 0 || snap.SkipListProblem != "" {
@@ -243,10 +243,10 @@ func TestStore_OpenMarksRelativePaths(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, new("output_dir: out/sub\nwordlist: words.txt\nsensitive_paths: ~/paths.yaml\n"))
 	snap := w.open()
-	if got, want := snap.Settings["output_dir"].Relative, "relative: resolves against the directory nyx runs from, e.g. "+filepath.Join(w.cwd, "out/sub"); got != want {
+	if got, want := snap.Settings["output_dir"].Relative, "Relative: resolves against the directory nyx runs from, e.g. "+filepath.Join(w.cwd, "out/sub"); got != want {
 		t.Errorf("output_dir Relative = %q, want %q", got, want)
 	}
-	if got, want := snap.Settings["wordlist"].Relative, "relative: resolves against the directory nyx runs from, e.g. "+filepath.Join(w.cwd, "words.txt"); got != want {
+	if got, want := snap.Settings["wordlist"].Relative, "Relative: resolves against the directory nyx runs from, e.g. "+filepath.Join(w.cwd, "words.txt"); got != want {
 		t.Errorf("wordlist Relative = %q, want %q", got, want)
 	}
 	if got := snap.Settings["sensitive_paths"].Relative; got != "" {

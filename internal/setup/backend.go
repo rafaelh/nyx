@@ -55,7 +55,7 @@ type Value struct {
 	// the built-in list's label.
 	Default string
 	// Relative, when not empty, is the line shown beside the value for a path that resolves against
-	// the directory nyx is run from ("relative: resolves against the directory nyx runs from, e.g.
+	// the directory nyx is run from ("Relative: resolves against the directory nyx runs from, e.g.
 	// /work/out"). It is set for an unset output_dir and for a relative path in the file.
 	Relative string
 	// Problem, when not empty, marks the value invalid with that message; saving is blocked until
@@ -69,6 +69,23 @@ type KeyState struct {
 	Value config.Secret
 	// Problem, when not empty, marks the entry invalid (a key set twice under case variants).
 	Problem string
+	// Record is the file's record of the key's last test. It is nil when the file holds none it can
+	// read, or holds one made for another value of the key (the key was changed by hand since).
+	Record *KeyRecord
+}
+
+// The results a key record gives, as the file spells them.
+const (
+	RecordAccepted  = "accepted"
+	RecordRejected  = "rejected"
+	RecordNotTested = "not tested" // entered, and not tested since
+)
+
+// KeyRecord is the file's record of a key: the result of its last test, or that it has not been
+// tested since it was entered, and the day that was so.
+type KeyRecord struct {
+	Result string    // RecordAccepted, RecordRejected or RecordNotTested
+	Day    time.Time // midnight UTC of the calendar day
 }
 
 // SkipProblem is an entry of skip that is unknown or cannot be skipped.
@@ -105,10 +122,15 @@ type Edits struct {
 	// Skip, when not nil, is the whole skip list to write, in order, and an empty non-nil slice
 	// removes the setting. Entries the user left in place (including problem entries) are in it.
 	Skip []string
+	// Records holds the record to write for a key, by source. A key that is not set once the other
+	// edits are applied has its record removed, whether or not it is listed here.
+	Records map[string]KeyRecord
 }
 
 // Empty reports whether e changes nothing.
-func (e Edits) Empty() bool { return len(e.Set) == 0 && len(e.Clear) == 0 && e.Skip == nil }
+func (e Edits) Empty() bool {
+	return len(e.Set) == 0 && len(e.Clear) == 0 && e.Skip == nil && len(e.Records) == 0
+}
 
 // ErrConflict is returned by Save when the file differs from the snapshot's Token.
 var ErrConflict = errors.New("the config file changed on disk")
@@ -188,6 +210,9 @@ type Options struct {
 	Width, Height int
 	// TestTimeout is how long a key test may take; 0 means 15 seconds.
 	TestTimeout time.Duration
+	// Now is the clock key records are dated by, in the time zone whose calendar day they record;
+	// nil means time.Now.
+	Now func() time.Time
 	// OnSecret, when set, is called with every key value the user enters or the file holds, before
 	// it can reach an error, so the caller can redact it.
 	OnSecret func(value string)

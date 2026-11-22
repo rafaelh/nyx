@@ -3,47 +3,20 @@ package setup
 import (
 	"strings"
 
-	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rafaelh/nyx/internal/layout"
 )
 
-// The lines the frame spends besides the body: the header, the tabs, two for the notice and two for
-// the keys.
+// The lines the frame always spends besides the body: the header, the tabs, the rule under them, one
+// for the notice and two for the keys.
 const chromeLines = 6
 
+// bodyTop is the line the body starts on: after the header, the tabs and the rule.
+const bodyTop = 3
+
 // sizeMessage is all the view shows in a terminal below the minimum size.
-const sizeMessage = "make the terminal at least 60×16"
-
-func newHelp() help.Model {
-	h := help.New()
-	h.Styles = help.Styles{}
-	h.ShortSeparator = "  "
-	return h
-}
-
-// fitTo cuts s to w cells, ending in an ellipsis when it was cut.
-func fitTo(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if layout.Measure(s) <= w {
-		return s
-	}
-	var sb strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := layout.Measure(string(r))
-		if used+rw > w-1 {
-			break
-		}
-		sb.WriteRune(r)
-		used += rw
-	}
-	return sb.String() + "…"
-}
+const sizeMessage = "Make the terminal at least 60×16"
 
 // fitTail cuts s to w cells from its start, so the end of a path stays.
 func fitTail(s string, w int) string {
@@ -77,20 +50,20 @@ func (m *model) viewCursor() (string, *tea.Cursor) {
 	if m.width < minWidth || m.height < minHeight {
 		return m.tooSmall(), nil
 	}
-	lines := []string{m.header(), m.tabLine()}
+	lines := []string{m.header(), m.tabLine(), m.rule()}
 	body, cur := m.body()
 	lines = append(lines, body...)
-	for i := range 2 {
+	for i := range max(len(m.notice), 1) {
 		l := ""
 		if i < len(m.notice) {
-			l = fitTo(m.notice[i], m.width)
+			l = fit(line{m.paint(m.noticeRole, m.notice[i])}, m.width)
 		}
 		lines = append(lines, l)
 	}
 	lines = append(lines, m.footer()...)
 	var cursor *tea.Cursor
 	if cur != nil {
-		cursor = tea.NewCursor(cur.x, 2+cur.line)
+		cursor = tea.NewCursor(cur.x, bodyTop+cur.line)
 	}
 	return strings.Join(lines, "\n"), cursor
 }
@@ -103,41 +76,46 @@ func (m *model) tooSmall() string {
 }
 
 func (m *model) header() string {
-	count := "no unsaved changes"
+	count, role := "no unsaved changes", roleHelp
 	if n := m.changes(); n > 0 {
-		count = plural(n, "unsaved change", "unsaved changes")
+		count, role = plural(n, "unsaved change", "unsaved changes"), roleCaution
 	}
-	left, right := "nyx setup  ", "  "+count
-	room := m.width - layout.Measure(left) - layout.Measure(right)
-	return fitTo(left+fitTail(m.info.Path, room)+right, m.width)
+	const title, gap = "nyx setup", "  "
+	room := m.width - layout.Measure(title+gap) - layout.Measure(gap+count)
+	return fit(line{m.strong(roleName, title), plain(gap), m.paint(roleHelp, fitTail(m.info.Path, room)), plain(gap), m.paint(role, count)}, m.width)
 }
 
 func (m *model) tabLine() string {
 	names := [tabCount]string{"Keys", "Settings", "Skip"}
-	var parts []string
+	var l line
 	for t := range tabCount {
-		label := names[t]
+		if t > 0 {
+			l = append(l, plain(" "))
+		}
+		open, end, name := " ", " ", m.paint(roleNameDim, names[t])
+		if t == m.tab {
+			open, end, name = "[", "]", m.strong(roleName, names[t])
+		}
+		l = append(l, m.paint(roleFaint, open), name)
 		if m.tabChanged(t) {
-			label += "*"
+			l = append(l, m.paint(roleCaution, "*"))
 		}
 		if _, bad := m.invalid(t); bad {
-			label += "!"
+			l = append(l, m.paint(roleBad, "!"))
 		}
-		if t == m.tab {
-			label = "[" + label + "]"
-		} else {
-			label = " " + label + " "
-		}
-		parts = append(parts, label)
+		l = append(l, m.paint(roleFaint, end))
 	}
-	line := strings.Join(parts, " ")
 	if pos := m.position(); pos != "" {
-		gap := m.width - layout.Measure(line) - layout.Measure(pos)
-		if gap > 0 {
-			line += strings.Repeat(" ", gap) + pos
+		if gap := m.width - l.width() - layout.Measure(pos); gap > 0 {
+			l = append(l, plain(strings.Repeat(" ", gap)), m.paint(roleHelp, pos))
 		}
 	}
-	return fitTo(line, m.width)
+	return fit(l, m.width)
+}
+
+// rule is the line between the tabs and the body.
+func (m *model) rule() string {
+	return fit(line{m.paint(roleFaint, strings.Repeat("─", m.width))}, m.width)
 }
 
 // body is the lines of the active tab, or of the open dialog, exactly the body height.
@@ -152,7 +130,6 @@ func (m *model) body() ([]string, *cursorAt) {
 		items := m.items(m.tab)
 		for i := m.top[m.tab]; i < len(items) && len(lines) < room; i++ {
 			it := items[i]
-			selected := i == m.sel[m.tab]
 			if it.cursor != nil && len(lines)+it.cursor.line < room {
 				cur = &cursorAt{line: len(lines) + it.cursor.line, x: it.cursor.x}
 			}
@@ -160,10 +137,7 @@ func (m *model) body() ([]string, *cursorAt) {
 				if len(lines) == room {
 					break
 				}
-				if selected && m.mode == modeBrowse {
-					l = m.o.Depth.Bold(l)
-				}
-				lines = append(lines, l)
+				lines = append(lines, fit(l, m.width))
 			}
 		}
 	}
@@ -173,33 +147,30 @@ func (m *model) body() ([]string, *cursorAt) {
 	return lines[:room], cur
 }
 
-func bind(keys, desc string) key.Binding {
-	return key.NewBinding(key.WithKeys(keys), key.WithHelp(keys, desc))
-}
-
-// keymap is the keys the active mode offers, as lines of bindings.
-func (m *model) keymap() [][]key.Binding {
-	move := []key.Binding{bind("↑/↓", "move"), bind("tab", "switch tab"), bind("q", "quit")}
+// keymap is the keys the active mode offers, as lines of hints. The tab key also moves to the next
+// tab, and is left out to keep the line short.
+func (m *model) keymap() [][]hint {
+	move := []hint{{"↑/↓", "Move"}, {"←/→", "Switch tab"}, {"q/esc", "Quit"}}
 	switch m.mode {
 	case modeEdit:
-		return [][]key.Binding{
-			{bind("enter", "accept"), bind("esc", "cancel")},
-			{bind("←/→", "move"), bind("home/end", "ends"), bind("ctrl+u", "clear")},
+		return [][]hint{
+			{{"enter", "Accept"}, {"esc", "Cancel"}},
+			{{"←/→", "Move"}, {"home/end", "Ends"}, {"ctrl+u", "Clear"}},
 		}
 	case modeQuit:
-		return [][]key.Binding{{bind("s", "save"), bind("d", "discard"), bind("esc", "back")}}
+		return [][]hint{{{"s", "Save"}, {"d", "Discard"}, {"esc", "Back"}}}
 	case modeConflict:
-		return [][]key.Binding{{bind("r", "reload"), bind("o", "overwrite"), bind("esc", "back")}}
+		return [][]hint{{{"r", "Reload"}, {"o", "Overwrite"}, {"esc", "Back"}}}
 	case modeBrowse:
 	}
-	save := bind("ctrl+s", "save")
+	save := hint{"ctrl+s", "Save"}
 	switch m.tab {
 	case tabKeys:
-		return [][]key.Binding{move, {bind("enter", "edit"), bind("t", "test"), bind("x", "clear"), save}}
+		return [][]hint{move, {{"enter", "Edit"}, {"t", "Test"}, {"x", "Clear"}, save}}
 	case tabSettings:
-		return [][]key.Binding{move, {bind("enter", "edit"), bind("x", "clear"), save}}
+		return [][]hint{move, {{"enter", "Edit"}, {"x", "Clear"}, save}}
 	case tabSkip:
-		return [][]key.Binding{move, {bind("enter", "toggle"), bind("x", "remove entry"), save}}
+		return [][]hint{move, {{"enter", "Toggle"}, {"x", "Remove entry"}, save}}
 	case tabCount:
 	}
 	return nil
@@ -207,11 +178,10 @@ func (m *model) keymap() [][]key.Binding {
 
 // footer is two lines of keys.
 func (m *model) footer() []string {
-	m.help.SetWidth(m.width)
 	out := make([]string, 2)
-	for i, g := range m.keymap() {
+	for i, hs := range m.keymap() {
 		if i < len(out) {
-			out[i] = fitTo(m.help.ShortHelpView(g), m.width)
+			out[i] = fit(m.hints(hs), m.width)
 		}
 	}
 	return out

@@ -36,6 +36,18 @@ semantic
   info
   muted
   example
+setup
+  pointer
+  name
+  name-dim
+  value
+  value-dim
+  faint
+  help
+  key
+  good
+  bad
+  caution
 log lines
 09:00:00 | DEBUG | a sample DEBUG message
 09:00:00 | INFO  | a sample INFO message

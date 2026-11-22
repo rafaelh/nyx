@@ -12,7 +12,7 @@ func TestSkipTab_OffersTheSkippableStagesWithTheirDescriptions(t *testing.T) {
 	h.press("tab", "tab")
 	f := h.view()
 	for _, s := range testInfo().Stages {
-		mustHave(t, lineWith(f, "[ ] "+s.Name), s.Does)
+		mustHave(t, lineWith(f, "[x] "+s.Name), s.Does)
 	}
 	mustNotHave(t, f, "] resolve", "[x] resolve")
 }
@@ -36,10 +36,10 @@ func TestSkipTab_TogglingStagesBuildsTheWholeListInOrder(t *testing.T) {
 	b.snap.Skip = []string{"web", "dns"}
 	h := newTH(t, b)
 	h.press("tab", "tab")
-	mustHave(t, h.view(), "[x] web", "[x] dns", "[ ] ports")
-	h.press("down", "enter") // ports on
-	h.press("up", "enter")   // dns off
-	mustHave(t, h.view(), "[ ] dns", "[x] ports")
+	mustHave(t, h.view(), "[ ] web", "[ ] dns", "[x] ports")
+	h.press("down", "enter") // ports skipped
+	h.press("up", "enter")   // dns runs
+	mustHave(t, h.view(), "[x] dns", "[ ] ports")
 	h.press("ctrl+s")
 	if h.m.changes() != 0 {
 		t.Fatalf("not saved: %v", h.view())
@@ -65,7 +65,7 @@ func TestSkipTab_ProblemEntriesAreRemovedOneAtATime(t *testing.T) {
 	h.press("x")
 	f := h.view()
 	mustNotHave(t, f, `unknown stage "foo"`)
-	mustHave(t, f, `stage "resolve" cannot be skipped`, "[x] dns")
+	mustHave(t, f, `stage "resolve" cannot be skipped`, "[ ] dns")
 	h.press("ctrl+s") // resolve is still invalid
 	if n, _, _ := b.counts(); n != 0 {
 		t.Fatal("saved with one problem entry left")
@@ -119,7 +119,7 @@ func TestSkipTab_TogglingBackIsNoChangeAndEmptyingTheListWritesAnEmptyList(t *te
 	if h.m.changes() != 0 {
 		t.Errorf("toggled and toggled back is %d changes", h.m.changes())
 	}
-	h.press("up", "enter") // dns off: the list is empty
+	h.press("up", "enter") // dns runs again: the list is empty
 	if h.m.changes() != 1 {
 		t.Fatalf("changes = %d", h.m.changes())
 	}
@@ -143,7 +143,7 @@ func TestSkipTab_ScrollsToKeepTheSelectionVisible(t *testing.T) {
 		if lineCount(f) > 16 {
 			t.Fatalf("frame is %d lines", lineCount(f))
 		}
-		sel := fmt.Sprintf("> [ ] stage%02d", i)
+		sel := fmt.Sprintf("> [x] stage%02d", i)
 		mustHave(t, f, sel)
 		h.press("down")
 	}

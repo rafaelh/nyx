@@ -240,6 +240,7 @@ const (
 	Method   Group = "http_method"
 	Chrome   Group = "chrome"
 	Semantic Group = "semantic"
+	Setup    Group = "setup"
 )
 
 type fgEntry struct {
@@ -276,9 +277,33 @@ var fgGroups = []fgGroup{
 		{"warning", styleNamed("WARN").fgStyle},
 		{"info", styleNamed("INFO").fgStyle},
 		{"muted", timestamp},
-		{"example", fgOnly([3]uint8{255, 202, 128}, 93)},
+		{"example", fgOnly(example, 93)},
+	}},
+	// The roles of nyx setup's screen. A pair such as name and name-dim is one thing selected and
+	// not: the selected row is the bright one. faint is what steps furthest back (an unset key, the
+	// rule under the tabs, a stage that is skipped) and help the explanatory text and the key
+	// descriptions; key is a key to press, in the amber of example.
+	{Setup, []fgEntry{
+		{"pointer", fgOnly(green, 92)},
+		{"name", fgOnly([3]uint8{128, 255, 234}, 96)},
+		{"name-dim", fgOnly([3]uint8{3, 106, 150}, 36)},
+		{"value", fgOnly([3]uint8{149, 128, 255}, 95)},
+		{"value-dim", fgOnly([3]uint8{100, 74, 201}, 35)},
+		{"faint", fgOnly([3]uint8{69, 65, 88}, 90)},
+		{"help", fgOnly([3]uint8{121, 112, 169}, 37)},
+		{"key", fgOnly(example, 93)},
+		{"good", fgOnly(green, 92)},
+		{"bad", fgOnly([3]uint8{163, 20, 77}, 31)},
+		{"caution", fgOnly([3]uint8{255, 255, 128}, 33)},
 	}},
 }
+
+// example is the amber of a nyx call shown in the help and of a key to press in nyx setup; green is
+// nyx setup's selection and accepted key.
+var (
+	example = [3]uint8{255, 202, 128}
+	green   = [3]uint8{138, 255, 128}
+)
 
 func entriesOf(g Group) []fgEntry {
 	for _, fg := range fgGroups {

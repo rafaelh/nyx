@@ -117,7 +117,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 
 - **Config file:** `$XDG_CONFIG_HOME/nyx/config.yaml`, which defaults to
   `~/.config/nyx/config.yaml`. Use `--config <file>` to choose another. Unknown keys are
-  rejected. `nyx setup` edits keys and the common settings for you (see [Setup](#setup)); NYX_*
+  rejected. `key_tests` is nyx setup's record of key tests (see [Setup](#setup)), which every other
+  command accepts and ignores. `nyx setup` edits keys and the common settings for you (see [Setup](#setup)); NYX_*
   environment variables and NVD_API_KEY still override what nyx setup saves.
 - **Precedence:** flags override `NYX_*` environment variables, which override the file. An
   environment variable is `NYX_<UPPER_SNAKE>` with `.` replaced by `_`, for example
@@ -191,7 +192,8 @@ NYX_KEYS_SHODAN=your-shodan-key nyx recon example.com
 `nyx setup` is a full-screen terminal editor for one config file: the one `--config` names, or the
 default (`$XDG_CONFIG_HOME/nyx/config.yaml`, else `~/.config/nyx/config.yaml`). Use it once after
 installing, and again to add, rotate or remove a key. `nyx recon` and `nyx cve` then use what it
-saved. It takes no arguments.
+saved. It takes no arguments. ↑ and ↓ move between rows, ← and → (or Tab) between the tabs, and
+the bottom of the screen lists the keys each tab offers.
 
 - **Keys tab.** Lists `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos`,
   `github`, `certspotter` and `nvd`, with what each turns on (Cert Spotter also works without one). A
@@ -207,8 +209,9 @@ saved. It takes no arguments.
   `output_dir`, `wordlist` or `sensitive_paths` is saved as an absolute path, against the directory
   you ran setup from; `~/` and `~` are kept as typed. An unset `output_dir`, and any relative path
   already in the file, is shown as resolving against the directory nyx is later run from.
-- **Skip tab.** Toggles the stages the `skip` setting turns off, each with its one-line description
-  (as in `nyx help stages`); stages that cannot be skipped are not offered. An entry in the file that
+- **Skip tab.** Lists the stages that can be skipped, each with its one-line description (as in
+  `nyx help stages`). A stage that runs is marked `[x]`; toggling it off adds it to the `skip`
+  setting and shows it muted. Stages that cannot be skipped are not offered. An entry in the file that
   is unknown or cannot be skipped is listed with its message and can be removed on its own.
 - **Testing a key.** `t` tests the key on the selected row, saved or not: one authenticated request
   to that source, never to a target (the hosts are listed under [Passive boundary](#passive-boundary)).
@@ -216,10 +219,17 @@ saved. It takes no arguments.
   a network failure or any other answer, and gives up after 15 seconds. Editing or clearing the key
   removes the result. A key test may spend a query: VirusTotal and Censys count it against their
   quota.
+- **Key records.** An `accepted` or `rejected` result is an unsaved change, and saving writes it
+  under `key_tests.<source>` with the day (`result`, `date` and `key`, the first 8 hex digits of the
+  key's SHA-256, never the key). A key entered and saved without being tested is recorded as
+  `not tested`, as is a key in the file with no record the next time setup saves anything. The Keys
+  tab shows the recorded result beside the key, and nothing once the record is 90 days old, so an
+  old test is not taken for a recent one. `could not check` changes no record. A key changed by hand
+  no longer matches its record and shows `not tested`; clearing a key removes its record.
 - **Saving.** Edits are held until `ctrl+s`. Quitting (`q`, `esc` or `ctrl+c`) with unsaved
   changes asks whether to save, discard or go back; quitting with none writes nothing. A save changes
-  only the values you edited and keeps every other setting, comment and their order (blank lines are
-  lost). It creates the file and any missing directories, readable only by you, and tightens a
+  only the values you edited and the key records, and keeps every other setting, comment and their
+  order (blank lines are lost). It creates the file and any missing directories, readable only by you, and tightens a
   broader file's permissions; if the path is a symlink, the file it points to is updated. A crash
   during a save leaves the old file or the new one. If a save fails, setup stays open with your
   edits and the reason. If the file changed on disk since setup read it, saving offers to reload

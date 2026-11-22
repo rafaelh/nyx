@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -156,6 +157,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	}
 	err := setup.Run(ctx, setupBackend{Store: store, egress: d.Egress}, setup.Options{
 		In: d.Stdin, Out: inv.rawOut, Env: d.Env, Depth: inv.st.out.Depth, Width: w, Height: h,
+		Now:      func() time.Time { return d.Clock().In(d.Location) },
 		OnSecret: func(v string) { seen.add(v) },
 		OnProgram: func(kill func()) {
 			inv.mu.Lock()

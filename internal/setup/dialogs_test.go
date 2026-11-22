@@ -28,7 +28,7 @@ func TestQuit_WithChangesAsksAndEachAnswerDoesTheRightThing(t *testing.T) {
 			if h.m.quitting {
 				t.Fatal("quit with unsaved changes")
 			}
-			mustHave(t, h.view(), "Unsaved changes", "s save", "d discard", "esc back")
+			mustHave(t, h.view(), "Unsaved changes", "s Save", "d Discard", "esc Back")
 		})
 	}
 	t.Run("save", func(t *testing.T) {
@@ -124,7 +124,7 @@ func TestSave_FailureKeepsEditsAndShowsTheReasonAndPath(t *testing.T) {
 	dirty(h)
 	h.press("ctrl+s")
 	f := h.view()
-	mustHave(t, f, "permission denied", testPath, "could not save")
+	mustHave(t, f, "permission denied", testPath, "Could not save")
 	if h.m.changes() != 1 {
 		t.Errorf("changes = %d after a failed save", h.m.changes())
 	}
@@ -191,7 +191,7 @@ func TestConflict_OpensTheDialogAndReloadDiscardsTheEdits(t *testing.T) {
 	dirty(h)
 	h.press("ctrl+s")
 	f := h.view()
-	mustHave(t, f, "changed on disk", "r reload", "o overwrite", "esc back")
+	mustHave(t, f, "changed on disk", "r Reload", "o Overwrite", "esc Back")
 	if _, o, _ := b.counts(); o != 0 {
 		t.Fatal("overwrote before being asked")
 	}
@@ -275,7 +275,7 @@ func TestConflict_ReloadFindingProblemsKeepsEditsAndStillOffersOverwrite(t *test
 	b.mu.Unlock()
 	h.press("r")
 	f := h.view()
-	mustHave(t, f, "line 3: could not parse the file", "unknown key: colour", testPath, "o overwrite", "esc back")
+	mustHave(t, f, "line 3: could not parse the file", "unknown key: colour", testPath, "o Overwrite", "esc Back")
 	if h.m.changes() != 1 {
 		t.Fatalf("changes = %d: the edits are kept", h.m.changes())
 	}
@@ -307,11 +307,11 @@ func TestFooter_ListsTheKeysOnEachTabAndInEachDialog(t *testing.T) {
 	}
 	for _, size := range [][2]int{{60, 16}, {100, 30}} {
 		for _, s := range []step{
-			{"keys", func(*th) {}, []string{"↑/↓ move", "tab switch tab", "enter edit", "t test", "x clear", "ctrl+s save", "q quit"}},
-			{"settings", func(h *th) { h.press("tab") }, []string{"↑/↓ move", "tab switch tab", "enter edit", "x clear", "ctrl+s save", "q quit"}},
-			{"skip", func(h *th) { h.press("tab", "tab") }, []string{"↑/↓ move", "tab switch tab", "enter toggle", "x remove", "ctrl+s save", "q quit"}},
-			{"field", func(h *th) { h.press("enter") }, []string{"enter accept", "esc cancel", "←/→ move", "ctrl+u clear"}},
-			{"quit dialog", func(h *th) { dirty(h); h.press("q") }, []string{"s save", "d discard", "esc back"}},
+			{"keys", func(*th) {}, []string{"↑/↓ Move", "←/→ Switch tab", "enter Edit", "t Test", "x Clear", "ctrl+s Save", "q/esc Quit"}},
+			{"settings", func(h *th) { h.press("tab") }, []string{"↑/↓ Move", "←/→ Switch tab", "enter Edit", "x Clear", "ctrl+s Save", "q/esc Quit"}},
+			{"skip", func(h *th) { h.press("tab", "tab") }, []string{"↑/↓ Move", "←/→ Switch tab", "enter Toggle", "x Remove entry", "ctrl+s Save", "q/esc Quit"}},
+			{"field", func(h *th) { h.press("enter") }, []string{"enter Accept", "esc Cancel", "←/→ Move", "ctrl+u Clear"}},
+			{"quit dialog", func(h *th) { dirty(h); h.press("q") }, []string{"s Save", "d Discard", "esc Back"}},
 		} {
 			t.Run(fmt.Sprintf("%s %dx%d", s.name, size[0], size[1]), func(t *testing.T) {
 				t.Parallel()
@@ -330,7 +330,7 @@ func TestFooter_ListsTheKeysOnEachTabAndInEachDialog(t *testing.T) {
 			dirty(h)
 			h.press("ctrl+s")
 			f := h.view()
-			mustHave(t, f, "r reload", "o overwrite", "esc back")
+			mustHave(t, f, "r Reload", "o Overwrite", "esc Back")
 			if maxWidth(f) > size[0] || lineCount(f) > size[1] {
 				t.Errorf("frame is %dx%d:\n%s", maxWidth(f), lineCount(f), f)
 			}
@@ -356,8 +356,8 @@ func TestDialogs_AProblemListTooLongForTheScreenIsCut(t *testing.T) {
 	if lineCount(f) > 16 || maxWidth(f) > 60 {
 		t.Errorf("frame is %dx%d", maxWidth(f), lineCount(f))
 	}
-	mustHave(t, f, "o overwrite", "problem number 00", "more")
-	if !strings.Contains(f, "esc back") {
+	mustHave(t, f, "o Overwrite", "problem number 00", "more")
+	if !strings.Contains(f, "esc Back") {
 		t.Error("the footer was pushed off")
 	}
 }

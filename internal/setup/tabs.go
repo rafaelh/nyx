@@ -16,28 +16,33 @@ const (
 	bodyX = markW + nameW // where a row's value starts
 )
 
-// item is one selectable row of a tab as lines of text. cursor is where the field's cursor is, when
-// the row is being edited.
+// item is one selectable row of a tab as lines. cursor is where the field's cursor is, when the row
+// is being edited.
 type item struct {
-	lines  []string
+	lines  []line
 	cursor *cursorAt
 }
 
 type cursorAt struct{ line, x int }
 
 // marks is the two characters before a row: the selection and whether it holds a change.
-func marks(selected, changed bool) string {
-	m := []byte("  ")
+func (m *model) marks(selected, changed bool) line {
+	l := line{plain(" "), plain(" ")}
 	if selected {
-		m[0] = '>'
+		l[0] = m.paint(rolePointer, ">")
 	}
 	if changed {
-		m[1] = '*'
+		l[1] = m.paint(roleCaution, "*")
 	}
-	return string(m)
+	return l
 }
 
-// items are the rows of the active tab, each already cut to the width.
+// padded is s in role, then the spaces that make it w cells wide.
+func (m *model) padded(role, s string, w int) line {
+	return line{m.paint(role, s), plain(strings.Repeat(" ", max(w-layout.Measure(s), 0)))}
+}
+
+// items are the rows of the active tab.
 func (m *model) items(t tabID) []item {
 	switch t {
 	case tabKeys:
@@ -71,64 +76,103 @@ func maskKey(k string) string {
 	return "••••" + sanitize.Line(string(r[len(r)-4:]))
 }
 
+// head is a row's marks and its name.
+func (m *model) head(selected, changed bool, name string) line {
+	return append(m.marks(selected, changed), m.padded(pick(selected, roleName, roleNameDim), name, nameW)...)
+}
+
+// note is a line of explanatory text under a row's value.
+func (m *model) note(text string) line { return line{plain(indent()), m.paint(roleHelp, text)} }
+
 func (m *model) keyItems() []item {
 	out := make([]item, 0, len(m.keys))
 	for i, r := range m.keys {
 		sel := i == m.sel[tabKeys] && m.tab == tabKeys
-		name := layout.PadRight(r.src.Name, nameW)
+		head := m.head(sel, r.changed(), r.src.Name)
 		var it item
 		if f := m.editing(tabKeys, i); f != nil {
 			s, x := f.view(max(m.width-bodyX-1, 1))
-			it.lines = []string{marks(sel, r.changed()) + name + s, indent() + "type or paste the key; an empty entry clears it"}
+			it.lines = []line{append(head, m.paint(roleValue, s)), m.note("Type or paste the key; an empty entry clears it")}
 			it.cursor = &cursorAt{0, bodyX + x}
 		} else {
-			value := layout.PadRight(maskKey(r.cur.Reveal()), 10)
-			status := ""
-			switch {
-			case r.testing():
-				status = "testing…"
-			case r.result != nil:
-				status = r.result.String()
+			value := pick(sel, roleValue, roleValueDim)
+			if r.cur == "" {
+				value = roleFaint
 			}
-			line := marks(sel, r.changed()) + name + value + fitTo(m.text(status), m.width-bodyX-10)
-			it.lines = []string{line, indent() + r.src.Turns}
+			status, role := m.keyStatus(r)
+			it.lines = []line{
+				append(append(head, m.padded(value, maskKey(r.cur.Reveal()), 10)...), m.paint(role, status)),
+				m.note(r.src.Turns),
+			}
 			if r.problem != "" {
-				it.lines = append(it.lines, m.noteLines("! "+r.problem)...)
+				it.lines = append(it.lines, m.noteLines(roleBad, "! "+r.problem)...)
 			}
 		}
 		out = append(out, it)
 	}
-	return cutItems(out, m.width)
+	return out
+}
+
+// keyStatus is what the row says of a key test, and the role it says it in: a test of this session,
+// else the file's record while it is shown, else "not tested" for a key with no record.
+func (m *model) keyStatus(r *keyRow) (string, string) {
+	switch {
+	case r.testing():
+		return "testing…", roleHelp
+	case r.result != nil && r.result.Status == TestAccepted:
+		return r.result.String(), roleGood
+	case r.result != nil && r.result.Status == TestRejected:
+		return r.result.String(), roleBad
+	case r.result != nil:
+		return m.text(r.result.String()), roleCaution
+	case r.cur == "":
+		return "", roleHelp
+	}
+	rec, shown := m.fileRecord(r)
+	switch {
+	case rec == nil:
+		return RecordNotTested, roleCaution
+	case !shown:
+		return "", roleHelp
+	case rec.Result == RecordAccepted:
+		return RecordAccepted, roleGood
+	case rec.Result == RecordRejected:
+		return RecordRejected, roleBad
+	}
+	return RecordNotTested, roleCaution
 }
 
 func (m *model) settingItems() []item {
 	out := make([]item, 0, len(m.sets))
 	for i, r := range m.sets {
 		sel := i == m.sel[tabSettings] && m.tab == tabSettings
-		name := layout.PadRight(r.key, nameW)
+		head := m.head(sel, r.changed(), r.key)
 		var it item
 		if f := m.editing(tabSettings, i); f != nil {
 			s, x := f.view(max(m.width-bodyX-1, 1))
-			it.lines = []string{marks(sel, r.changed()) + name + s}
+			it.lines = []line{append(head, m.paint(roleValue, s))}
 			it.cursor = &cursorAt{0, bodyX + x}
 		} else {
-			shown := m.text(r.text)
-			if !r.set {
-				shown = m.text(r.orig.Default) + " (default)"
+			value := pick(sel, roleValue, roleValueDim)
+			if r.set {
+				it.lines = []line{append(head, m.paint(value, m.text(r.text)))}
+			} else {
+				it.lines = []line{append(head, m.paint(value, m.text(r.orig.Default)), m.paint(roleFaint, " (default)"))}
 			}
-			it.lines = []string{marks(sel, r.changed()) + name + shown}
 			if rel := r.relative(); rel != "" {
-				it.lines = append(it.lines, m.noteLines(rel)...)
+				it.lines = append(it.lines, m.noteLines(roleHelp, rel)...)
 			}
 			if r.problem != "" {
-				it.lines = append(it.lines, m.noteLines("! "+r.problem)...)
+				it.lines = append(it.lines, m.noteLines(roleBad, "! "+r.problem)...)
 			}
 		}
 		out = append(out, it)
 	}
-	return cutItems(out, m.width)
+	return out
 }
 
+// skipItems are the stages, each marked [x] while it runs and drawn faint once it is skipped, then
+// the entries of the list that are problems.
 func (m *model) skipItems() []item {
 	var out []item
 	nameCol := 0
@@ -137,51 +181,44 @@ func (m *model) skipItems() []item {
 	}
 	for i, s := range m.info.Stages {
 		sel := i == m.sel[tabSkip] && m.tab == tabSkip
-		on := slices.Contains(m.skip.on, s.Name)
-		box := "[ ]"
-		if on {
-			box = "[x]"
+		skipped := slices.Contains(m.skip.on, s.Name)
+		changed := skipped != slices.Contains(m.skip.origOn, s.Name)
+		box, name, does := "[x] ", pick(sel, roleName, roleNameDim), roleHelp
+		if skipped {
+			box, name = "[ ] ", pick(sel, roleHelp, roleFaint)
+			does = name
 		}
-		changed := on != slices.Contains(m.skip.origOn, s.Name)
-		out = append(out, item{lines: []string{marks(sel, changed) + box + " " + layout.PadRight(s.Name, nameCol) + "  " + s.Does}})
+		l := append(append(m.marks(sel, changed), m.padded(name, box+s.Name, nameCol+len(box)+2)...), m.paint(does, s.Does))
+		out = append(out, item{lines: []line{l}})
 	}
 	for j, p := range m.skip.problems {
 		sel := len(m.info.Stages)+j == m.sel[tabSkip] && m.tab == tabSkip
-		out = append(out, item{lines: []string{marks(sel, false) + "[!] " + m.text(p.Entry) + ": " + m.text(p.Message)}})
+		out = append(out, item{lines: []line{append(m.marks(sel, false), m.paint(roleBad, "[!] "+m.text(p.Entry)+": "+m.text(p.Message)))}})
 	}
 	if m.skip.list != "" {
 		sel := len(m.info.Stages)+len(m.skip.problems) == m.sel[tabSkip] && m.tab == tabSkip
-		out = append(out, item{lines: []string{marks(sel, false) + "[!] " + m.text(m.skip.list)}})
+		out = append(out, item{lines: []line{append(m.marks(sel, false), m.paint(roleBad, "[!] "+m.text(m.skip.list)))}})
 	}
-	return cutItems(out, m.width)
+	return out
 }
 
-// noteLines lays a note under a row out in at most two lines, indented past the row marks.
-func (m *model) noteLines(text string) []string {
+// noteLines lays a note under a row out in role, in at most two lines, indented past the row marks.
+func (m *model) noteLines(role, text string) []line {
 	lines := wrap(m.text(text), m.width-markW, 0)
 	if len(lines) > 2 {
 		lines = []string{lines[0], lines[1] + "…"}
 	}
+	out := make([]line, len(lines))
 	for i, l := range lines {
-		lines[i] = strings.Repeat(" ", markW) + l
+		out[i] = line{plain(strings.Repeat(" ", markW)), m.paint(role, l)}
 	}
-	return lines
+	return out
 }
 
 func indent() string { return strings.Repeat(" ", bodyX) }
 
-// cutItems cuts every line to the width.
-func cutItems(items []item, w int) []item {
-	for i := range items {
-		for j, l := range items[i].lines {
-			items[i].lines[j] = fitTo(l, w)
-		}
-	}
-	return items
-}
-
-// bodyHeight is the number of lines the active tab's rows may take.
-func (m *model) bodyHeight() int { return max(m.height-chromeLines, 1) }
+// bodyHeight is the number of lines the active tab's rows may take: one fewer while the notice has two.
+func (m *model) bodyHeight() int { return max(m.height-chromeLines-max(len(m.notice)-1, 0), 1) }
 
 // fixScroll keeps the selection on the screen: the first row shown moves only as far as it must.
 func (m *model) fixScroll() {

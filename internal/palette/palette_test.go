@@ -1,6 +1,7 @@
 package palette_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -275,5 +276,36 @@ func TestCategoryTables(t *testing.T) {
 	}
 	if got := palette.Names(palette.Method); len(got) != 5 {
 		t.Errorf("method names = %v", got)
+	}
+}
+
+// The setup roles are the colours its screen was specified in, and each selected and unselected
+// pair stays apart at every depth.
+func TestSetupRoles(t *testing.T) {
+	t.Parallel()
+	for name, hex := range map[string]string{
+		"pointer": "8AFF80", "name": "80FFEA", "name-dim": "036A96", "value": "9580FF", "value-dim": "644AC9",
+		"faint": "454158", "help": "7970A9", "key": "FFCA80", "good": "8AFF80", "bad": "A3144D", "caution": "FFFF80",
+	} {
+		var r, g, b int
+		if _, err := fmt.Sscanf(hex, "%02X%02X%02X", &r, &g, &b); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := palette.TrueColor.Text(palette.Setup, name, "x"), fmt.Sprintf("\x1b[38;2;%d;%d;%dmx\x1b[0m", r, g, b); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if got := len(palette.Names(palette.Setup)); got != 11 {
+		t.Errorf("%d setup roles, want 11", got)
+	}
+	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
+		for _, pair := range [][2]string{{"name", "name-dim"}, {"value", "value-dim"}, {"faint", "help"}, {"good", "bad"}} {
+			if d.Text(palette.Setup, pair[0], "x") == d.Text(palette.Setup, pair[1], "x") {
+				t.Errorf("depth %d: %s and %s are the same", d, pair[0], pair[1])
+			}
+		}
+	}
+	if palette.None.Text(palette.Setup, "name", "x") != "x" {
+		t.Error("no colour still styles")
 	}
 }

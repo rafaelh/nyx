@@ -11,7 +11,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"charm.land/bubbles/v2/help"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rafaelh/nyx/internal/config"
@@ -58,10 +57,65 @@ type keyRow struct {
 	gen    int
 	cancel context.CancelFunc // set while a test runs
 	result *TestResult
+	record *KeyRecord // the file's record of orig
 }
 
-func (r *keyRow) changed() bool {
+// changed reports whether the row holds something to save: a new key, a fixed problem, or a test
+// result the file does not record yet.
+func (r *keyRow) changed() bool { return r.keyChanged() || r.tested() }
+
+// keyChanged reports whether the key itself is to be written: a new value, or one whose problem
+// was fixed.
+func (r *keyRow) keyChanged() bool {
 	return r.cur != r.orig || (r.origProblem != "" && r.problem == "")
+}
+
+// tested reports whether a test this session accepted or rejected the key as it is now.
+func (r *keyRow) tested() bool { return r.result != nil && r.result.Status != TestUnknown }
+
+// recordShownFor is how long a key record is shown: an older one says nothing, so that an old test
+// is not taken for a recent one.
+const recordShownFor = 90 * 24 * time.Hour
+
+// today is the calendar day of the clock, as a key record dates it.
+func (m *model) today() time.Time {
+	now := time.Now()
+	if m.o.Now != nil {
+		now = m.o.Now()
+	}
+	y, mo, d := now.Date()
+	return time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
+}
+
+// fileRecord is the file's record of the row's key as the row holds it, and whether it is still
+// shown. It is nil for an edited key, for one the file records nothing of, and for a record dated
+// after today, which cannot be trusted.
+func (m *model) fileRecord(r *keyRow) (rec *KeyRecord, shown bool) {
+	if r.record == nil || r.cur != r.orig {
+		return nil, false
+	}
+	age := m.today().Sub(r.record.Day)
+	if age < 0 {
+		return nil, false
+	}
+	return r.record, age < recordShownFor
+}
+
+// newRecord is the record a save writes for the row's key, if it needs one: a test result from this
+// session, or "not tested" for a key the file has no record of.
+func (m *model) newRecord(r *keyRow) (KeyRecord, bool) {
+	switch {
+	case r.cur == "":
+		return KeyRecord{}, false
+	case r.tested() && r.result.Status == TestAccepted:
+		return KeyRecord{Result: RecordAccepted, Day: m.today()}, true
+	case r.tested():
+		return KeyRecord{Result: RecordRejected, Day: m.today()}, true
+	}
+	if rec, _ := m.fileRecord(r); rec != nil {
+		return KeyRecord{}, false
+	}
+	return KeyRecord{Result: RecordNotTested, Day: m.today()}, true
 }
 
 // testing reports whether a test of the key is running.
@@ -170,13 +224,15 @@ type model struct {
 	sets []*settingRow
 	skip skipState
 
-	tab    tabID
-	sel    [tabCount]int
-	top    [tabCount]int
-	mode   mode
-	ed     *editState
-	dlg    dialogState
-	notice []string
+	tab  tabID
+	sel  [tabCount]int
+	top  [tabCount]int
+	mode mode
+	ed   *editState
+	dlg  dialogState
+	// notice is the lines under the body (at most two), and noticeRole the role they are drawn in.
+	notice     []string
+	noticeRole string
 
 	width, height int
 	quitting      bool
@@ -189,7 +245,6 @@ type model struct {
 	red       *config.Redactor
 	redSeen   int
 	redTyping config.Secret
-	help      help.Model
 }
 
 // Format prints nothing of the state: the model holds keys.
@@ -215,7 +270,6 @@ func newModel(ctx context.Context, b Backend, o Options) (*model, error) {
 	for i, s := range m.info.Stages {
 		m.info.Stages[i].Does = sanitize.Line(s.Does)
 	}
-	m.help = newHelp()
 	m.load(snap, false)
 	return m, nil
 }
@@ -260,12 +314,16 @@ func (m *model) load(snap Snapshot, keep bool) {
 	for _, src := range m.info.Sources {
 		ks := snap.Keys[src.Name]
 		m.secret(ks.Value)
-		row := &keyRow{src: src, orig: ks.Value, cur: ks.Value, origProblem: ks.Problem, problem: ks.Problem}
+		row := &keyRow{src: src, orig: ks.Value, cur: ks.Value, origProblem: ks.Problem, problem: ks.Problem, record: ks.Record}
 		m.genSeq++
 		row.gen = m.genSeq
 		if prev := findKey(old, src.Name); prev != nil {
 			if keep && prev.cur == row.cur {
-				row.gen, row.cancel, row.result = prev.gen, prev.cancel, prev.result
+				row.gen, row.cancel = prev.gen, prev.cancel
+				if !prev.tested() {
+					// An accepted or rejected result was just saved: the file's record shows it now.
+					row.result = prev.result
+				}
 			} else {
 				prev.abandon()
 			}
@@ -381,11 +439,17 @@ func (m *model) edits() Edits {
 	}
 	for _, r := range m.keys {
 		switch {
-		case !r.changed():
+		case !r.keyChanged():
 		case r.cur != "":
 			set(KeyPrefix+r.src.Name, r.cur.Reveal())
 		default:
 			e.Clear = append(e.Clear, KeyPrefix+r.src.Name)
+		}
+		if rec, ok := m.newRecord(r); ok {
+			if e.Records == nil {
+				e.Records = map[string]KeyRecord{}
+			}
+			e.Records[r.src.Name] = rec
 		}
 	}
 	for _, r := range m.sets {
@@ -403,10 +467,11 @@ func (m *model) edits() Edits {
 	return e
 }
 
-// say sets the notice: at most two lines under the body.
-func (m *model) say(lines ...string) {
-	m.notice = nil
-	for _, l := range lines {
+// say sets the notice: at most two lines under the body, in role. A second line takes the body's last
+// line until the next key press.
+func (m *model) say(role string, lines ...string) {
+	m.notice, m.noticeRole = nil, role
+	for _, l := range lines[:min(len(lines), 2)] {
 		m.notice = append(m.notice, m.text(l))
 	}
 }
@@ -454,9 +519,9 @@ func (m *model) browseKey(s string) tea.Cmd {
 		return m.askQuit()
 	case "ctrl+s":
 		return m.save(false)
-	case "tab":
+	case "tab", "right":
 		m.tab = (m.tab + 1) % tabCount
-	case "shift+tab":
+	case "shift+tab", "left":
 		m.tab = (m.tab + tabCount - 1) % tabCount
 	case "up", "k":
 		m.move(-1)
@@ -519,7 +584,7 @@ func (m *model) activate() {
 		if i < len(m.info.Stages) {
 			m.skip.toggle(m.info.Stages[i].Name)
 		} else {
-			m.say("x removes this entry")
+			m.say(roleHelp, "Press x to remove this entry")
 		}
 	case tabCount:
 	}
@@ -606,7 +671,7 @@ func (m *model) onPaste(content string) {
 		return
 	}
 	if !utf8.ValidString(content) {
-		m.say("the pasted text is not valid UTF-8")
+		m.say(roleBad, "The pasted text is not valid UTF-8")
 		return
 	}
 	m.ed.f.insert(content)
@@ -652,7 +717,7 @@ func (m *model) accept() {
 	}
 	val, err := m.b.Check(r.key, raw)
 	if err != nil {
-		m.say(err.Error())
+		m.say(roleBad, err.Error())
 		return
 	}
 	r.text, r.set, r.problem = val, true, ""
@@ -666,7 +731,7 @@ func (m *model) startTest() tea.Cmd {
 	case r.testing():
 		return nil
 	case r.cur == "":
-		m.say("there is no key to test: enter one first")
+		m.say(roleCaution, "There is no key to test: enter one first")
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(m.base, m.timeout)
@@ -723,15 +788,16 @@ func (m *model) quitKey(k tea.KeyPressMsg) tea.Cmd {
 // save writes the edits. thenQuit asks to quit once they are written.
 func (m *model) save(thenQuit bool) tea.Cmd {
 	if why, bad := m.firstInvalid(); bad {
-		m.say("cannot save while a value is invalid:", why)
+		m.say(roleBad, "Cannot save while a value is invalid:", why)
 		return nil
 	}
-	e := m.edits()
-	if e.Empty() {
-		m.say("no changes to save")
+	// A "not tested" record for a key the file has none of is written with a save, but is not a
+	// change of its own.
+	if m.changes() == 0 {
+		m.say(roleHelp, "No changes to save")
 		return nil
 	}
-	snap, err := m.b.Save(m.snap, e)
+	snap, err := m.b.Save(m.snap, m.edits())
 	return m.saved(snap, err, thenQuit)
 }
 
@@ -752,13 +818,13 @@ func (m *model) saved(snap Snapshot, err error, thenQuit bool) tea.Cmd {
 		if thenQuit {
 			return m.quit()
 		}
-		m.say("saved " + m.info.Path)
+		m.say(roleGood, "Saved "+m.info.Path)
 	case errors.Is(err, ErrConflict):
 		m.dlg = dialogState{thenQuit: thenQuit}
 		m.mode = modeConflict
 	default:
 		m.mode = modeBrowse
-		m.say("could not save: "+err.Error(), "file: "+m.info.Path)
+		m.say(roleBad, "Could not save: "+err.Error(), "File: "+m.info.Path)
 	}
 	return nil
 }
@@ -787,6 +853,6 @@ func (m *model) reload() {
 		m.dlg.path, m.dlg.problems = m.info.Path, []string{err.Error()}
 	default:
 		m.load(snap, false)
-		m.say("reloaded " + m.info.Path)
+		m.say(roleGood, "Reloaded "+m.info.Path)
 	}
 }

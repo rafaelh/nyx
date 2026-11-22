@@ -14,11 +14,11 @@ import (
 
 // nvdTurnsOn is what the nvd key does: nyx cve is the only command that reads it, apart from the
 // stages' own shared use of the file.
-const nvdTurnsOn = "nyx cve: 50 requests per 30 s instead of 5"
+const nvdTurnsOn = "Increases cve requests from 5 per 30 seconds to 50"
 
 // keyTurnsOn is the one line that says what the key of source turns on, from the stages that name
 // it in their key column: those that need it, then those it adds to (a key in brackets). A key that
-// only adds to stages (Cert Spotter's) also works without one.
+// only adds to stages (Cert Spotter's) also works without one. It starts with a capital letter.
 func keyTurnsOn(source string, stages []run.Stage) string {
 	if source == "nvd" {
 		return nvdTurnsOn
@@ -42,7 +42,11 @@ func keyTurnsOn(source string, stages []run.Stage) string {
 	if len(needs) == 0 && len(adds) > 0 {
 		parts = append(parts, "also works without a key")
 	}
-	return strings.Join(parts, "; ")
+	line := strings.Join(parts, "; ")
+	if line == "" {
+		return ""
+	}
+	return strings.ToUpper(line[:1]) + line[1:]
 }
 
 // setupSources are the key sources setup lists, with what each turns on.
