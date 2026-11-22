@@ -937,7 +937,8 @@ func TestCVE_KeyNeverPrinted(t *testing.T) {
 
 // Unkeyed, five requests go at once and the sixth, whose slot in the window
 // is past the deadline, fails at once as a transient rate limit; with a key
-// all six go.
+// all six go. The deadline is far inside the 30 second window, and the time limit far
+// short of the deadline, so only waiting for the deadline can fail it on a busy machine.
 func TestCVE_Pacing(t *testing.T) {
 	t.Parallel()
 	ids := make([]string, 6)
@@ -950,30 +951,42 @@ func TestCVE_Pacing(t *testing.T) {
 		nvd.entry(id)
 	}
 	start := time.Now()
-	f := h.partialOf(h.cveRun(true, append(slices.Clone(ids), "--timeout", "2s")...), true, []string{ids[5]}, true)
-	if el := time.Since(start); el > 1500*time.Millisecond {
-		t.Errorf("the call took %v; the sixth ID should fail at once", el)
+	code := h.cveRun(true, append(slices.Clone(ids), "--timeout", "20s")...)
+	if el := time.Since(start); el > 10*time.Second {
+		t.Errorf("the call took %v; the sixth request should fail at once", el)
 	}
 	env := h.cveEnvelope()
 	if len(env.Data) != 5 || len(env.Meta.Errors) != 1 {
 		t.Fatalf("envelope %+v", env)
 	}
+	// The workers run together, so which ID gets the sixth slot is up to the scheduler: it is the
+	// one that is missing.
+	var late string
+	for _, id := range ids {
+		if !slices.Contains(env.ids(), id) {
+			late = id
+		}
+	}
+	if late == "" {
+		t.Fatalf("every ID was returned: %+v", env)
+	}
+	f := h.partialOf(code, true, []string{late}, true)
 	e := env.Meta.Errors[0]
 	if e.Code != "RATE_LIMITED" || !e.Transient || e.Hint == nil || !strings.HasPrefix(*e.Hint, "retry after ") || !strings.Contains(*e.Hint, "NVD_API_KEY") {
 		t.Errorf("entry %+v (hint %v)", e, *e.Hint)
 	}
-	if !f.transient || !strings.HasPrefix(f.hint, "after ") || !strings.HasSuffix(f.hint, ", run: nyx cve "+ids[5]+" --json --timeout 2s") {
+	if !f.transient || !strings.HasPrefix(f.hint, "after ") || !strings.HasSuffix(f.hint, ", run: nyx cve "+late+" --json --timeout 20s") {
 		t.Errorf("error %+v", f)
 	}
 	// Running the hint's command, once the window has room, gets the rest. Each call has its own
 	// window, so here it has room at once.
 	_, cmd, _ := strings.Cut(f.hint, "run: nyx ")
-	if code := h.execRoot(strings.Fields(cmd)...); code != 0 || !slices.Equal(h.cveEnvelope().ids(), []string{ids[5]}) {
+	if code := h.execRoot(strings.Fields(cmd)...); code != 0 || !slices.Equal(h.cveEnvelope().ids(), []string{late}) {
 		t.Errorf("the hint's command: exit %d, %s", code, h.stdout.String())
 	}
 
 	h.setenv("NVD_API_KEY", "k")
-	if code := h.cveRun(true, append(slices.Clone(ids), "--timeout", "2s")...); code != 0 || len(h.cveEnvelope().Data) != 6 {
+	if code := h.cveRun(true, append(slices.Clone(ids), "--timeout", "20s")...); code != 0 || len(h.cveEnvelope().Data) != 6 {
 		t.Errorf("keyed: exit %d, %s", code, h.stdout.String())
 	}
 }

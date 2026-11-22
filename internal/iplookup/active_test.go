@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -462,15 +463,24 @@ func listenTCP(t *testing.T, banner string) *target {
 	return tg
 }
 
+// closedAddr is a loopback address and port that refuse every connection. The socket is bound but
+// never listens, for the whole test: closing a listener instead would free the port for another
+// parallel test's server, and the "closed" ports would then answer.
 func closedAddr(t *testing.T) string {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := l.Addr().String()
-	_ = l.Close()
-	return a
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(sa.(*syscall.SockaddrInet4).Port))
 }
 
 func (w *world) probeOptions(t *testing.T, a string, open map[int]string) {
