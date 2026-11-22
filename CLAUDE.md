@@ -1,8 +1,9 @@
 # CLAUDE.md
 
 nyx is a passive-first reconnaissance CLI: a single static Go binary for macOS, Linux, and WSL
-(Windows is not supported). `README.md` is the user-facing behaviour contract (flags, output files,
-exit codes, the passive boundary). The domain vocabulary (engagement, scope input, stage, check,
+(Windows is not supported). The user-facing behaviour contract (flags, output files, exit codes, the
+passive boundary) is the user guide in `docs/*.md` (all but `docs/todo.md`; `README.md` is a short
+introduction that links to each page). The domain vocabulary (engagement, scope input, stage, check,
 observation, record, record kind, shown, evidence, finding) is defined in the doc comments of the
 packages that own each term.
 
@@ -15,7 +16,7 @@ make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
 make lint                       # golangci-lint pinned in tools/go.mod; config in .golangci.yml
 make eol-data                   # refresh internal/eol/data from endoflife.date (needs curl, jq); review the diff
-make abusive-data               # refresh internal/abusive/snapshot.json from ipapi.is (needs curl); review the diff and update the README dates
+make abusive-data               # refresh internal/abusive/snapshot.json from ipapi.is (needs curl); review the diff and update the dates in docs/abusive-networks.md
 ```
 
 - While iterating, run targeted tests without `-race`: the race detector roughly triples the cost.
@@ -87,8 +88,8 @@ once. A new command needs only `AddCommand`, an `Example` and its help annotatio
 the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
 keys of the CVE record and of the `nyx cve` envelope, and the keys of the `nyx ip` record and
 envelope are a stable interface**: adding one is
-compatible, renaming, removing or retyping one is a breaking change (README, "Exit codes" and
-"Console and JSON"). The default `nyx cve` selection broke this once, deliberately: it leaves out the
+compatible, renaming, removing or retyping one is a breaking change (`docs/exit-codes.md`
+and `docs/console-and-json.md`). The default `nyx cve` selection broke this once, deliberately: it leaves out the
 `affected_products` and `references` lists and has their counts instead (`--fields all` has both).
 
 **Stages** (`internal/run/stage.go`) implement `Name/Contact/Sources/Configured/Checks/Run`.
@@ -182,6 +183,10 @@ when it has rows, and is removed once it has none.
   `cli.Deps.Events` (a recorder that round-trips each event through JSON): `h.events()` returns them,
   plus a `summary` event made from the envelope on stdout. `h.envelope()` parses stdout as the real
   envelope, and `h.partial` asserts an exit 7.
+- Doc tests check the user guide's wording: `docsText` and `docsSection` (`internal/cli/helpers_test.go`)
+  read `README.md` and `docs/*.md` as one text, and a few packages read their own page (the favicon
+  list in `docs/web.md`, the built-in lists in `docs/lists-and-limits.md`). Moving a sentence between
+  pages is fine; moving it out of the `## ` section a test names is not.
 - Every test calls `t.Parallel()` first. A run sees only the harness's environment: set a variable
   with `h.setenv`, never `t.Setenv` or `os.Setenv` (Go forbids `t.Setenv` in a parallel test). The
   harness also sets `Deps.NoFsync`, as an fsync on macOS flushes the whole drive cache and
@@ -204,9 +209,8 @@ when it has rows, and is removed once it has none.
 - Australian English in docs, comments and messages ("authorised", "behaviour", "sanitise"). Support
   for US English should be included for all input, e.g. `--authorized` is accepted as a flag alias.
 - Specs live in `docs/specs/` (the `.claude/skills/spec-*` workflow). Each has `## Goal` and
-  `## Behaviours`, then a `# Design` section once planned. Code, comments, test names and file
-  names must never cite spec numbers or spec IDs; describe the behaviour instead.
-- CSV columns are read by people, not parsed by tools: change them freely, keeping `README.md`
+  `## Behaviours`, then a `# Design` section once planned.
+- CSV columns are read by people, not parsed by tools: change them freely, keeping `docs/output.md`
   accurate. Only the attribute JSON names in the state database must stay stable (renaming one
   breaks resume; see `internal/kinds/kinds.go`).
 - Commit messages use conventional prefixes (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`,

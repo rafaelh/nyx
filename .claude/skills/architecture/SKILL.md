@@ -68,7 +68,7 @@ Once the user picks a candidate, create a plan. Once tests exist at the deepened
 
 Ask each for what adding a typical feature would touch, alongside the interface and its trade-offs. Compare them, then give an opinionated recommendation (or a hybrid), not a menu. For straightforward cases, sketch alternatives inline instead.
 
-**Doc updates are plan outputs, not afterthoughts.** Before finalising, ask "what vocabulary does this change?" and name in the plan the updates to the doc comments of the packages that own the changed concepts. Also name any section of the agent instructions or `README.md` the refactor makes stale.
+**Doc updates are plan outputs, not afterthoughts.** Before finalising, ask "what vocabulary does this change?" and name in the plan the updates to the doc comments of the packages that own the changed concepts. Also name any section of the agent instructions or of the user guide (`README.md` and `docs/*.md`) the refactor makes stale.
 
 **ADRs.** If the user rejects a candidate for a reason a future reviewer would need, offer to record it so it isn't re-suggested.
 

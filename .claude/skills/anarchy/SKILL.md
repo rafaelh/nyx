@@ -19,7 +19,7 @@ sense as a direct consequence of the code's aim?
 ## Where to look
 
 A rule is pinned when something fails if it changes: usually a test, sometimes a doc that is treated
-as a contract (README, help text, agent instructions). Start from the statements of rules and check
+as a contract (README and docs/, help text, agent instructions). Start from the statements of rules and check
 what pins them.
 
 - Comments and docs that say "must", "never", "always" or "only".

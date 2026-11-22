@@ -48,6 +48,9 @@ and `spec-develop-worker` writes the code.
 
   A sub-agent never does this itself: it reports the failure.
 
+- **Code, comments, test names and file names must never cite spec numbers or spec IDs.** Describe
+  the behaviour instead.
+
 # Steps
 
 1. **Set up a worktree.** Only if `--wt` was passed; without the flag, skip this step.
