@@ -36,6 +36,8 @@ make eol-data                   # refresh internal/eol/data from endoflife.date 
   first-party package may import `os/exec`. Stages get `egress.Clients` and egress's own result
   types, never `net/*` types. Test files may use `net` (fake servers);
   `internal/egress/egresstest` is the fake DNS server.
+- **Key tests contact sources only.** `nyx setup`'s key test sends one request to the tested
+  source's host and never to a target; `keycheck.Run` builds its egress client with that one host.
 - **Passive boundary.** Target-owned systems may only receive DNS lookups, TCP handshakes (read the
   unprompted banner, send nothing) and HTTP GET/HEAD to in-scope hosts. Egress enforces this
   through a `Policy` the runner rebuilds whenever the scope changes. Candidates and excluded
@@ -60,6 +62,14 @@ and the human renderers take a stream where they once took a depth.
 `nyx cve` skips the runner: `internal/cli/cve.go` (flags, stdin, the worker pool, the writing) →
 `internal/cve` (the CVE record and its field table, the NVD client with its sliding window, the human
 layout and the batch outcome), which reaches the NVD through `egress`'s third-party client.
+`nyx setup` skips it too: `internal/cli/setup.go` (the checks that exit 2, then the wiring) →
+`internal/setup` (the Bubble Tea model: tabs, text field, dialogs, change tracking; it does no I/O and
+gets a `setup.Backend`, defined in `backend.go`) → `internal/configedit` (the YAML document that keeps
+comments and order, `Save`, and the `Store` that implements the Backend's file side) and
+`internal/keycheck` (one authenticated request to one source's host, through egress's third-party
+client with no `Policy`; the NVD's status rules are shared with `nyx cve` through `cve.Meaning`).
+`config.Check` parses and checks a file's bytes, which `Load` calls too. Setup reads the file with no
+`NYX_*` variable and no `NVD_API_KEY`.
 `nyx ip` skips it too: `internal/cli/ip.go` (flags, stdin and the writing) → `internal/iplookup`
 (the inputs, the sources, active probing, the record and its field table, the outcome and the
 render), which reaches third parties and DNS through `egress` with no `Policy`, and the targets
@@ -176,6 +186,12 @@ when it has rows, and is removed once it has none.
   be parallel, and says so with a `//nolint:paralleltest` and its reason (lint enforces the rest,
   and forbids `os.Getenv`, `t.Setenv` and `os.Setenv`). A test that starts a child process (`startChild`) is a subtest of the
   non-parallel `TestChildProcesses`, because a fork can briefly hold another test's engagement lock. Give a slow table test's subtests `t.Parallel()` when each builds its own world.
+- `nyx setup` tests send keys as scripted stdin (`harness.setup`: one chunk per key press, paced so each
+  gets its own frame, because the Program draws about every 17 ms) with `StdinIsTTY` and the window size
+  faked. `pty_linux_test.go` runs the real child on a pseudo-terminal and checks termios, the alt screen
+  and the error order; it is Linux-only, as macOS opens a pty with different ioctls. The harness gives
+  every run an empty default config file, so the no-config hint is not printed; a test of the hint
+  removes it.
 - `crash_test.go` re-executes the test binary as a child process (`NYX_TEST_CHILD=1`) and uses
   `internal/fault` crash points (`NYX_FAULT=<point>`, such as `in-check-tx`, `after-commit`,
   `in-flight` or `render-mid-file`) to kill the process at known moments and verify resume and atomic output.

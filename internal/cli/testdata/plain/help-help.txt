@@ -3,6 +3,7 @@ Examples:
   nyx ip 1.1.1.1 --json
   nyx recon example.com --json --timeout 30m
   nyx recon export -e example.com --json
+  nyx setup
 
 nyx is passive-first reconnaissance for authorised engagements. Every command takes the shared
 flags, and each command's own flags follow its name.
@@ -66,6 +67,12 @@ recon export flags:
       --output-dir string   Directory in which engagement directories are created (default ".")
       --config string       Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
 Kinds accepted by --kind: asn, candidate_rank, code_mention, dns_claim, email_posture, excluded, finding, historical_address, hostname, http_port, ip, ip_hostname, ip_owner, netblock, open_port, organisation, origin_check, port_check, provider_range, registration, reported_port, resolution, root, script, script_parsed, sensitive_hit, server_address, shodan_netblock, storage, storage_account, storage_object, storage_ref, takeover_http, third_party, unresolved, url, web_identifier, web_posture, web_service, wildcard, input, exclusion
+
+nyx setup [flags]
+  Store API keys and common settings in the config file, and test the keys
+  Example: nyx setup
+setup flags:
+      --config string   Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
 
 Help:
   nyx help findings    Finding types and their default severities

@@ -179,7 +179,7 @@ func TestIP_WritesNoFiles(t *testing.T) {
 	w.seed("8.8.4.4")
 	w.h.setenv("NYX_OUTPUT_DIR", w.h.out)
 	cfg := w.h.env["XDG_CONFIG_HOME"]
-	before := listing(".")
+	before, cfgBefore := listing("."), listing(cfg) // the harness leaves an empty config file there
 	for _, args := range [][]string{{"8.8.4.4"}, {"8.8.4.4", "https://example.com/x"}, {"8.8.4.4", "--fields", "ptr"}} {
 		for _, jsonMode := range modes {
 			args := slices.Clone(args)
@@ -192,8 +192,8 @@ func TestIP_WritesNoFiles(t *testing.T) {
 	if got := listing(w.h.out); got != "" {
 		t.Errorf("the output directory holds %q", got)
 	}
-	if got := listing(cfg); got != "" {
-		t.Errorf("the configuration directory holds %q", got)
+	if got := listing(cfg); got != cfgBefore {
+		t.Errorf("the configuration directory changed:\nbefore %q\nafter  %q", cfgBefore, got)
 	}
 	if got := listing("."); got != before {
 		t.Errorf("the working directory changed:\nbefore %q\nafter  %q", before, got)

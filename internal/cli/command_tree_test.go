@@ -184,7 +184,7 @@ func lastLine(s string) string {
 	return lines[len(lines)-1]
 }
 
-// The root help is the whole reference: examples that pass --json, every
+// The root help is the whole reference: examples that pass --json (nyx setup's is the exception), every
 // command with its everyday flags, an example and the values of its fixed-set
 // flags, and the exit codes; recon's tuning settings are only in recon's own.
 func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
@@ -195,6 +195,9 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 	}
 	help := h.stdout.String()
 	for _, l := range exampleLines(t, help) {
+		if strings.TrimSpace(l) == "nyx setup" {
+			continue // an editor on a terminal: --json changes only its error, so its example has none
+		}
 		if !strings.HasPrefix(strings.TrimSpace(l), "nyx ") || !strings.Contains(l, "--json") {
 			t.Errorf("example %q is not a nyx call that passes --json", l)
 		}

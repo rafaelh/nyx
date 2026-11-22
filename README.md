@@ -53,6 +53,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 
 - **`nyx recon [domain...] [flags]`** runs an engagement: everything below. **`nyx recon export`**
   writes what an engagement holds as JSON lines (see [Exporting an engagement](#exporting-an-engagement)).
+- **`nyx setup`** opens a full-screen terminal editor for the config file: your API keys, the output
+  directory and the common settings (see [Setup](#setup)). It needs a terminal.
 - **`nyx cve <CVE-ID>... [flags]`** looks CVEs up in the NVD by CVE ID (see [CVE lookup](#cve-lookup)).
   It needs no engagement and no authorisation, and writes no files.
 - **`nyx ip <input>... [flags]`** looks up who runs an IP address, where it is, what it is called and
@@ -79,8 +81,9 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
   command: one placed before it exits 2 with the same call, the command moved first, as the hint.
 - **Flags are spelt in full.** An abbreviation (`--pass` for `--passive`) is an unknown flag;
   `--authorized` is the one alias.
-- **No prompts, no stdin.** No command asks a question, and none loads a `.env` file: the
-  environment is the one you gave it. Only `nyx cve` and `nyx ip`, given a lone `-`, read stdin.
+- **Prompts and stdin.** Only `nyx setup` asks anything, in its full-screen editor, and it needs a
+  terminal for stdin and stdout. No command loads a `.env` file: the environment is the one you
+  gave it. Otherwise only `nyx cve` and `nyx ip`, given a lone `-`, read stdin.
 - **Version.** `nyx --version` prints the version; every HTTP request nyx makes carries
   `nyx/<version>` (`nyx/devel` for a build with no version) as its User-Agent.
 
@@ -114,7 +117,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 
 - **Config file:** `$XDG_CONFIG_HOME/nyx/config.yaml`, which defaults to
   `~/.config/nyx/config.yaml`. Use `--config <file>` to choose another. Unknown keys are
-  rejected.
+  rejected. `nyx setup` edits keys and the common settings for you (see [Setup](#setup)); NYX_*
+  environment variables and NVD_API_KEY still override what nyx setup saves.
 - **Precedence:** flags override `NYX_*` environment variables, which override the file. An
   environment variable is `NYX_<UPPER_SNAKE>` with `.` replaced by `_`, for example
   `NYX_RATE_PER_HOST` and `NYX_CRAWL_MAX_DEPTH`.
@@ -181,6 +185,63 @@ keys:
 ```sh
 NYX_KEYS_SHODAN=your-shodan-key nyx recon example.com
 ```
+
+## Setup
+
+`nyx setup` is a full-screen terminal editor for one config file: the one `--config` names, or the
+default (`$XDG_CONFIG_HOME/nyx/config.yaml`, else `~/.config/nyx/config.yaml`). Use it once after
+installing, and again to add, rotate or remove a key. `nyx recon` and `nyx cve` then use what it
+saved. It takes no arguments.
+
+- **Keys tab.** Lists `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos`,
+  `github`, `certspotter` and `nvd`, with what each turns on (Cert Spotter also works without one). A
+  key of 12 or more characters is shown as `••••` and its last 4 characters; a shorter one shows only
+  `set`; an unset one shows `not set`. A key is never shown in full, in an error or after setup exits.
+  Enter types or pastes a key (one `•` per character), `x` or Delete clears it, and an entry that is
+  empty after trimming is a clear. Keys for sources nyx does not know are kept as they are and not
+  listed.
+- **Settings tab.** `output_dir`, `concurrency`, `rate.per_host`, `rate.per_source`, `rate.dns`,
+  `wordlist` and `sensitive_paths`, each with its value in the file or its default. A value is
+  checked as you enter it, with the same rules and messages `nyx recon` gives for the file, and an
+  invalid one is not accepted. An empty value clears the setting, so its default applies. A relative
+  `output_dir`, `wordlist` or `sensitive_paths` is saved as an absolute path, against the directory
+  you ran setup from; `~/` and `~` are kept as typed. An unset `output_dir`, and any relative path
+  already in the file, is shown as resolving against the directory nyx is later run from.
+- **Skip tab.** Toggles the stages the `skip` setting turns off, each with its one-line description
+  (as in `nyx help stages`); stages that cannot be skipped are not offered. An entry in the file that
+  is unknown or cannot be skipped is listed with its message and can be removed on its own.
+- **Testing a key.** `t` tests the key on the selected row, saved or not: one authenticated request
+  to that source, never to a target (the hosts are listed under [Passive boundary](#passive-boundary)).
+  It shows `accepted`, `rejected`, or `could not check: <reason>` for a rate limit, exhausted credits,
+  a network failure or any other answer, and gives up after 15 seconds. Editing or clearing the key
+  removes the result. A key test may spend a query: VirusTotal and Censys count it against their
+  quota.
+- **Saving.** Edits are held until `ctrl+s`. Quitting (`q`, `esc` or `ctrl+c`) with unsaved
+  changes asks whether to save, discard or go back; quitting with none writes nothing. A save changes
+  only the values you edited and keeps every other setting, comment and their order (blank lines are
+  lost). It creates the file and any missing directories, readable only by you, and tightens a
+  broader file's permissions; if the path is a symlink, the file it points to is updated. A crash
+  during a save leaves the old file or the new one. If a save fails, setup stays open with your
+  edits and the reason. If the file changed on disk since setup read it, saving offers to reload
+  (discarding your edits) or overwrite.
+- **A file that cannot be edited.** A missing file opens at the defaults and is created on save. A
+  file that cannot be read or parsed, or holds an unknown key, exits 2 with the problems `nyx recon`
+  reports for it; one that parses but holds an invalid value opens with that value marked, and saving
+  is blocked until it is fixed or cleared.
+- **What it ignores.** `NYX_*` environment variables and `NVD_API_KEY` still override what
+  `nyx setup` saves, and setup neither shows nor edits them: it edits the file only.
+- **Exit codes.** 0 after a save, a discard or no change. It exits 2, before drawing anything, when
+  there is no `--config` and no default path (neither `XDG_CONFIG_HOME` nor `HOME` is set), when it
+  is given an argument, when stdin or stdout is not a terminal (error code `INVALID_INPUT`, with the
+  file's path and a hint to edit it by hand), and when the file cannot be read, parsed or holds an
+  unknown key. SIGTERM and SIGHUP exit 143 and 129 with the file as it was, or fully saved when a
+  save was already under way. The terminal is restored on every exit. `nyx setup --help` works when
+  piped.
+- **The hint.** When no config file exists at the default path and `--config` is not given,
+  `nyx recon` (a run, not `nyx recon export`) and `nyx cve` print one line on stderr, `hint: no config
+  file at <path>; run nyx setup to store API keys and settings`. It is not printed under `--json`
+  or `--quiet`, or when the command fails with a usage error, and it changes nothing else about the
+  call.
 
 ## Passive boundary
 
@@ -284,6 +345,12 @@ single-label name, a name the public resolvers do not know (tried again there), 
 non-public address. They go wherever that resolver sends them, which may be a public resolver that
 nyx cannot see; nyx never sends a non-public address to a public resolver itself, but your resolver
 may forward it. Without `--active`, none of these lookups is made.
+
+`nyx setup` contacts a source only to test a key you ask it to test, with one authenticated request
+to that source alone and never to a target: `api.securitytrails.com`, `api.shodan.io`,
+`www.virustotal.com`, `user.whoisxmlapi.com`, `api.platform.censys.io`, `dns.projectdiscovery.io`,
+`api.github.com`, `api.certspotter.com` and `services.nvd.nist.gov`. A key test may spend a query
+from the source's quota (VirusTotal and Censys do).
 
 All network access goes through one package. On every supported platform, a test fails if any other
 package imports a network package or `syscall`, or uses `golang.org/x/sys/unix` for anything other
@@ -1685,7 +1752,7 @@ Every command uses the same exit codes:
 |---|---|---|
 | 0 | Success: the run did all its work and no check failed. A `not-configured` stage, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
 | 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` |
-| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx cve`, no IDs, or only malformed ones; for `nyx ip`, no inputs, only invalid ones, or more than 256 addresses (when hostnames gave them, only their DNS lookups were sent). Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
+| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx setup`, an argument, no `--config` and no default config path, no terminal on stdin or stdout (it names the file and says to edit it by hand), or a config file that cannot be read or parsed or holds an unknown key; for `nyx cve`, no IDs, or only malformed ones; for `nyx ip`, no inputs, only invalid ones, or more than 256 addresses (when hostnames gave them, only their DNS lookups were sent). Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
 | 3 | Not found: an engagement that does not exist, no CVE ID the NVD holds, or for `nyx ip` only names that do not resolve | `NOT_FOUND` |
 | 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes; the same for a `nyx ip` call and its inputs (a quota failure never counts, see [IP lookup](#ip-lookup)) | `PARTIAL` |
 | 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |

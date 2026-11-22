@@ -116,6 +116,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 		report.Sheet(d.Stdout, inv.helpStream(), d.Clock().In(d.Location))
 		return nil
 	}
+	inv.noteNoConfig(o.configPath)
 	probs := inv.problems()
 	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, d.Env, probs)
 	timeout := reconTimeout(probs, cmd, o.timeout)
@@ -304,17 +305,30 @@ var unskippable = []string{"resolve", "wildcard", "ipowner", "providerranges"}
 // validateSkip records a problem for each --skip (or skip setting) that names an unknown stage, a
 // stage that is also being redone, or a stage that cannot be skipped.
 func validateSkip(probs *clierr.Problems, skip []string, redo string, names []string) {
-	skippable := "stages that can be skipped: " + strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool {
-		return slices.Contains(unskippable, s)
-	}), ", ")
 	for _, n := range skip {
-		switch {
-		case !slices.Contains(names, n):
-			probs.Add("skip", n, fmt.Sprintf("unknown stage %q for --skip or the skip setting", n), "valid stages: "+strings.Join(names, ", "))
-		case n == redo:
-			probs.Add("skip", n, fmt.Sprintf("stage %q is named in both --redo and --skip", n), skippable)
-		case slices.Contains(unskippable, n):
-			probs.Add("skip", n, fmt.Sprintf("stage %q cannot be skipped: other stages' safety depends on it", n), skippable)
+		if msg, hint := skipProblem(n, redo, names); msg != "" {
+			probs.Add("skip", n, msg, hint)
 		}
 	}
+}
+
+// skipProblem is why stage n cannot be skipped, with its hint, or "" when it can: it is unknown, it
+// is the stage being redone (redo "" for none), or other stages' safety depends on it.
+func skipProblem(n, redo string, names []string) (msg, hint string) {
+	switch {
+	case !slices.Contains(names, n):
+		return fmt.Sprintf("unknown stage %q for --skip or the skip setting", n), "valid stages: " + strings.Join(names, ", ")
+	case n == redo:
+		return fmt.Sprintf("stage %q is named in both --redo and --skip", n), skippableHint(names)
+	case slices.Contains(unskippable, n):
+		return fmt.Sprintf("stage %q cannot be skipped: other stages' safety depends on it", n), skippableHint(names)
+	}
+	return "", ""
+}
+
+// skippableHint lists the stages that can be skipped.
+func skippableHint(names []string) string {
+	return "stages that can be skipped: " + strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool {
+		return slices.Contains(unskippable, s)
+	}), ", ")
 }

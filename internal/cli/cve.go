@@ -82,6 +82,7 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	warning, wrote := "", false
 	defer func() { err = withWarning(err, warning, helpOf(cmd), wrote) }()
 
+	inv.noteNoConfig(o.configPath)
 	probs := inv.problems()
 	fs := cmd.Flags()
 	fields, unknown := cve.Select(o.fields)

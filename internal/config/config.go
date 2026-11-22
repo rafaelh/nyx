@@ -508,10 +508,30 @@ type rawSettings struct {
 // masked); a caller must not use them for a run.
 func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	var probs clierr.Problems
+	path, data, haveFile := readConfigFile(configPath, env, &probs)
+	return check(data, haveFile, path, fs, env, probs)
+}
+
+// Check parses and checks the bytes of one config file as Load does for that file with no flags:
+// the NYX_* variables of env apply, and every problem is reported together, named by setting key
+// (a problem with the file as a whole is named "config" and names path). The settings are returned
+// even when there are problems, as Load returns them. Empty data is an empty file.
+func Check(data []byte, path string, env Env) (Settings, error) {
+	return check(data, true, path, nil, env, nil)
+}
+
+// check is Load and Check: probs holds what reading the file already found, haveFile whether data
+// is a file's content, and fs (nil for none) the flags.
+func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, probs clierr.Problems) (Settings, error) {
 	d := Defaults()
 	v := viper.New()
 	setDefaults(v, d)
-	path := readConfigFile(v, configPath, env, &probs)
+	if haveFile {
+		v.SetConfigType("yaml")
+		if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
+			probs.Add("config", path, FileReadMessage(path, err), "")
+		}
+	}
 	bindFlags(v, fs, &probs)
 	// Viper ranks its config layer above the file it read and below the flags, which is where the
 	// NYX_* variables go.
@@ -571,21 +591,29 @@ func setDefaults(v *viper.Viper, d Settings) {
 	}
 }
 
-// readConfigFile reads the config file into v and returns its path: configPath, or the default
-// location when it is "". The default file is optional; an explicit one must exist.
-func readConfigFile(v *viper.Viper, configPath string, env Env, probs *clierr.Problems) string {
+// readConfigFile reads the config file and returns its path (configPath, or the default location
+// when it is "") and its bytes. The default file is optional; an explicit one must exist. A file
+// that cannot be read is a problem named "config", and haveFile is false.
+func readConfigFile(configPath string, env Env, probs *clierr.Problems) (path string, data []byte, haveFile bool) {
 	path, explicit := configPath, configPath != ""
 	if !explicit {
 		path = DefaultConfigPath(env)
 	}
 	if _, err := os.Stat(path); explicit || (path != "" && err == nil) {
-		v.SetConfigFile(path)
-		v.SetConfigType("yaml")
-		if err := v.ReadInConfig(); err != nil {
-			probs.Add("config", path, fmt.Sprintf("config file %s: %v", path, errText(err)), "")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			probs.Add("config", path, FileReadMessage(path, err), "")
+			return path, nil, false
 		}
+		return path, data, true
 	}
-	return path
+	return path, nil, false
+}
+
+// FileReadMessage is the message for a config file that could not be read or parsed, as Load and
+// Check give it.
+func FileReadMessage(path string, err error) string {
+	return fmt.Sprintf("config file %s: %v", path, ErrorText(err))
 }
 
 // bindFlags binds the flags in fs (nil for none) to their settings, so a flag that was set wins.
@@ -708,14 +736,14 @@ func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 	if s.Wordlist == "" {
 		s.WordlistWords = slices.Clone(builtinWordlist())
 	} else if b, err := os.ReadFile(s.Wordlist); err != nil {
-		c.bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
+		c.bad("wordlist", s.Wordlist, "cannot read file: "+ErrorText(err))
 	} else if s.WordlistWords, err = input.ParseList(bytes.NewReader(b)); err != nil {
-		c.bad("wordlist", s.Wordlist, "cannot read file: "+errText(err))
+		c.bad("wordlist", s.Wordlist, "cannot read file: "+ErrorText(err))
 	}
 	if s.SensitivePaths == "" {
 		s.SensitivePathEntries = slices.Clone(builtinSensitivePaths())
 	} else if b, err := os.ReadFile(s.SensitivePaths); err != nil {
-		c.bad("sensitive_paths", s.SensitivePaths, "cannot read file: "+errText(err))
+		c.bad("sensitive_paths", s.SensitivePaths, "cannot read file: "+ErrorText(err))
 	} else if s.SensitivePathEntries, err = parseSensitivePaths(b); err != nil {
 		c.bad("sensitive_paths", s.SensitivePaths, err.Error())
 	}
@@ -724,22 +752,27 @@ func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 // parseSkip normalises the skip list: names are trimmed, lower-cased and de-duplicated, and "none"
 // alone gives an empty list. "none" beside a stage name is a contradiction, not something to guess.
 func parseSkip(items []string) ([]string, error) {
-	var out []string
-	none := false
+	out, none := SkipNames(items)
+	if none && len(out) > 0 {
+		return nil, fmt.Errorf("%q cannot be combined with stage names", skipNone)
+	}
+	return out, nil
+}
+
+// SkipNames are the stage names of the skip list items, as Load reads them: trimmed, lower-cased
+// and de-duplicated, without empty items or "none". none is whether "none" was among them.
+func SkipNames(items []string) (names []string, none bool) {
 	for _, it := range items {
 		it = strings.ToLower(strings.TrimSpace(it))
 		switch {
 		case it == "":
 		case it == skipNone:
 			none = true
-		case !slices.Contains(out, it):
-			out = append(out, it)
+		case !slices.Contains(names, it):
+			names = append(names, it)
 		}
 	}
-	if none && len(out) > 0 {
-		return nil, fmt.Errorf("%q cannot be combined with stage names", skipNone)
-	}
-	return out, nil
+	return names, none
 }
 
 // envSettings are the NYX_* variables in env for the settings in keys, as a nested map for viper:
@@ -779,9 +812,64 @@ func expandHome(p, home string) string {
 	return filepath.Join(home, p[1:])
 }
 
-func errText(err error) string {
+// ExpandHome is p with a leading "~" or "~/" replaced by the home directory in env, as Load does
+// for output_dir, wordlist and sensitive_paths; "~user" forms, and every path when env has no
+// home, are left as they are.
+func ExpandHome(p string, env Env) string { return expandHome(p, env.home()) }
+
+// DefaultText is the default of a setting as the config file would hold it ("10" for concurrency,
+// "5" for rate.per_host), or the built-in list's label for wordlist and sensitive_paths. It is ""
+// for a key it does not know.
+func DefaultText(key string) string {
+	switch key {
+	case "wordlist":
+		return BuiltinWordlistLabel()
+	case "sensitive_paths":
+		return BuiltinSensitivePathsLabel()
+	}
+	return SettingText(Defaults(), key)
+}
+
+// SettingText is the value of the setting named key in s as the config file would hold it: a path
+// as it is, a number in its shortest form. It is "" for a key it does not know.
+func SettingText(s Settings, key string) string {
+	f := func(x float64) string { return strconv.FormatFloat(x, 'f', -1, 64) }
+	switch key {
+	case "output_dir":
+		return s.OutputDir
+	case "wordlist":
+		return s.Wordlist
+	case "sensitive_paths":
+		return s.SensitivePaths
+	case "concurrency":
+		return strconv.Itoa(s.Concurrency)
+	case "rate.per_host":
+		return f(s.Rate.PerHost)
+	case "rate.per_source":
+		return f(s.Rate.PerSource)
+	case "rate.dns":
+		return f(s.Rate.DNS)
+	}
+	return ""
+}
+
+// FileOnlyEnv is env without the variables that override the config file (the NYX_* variables and
+// NVD_API_KEY), so that what Load or Check returns for a file is what the file holds.
+func FileOnlyEnv(env Env) Env {
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return strings.HasPrefix(name, "NYX_") || name == "NVD_API_KEY"
+	})
+}
+
+// ErrorText is err's text without the operation and file names an os error carries, which are
+// often a temporary file's.
+func ErrorText(err error) string {
 	if pe, ok := errors.AsType[*os.PathError](err); ok {
 		return pe.Err.Error()
+	}
+	if le, ok := errors.AsType[*os.LinkError](err); ok {
+		return le.Err.Error()
 	}
 	return err.Error()
 }

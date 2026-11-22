@@ -58,7 +58,8 @@ Confirm each with `/code-review` before fixing.
 
 - **Provider "fronts a site" rule.** Give the provider data its own rule.
 
-- **Shared helpers.** Shared hash and atomic-write helpers; shared test fixtures, including a scope
+- **Shared helpers.** Shared hash and atomic-write helpers (the engagement's and the output
+  files' writers, and `configedit.Save`, which is the third); shared test fixtures, including a scope
   builder in `testkit` and the copied test helper that strips escapes.
 
 - **Numeric port order.** Sort `OpenPorts` with `AddrPort.Compare`. Changes the order users see

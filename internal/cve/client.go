@@ -182,11 +182,11 @@ func (c *Client) attempt(ctx context.Context, id string) attempted {
 		a.retry = retry
 		return a
 	}
-	switch s := resp.Status; {
-	case s == 401, (s == 403 || s == 404) && strings.Contains(strings.ToLower(message+" "+string(resp.Body)), "apikey"):
+	switch s, meaning := resp.Status, Meaning(resp.Status, message, resp.Body); {
+	case meaning == KeyRefused:
 		c.stop.Store(true) // the first refused key stops the batch
 		a.fail = c.refused().Err
-	case s == 403, s == 429:
+	case meaning == RateLimited:
 		a.retry, a.rateLimit = true, true
 		a.fail = &clierr.Error{Code: clierr.RateLimited, Message: fmt.Sprintf("the NVD refused the request for its rate limit (HTTP %d)", s), Transient: true}
 	case s == 502, s == 503, s == 504:
@@ -197,6 +197,33 @@ func (c *Client) attempt(ctx context.Context, id string) attempted {
 		return upstream(false, false)
 	}
 	return a
+}
+
+// Answer is what an NVD answer other than a 200 says about the request.
+type Answer int
+
+const (
+	// Other is any answer that says nothing about the key or the rate.
+	Other Answer = iota
+	// KeyRefused is an answer that refuses the API key: a 401, or a 403 or 404 naming the apiKey.
+	KeyRefused
+	// RateLimited is an answer that refuses the request for its rate: a 429, or a 403 that does
+	// not name the key.
+	RateLimited
+)
+
+// Meaning is what the NVD's answer to a request means. message is the answer's "message" header
+// and body its body, either of which may name the key. A 404 that does not name the key is
+// Other, never "not found": the NVD answers a refused parameter that way.
+func Meaning(status int, message string, body []byte) Answer {
+	named := func() bool { return strings.Contains(strings.ToLower(message+" "+string(body)), "apikey") }
+	switch {
+	case status == 401, (status == 403 || status == 404) && named():
+		return KeyRefused
+	case status == 403, status == 429:
+		return RateLimited
+	}
+	return Other
 }
 
 // decode reads a 200's body: the record, or not found when the NVD holds no

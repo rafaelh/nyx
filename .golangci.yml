@@ -75,7 +75,7 @@ linters:
     rules:
       # These tests start child processes (the crash tests' nyx, the boundary test's go list), which
       # need the process environment, not a run's.
-      - path: internal/(cli/crash_test|egress/boundary_test)\.go
+      - path: internal/(cli/(crash_test|setup_child_test|pty_linux_test)|egress/boundary_test)\.go
         linters: [forbidigo]
       # A named subtest body, or a test callback passed to a table or a forEach helper, is the test
       # itself: t.Helper there would point a failure at the loop that calls it.

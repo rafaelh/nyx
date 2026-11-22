@@ -27,6 +27,9 @@ func TestMain(m *testing.M) {
 	if os.Getenv("NYX_TEST_CHILD") == "1" {
 		os.Exit(childMain())
 	}
+	if os.Getenv("NYX_TEST_SETUP_CHILD") == "1" {
+		os.Exit(setupChildMain())
+	}
 	os.Exit(m.Run())
 }
 
@@ -280,6 +283,7 @@ func TestChildProcesses(t *testing.T) { //nolint:paralleltest // its subtests fo
 		{"StdinIsNotRead", testStdinIsNotRead},
 		{"Signals_InterruptedRunWritesChanges", testSignalsInterruptedRunWritesChanges},
 		{"TimeoutInAChildProcess", testTimeoutInAChildProcess},
+		{"SetupOnAPty", testSetupOnAPty},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

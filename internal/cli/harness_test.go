@@ -45,6 +45,11 @@ type harness struct {
 	version                  string
 	env                      map[string]string // the environment cli.Execute sees; see setenv
 	stdin                    io.Reader         // nil means an empty one
+	stdinTTY                 bool              // whether stdin is a terminal, as nyx setup asks
+	winW, winH               int               // the window size nyx setup draws in; 0 means none
+	cwd                      string            // the working directory nyx reports; "" means the process's
+	getwdPanicAfter          int               // when positive, the call of Getwd after this many panics, to force a panic in nyx setup
+	getwdCalls               atomic.Int32
 
 	stdout, stderr bytes.Buffer
 	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
@@ -62,6 +67,14 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 	// change a result and tests can run in parallel.
 	cfgHome := t.TempDir()
 	env := map[string]string{"TERM": "xterm", "XDG_CONFIG_HOME": cfgHome, "HOME": cfgHome}
+	// A user who has set nyx up has a config file, so a run does not hint at nyx setup. A test of
+	// that hint removes it.
+	if err := os.MkdirAll(filepath.Join(cfgHome, "nyx"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgHome, "nyx", "config.yaml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	h := &harness{t: t, out: t.TempDir(), stages: stages, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), loc: time.UTC, env: env}
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -122,7 +135,20 @@ func (h *harness) deps() cli.Deps {
 		NoFsync:     true,
 		Events:      &h.rec,
 		Stdin:       h.stdin,
+		StdinIsTTY:  func() bool { return h.stdinTTY },
+		WindowSize:  func() (int, int) { return h.winW, h.winH },
+		Getwd:       h.getwd,
 	}
+}
+
+func (h *harness) getwd() (string, error) {
+	if n := h.getwdCalls.Add(1); h.getwdPanicAfter > 0 && int(n) > h.getwdPanicAfter {
+		panic("forced panic in Getwd")
+	}
+	if h.cwd != "" {
+		return h.cwd, nil
+	}
+	return os.Getwd()
 }
 
 // setenv sets a variable in the environment of the runs that follow. To nyx, "" is the same as

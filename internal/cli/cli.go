@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -28,6 +29,7 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/sanitize"
 	"github.com/rafaelh/nyx/internal/stages/asn"
 	"github.com/rafaelh/nyx/internal/stages/dns"
 	"github.com/rafaelh/nyx/internal/stages/dnshistory"
@@ -72,9 +74,17 @@ type Deps struct {
 	// Events, when set, also receives every event of a recon run, as the console would see it
 	// (redacted). Only tests set it, to read the events that --json no longer writes.
 	Events report.Emitter
-	// Stdin is read only by a lookup command given a lone "-" (nyx cve, nyx ip); nil means an
-	// empty one.
+	// Stdin is read by a lookup command given a lone "-" (nyx cve, nyx ip), and is the terminal's
+	// input for nyx setup; nil means an empty one.
 	Stdin io.Reader
+	// StdinIsTTY reports whether Stdin is a terminal, which nyx setup needs; nil means false.
+	StdinIsTTY func() bool
+	// WindowSize is the size in cells of the terminal nyx setup draws in, for a Stdout that the
+	// terminal library cannot size itself (a test's buffer); nil means the library asks Stdout.
+	WindowSize func() (width, height int)
+	// Getwd is the directory nyx was run from, which nyx setup resolves relative paths against;
+	// nil means os.Getwd.
+	Getwd func() (string, error)
 }
 
 // DefaultDeps returns the production dependencies, except Signals, which only
@@ -91,6 +101,8 @@ func DefaultDeps() Deps {
 		Clock:       time.Now,
 		Env:         os.Environ(), //nolint:forbidigo // main reads the process environment once, into Deps.Env
 		Stdin:       os.Stdin,
+		StdinIsTTY:  func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+		Getwd:       os.Getwd,
 	}
 }
 
@@ -147,6 +159,12 @@ func withDefaults(d Deps) Deps {
 	}
 	if d.Stdin == nil {
 		d.Stdin = strings.NewReader("")
+	}
+	if d.StdinIsTTY == nil {
+		d.StdinIsTTY = func() bool { return false }
+	}
+	if d.Getwd == nil {
+		d.Getwd = os.Getwd
 	}
 	return d
 }
@@ -214,12 +232,22 @@ type invocation struct {
 	cmd *cobra.Command // the command that ran, for the default hint
 	err error          // what it returned
 
+	// rawOut is Deps.Stdout as the caller gave it, before the margin wraps it. A full-screen
+	// command needs the terminal itself, not the wrapped writer.
+	rawOut io.Writer
+	// hintNoConfig is the default config path to suggest nyx setup for, set by a command that read
+	// no config file because there is none ("" for no hint).
+	hintNoConfig string
+
 	mu            sync.Mutex
 	interruptHint string // what to do after a signal, set by the command
+	// beforeHardExit, when set, runs before the process exits on a second signal, so a command
+	// that has taken over the terminal can give it back.
+	beforeHardExit func()
 }
 
 func newInvocation(d Deps, args []string) *invocation {
-	inv := &invocation{d: d, args: args, raw: scanShared(args), mg: &margin{}}
+	inv := &invocation{d: d, args: args, raw: scanShared(args), mg: &margin{}, rawOut: d.Stdout}
 	inv.st = streams{out: newStream(d.StdoutIsTTY, d.Env, d.StdoutWidth), err: newStream(d.StderrIsTTY, d.Env, d.StderrWidth)}
 	// The pre-scan decides --json: a value refused later still leaves the streams as they were.
 	inv.d.Stdout = inv.mg.wrap(d.Stdout, inv.st.out.Terminal && !inv.raw.json)
@@ -249,6 +277,12 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	defer cancel()
 	sigs := watchSignals(inv.d.Signals, cancel, func(s os.Signal) {
 		// A second signal: exit at once, the one exit outside main.
+		inv.mu.Lock()
+		before := inv.beforeHardExit
+		inv.mu.Unlock()
+		if before != nil {
+			before() // the terminal is given back before any error is written
+		}
 		inv.fw.write(inv.interruptError(s))
 		inv.mg.close()
 		os.Exit(signalOf(s).code)
@@ -256,6 +290,7 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	defer sigs.stop()
 
 	err := inv.execute(runCtx)
+	inv.writeNoConfigHint(err)
 	if err == nil {
 		return 0
 	}
@@ -274,6 +309,42 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	e := inv.toError(err)
 	inv.fw.write(e)
 	return clierr.ExitCode(e.Code)
+}
+
+// noConfigHint is the line that suggests nyx setup, for the path of the config file that is absent.
+func noConfigHint(path string) string {
+	return "hint: no config file at " + sanitize.Line(path) + "; run nyx setup to store API keys and settings\n"
+}
+
+// noteNoConfig records the default config path for the hint when no --config was given, the
+// default path is known and there is no file at it.
+func (inv *invocation) noteNoConfig(configPath string) {
+	if configPath != "" {
+		return
+	}
+	path := config.DefaultConfigPath(inv.d.Env)
+	if path == "" {
+		return
+	}
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		inv.hintNoConfig = path
+	}
+}
+
+// writeNoConfigHint writes the hint, once the command has returned and before any error line. It
+// stays out of a usage error, which the user is already fixing, and out of --json and --quiet. It
+// is not an event, so the events and stdout are as they would be without it.
+func (inv *invocation) writeNoConfigHint(err error) {
+	if inv.hintNoConfig == "" || inv.sh.json || inv.sh.quiet {
+		return
+	}
+	// A panic is never a usage error, and toError would write its stack under --debug, which
+	// Execute then writes again.
+	var pe *clierr.PanicError
+	if err != nil && !errors.As(err, &pe) && inv.toError(err).Code == clierr.InvalidInput {
+		return
+	}
+	_, _ = io.WriteString(inv.d.Stderr, noConfigHint(inv.hintNoConfig))
 }
 
 // execute builds the tree, classifies the arguments and runs the command. A

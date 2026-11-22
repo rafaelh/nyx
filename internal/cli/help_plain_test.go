@@ -29,6 +29,7 @@ var helpScreens = []struct {
 	{"recon", []string{"recon", "--help"}},
 	{"export", []string{"recon", "export", "--help"}},
 	{"cve", []string{"cve", "--help"}},
+	{"setup", []string{"setup", "--help"}},
 	{"help", []string{"help", "--help"}},
 	{"findings", []string{"help", "findings"}},
 	{"stages", []string{"help", "stages"}},
