@@ -172,7 +172,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	runner := run.New(run.Config{
 		Engagement: eng, Settings: settings, Stages: d.Stages, Egress: egress.New(eopts), Emitter: em,
 		Files: d.Files, Clock: d.Clock,
-		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync,
+		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync, Abusive: d.Abusive,
 	})
 
 	// The deadline is a timer that cancels, not a context deadline: a rate limiter would fail the

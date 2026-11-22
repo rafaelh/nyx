@@ -2,7 +2,7 @@
 # so it must not be exported for the whole Makefile.
 TARGETS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build dist test lint clean eol-data
+.PHONY: build dist test lint clean eol-data abusive-data
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o nyx ./cmd/nyx
@@ -51,3 +51,16 @@ eol-data:
 		mv internal/eol/data/$$p.json.tmp internal/eol/data/$$p.json; \
 	done; \
 	date -u +%Y-%m-%d > internal/eol/DATE
+
+# Refreshes the embedded snapshot of ipapi.is's most abusive networks and ASNs
+# (internal/abusive/snapshot.json): two requests to ipapi.is, one for each list's page. curl writes
+# each page to a file in a temporary directory, so that a failed download stops the target before
+# the parser runs, and the directory is removed however the target ends. The parser checks both
+# pages, prints what changed and replaces the snapshot as a whole, or not at all. Review the diff,
+# update the two dates in README.md (the summary says to) and commit. No nyx command contacts
+# ipapi.is.
+abusive-data:
+	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
+	curl -fsS --retry 3 -o "$$d/networks.html" https://ipapi.is/most-abusive-networks.html; \
+	curl -fsS --retry 3 -o "$$d/asns.html" https://ipapi.is/most-abusive-asn.html; \
+	go run ./internal/abusive/refresh -networks "$$d/networks.html" -asns "$$d/asns.html" -snapshot internal/abusive/snapshot.json

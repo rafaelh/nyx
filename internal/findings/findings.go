@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/input"
@@ -34,6 +35,10 @@ type Input struct {
 	Today       string // YYYY-MM-DD
 	Records     func(kinds.Named) []store.Record
 	Roots, Orgs []string
+	// Abusive is the snapshot of abusive networks and ASNs to check addresses against; nil checks none.
+	Abusive *abusive.Snapshot
+	// HistoryOnly reports whether DNS history alone names the address; nil means none is.
+	HistoryOnly func(netip.Addr) bool
 	// Vis, if set, is the Visibility of Scope and Inv to reuse, with the host
 	// decisions it has already made.
 	Vis *kinds.Visibility
@@ -71,6 +76,7 @@ func (d *deriver) findings() []Finding {
 	out = append(out, d.webPosture()...)
 	out = append(out, d.originExposure()...)
 	out = append(out, d.eolSoftware()...)
+	out = append(out, d.abusiveNetworks()...)
 	// Sorted and deduplicated by key, each key built once.
 	type keyed struct {
 		key string

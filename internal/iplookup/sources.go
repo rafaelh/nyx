@@ -14,10 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/provider"
 )
@@ -344,7 +346,7 @@ func (s *state) rdap(ctx context.Context, rec *Record, addr netip.Addr) *Failure
 	if !found {
 		return nil
 	}
-	block, registry := Netblock(reg.Start, reg.End), reg.Registry
+	block, registry := input.RangeText(reg.Start, reg.End), reg.Registry
 	rec.RDAPNetblock, rec.RDAPRegistry = &block, &registry
 	if reg.Registrant != "" {
 		rec.RDAPOrg = &reg.Registrant
@@ -582,6 +584,9 @@ func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 	var ownerFailed *Failure
 	if rec.Kind == addrkind.Public {
 		prov, ownerFailed = s.publicSources(ctx, &rec, addr, &runs)
+		if s.cfg.Fields.Has("abusive_networks") || s.cfg.Fields.Has("abusive_asn") {
+			s.abusive(&rec, addr, ownerFailed)
+		}
 	} else {
 		s.nonPublicSources(ctx, &rec, addr, &runs)
 	}
@@ -597,7 +602,30 @@ func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 			rec.AddFailure(*f)
 		}
 	}
-	return AddressResult{Record: rec, Asked: asked}
+	return AddressResult{Record: rec, Asked: asked, Answered: rec.Kind == addrkind.Public && s.cfg.Fields.Sourceless()}
+}
+
+// abusive sets the selected abusive keys of a public address from the snapshot, which needs no
+// request. The network matches are always set when selected. The ASN match follows the origin AS:
+// its entry when the AS is known, [] when Team Cymru knows no owner, and null when the origin lookup
+// failed. A failure of the AS name alone leaves the AS known, so the match is set and the failure is
+// the name's.
+func (s *state) abusive(rec *Record, addr netip.Addr, ownerFailed *Failure) {
+	snap := s.cfg.Abusive
+	if snap == nil {
+		snap = abusive.Default()
+	}
+	if s.cfg.Fields.Has("abusive_networks") {
+		rec.AbusiveNetworks = snap.Networks(addr)
+	}
+	if !s.cfg.Fields.Has("abusive_asn") || ownerFailed != nil {
+		return
+	}
+	if rec.ASN == nil {
+		rec.AbusiveASN = []abusive.ASNMatch{}
+		return
+	}
+	rec.AbusiveASN = snap.ASN(int(*rec.ASN))
 }
 
 // publicSources asks the sources of a public address concurrently. The provider and HackerTarget

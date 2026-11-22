@@ -15,6 +15,7 @@ make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
 make lint                       # golangci-lint pinned in tools/go.mod; config in .golangci.yml
 make eol-data                   # refresh internal/eol/data from endoflife.date (needs curl, jq); review the diff
+make abusive-data               # refresh internal/abusive/snapshot.json from ipapi.is (needs curl); review the diff and update the README dates
 ```
 
 - While iterating, run targeted tests without `-race`: the race detector roughly triples the cost.
@@ -110,7 +111,8 @@ compatible, renaming, removing or retyping one is a breaking change (README, "Ex
   own), `ASNExpander` (its netblocks under an input ASN's check are in scope; the asn stage), and
   `Budgeted` (a per-run cap on the summed `Check.Cost` of the checks sent; the runner defers the
   first check that would pass it and all after it, without failing or retiring them, and the
-  summary reports the deferred cost). Code outside a stage never names a stage: it asks the
+  summary reports the deferred cost). `Historical` marks a stage whose addresses come from DNS history: an address that only such stages
+  observe is left out of the abusive-network check. Code outside a stage never names a stage: it asks the
   stages through these interfaces.
 - Stages read state only through `run.View`, which offers scope, inventory and cached current
   records. Web stages must use `ProbeHostnames()` (wildcard-aware), not the hostname records.
@@ -150,7 +152,7 @@ takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives
 **Pure knowledge packages** with no I/O: `cloudstorage` (bucket naming, S3/GCS/Azure),
 `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data in the
 embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.date data and
-`products.yaml`), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
+`products.yaml`), `abusive` (ipapi.is's most-abusive network and ASN lists, an embedded snapshot refreshed by `make abusive-data`; the matches are information only), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
 belong to an organisation input), `origin` (origin-behind-CDN decisions, which the `origincheck`
 stage and the findings both call so they can't disagree), `thirdparty`, `palette`, `shellquote`,
 `dnsname`, `sanitize` (strips terminal-acting characters from

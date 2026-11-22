@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -61,6 +62,9 @@ type Config struct {
 	AllowLargeNetblocks bool
 	Redo                string
 	NoFsync             bool // write output files without syncing them to disk (see output.Render); for tests
+	// Abusive is the snapshot of abusive networks and ASNs the findings check addresses against;
+	// nil means the one built into the binary.
+	Abusive *abusive.Snapshot
 }
 
 // Runner runs the stages.
@@ -107,6 +111,7 @@ type Runner struct {
 	derivers    []*deriver                      // the derived records, findings first (see derive)
 	attribution map[string]findings.StorageAttr // the storage attribution of the last findings derived
 	evidencers  map[string]Evidencer            // the stages that account for their own candidate evidence
+	historical  map[string]bool                 // the stages whose addresses come from DNS history
 	families    candidates.Families             // the family of each source the stages name
 
 	base       *baseline        // the state the run started from, nil on a first run (see loadBaseline)
@@ -148,10 +153,17 @@ func New(cfg Config) *Runner {
 		recs: map[string]recordsCache{}, observing: map[string]observersCache{},
 	}
 	r.evidencers = map[string]Evidencer{}
+	r.historical = map[string]bool{}
+	if r.cfg.Abusive == nil {
+		r.cfg.Abusive = abusive.Default()
+	}
 	for _, s := range cfg.Stages {
 		r.order = append(r.order, s.Name())
 		if e, ok := s.(Evidencer); ok {
 			r.evidencers[s.Name()] = e
+		}
+		if _, ok := s.(Historical); ok {
+			r.historical[s.Name()] = true
 		}
 	}
 	r.families = CandidateFamilies(cfg.Stages)

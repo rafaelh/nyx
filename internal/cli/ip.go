@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -155,7 +156,7 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 
 	red := config.NewRedactor()
 	em, warnings := newEmitter(inv, red)
-	cfg := ipConfig(d.Egress, fields, red, em)
+	cfg := ipConfig(d.Egress, fields, red, em, d.Abusive)
 	if inv.sh.debug {
 		cfg.Debug = report.Say(em, "debug")
 	}
@@ -184,12 +185,12 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 // ipConfig is what the lookup needs: one egress for the resolvers and the third parties, with no
 // policy, since a policy would refuse source hosts that sit under an input hostname, built from
 // base so that tests can redirect it. Its own timeouts and paces fill only what base leaves unset.
-func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor, em report.Emitter) iplookup.Config {
+func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor, em report.Emitter, snap *abusive.Snapshot) iplookup.Config {
 	o := ipEgressOptions(base, red)
 	e := egress.New(o)
 	clients := e.Clients(false, iplookup.SourceHosts())
 	cfg := iplookup.Config{Fields: fields, ThirdParty: clients.ThirdParty, DNS: clients.DNS, Local: e.Local(),
-		ProbeOptions: o}
+		ProbeOptions: o, Abusive: snap}
 	cfg.Warn = report.Say(em, "warning")
 	return cfg
 }

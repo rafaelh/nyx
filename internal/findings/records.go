@@ -127,6 +127,26 @@ var categories = []category{
 			return map[string]string{"product": product}
 		},
 	},
+	{
+		// One per address, whatever its type, so the row is the same while the address moves
+		// between a network match (medium) and an AS-only one (low), and a rise is announced. The
+		// found line reads "address <ip> in abusive network <entry> (<organisation>)" or "address
+		// <ip> in abusive AS<n> (<organisation>)", from the entry and org attributes.
+		name:  AbusiveNetwork,
+		key:   func(f Finding) string { return f.Target },
+		parse: func(rest string) (string, string) { return "", rest },
+		found: func(f Finding) string {
+			entry, _ := f.Attrs["entry"].(string)
+			org, _ := f.Attrs["org"].(string)
+			what := "network " + entry
+			if f.Type == "asn" {
+				what = entry
+			}
+			return "address " + f.Target + " in abusive " + what + " (" + org + ")"
+		},
+		columns: []string{"severity", "ip", "hostnames", "type", "networks", "asn", "networks_updated", "asns_updated"},
+		fromKey: targetAs("ip"),
+	},
 }
 
 // categoryOf is the category of a name, with only defaults for one not in categories.

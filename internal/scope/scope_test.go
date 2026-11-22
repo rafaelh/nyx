@@ -205,3 +205,35 @@ func TestPortEligibleAsksOwnerOnlyWhenNeeded(t *testing.T) {
 		t.Errorf("owner asked %d times for an address outside the netblocks, want 1", asked)
 	}
 }
+
+// OwnerUnit is the prefix one origin lookup answers for an address of an in-scope netblock: the
+// covering /24 (IPv4) or /48 (IPv6), or the netblock itself when that is smaller.
+func TestOwnerUnit(t *testing.T) {
+	t.Parallel()
+	pfx := netip.MustParsePrefix
+	sc := scope.New(scope.Config{Netblocks: []netip.Prefix{
+		pfx("198.51.100.0/22"), pfx("203.0.113.16/28"), pfx("192.0.2.0/24"), pfx("2001:db8:1::/64"), pfx("2001:db8:2::/40"), pfx("2001:db8:3::/120"),
+		pfx("10.0.0.0/8"), pfx("10.1.2.128/25"), // an address may be inside two netblocks
+	}})
+	for _, tc := range []struct {
+		addr, want string // want is "" when the address is in no in-scope netblock
+	}{
+		{"198.51.101.77", "198.51.101.0/24"}, // a /22 is split into /24s
+		{"198.51.100.1", "198.51.100.0/24"},
+		{"203.0.113.17", "203.0.113.16/28"}, // a netblock smaller than a /24 is the unit
+		{"203.0.113.40", ""},                // the rest of that /24 is not in scope
+		{"192.0.2.9", "192.0.2.0/24"},
+		{"2001:db8:1::5", "2001:db8:1::/64"},   // smaller than a /48
+		{"2001:db8:2:5::1", "2001:db8:2::/48"}, // a /40 is split into /48s
+		{"2001:db8:3::7", "2001:db8:3::/120"},
+		{"10.1.2.130", "10.1.2.128/25"}, // the smallest netblock holding it
+		{"10.9.9.9", "10.9.9.0/24"},
+		{"::ffff:198.51.100.1", "198.51.100.0/24"},
+		{"8.8.8.8", ""},
+	} {
+		got, ok := sc.OwnerUnit(netip.MustParseAddr(tc.addr))
+		if (tc.want == "") == ok || (ok && got.String() != tc.want) {
+			t.Errorf("OwnerUnit(%s) = %v, %v, want %q", tc.addr, got, ok, tc.want)
+		}
+	}
+}

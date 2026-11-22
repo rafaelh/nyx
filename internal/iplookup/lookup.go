@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
@@ -28,6 +29,9 @@ type Config struct {
 	// ProbeOptions are what the target clients for one contacted address are built from, under a
 	// Policy that holds that address alone. Only used under --active.
 	ProbeOptions egress.Options
+	// Abusive is the snapshot of abusive networks and ASNs the addresses are checked against; nil
+	// means the one built into the binary. No request is made for it.
+	Abusive *abusive.Snapshot
 	// Warn receives each warning once (a latched source, an RDAP referral problem).
 	Warn func(string)
 	// Debug, when set, receives diagnostic lines.

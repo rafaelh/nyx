@@ -32,3 +32,5 @@ Findings and their default severities (fixed in code, not configurable; the summ
   origin-exposure       possible              low     an address that may be the origin of a hostname behind a CDN or WAF, found from its history or a sibling and not confirmed
   eol-software          eol                   medium  a web technology or banner version is past the end of security support of its release cycle; low for a distribution build or a version only Shodan reports
   eol-software          eol-approaching       low     the end of security support of the release cycle is within --eol-warn-days
+  abusive-network       network               medium  an address of the engagement is in a network ipapi.is lists among the most abusive on the internet (a snapshot built into nyx; nothing is requested)
+  abusive-network       asn                   low     an address of the engagement is announced by an AS ipapi.is lists among the most abusive, and no listed network holds it

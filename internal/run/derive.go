@@ -2,6 +2,7 @@ package run
 
 import (
 	"crypto/sha256"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -84,7 +85,8 @@ func plain(f func(deriveInput) []store.Obs) func(deriveInput) ([]store.Obs, func
 // needs, computed from the same evidence.
 func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
 	fs, attribution := findings.DeriveAll(findings.Input{Scope: in.Scope, Inv: in.Inv, Settings: r.cfg.Settings,
-		Today: in.Today, Records: in.Records, Roots: in.Inputs.Roots, Orgs: in.Inputs.Orgs, Vis: in.Vis})
+		Today: in.Today, Records: in.Records, Roots: in.Inputs.Roots, Orgs: in.Inputs.Orgs, Vis: in.Vis,
+		Abusive: r.cfg.Abusive, HistoryOnly: r.historyOnly(in.Records)})
 	was := map[string]string{} // the severity of each current finding, by key
 	for _, rec := range in.Records(kinds.Finding) {
 		if rec.Current {
@@ -199,4 +201,25 @@ func rankOf(a kinds.CandidateRankAttrs) candidates.Rank {
 		sources = strings.Split(a.Sources, ";")
 	}
 	return candidates.Rank{Sources: sources, Count: a.EvidenceCount, Confidence: candidates.Confidence(a.Confidence)}
+}
+
+// historyOnly says whether DNS history alone names an address: its current ip record is observed
+// only by stages that are Historical. Code outside a stage never names one, so the stages say it
+// through that marker. It is nil when no stage is historical.
+func (r *Runner) historyOnly(records func(kinds.Named) []store.Record) func(netip.Addr) bool {
+	if len(r.historical) == 0 {
+		return nil
+	}
+	only := map[netip.Addr]bool{}
+	for _, rec := range records(kinds.IP) {
+		a, err := netip.ParseAddr(rec.Key)
+		if err != nil || !rec.Current || len(rec.Stages) == 0 {
+			continue
+		}
+		if slices.ContainsFunc(rec.Stages, func(s string) bool { return !r.historical[s] }) {
+			continue
+		}
+		only[a.Unmap()] = true
+	}
+	return func(a netip.Addr) bool { return only[a.Unmap()] }
 }

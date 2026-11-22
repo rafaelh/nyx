@@ -77,6 +77,7 @@ var (
 	Unresolved    = define[UnresolvedAttrs](Kind{Name: "unresolved", Singular: "unresolved name", Category: "unresolved names", Change: "unresolved name"})
 	Wildcard      = define[WildcardAttrs](Kind{Name: "wildcard"})
 	IPOwner       = define[IPOwnerAttrs](Kind{Name: "ip_owner"})
+	NetblockOwner = define[NetblockOwnerAttrs](Kind{Name: "netblock_owner"})
 	IPHostname    = defineJoined(Kind{Name: "ip_hostname"}, ipHostnameFields)
 	ProviderRange = define[ProviderRangeAttrs](Kind{Name: "provider_range"})
 )
@@ -333,4 +334,10 @@ type EmailPostureAttrs struct {
 	DKIMSelectors string `json:"dkim_selectors"` // ";"-joined
 	DKIMErrors    string `json:"dkim_errors"`    // ";"-joined
 	MTASTS        string `json:"mta_sts"`        // "present", "absent", or "" for a root with no mail host
+}
+
+// NetblockOwnerAttrs: who announces a unit of an in-scope netblock.
+type NetblockOwnerAttrs struct {
+	ASN    int    `json:"asn"`
+	Prefix string `json:"prefix"`
 }

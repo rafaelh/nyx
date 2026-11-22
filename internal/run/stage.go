@@ -430,3 +430,10 @@ func (v View) HostsFor(a netip.Addr) []string {
 	}
 	return v.cache.hosts[a.Unmap()]
 }
+
+// Historical is implemented by a stage whose addresses come from DNS history: names an address once
+// had, which the engagement may no longer use. An ip record that only such stages observe is
+// history-only, and the abusive-network check leaves it out (see Runner.historyOnly).
+type Historical interface {
+	HistoricalAddresses()
+}

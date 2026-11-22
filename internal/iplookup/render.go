@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/sanitize"
@@ -187,6 +188,19 @@ func (b body) sections() []section {
 	field(&reverse, "reverse_ip_count", "Count", count)
 	field(&reverse, "reverse_ip", "Names", b.list("reverse_ip", rec.ReverseIP))
 	add("Reverse IP", reverse)
+
+	if has("abusive_networks") {
+		add("Abusive networks", b.items("abusive_networks", len(rec.AbusiveNetworks), rec.AbusiveNetworks == nil, func(i int) string {
+			m := rec.AbusiveNetworks[i]
+			return matchLine(m.Network, m.ScoreTag, m.AbuseScore, m.Org, m.OrgType, m.Updated)
+		}))
+	}
+	if has("abusive_asn") {
+		add("Abusive ASN", b.items("abusive_asn", len(rec.AbusiveASN), rec.AbusiveASN == nil, func(i int) string {
+			m := rec.AbusiveASN[i]
+			return matchLine("AS"+strconv.Itoa(m.ASN), m.ScoreTag, m.AbuseScore, m.Org, m.OrgType, m.Updated)
+		}))
+	}
 
 	if has("not_contacted") {
 		add("Not contacted", []row{{rowText, "", b.str("not_contacted", rec.NotContacted)}})
@@ -410,4 +424,13 @@ func (r termRenderer) rows(rows []row) []string {
 		}
 	}
 	return out
+}
+
+// matchLine is an abusive list's match as one line: the entry, its score tag, abuse score,
+// organisation and type, and the date of its list. Its text came from a snapshot and is cleaned
+// like any third party's.
+func matchLine(entry, tag string, score float64, org, typ, updated string) string {
+	clean := func(s string) string { return squash(sanitize.Line(s)) }
+	return fmt.Sprintf("%s: %s, %s%%, %s (%s), updated %s", clean(entry), clean(tag),
+		abusive.ScoreText(score), clean(org), clean(typ), clean(updated))
 }

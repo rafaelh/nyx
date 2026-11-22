@@ -31,6 +31,10 @@ type AddressResult struct {
 	// A source that was asked and did not answer is in the record's failures. A non-public
 	// address's Asked is not read: it is a success whatever failed.
 	Asked []Source
+	// Answered is true when a selected key that needs no source has its value (Fields.Sourceless):
+	// a source that always answers, so an address whose only failed source is Team Cymru still has
+	// its record.
+	Answered bool
 }
 
 // verdict is how an address ended.
@@ -61,7 +65,7 @@ func judge(r AddressResult) verdict {
 		return v
 	}
 	slices.SortStableFunc(v.failing, func(a, b Failure) int { return sourceRank(a.Source) - sourceRank(b.Source) })
-	v.none = !slices.ContainsFunc(r.Asked, func(s Source) bool {
+	v.none = !r.Answered && !slices.ContainsFunc(r.Asked, func(s Source) bool {
 		return !slices.Contains(quotaSources, s) && !slices.Contains(failedSources, s)
 	})
 	return v

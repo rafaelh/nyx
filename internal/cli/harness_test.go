@@ -23,6 +23,7 @@ import (
 	"go.yaml.in/yaml/v3"
 	_ "modernc.org/sqlite"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/output"
@@ -52,6 +53,7 @@ type harness struct {
 	cwd                      string            // the working directory nyx reports; "" means the process's
 	getwdPanicAfter          int               // when positive, the call of Getwd after this many panics, to force a panic in nyx setup
 	getwdCalls               atomic.Int32
+	abusive                  *abusive.Snapshot // the snapshot recon and nyx ip check addresses against; nil means the built-in one
 
 	stdout, stderr bytes.Buffer
 	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
@@ -140,6 +142,7 @@ func (h *harness) deps() cli.Deps {
 		StdinIsTTY:  func() bool { return h.stdinTTY },
 		WindowSize:  func() (int, int) { return h.winW, h.winH },
 		Getwd:       h.getwd,
+		Abusive:     h.abusive,
 	}
 }
 

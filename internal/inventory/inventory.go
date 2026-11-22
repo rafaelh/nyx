@@ -397,6 +397,9 @@ func AddressDecides(host string, sc *scope.Scope, db *provider.DB) bool {
 // Shared reports whether the address is shared provider infrastructure.
 func (i *Inventory) Shared(a netip.Addr) bool { return i.result(a).Shared }
 
+// Owner is the origin AS that ip_owner gives the address; Known is false when it gives none.
+func (i *Inventory) Owner(a netip.Addr) provider.Owner { return i.d.Owners[a.Unmap()] }
+
 // OwnerKnown reports whether anything is known about who owns the address: it
 // is in an in-scope netblock, has an owner record, or a provider range covers it.
 func (i *Inventory) OwnerKnown(a netip.Addr, sc *scope.Scope) bool {
@@ -630,8 +633,8 @@ func (i *Inventory) srvPorts(names []string, sc *scope.Scope) []uint16 {
 // rangeText is a registered range as one CIDR when it is one, and otherwise as
 // its two ends.
 func rangeText(start, end netip.Addr) string {
-	if ps := input.RangeCIDRs(start, end); len(ps) == 1 {
-		return ps[0].String()
+	if t := input.RangeText(start, end); t != "" {
+		return t
 	}
-	return start.Unmap().String() + "-" + end.Unmap().String()
+	return start.Unmap().String() + "-" + end.Unmap().String() // an invalid range keeps its two ends
 }

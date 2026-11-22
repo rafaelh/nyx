@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -85,6 +86,9 @@ type Deps struct {
 	// Getwd is the directory nyx was run from, which nyx setup resolves relative paths against;
 	// nil means os.Getwd.
 	Getwd func() (string, error)
+	// Abusive is the snapshot of abusive networks and ASNs that recon and nyx ip check addresses
+	// against. Only tests set it; nil means the one built into the binary.
+	Abusive *abusive.Snapshot
 }
 
 // DefaultDeps returns the production dependencies, except Signals, which only
@@ -174,7 +178,8 @@ func withDefaults(d Deps) Deps {
 // that probing hostnames on 80 and 443 does not wait for a sweep that can take hours; the pass
 // after it probes the ports it found. The email stage follows the DNS stages (dnsroot, which
 // records a root's own NS, SOA, TXT and CAA, among them); rdap and shodan-host follow ipowner,
-// whose owners decide which addresses may be asked about; storage follows the crawl so references
+// whose owners decide which addresses may be asked about, and netblockowner, which asks about the
+// netblocks' addresses only for the abusive-network check, comes after it; storage follows the crawl so references
 // found in the same pass are checked, identifier-pivot follows the web stages whose identifiers it
 // searches, and the Target stages run before the port sweep. dnshistory follows reverseip, as both ask
 // SecurityTrails about addresses and names the earlier stages found; origincheck follows dnshistory
@@ -185,7 +190,7 @@ func defaultStages() []run.Stage {
 	stages = append(stages, sub...)
 	return append(stages,
 		github.New(), shodan.New(), shodan.NewDNS(), providerranges.New(),
-		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
+		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewNetblockOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
 		dnshistory.New(), risk.NewEmail(), nsreverse.New(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }

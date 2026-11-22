@@ -533,7 +533,8 @@ func TestIPOutcome_PartialHintLeavesOutQuotaFailures(t *testing.T) {
 
 // An address for which no needed source answered is a failed input and not a record: when it is the
 // only input the call exits 1 with the code of the first failing source in the order Team Cymru,
-// RDAP, PTR, RIPEstat, InternetDB and HackerTarget, and nothing on stdout.
+// RDAP, PTR, RIPEstat, InternetDB and HackerTarget, and nothing on stdout. The snapshot of abusive
+// networks answers for itself, so these fields leave its key out (TestIPAbusive_EverySourceFailing has the rest).
 func TestIPOutcome_NoSourceAnsweringIsTheCodeOfTheFirstFailingSource(t *testing.T) {
 	t.Parallel()
 	const addr = "8.8.4.4"
@@ -544,7 +545,7 @@ func TestIPOutcome_NoSourceAnsweringIsTheCodeOfTheFirstFailingSource(t *testing.
 		want   string
 		break_ func(w *ipWorld)
 	}{
-		{"every source, Team Cymru first", "", "NETWORK_ERROR", func(w *ipWorld) {
+		{"every source, Team Cymru first", "asn,rdap_org,ptr,geo_country,internetdb_ports,reverse_ip", "NETWORK_ERROR", func(w *ipWorld) {
 			w.dns.Rcode(cymruOriginName(addr), servfail)
 			w.rdap[hostARIN].setAll(ipStatus(500))
 			w.dns.Rcode(reverseName(addr), servfail)
@@ -855,7 +856,7 @@ func TestIPRender_ActiveRecordHasPortsTLSAndWeb(t *testing.T) {
 			body[section] = append(body[section], l)
 		}
 	}
-	want := []string{"Owner", "Registration", "Names", "Provider", "Location", "Exposure", "Reverse IP", "Not contacted", "Ports", "TLS", "Web", "Failures"}
+	want := []string{"Owner", "Registration", "Names", "Provider", "Location", "Exposure", "Reverse IP", "Abusive networks", "Abusive ASN", "Not contacted", "Ports", "TLS", "Web", "Failures"}
 	if !slices.Equal(titles, want) {
 		t.Errorf("sections %v, want %v", titles, want)
 	}

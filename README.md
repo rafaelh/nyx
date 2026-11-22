@@ -313,6 +313,11 @@ against Shodan's current terms when this was written, so check your plan before 
 netblock search pages past the first still cost query credits as before. What Shodan reports is
 shown, never acted on: a port only Shodan names is never connected to, and widens nothing.
 
+Team Cymru, through the public resolvers,
+now also receives the in-scope netblock addresses nyx knows, one query for each /24 (IPv4) or /48
+(IPv6) of them, or one for a netblock that is smaller, to learn their origin AS for that check. It is
+a third-party lookup, so it runs under `--passive`, and the target never receives it.
+
 **`nyx ip`** keeps no engagement and has no scope, so the list above is for recon and is unchanged.
 By default `nyx ip` sends nothing to the address it looks up. It contacts only third parties and DNS
 resolvers: Shodan's InternetDB (`internetdb.shodan.io`), RIPEstat (`stat.ripe.net`), HackerTarget
@@ -614,6 +619,74 @@ earlier engagement has them after its next run, with no new contact. OpenSSH, Dr
 Pure-FTPd, Sendmail, IIS FTP and Exchange are recognised but not assessed: endoflife.date does not
 track the first five, and an Exchange banner's version is a build number that no cycle names.
 
+## Abusive networks
+
+nyx flags an address whose network, or whose origin AS, [ipapi.is](https://ipapi.is) counts among
+the most abusive on the internet. ipapi.is publishes two lists: its
+[Most Abusive Networks](https://ipapi.is/most-abusive-networks.html) (about 5,000 IP ranges) and its
+[Most Abusive ASNs](https://ipapi.is/most-abusive-asn.html) (about 1,000 ASNs). The data is ipapi.is's,
+and nyx credits it as the source. Each entry has a rank, a score tag, an abuse score (the percentage
+of the network's addresses seen behaving abusively), the organisation and its type.
+
+**nyx never contacts ipapi.is.** Both lists are embedded in the binary as a snapshot
+(`internal/abusive/snapshot.json`), and a check is a lookup in it, so no command sends anything to
+ipapi.is and a flag is information only: it never changes the scope, what is contacted, which
+addresses are port-checked, or the ranking of candidates. The snapshot in this build was taken from
+the networks list of **2026-11-21** and the ASN list of **2026-11-21** (the dates ipapi.is gives each
+page as "last updated"). Every match carries the date of its list, and nothing warns that the
+snapshot is old: a newer build has a newer one.
+
+An address matches a network entry when a listed range holds it, and an ASN entry when its origin AS
+is the listed one. A network is written as a CIDR when the range is exactly one, and otherwise as
+`start-end`, as `rdap_netblock` is. Only the first origin AS Team Cymru gives is checked. Every
+matching entry is reported, the most specific range first (ranges of one size by rank), then the AS.
+Organisation names, score tags and types are cleaned of anything that acts on a terminal, as other
+third-party text is.
+
+- **`nyx ip`** reports an address's matches in the `abusive_networks` and `abusive_asn` keys (see
+  [IP lookup](#ip-lookup)). It is triage context for an address that is often untrusted, such as one
+  seen in a log.
+- **Recon** checks the addresses of the engagement, which belong to the target, where a high-abuse
+  network is worth a look: the host may be compromised, shadow IT or on reallocated space, or at risk
+  of being blocklisted. It checks every current address that an in-scope hostname resolves to
+  (including a shared CDN or SaaS address and a wildcard-only name's), and every address inside an
+  in-scope netblock that a current record other than DNS history names (a PTR answer, a resolution
+  or a Shodan result). It never checks a candidate's address, an excluded address, or an address that
+  only DNS history names.
+
+Each address checked that has a match is one `abusive-network` finding in `risk-abusive-network.csv`,
+with `severity`, `ip`, `hostnames` (its in-scope names), `type`, `networks` and `asn` (each entry as
+`<entry> <score tag> <abuse score>% <organisation> (<type>)`, joined with `;`, the rank left out), and
+`networks_updated` and `asns_updated` (the date of each list that matched). The finding is **medium**
+(`network`) when any network entry holds the address, and **low** (`asn`) when only its AS is listed.
+It sends no request, so it is derived under `--passive` too, and it appears wherever other findings of
+its severity do: the summary (high and medium), the `--json` findings and `changes.csv`. `nyx help
+findings` lists both types with the other finding severities.
+
+The AS of an address outside the in-scope netblocks is the one the `ipowner` stage found. For an
+address inside one, the `netblockowner` stage asks Team Cymru's origin service, through the public
+resolvers, once for each covering /24 (IPv4) or /48 (IPv6) of the netblock addresses nyx knows, or
+once for an in-scope netblock that is smaller: prefixes longer than those are filtered from the global
+routing table, so the answer applies to every address in the unit. Team Cymru is a third party, so
+this runs under `--passive`, and `--skip netblockowner` turns it off (the network matches are still
+found). The AS learned this way is used only for this check: whether an address is shared provider
+infrastructure, port-eligible, excluded, an origin candidate or part of an organisation candidate is
+decided as before, and its owner in `ips.csv` still reads as an in-scope netblock. An engagement run
+before a build that has the check looks up those origins once on its first run; after that a build
+with a newer snapshot changes the findings on the next run with no request: an address that drops off
+the lists loses its finding (it stays on record, not current), a newly listed address gains one, and
+one that stays listed keeps its finding with the detail of the current snapshot, announced again only
+if it rises from low to medium. `nyx recon export` shows the findings as of the last run.
+
+**Refreshing the snapshot** is a maintainer's task, done when a build is made, not by a user:
+`make abusive-data` fetches the two pages (two requests to ipapi.is, with `curl`), and a parser
+(`internal/abusive/refresh`) checks them, prints what was added, removed and changed (a rank that alone
+moved is left out), and replaces the snapshot as a whole, or not at all. It refuses a page whose date is
+older than the snapshot's or later than tomorrow (UTC), whose rows do not parse or hold control
+characters, that lists an entry twice, or that lists fewer than 90% of the entries it says it does.
+Review the diff, update the two dates in this section, and commit. A test fails if this section does
+not give the snapshot's dates.
+
 ## JavaScript endpoints
 
 The `crawl` stage notes every `<script src>` on the pages it fetches, whatever host the script is
@@ -877,7 +950,7 @@ rules and borders are drawn with ASCII (`-`, `|`, `+`).
 - **IP records.** Each record starts with a header: the address, the input hostnames that gave it
   and its kind. Then a heading and labelled lines for each of these sections, in this order, left out
   when none of its keys is selected: Owner, Registration, Names, Provider, Location, Exposure,
-  Reverse IP, Not contacted, Ports, TLS, Web and Failures. Labels have no colon and the values line
+  Reverse IP, Abusive networks, Abusive ASN, Not contacted, Ports, TLS, Web and Failures. Labels have no colon and the values line
   up in one column in each section. A key that is selected but has no value shows `none`. Text from
   a third party or the target (a banner, a page title, a registrant's name) is stripped of anything
   that would act on a terminal.
@@ -1281,6 +1354,7 @@ Everything is in `<output-dir>/<engagement>/`:
 | `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |
 | `risk-eol-software.csv` | Web technologies and banners whose version is past the end of security support (`eol`, medium) or within `eol_warn_days` of it (`eol-approaching`, low), with `product`, `version`, `end_date`, `seen` (`web` or `banner`) and `confirmed`; a distribution build or a version only Shodan reports is one step lower (see [End-of-life software](#end-of-life-software)) |
 | `risk-origin-exposure.csv` | One row per hostname behind a CDN or WAF and address that may be its origin server: the `provider`, the `address`, `found_by` (`historical`, `sibling-certificate`, `sibling-title`, joined with `;`), `confirmed_by` (`title` or `status-body-certificate`) and `confirmed` (`yes` or `no`). Confirmed rows are medium and possible origins low (see [Origin exposure](#origin-exposure)) |
+| `risk-abusive-network.csv` | One row per checked address that ipapi.is's most-abusive lists hold: `ip`, its in-scope `hostnames`, `type` (`network`, medium, or `asn`, low), the `networks` and `asn` entries with their score tag, abuse score, organisation and type, and the `networks_updated` and `asns_updated` dates of the lists (see [Abusive networks](#abusive-networks)) |
 | `changes.csv` | What is new, returned or gone since the run started (see [What changed since the last run](#what-changed-since-the-last-run)): `change`, `kind`, `key`, `scope` and, for a finding, `severity` |
 
 A file is only written when it has rows, so a missing `risk-*.csv` means no findings of that kind
@@ -1619,6 +1693,8 @@ nyx ip 192.0.2.10 --active
   | `geo_country`, `geo_city` | Approximate location. `?` or an empty country, and an empty city, are `null`. There is no region |
   | `internetdb_ports`, `internetdb_hostnames`, `internetdb_tags`, `internetdb_cpes`, `internetdb_vulns` | What Shodan's InternetDB reports: open ports, hostnames, tags, CPEs and CVE IDs |
   | `reverse_ip`, `reverse_ip_count` | HackerTarget's reverse-IP hostnames: the first 100, sorted, and the total count. `null` for an IPv6 address or a shared provider address, which is not asked and is not a failure |
+  | `abusive_networks` | The entries of ipapi.is's most-abusive network list that hold the address, the most specific first, each `{network, rank, score_tag, abuse_score, org, org_type, updated}` (`rank` an integer, `abuse_score` the percentage as a number, `updated` the list's date, `YYYY-MM-DD`). From the snapshot built into nyx, so it needs no request and is `[]` when nothing holds the address; `null` for a non-public address (see [Abusive networks](#abusive-networks)) |
+  | `abusive_asn` | The entry of ipapi.is's most-abusive ASN list for the address's origin AS: a list of at most one `{asn, rank, score_tag, abuse_score, org, org_type, updated}`. `[]` when the AS is known and not listed, and when Team Cymru found no owner; `null` when Team Cymru failed (that failure is in `failures`, and the call exits 7) and for a non-public address. Asking for it asks Team Cymru |
   | `not_contacted` | Only under `--active`: why the address was not contacted, or `null` when it was |
   | `ports` | Only under `--active`: a list of `{port, state, banner}` |
   | `tls` | Only under `--active`: a list of `{port, server_name, outcome, names, issuer, expiry}` |
@@ -1642,12 +1718,13 @@ nyx ip 192.0.2.10 --active
 
   | Source | Gives | Pace |
   |---|---|---|
-  | Team Cymru (TXT over DNS) | `asn`, `as_name`, `as_prefix` | DNS, 50 a second |
+  | Team Cymru (TXT over DNS) | `asn`, `as_name`, `as_prefix`, and the AS for `abusive_asn` | DNS, 50 a second |
   | RDAP (IANA's bootstrap file, then the registry, referrals followed) | the `rdap_*` keys | IANA and each registry host 1 a second |
   | PTR (DNS) | `ptr` | DNS, 50 a second |
   | RIPEstat, `maxmind-geo-lite` | `geo_country`, `geo_city` | 4 a second |
   | Shodan InternetDB | the `internetdb_*` keys | 1 a second |
   | HackerTarget | `reverse_ip`, `reverse_ip_count` | 1 a second |
+  | The snapshot built into nyx (ipapi.is's most-abusive lists) | `abusive_networks`, and the entry of the AS for `abusive_asn` | no request |
 
   Under `--active`, connections to one address are also limited to 10 a second.
   - **RIPEstat's** geolocation is MaxMind GeoLite data, and RIPEstat is run by the RIPE NCC: credit
@@ -1659,6 +1736,10 @@ nyx ip 192.0.2.10 --active
     because its daily quota is small and a CDN address returns thousands of meaningless names. The
     names are cleaned as recon cleans them, de-duplicated and sorted; `reverse_ip` has the first 100
     and `reverse_ip_count` the total.
+  - **The snapshot** counts as a source that always answers. An address whose only failed source is
+    Team Cymru therefore still has its record, with its `abusive_networks` and a `null` `abusive_asn`,
+    and the call exits 7. `--fields abusive_networks` sends no request beyond resolving a hostname
+    input, and `--fields abusive_asn` asks Team Cymru. A match changes nothing about `--active`.
   - **A 429** from InternetDB, RIPEstat or one RDAP host is `RATE_LIMITED`, transient, and that source
     (for RDAP, that host) is not asked again in the call: each address not yet asked records
     `RATE_LIMITED`, with "not asked: rate-limited earlier in this call", and one warning names the
@@ -1728,7 +1809,7 @@ valid, resolves (for a hostname), and every address it gives is a success. An ad
 when every source it needed answered, and a non-public address is always one. A source that failed
 for want of its quota never counts against it: the failure is in the record and the warning, and
 nowhere else. An address for which none of the sources it needed answered is a failed input, with the
-failures' error code, and has no record.
+failures' error code, and has no record. The snapshot of abusive networks is a source that always answers (see [Abusive networks](#abusive-networks)), so while `abusive_networks` is selected, which it is by default, an address always has its record, and one whose every other source failed is a partial result (exit 7) and not a failed input. Selecting keys that leave it out (`--fields`) restores the rule.
 
 | Outcome | Exit | stdout |
 |---|---|---|

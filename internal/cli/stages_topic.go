@@ -39,6 +39,7 @@ var stageHelps = map[string]stageHelp{
 	"permutations":     {"", "Variations of found labels and the wordlist that exist in DNS"},
 	"rdns":             {"", "PTR records of the addresses in in-scope netblocks"},
 	"ipowner":          {"", "Origin AS of each address outside the in-scope netblocks (Team Cymru)"},
+	"netblockowner":    {"", "Origin AS of the addresses inside the in-scope netblocks, once per /24 or /48, for the abusive-network check (Team Cymru)"},
 	"dnsroot":          {"", "NS, SOA, TXT, CAA and SRV records of each root, and the third parties they show"},
 	"rdap":             {"", "Who registered each netblock, and what is registered to each --org"},
 	"shodan-host":      {"shodan", "Ports, banners and hostnames Shodan holds for addresses its search missed"},

@@ -189,3 +189,7 @@ func fetch(ctx context.Context, e egress.Clients, host, typ string) ([]record, e
 		}
 	}
 }
+
+// HistoricalAddresses marks the stage as one whose addresses come from DNS history (run.Historical):
+// an address only it names is not one the engagement is known to use.
+func (*Stage) HistoricalAddresses() {}

@@ -7,14 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 )
 
 const defaultKeys = "address,hostnames,kind,asn,as_name,as_prefix,rdap_netblock,rdap_org,rdap_registry,ptr,provider,provider_class," +
-	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,failures"
+	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,abusive_networks,abusive_asn,failures"
 
 const activeKeys = "address,hostnames,kind,asn,as_name,as_prefix,rdap_netblock,rdap_org,rdap_registry,ptr,provider,provider_class," +
-	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count," +
+	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,abusive_networks,abusive_asn," +
 	"not_contacted,ports,tls,web,failures"
 
 func mustSelect(t *testing.T, spec string, active bool) Fields {
@@ -42,7 +43,7 @@ func TestFieldNames_AreTheKeysInOrder(t *testing.T) {
 func TestValidFields(t *testing.T) {
 	t.Parallel()
 	got := ValidFields(false)
-	if !strings.HasPrefix(got, "valid fields: asn, as_name,") || !strings.HasSuffix(got, "reverse_ip_count, or all") {
+	if !strings.HasPrefix(got, "valid fields: asn, as_name,") || !strings.HasSuffix(got, "reverse_ip_count, abusive_networks, abusive_asn, or all") {
 		t.Errorf("default hint: %s", got)
 	}
 	for _, always := range []string{"address", "hostnames", "kind", "failures", "not_contacted", "ports"} {
@@ -50,7 +51,7 @@ func TestValidFields(t *testing.T) {
 			t.Errorf("default hint names %q: %s", always, got)
 		}
 	}
-	if got := ValidFields(true); !strings.Contains(got, "reverse_ip_count, not_contacted, ports, tls, web, or all") {
+	if got := ValidFields(true); !strings.Contains(got, "abusive_asn, not_contacted, ports, tls, web, or all") {
 		t.Errorf("active hint: %s", got)
 	}
 }
@@ -234,6 +235,7 @@ func TestProjected_EveryKeyInOrder(t *testing.T) {
 		`"geo_country":"AU","geo_city":null,` +
 		`"internetdb_ports":[22,443],"internetdb_hostnames":[],"internetdb_tags":["cloud"],"internetdb_cpes":[],"internetdb_vulns":["CVE-2024-3094"],` +
 		`"reverse_ip":["x.example.com"],"reverse_ip_count":1,` +
+		`"abusive_networks":null,"abusive_asn":null,` +
 		`"not_contacted":null,` +
 		`"ports":[{"port":22,"state":"open","banner":"SSH-2.0-x"},{"port":25,"state":"closed","banner":null}],` +
 		`"tls":[{"port":443,"server_name":"a.example.com","outcome":"ok","names":["a.example.com"],"issuer":"Test CA","expiry":"2027-01-01"},` +
@@ -276,6 +278,7 @@ func TestProjected_UnknownIsNullAndNoneIsEmpty(t *testing.T) {
 		`"rdap_netblock":null,"rdap_org":null,"rdap_registry":null,"ptr":null,"provider":null,"provider_class":null,` +
 		`"geo_country":null,"geo_city":null,"internetdb_ports":null,"internetdb_hostnames":null,"internetdb_tags":null,` +
 		`"internetdb_cpes":null,"internetdb_vulns":null,"reverse_ip":null,"reverse_ip_count":null,` +
+		`"abusive_networks":null,"abusive_asn":null,` +
 		`"not_contacted":null,"ports":null,"tls":null,"web":null,"failures":[]}`
 	if got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
@@ -294,5 +297,50 @@ func TestProjected_Accessors(t *testing.T) {
 	p := f.Project(full())
 	if p.Record().Address != "203.0.113.9" || !p.Fields().Has("asn") || p.Fields().Has("ptr") {
 		t.Errorf("accessors: %v", p.Fields().Names())
+	}
+}
+
+// abusive_networks is answered by the snapshot built into nyx and asks no source; abusive_asn is
+// the origin AS's match, so it asks Team Cymru, as asn does.
+func TestSelect_AbusiveKeysAndTheirSources(t *testing.T) {
+	t.Parallel()
+	nets := mustSelect(t, "abusive_networks", false)
+	if got := nets.Sources(); len(got) != 0 {
+		t.Errorf("abusive_networks asks %v, want no source", got)
+	}
+	if got := strings.Join(nets.Names(), ","); got != "address,hostnames,kind,abusive_networks,failures" {
+		t.Errorf("keys = %s", got)
+	}
+	asn := mustSelect(t, "abusive_asn", false)
+	if got := asn.Sources(); !slices.Equal(got, []Source{SourceCymru}) {
+		t.Errorf("abusive_asn asks %v, want cymru", got)
+	}
+	both := mustSelect(t, "abusive_asn,abusive_networks", false)
+	if got := strings.Join(both.Names(), ","); got != "address,hostnames,kind,abusive_networks,abusive_asn,failures" {
+		t.Errorf("keys in table order = %s", got)
+	}
+	// Both come before the keys only --active has.
+	names := FieldNames(true)
+	i, j := slices.Index(names, "abusive_asn"), slices.Index(names, "not_contacted")
+	if i < 0 || j < 0 || i >= j || slices.Index(names, "reverse_ip_count") >= slices.Index(names, "abusive_networks") {
+		t.Errorf("order of the keys: %v", names)
+	}
+}
+
+// A match's JSON has the types a record promises, and a key that is null encodes as null.
+func TestProjected_AbusiveKeysEncode(t *testing.T) {
+	t.Parallel()
+	r := Record{Address: "203.0.113.9", Hostnames: []string{}, Kind: "public", Failures: []Failure{},
+		AbusiveNetworks: []abusive.NetworkMatch{{Network: "203.0.113.0/24", Rank: 12, ScoreTag: "High", AbuseScore: 91.5, Org: "A & B", OrgType: "isp", Updated: "2026-11-21"}}}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(mustSelect(t, "abusive_networks,abusive_asn", false).Project(r)); err != nil {
+		t.Fatal(err)
+	}
+	b := bytes.TrimSpace(buf.Bytes())
+	want := `{"address":"203.0.113.9","hostnames":[],"kind":"public","abusive_networks":[{"network":"203.0.113.0/24","rank":12,"score_tag":"High","abuse_score":91.5,"org":"A & B","org_type":"isp","updated":"2026-11-21"}],"abusive_asn":null,"failures":[]}`
+	if string(b) != want {
+		t.Errorf("record\n got %s\nwant %s", b, want)
 	}
 }

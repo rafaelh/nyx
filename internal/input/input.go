@@ -473,3 +473,17 @@ func EngagementName(s string) (string, error) {
 	}
 	return name, nil
 }
+
+// RangeText is an inclusive range as text: the CIDR when the range is exactly one, otherwise
+// "start-end", and "" when the ends are not both valid, of one family and in order.
+func RangeText(start, end netip.Addr) string {
+	start, end = start.Unmap(), end.Unmap()
+	cidrs := RangeCIDRs(start, end)
+	switch len(cidrs) {
+	case 0:
+		return ""
+	case 1:
+		return cidrs[0].String()
+	}
+	return start.String() + "-" + end.String()
+}

@@ -18,7 +18,9 @@
 // its registrant), ptr (the address's reverse names), ripestat (geolocation), internetdb (open
 // ports, names, tags, CPEs and CVE IDs), hackertarget (the other names on the address) and probe
 // (the connections --active makes to the address itself). The provider is not a source: it is
-// decided from the built-in provider data and the AS number, so it comes with cymru.
+// decided from the built-in provider data and the AS number, so it comes with cymru. Nor is the
+// snapshot of abusive networks built into nyx (internal/abusive): it needs no request and always
+// answers, so a public address whose abusive_networks is selected always has a record.
 //
 // A source failure is a source that did not answer for an address: it failed, timed out, was
 // rate-limited, or was not asked because it had already refused earlier in the call. It is a

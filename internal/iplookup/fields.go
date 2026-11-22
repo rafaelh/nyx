@@ -47,6 +47,8 @@ var table = []field{
 	{name: "internetdb_vulns", sources: []Source{SourceInternetDB}, value: func(r *Record) any { return r.InternetDBVulns }},
 	{name: "reverse_ip", sources: []Source{SourceHackerTarget, SourceCymru}, value: func(r *Record) any { return r.ReverseIP }},
 	{name: "reverse_ip_count", sources: []Source{SourceHackerTarget, SourceCymru}, value: func(r *Record) any { return r.ReverseIPCount }},
+	{name: "abusive_networks", value: func(r *Record) any { return r.AbusiveNetworks }},
+	{name: "abusive_asn", sources: []Source{SourceCymru}, value: func(r *Record) any { return r.AbusiveASN }},
 	{name: "not_contacted", active: true, sources: []Source{SourceCymru}, value: func(r *Record) any { return r.NotContacted }},
 	{name: "ports", active: true, sources: activeSources, value: func(r *Record) any { return r.Ports }},
 	{name: "tls", active: true, sources: activeSources, value: func(r *Record) any { return r.TLS }},
@@ -193,6 +195,17 @@ func (f Fields) Sources() []Source {
 		}
 	}
 	return out
+}
+
+// Sourceless reports whether a selected key needs no source, so a public address always has its
+// value (the abusive network matches, from the snapshot built into nyx).
+func (f Fields) Sourceless() bool {
+	for i, t := range table {
+		if i < len(f.has) && f.has[i] && !t.always && len(t.sources) == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // NeedsProbe reports whether the TCP scan runs: ports, tls or web is selected.

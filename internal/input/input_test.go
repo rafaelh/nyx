@@ -276,3 +276,28 @@ func TestParseProblemsNameTheirArgument(t *testing.T) {
 		t.Errorf("an unreadable domains file: %+v", probs)
 	}
 }
+
+// RangeText is the one text of a registered range: the CIDR when the range is exactly one, else
+// "start-end", and "" for a range that is not valid.
+func TestRangeText(t *testing.T) {
+	t.Parallel()
+	a := netip.MustParseAddr
+	for _, c := range []struct{ start, end, want string }{
+		{"1.1.1.0", "1.1.1.255", "1.1.1.0/24"},
+		{"8.8.8.8", "8.8.8.8", "8.8.8.8/32"},
+		{"10.0.0.0", "10.0.0.2", "10.0.0.0-10.0.0.2"},
+		{"10.0.0.1", "10.0.0.2", "10.0.0.1-10.0.0.2"},
+		{"2001:db8::", "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", "2001:db8::/32"},
+		{"2001:db8::", "2001:db9::1", "2001:db8::-2001:db9::1"},
+		{"::ffff:1.1.1.0", "::ffff:1.1.1.255", "1.1.1.0/24"},
+		{"10.0.0.2", "10.0.0.1", ""},   // out of order
+		{"10.0.0.1", "2001:db8::", ""}, // two families
+	} {
+		if got := input.RangeText(a(c.start), a(c.end)); got != c.want {
+			t.Errorf("RangeText(%s, %s) = %q, want %q", c.start, c.end, got, c.want)
+		}
+	}
+	if got := input.RangeText(netip.Addr{}, netip.Addr{}); got != "" {
+		t.Errorf("an invalid range gave %q", got)
+	}
+}

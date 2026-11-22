@@ -31,7 +31,7 @@ ip flags:
       --active             Also connect to each address that is not shared infrastructure, non-public ones included; passing it is the confirmation
       --fields string      Return only these fields, separated by commas, plus the address, hostnames, kind and failures; all returns every field the mode allows
       --timeout duration   Deadline for the whole call, e.g. 30s or 2m (default grows with the number of addresses)
-Fields accepted by --fields: asn, as_name, as_prefix, rdap_netblock, rdap_org, rdap_registry, ptr, provider, provider_class, geo_country, geo_city, internetdb_ports, internetdb_hostnames, internetdb_tags, internetdb_cpes, internetdb_vulns, reverse_ip, reverse_ip_count, not_contacted, ports, tls, web (these four only with --active), all
+Fields accepted by --fields: asn, as_name, as_prefix, rdap_netblock, rdap_org, rdap_registry, ptr, provider, provider_class, geo_country, geo_city, internetdb_ports, internetdb_hostnames, internetdb_tags, internetdb_cpes, internetdb_vulns, reverse_ip, reverse_ip_count, abusive_networks, abusive_asn, not_contacted, ports, tls, web (these four only with --active), all
 
 nyx recon [domain...] [flags]
   Passive-first reconnaissance of a target's domains, organisations and netblocks
@@ -66,7 +66,7 @@ recon export flags:
       --kind stringArray    Export only this kind (repeatable); the kinds are listed below
       --output-dir string   Directory in which engagement directories are created (default ".")
       --config string       Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
-Kinds accepted by --kind: asn, candidate_rank, code_mention, dns_claim, email_posture, excluded, finding, historical_address, hostname, http_port, ip, ip_hostname, ip_owner, netblock, open_port, organisation, origin_check, port_check, provider_range, registration, reported_port, resolution, root, script, script_parsed, sensitive_hit, server_address, shodan_netblock, storage, storage_account, storage_object, storage_ref, takeover_http, third_party, unresolved, url, web_identifier, web_posture, web_service, wildcard, input, exclusion
+Kinds accepted by --kind: asn, candidate_rank, code_mention, dns_claim, email_posture, excluded, finding, historical_address, hostname, http_port, ip, ip_hostname, ip_owner, netblock, netblock_owner, open_port, organisation, origin_check, port_check, provider_range, registration, reported_port, resolution, root, script, script_parsed, sensitive_hit, server_address, shodan_netblock, storage, storage_account, storage_object, storage_ref, takeover_http, third_party, unresolved, url, web_identifier, web_posture, web_service, wildcard, input, exclusion
 
 nyx setup [flags]
   Store API keys and common settings in the config file, and test the keys

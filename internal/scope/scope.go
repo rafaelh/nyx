@@ -304,3 +304,28 @@ func (s *Scope) IPv4Addrs() iter.Seq[netip.Addr] {
 		}
 	}
 }
+
+// OwnerUnit is the prefix that one origin-AS lookup answers for an address inside an in-scope
+// netblock: the covering /24 (IPv4) or /48 (IPv6), or the smallest in-scope netblock holding the
+// address when that is smaller, since longer prefixes are filtered from the global routing table.
+// ok is false for an address that is in no in-scope netblock.
+func (s *Scope) OwnerUnit(a netip.Addr) (unit netip.Prefix, ok bool) {
+	a = a.Unmap()
+	var holder netip.Prefix // the smallest in-scope netblock holding the address
+	for _, p := range s.netblocks {
+		if p.Contains(a) && (!ok || p.Bits() > holder.Bits()) {
+			holder, ok = p, true
+		}
+	}
+	if !ok {
+		return netip.Prefix{}, false
+	}
+	widest := 24
+	if a.Is6() {
+		widest = 48
+	}
+	if holder.Bits() > widest {
+		return holder.Masked(), true
+	}
+	return netip.PrefixFrom(a, widest).Masked(), true
+}

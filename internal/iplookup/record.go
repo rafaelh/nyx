@@ -2,15 +2,14 @@ package iplookup
 
 import (
 	"encoding/json"
-	"net/netip"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/input"
 )
 
 // Source is where a part of a record comes from.
@@ -118,9 +117,10 @@ type WebEntry struct {
 
 // Record is the answer for one address. A single unknown value is a nil pointer (null) and a list
 // that has no entries is empty and not nil ([]); a value from a source that failed is nil, lists
-// too, so a nil list is a source that did not answer. Hostnames and Failures encode as [] when
-// they are nil. The active-only keys encode only when selected (see Projected). The order of the
-// fields is the order of the keys.
+// too, so a nil list is a source that did not answer. The abusive keys are the exception: a
+// non-public address has both nil, as it is checked against no list. Hostnames and Failures encode
+// as [] when they are nil. The active-only keys encode only when selected (see Projected). The
+// order of the fields is the order of the keys.
 type Record struct {
 	Address   string        `json:"address"`
 	Hostnames []string      `json:"hostnames"`
@@ -146,6 +146,13 @@ type Record struct {
 
 	ReverseIP      []string `json:"reverse_ip"`
 	ReverseIPCount *int     `json:"reverse_ip_count"`
+
+	// AbusiveNetworks are the entries of the abusive network list that hold the address, and
+	// AbusiveASN the entry of its origin AS (a list of at most one). A public address always has
+	// the first, [] when none holds it; the second is [] when the AS is known and not listed or has
+	// no owner, and null when Team Cymru failed. A non-public address has both null.
+	AbusiveNetworks []abusive.NetworkMatch `json:"abusive_networks"`
+	AbusiveASN      []abusive.ASNMatch     `json:"abusive_asn"`
 
 	// NotContacted is why --active sent the address nothing; null when it was contacted.
 	NotContacted *string    `json:"not_contacted"`
@@ -174,20 +181,6 @@ func (r *Record) AddFailure(f Failure) { r.Failures = append(r.Failures, f) }
 // Failed reports whether s has a failure in the record, a quota one included.
 func (r Record) Failed(s Source) bool {
 	return slices.ContainsFunc(r.Failures, func(f Failure) bool { return f.Source == s })
-}
-
-// Netblock is a registered range as the record shows it: the CIDR when the range is exactly one,
-// else "start-end".
-func Netblock(start, end netip.Addr) string {
-	start, end = start.Unmap(), end.Unmap()
-	cidrs := input.RangeCIDRs(start, end)
-	switch len(cidrs) {
-	case 0:
-		return ""
-	case 1:
-		return cidrs[0].String()
-	}
-	return start.String() + "-" + end.String()
 }
 
 // Expiry is a certificate's last day as YYYY-MM-DD in UTC.

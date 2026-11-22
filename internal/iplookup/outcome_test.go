@@ -360,3 +360,24 @@ func TestOutcome_RecordsKeepTheirOrder(t *testing.T) {
 		t.Errorf("records %v: the failed address has no record", addresses(recs))
 	}
 }
+
+// A selected key the snapshot answers is a source that always answers: an address whose only failed
+// source is Team Cymru keeps its record, and the call ends partial.
+func TestOutcome_TheSnapshotAnswersWhenTeamCymruFails(t *testing.T) {
+	t.Parallel()
+	failed := AddressResult{Record: pub("1.1.1.1", fail(SourceCymru, clierr.Timeout, true)), Asked: []Source{SourceCymru}, Answered: true}
+	recs, metaErrs, err := Outcome([]InputResult{given("1.1.1.1", "1.1.1.1")}, []AddressResult{failed}, cmd)
+	if len(recs) != 1 || len(metaErrs) != 1 || err == nil || err.Code != clierr.Partial {
+		t.Errorf("%d records, %+v, %+v", len(recs), metaErrs, err)
+	}
+	// Without it, the same failure leaves no record.
+	failed.Answered = false
+	if recs, _, err := Outcome([]InputResult{given("1.1.1.1", "1.1.1.1")}, []AddressResult{failed}, cmd); len(recs) != 0 || err == nil || err.Code != clierr.Timeout {
+		t.Errorf("without the snapshot: %d records, %+v", len(recs), err)
+	}
+	// A quota failure is still no part of it.
+	q := AddressResult{Record: pub("1.1.1.1", quota()), Asked: []Source{SourceHackerTarget}, Answered: true}
+	if recs, _, err := Outcome([]InputResult{given("1.1.1.1", "1.1.1.1")}, []AddressResult{q}, cmd); len(recs) != 1 || err != nil {
+		t.Errorf("a quota failure with the snapshot answering: %d records, %+v", len(recs), err)
+	}
+}

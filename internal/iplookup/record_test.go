@@ -70,29 +70,6 @@ func TestSources_Order(t *testing.T) {
 	}
 }
 
-func TestNetblock(t *testing.T) {
-	t.Parallel()
-	a := netip.MustParseAddr
-	for _, c := range []struct {
-		start, end, want string
-	}{
-		{"1.1.1.0", "1.1.1.255", "1.1.1.0/24"},
-		{"8.8.8.8", "8.8.8.8", "8.8.8.8/32"},
-		{"10.0.0.0", "10.0.0.2", "10.0.0.0-10.0.0.2"},
-		{"10.0.0.1", "10.0.0.2", "10.0.0.1-10.0.0.2"},
-		{"2001:db8::", "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", "2001:db8::/32"},
-		{"2001:db8::", "2001:db9::1", "2001:db8::-2001:db9::1"},
-		{"::ffff:1.1.1.0", "::ffff:1.1.1.255", "1.1.1.0/24"},
-	} {
-		if got := Netblock(a(c.start), a(c.end)); got != c.want {
-			t.Errorf("Netblock(%s, %s) = %q, want %q", c.start, c.end, got, c.want)
-		}
-	}
-	if got := Netblock(netip.Addr{}, netip.Addr{}); got != "" {
-		t.Errorf("an invalid range gave %q", got)
-	}
-}
-
 func TestExpiry(t *testing.T) {
 	t.Parallel()
 	zone := time.FixedZone("AEDT", 11*3600)

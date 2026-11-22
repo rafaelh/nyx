@@ -32,6 +32,12 @@ Reverse IP
 Count: 1
 Names: x.example.com
 
+Abusive networks
+none
+
+Abusive ASN
+none
+
 Not contacted
 none
 
@@ -83,6 +89,12 @@ Vulns: none
 Reverse IP
 Count: none
 Names: none
+
+Abusive networks
+none
+
+Abusive ASN
+none
 
 Not contacted
 none

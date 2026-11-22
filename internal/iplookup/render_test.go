@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
@@ -303,5 +304,96 @@ func TestRender_WebHostsThatAreIPv6AreBracketed(t *testing.T) {
 	got := renderTo(t, []Record{r}, "web", true, stream(false, palette.None, 100))
 	if !strings.Contains(got, "- 80 http://[2001:db8::1]/: no-answer\n") {
 		t.Errorf("got\n%s", got)
+	}
+}
+
+// The abusive keys read as one line to each match, none when nothing matches, and unknown when Team
+// Cymru failed to give the AS.
+func TestRender_AbusiveSections(t *testing.T) {
+	t.Parallel()
+	nets := []abusive.NetworkMatch{
+		{Network: "34.68.34.64/27", Rank: 1, ScoreTag: "Very High", AbuseScore: 100, Org: "Mandiant, Inc.", OrgType: "business", Updated: "2026-11-21"},
+		{Network: "34.68.0.0-34.68.40.9", Rank: 7, ScoreTag: "High", AbuseScore: 10.16, Org: "Outer", OrgType: "isp", Updated: "2026-11-21"},
+	}
+	asn := []abusive.ASNMatch{{ASN: 64050, Rank: 3, ScoreTag: "Very High", AbuseScore: 100, Org: "BGP Network Limited", OrgType: "Spamhaus ASN-DROP", Updated: "2026-11-20"}}
+	pubRec := func(n []abusive.NetworkMatch, a []abusive.ASNMatch, fs ...Failure) Record {
+		r := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public", AbusiveNetworks: n, AbusiveASN: a}
+		for _, f := range fs {
+			r.AddFailure(f)
+		}
+		return r
+	}
+	type tc struct {
+		name string
+		rec  Record
+		want string
+	}
+	for _, c := range []tc{
+		{"matches", pubRec(nets, asn), `34.68.34.70 [public]
+
+Abusive networks
+- 34.68.34.64/27: Very High, 100%, Mandiant, Inc. (business), updated 2026-11-21
+- 34.68.0.0-34.68.40.9: High, 10.16%, Outer (isp), updated 2026-11-21
+
+Abusive ASN
+- AS64050: Very High, 100%, BGP Network Limited (Spamhaus ASN-DROP), updated 2026-11-20
+`},
+		{"nothing matches", pubRec([]abusive.NetworkMatch{}, []abusive.ASNMatch{}), `34.68.34.70 [public]
+
+Abusive networks
+none
+
+Abusive ASN
+none
+`},
+		{"team cymru failed", pubRec(nets[:1], nil, Failure{Source: SourceCymru, Code: clierr.Timeout, Message: "no answer before the deadline", Transient: true}), `34.68.34.70 [public]
+
+Abusive networks
+- 34.68.34.64/27: Very High, 100%, Mandiant, Inc. (business), updated 2026-11-21
+
+Abusive ASN
+unknown
+`},
+		{"a non-public address", func() Record { r := private(); r.AbusiveNetworks, r.AbusiveASN = nil, nil; return r }(), `10.0.0.1 [private]
+
+Abusive networks
+none
+
+Abusive ASN
+none
+`},
+	} {
+		for _, term := range []bool{false, true} {
+			got := renderTo(t, []Record{c.rec}, "abusive_networks,abusive_asn", false, stream(term, palette.None, 100))
+			if term {
+				// The terminal layout has headings and indentation; the lines are the same.
+				flat := strings.Join(strings.Fields(got), " ")
+				for _, line := range strings.Split(c.want, "\n")[1:] {
+					line = strings.TrimPrefix(strings.TrimSpace(line), "- ")
+					if line == "" || line == "Abusive networks" || line == "Abusive ASN" {
+						continue
+					}
+					if !strings.Contains(flat, strings.Join(strings.Fields(line), " ")) {
+						t.Errorf("%s (terminal) lacks %q:\n%s", c.name, line, got)
+					}
+				}
+				continue
+			}
+			if _, sections, _ := strings.Cut(c.want, "\n\n"); !strings.Contains(got, sections) || !strings.HasPrefix(got, strings.SplitN(c.want, "\n", 2)[0]) {
+				t.Errorf("%s:\n got\n%s\nwant the sections\n%s", c.name, got, sections)
+			}
+		}
+	}
+}
+
+// Text from the snapshot is cleaned of anything that would act on a terminal, as every other value is.
+func TestRender_AbusiveTextIsSanitised(t *testing.T) {
+	t.Parallel()
+	r := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public",
+		AbusiveNetworks: []abusive.NetworkMatch{{Network: "34.68.34.0/24\x1b[31m", ScoreTag: "Hi\x07gh", AbuseScore: 50, Org: "Evil\x1b]0;x\x07 Org", OrgType: "is\np", Updated: "2026-11-21"}},
+		AbusiveASN:      []abusive.ASNMatch{{ASN: 1, ScoreTag: "x", Org: "A\x1b[2Jb", OrgType: "t", Updated: "2026-11-20"}}}
+	got := renderTo(t, []Record{r}, "abusive_networks,abusive_asn", false, stream(false, palette.None, 100))
+	if strings.ContainsAny(got, "\x1b\x07") {
+		t.Errorf("unsanitised output: %q", got)
 	}
 }

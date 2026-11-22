@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/kinds"
@@ -111,3 +112,69 @@ func TestIPOwnerFailureModes(t *testing.T) {
 }
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
+
+// The netblockowner stage asks Team Cymru once for a unit (the covering /24, /48 or smaller
+// netblock), about the unit's first address, and records the AS under the unit's prefix.
+func TestNetblockOwnerRun(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		unit, first string
+		txt         string
+		wantASN     int
+		wantPrefix  string
+	}{
+		{"203.0.113.0/24", "203.0.113.0", "64500 | 203.0.113.0/24 | US | arin | 2000-01-01", 64500, "203.0.113.0/24"},
+		{"198.51.100.16/28", "198.51.100.16", "64501 64502 | 198.51.100.0/22 | US | arin | 2000-01-01", 64501, "198.51.100.0/22"}, // the first of several origins
+		{"2001:db8:1::/48", "2001:db8:1::", "64503 | 2001:db8::/32 | US | arin | 2000-01-01", 64503, "2001:db8::/32"},
+	} {
+		d := egresstest.NewDNS(t)
+		d.TXT(dnsname.CymruOrigin(mustAddr(tc.first)), tc.txt)
+		unit := netip.MustParsePrefix(tc.unit)
+		obs, err := dns.NewNetblockOwner().Run(context.Background(), run.Check{Key: tc.unit, Input: unit}, clients(t, d))
+		if err != nil || len(obs) != 1 {
+			t.Fatalf("%s: %+v %v", tc.unit, obs, err)
+		}
+		if obs[0].Kind != "netblock_owner" || obs[0].Key != tc.unit {
+			t.Errorf("%s: observation %s %q", tc.unit, obs[0].Kind, obs[0].Key)
+		}
+		a := kinds.NetblockOwner.Attrs(store.Record{Key: obs[0].Key, Attrs: obs[0].Attrs})
+		if a.ASN != tc.wantASN || a.Prefix != tc.wantPrefix {
+			t.Errorf("%s: attrs = %+v, want AS%d %s", tc.unit, a, tc.wantASN, tc.wantPrefix)
+		}
+		if got := d.Queried("TXT"); len(got) != 1 || got[0] != dnsname.CymruOrigin(mustAddr(tc.first)) {
+			t.Errorf("%s: queried %v, want only the origin of %s", tc.unit, got, tc.first)
+		}
+	}
+}
+
+// A unit Team Cymru knows nothing of is a completed check with no record; a failure is transient.
+func TestNetblockOwnerFailureModes(t *testing.T) {
+	t.Parallel()
+	d := egresstest.NewDNS(t)
+	st := dns.NewNetblockOwner()
+	chk := run.Check{Key: "203.0.113.0/24", Input: netip.MustParsePrefix("203.0.113.0/24")}
+	if obs, err := st.Run(context.Background(), chk, clients(t, d)); err != nil || len(obs) != 0 {
+		t.Errorf("unknown unit (NXDOMAIN): %+v %v", obs, err)
+	}
+	d.TXT(dnsname.CymruOrigin(mustAddr("203.0.113.0")), "0 | 203.0.113.0/24 | US | arin | 2000-01-01")
+	if obs, err := st.Run(context.Background(), chk, clients(t, d)); err != nil || len(obs) != 0 {
+		t.Errorf("AS0: %+v %v", obs, err)
+	}
+	d.RcodeSuffix("asn.cymru.com", 2) // SERVFAIL
+	if _, err := st.Run(context.Background(), chk, clients(t, d)); err == nil {
+		t.Error("a SERVFAIL must be a transient failure")
+	}
+}
+
+// The stage is a third-party DNS stage like ipowner: it declares no source host, always runs, and
+// is not told apart from the others by the registry.
+func TestNetblockOwnerContract(t *testing.T) {
+	t.Parallel()
+	st := dns.NewNetblockOwner()
+	if st.Name() != "netblockowner" || st.Contact() != run.ThirdParty || len(st.Sources()) != 0 {
+		t.Errorf("%s contact %v sources %v", st.Name(), st.Contact(), st.Sources())
+	}
+	if ok, _ := st.Configured(run.Env{}); !ok {
+		t.Error("the stage is not always configured")
+	}
+}

@@ -32,5 +32,11 @@ Reverse IP
 Count: 2
 Names: a.8-8-4-4.example.org, b.8-8-4-4.example.org
 
+Abusive networks
+none
+
+Abusive ASN
+none
+
 Failures
 none
