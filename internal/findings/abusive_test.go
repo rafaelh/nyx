@@ -302,6 +302,18 @@ func TestAbusive_ASNOnlyFinding(t *testing.T) {
 	}
 }
 
+// An entry whose organisation is blank has a found line with no empty parentheses.
+func TestAbusive_FoundLineWithABlankOrganisation(t *testing.T) {
+	t.Parallel()
+	w := newAbusiveWorld()
+	w.snap = snapshotOf(nil, []abusive.ASNEntry{{Rank: 1, ASN: 64050, ScoreTag: "High", AbuseScore: 90, OrgType: "unknown"}})
+	w.host("app.example.com", "203.0.113.17")
+	w.owner("203.0.113.17", 64050)
+	if got := w.derive(t)["203.0.113.17"].FoundText(); got != "address 203.0.113.17 in abusive AS64050" {
+		t.Errorf("found = %q", got)
+	}
+}
+
 // Text from the snapshot is sanitised in the finding.
 func TestAbusive_TextIsSanitised(t *testing.T) {
 	t.Parallel()

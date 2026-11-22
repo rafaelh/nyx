@@ -705,11 +705,14 @@ By behaviour:
 - **B1 Met.** `make abusive-data` matches D1: curl into a `mktemp -d` directory, then the Go parser,
   which does no network I/O. No `nyx` command contacts ipapi.is. The snapshot holds the 2026-11-21
   lists.
-- **B2 Mostly met.** Every listed failure stops the refresh before anything is written, and both
-  lists live in one file that is replaced whole. One gap remains (see `## Known limitations`): an
-  entity-encoded C1 character that Windows-1252 maps to a printable one gets through, because the
-  HTML parser has already decoded it. A raw C1 character, and the five unmapped code points, are
-  rejected. Cells are trimmed before the control-character check, as D12 says.
+- **B2 Met, after a fix.** Every listed failure stops the refresh before anything is written, and
+  both lists live in one file that is replaced whole. The gap in `## Known limitations` was real: a
+  C1 character written as a numeric reference that Windows-1252 maps to a printable one (`&#x85;`,
+  `&#155;`) got through, because the HTML parser had already decoded it. I fixed it. `readPage` now
+  turns each numeric reference to 0x80 to 0x9f (hex or decimal, with or without the semicolon) into
+  the raw character before parsing, so the per-cell control check rejects it. Three new
+  `TestRefresh_FailsSafely` cases failed before the fix and pass after it. Cells are trimmed before
+  the check, as D12 says.
 - **B3 Met.** The summary lists added and removed entries, and changes to the four fields. A change
   in rank alone is left out. "no entries changed" is printed when nothing changed.
 - **B4 Met.** Matching covers ranges and the origin AS. An IPv6 address matches only IPv6 ranges,
@@ -751,11 +754,64 @@ By behaviour:
 Out of scope is respected: no runtime fetch, no warning that the snapshot is old, no column on
 `ips.csv`, every score tag flags, shared addresses are checked, and findings are per address.
 
-I changed nothing during verification. I found no bug that needed fixing.
+Changed during verification: the C1-reference fix to the refresh (B2, above), in
+`internal/abusive/refresh/refresh.go` and `refresh_test.go`.
+
+## Code review
+
+`/code-review high --fix` reviewed the change. By then the user had committed it as `ea67e39`.
+The review made four fixes, and I kept all of them after checking each against the spec:
+
+- **README, Passive boundary (B15).** The committed README had lost the sentence "No command
+  contacts ipapi.is", so `TestAbusiveDocs_ReadmeGivesTheSnapshotDates` failed at `ea67e39`. The
+  review restored the sentence. It also reworded the Team Cymru paragraph: the query names the
+  first address of each /24, /48 or smaller netblock, and the paragraph links the Abusive networks
+  section.
+- **Refresh summary order (B1, B3).** The summary is now printed before the snapshot is replaced,
+  which is D1's order. As a result, the "snapshot is unchanged" error is always true, even when
+  printing fails.
+- **Found line with a blank organisation (B12).** The found line drops the empty `()` when an
+  entry's organisation is blank. I added `TestAbusive_FoundLineWithABlankOrganisation` to pin it.
+  Today's snapshot has no blank organisation.
+
+Left unfixed:
+
+- **The "always answers" outcome in `nyx ip` (B7).** The review rated this important. While
+  `abusive_networks` is selected (the default), an address whose every source failed now gets a
+  record of nulls and exit 7 (PARTIAL), where before it got exit 1 with the source's error code.
+  B7 calls the snapshot "a source that always answers", and the README documents the result, so I
+  left it as built. Changing it is the user's decision (see Follow-ups).
+- **Linear scan in `Snapshot.Networks`.** `## Simplify` already weighed a binary search and
+  declined it, and no behaviour depends on the change.
+- **`;` inside an organisation in the risk file's `networks` and `asn` cells.** The CSVs are read
+  by people (CLAUDE.md). Changing the cell format is not something the spec asks for.
+
+After the fixes, `make test` passed except for one run of `TestPorts_WorkerBounds` ("peaked at 5,
+want 4"). That test does not touch this change, and it passed 20 times on its own under `-race`,
+then passed again in a full `go test -race ./...`. `make lint` reports 0 issues.
 
 # Follow-ups
 
-- Before release, confirm that ipapi.is's terms allow nyx to embed and redistribute both lists, and to
-  scrape the pages for the refresh. Neither page states a licence or terms of use.
-- Review and commit: the `refactor:` change to `input.RangeText` (D4 asked for its own commit first),
-  then the rest, including `internal/abusive/snapshot.json`.
+1. Before release, ask ipapi.is (https://ipapi.is, contact page) whether nyx may embed and
+   redistribute both lists and fetch the two pages for `make abusive-data`. Neither page states a
+   licence or terms of use.
+2. Decide whether an address in `nyx ip` whose every source failed should still count as answered
+   while `abusive_networks` is selected (see `## Code review`). Today it gets exit 7 with a record of
+   nulls, where before it got exit 1. To change it, edit the `Answered` rule in `lookupAddress`
+   (`internal/iplookup/sources.go`) and the outcome paragraph in `README.md` ("The snapshot of
+   abusive networks is a source that always answers"). `TestIPAbusive_EverySourceFailingStillHasARecord`
+   pins the current rule.
+3. Live check of `netblockowner` against the real Team Cymru on an engagement you are authorised to
+   look at that has an in-scope netblock:
+   `nyx recon --passive --cidr <netblock> <domain> --output-dir /tmp/nyx-live`. Confirm that Team
+   Cymru gets one origin query per /24 and that `risk-abusive-network.csv` and `ips.csv` read as
+   expected.
+4. Run the build against an engagement made by an older nyx (B14 was tested only as the stage's
+   first run on a fresh store): `nyx recon -e <old engagement> --passive --output-dir <its dir>`.
+   Confirm the `netblockowner` checks run once and the findings appear.
+5. Before each release, refresh the snapshot with `make abusive-data`, review the diff of
+   `internal/abusive/snapshot.json`, update the two dates in the README's "Abusive networks"
+   section, and commit.
+6. Unrelated to this spec: `TestPorts_WorkerBounds` (`internal/cli/ports_test.go`) failed once under
+   `make test` ("peaked at 5, want 4"). Look into it with
+   `go test -race ./internal/cli/ -run TestPorts_WorkerBounds -count=200`.

@@ -313,10 +313,12 @@ against Shodan's current terms when this was written, so check your plan before 
 netblock search pages past the first still cost query credits as before. What Shodan reports is
 shown, never acted on: a port only Shodan names is never connected to, and widens nothing.
 
-Team Cymru, through the public resolvers,
-now also receives the in-scope netblock addresses nyx knows, one query for each /24 (IPv4) or /48
-(IPv6) of them, or one for a netblock that is smaller, to learn their origin AS for that check. It is
-a third-party lookup, so it runs under `--passive`, and the target never receives it.
+Team Cymru, through the public resolvers, also receives one query for each /24 (IPv4) or /48 (IPv6)
+that holds an in-scope netblock address nyx knows, or for an in-scope netblock that is smaller. The
+query names the first address of that /24, /48 or netblock, and its answer is the origin AS the
+abusive-network check uses (see [Abusive networks](#abusive-networks)). It is a third-party lookup,
+so it runs under `--passive`, and the target never receives it. No command contacts ipapi.is: its
+lists of abusive networks and ASNs are a snapshot built into nyx.
 
 **`nyx ip`** keeps no engagement and has no scope, so the list above is for recon and is unchanged.
 By default `nyx ip` sends nothing to the address it looks up. It contacts only third parties and DNS

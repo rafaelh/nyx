@@ -231,6 +231,15 @@ func TestRefresh_FailsSafely(t *testing.T) {
 		{"a C1 character as an entity", func(t *testing.T, w *world) {
 			w.asns = replaceOnce(t, w.asns, "Plain Net Ltd", "Plain&#x81; Net Ltd")
 		}, "control"},
+		{"a C1 character as a hex entity that Windows-1252 maps", func(t *testing.T, w *world) {
+			w.asns = replaceOnce(t, w.asns, "Plain Net Ltd", "Plain&#X85; Net Ltd")
+		}, "control"},
+		{"a C1 character as a decimal entity that Windows-1252 maps", func(t *testing.T, w *world) {
+			w.networks = replaceOnce(t, w.networks, "Proton66 OOO", "Proton&#155;66 OOO")
+		}, "control"},
+		{"a C1 character as an entity with no semicolon", func(t *testing.T, w *world) {
+			w.networks = replaceOnce(t, w.networks, "Proton66 OOO", "Proton&#x0096 OOO")
+		}, "control"},
 		{"a C1 character at the edge of a cell", func(t *testing.T, w *world) {
 			w.asns = replaceOnce(t, w.asns, "Plain Net Ltd", "Plain Net Ltd\u0085")
 		}, "control"},

@@ -57,11 +57,12 @@ func refresh(o options, out io.Writer) error {
 	if err := abusive.Validate(next); err != nil {
 		return err
 	}
-	if err := writeAtomic(o.snapshot, abusive.Marshal(next)); err != nil {
+	// The summary is printed before the file is replaced, so that every error this returns, a
+	// failed print included, leaves the snapshot as it was.
+	if _, err := io.WriteString(out, summary(old, next)); err != nil {
 		return err
 	}
-	_, err = io.WriteString(out, summary(old, next))
-	return err
+	return writeAtomic(o.snapshot, abusive.Marshal(next))
 }
 
 // readSnapshot is the current snapshot, or an empty one when there is no file yet. A file that
@@ -150,7 +151,7 @@ func (c columns) String() string {
 // previous, nor later than tomorrow), the number of entries it lists and a table with the
 // headers. It returns the table's rows.
 func readPage(b []byte, cols columns, previous string, now time.Time) (parsedPage, error) {
-	doc, err := html.Parse(bytes.NewReader(b))
+	doc, err := html.Parse(bytes.NewReader(rawC1(b)))
 	if err != nil {
 		return parsedPage{}, fmt.Errorf("unreadable HTML: %w", err)
 	}
@@ -197,6 +198,27 @@ func readPage(b []byte, cols columns, previous string, now time.Time) (parsedPag
 		return parsedPage{}, fmt.Errorf("the page states %d entries but its table has %d rows (under %d%%)", stated, len(p.rows), minShare)
 	}
 	return p, nil
+}
+
+// c1RefRE is a numeric character reference to a C1 code point, 0x80 to 0x9f, hex or decimal, its
+// semicolon optional as HTML allows.
+var c1RefRE = regexp.MustCompile(`&#(?:[xX]0*([89][0-9a-fA-F])|0*(12[89]|1[3-5][0-9]));?`)
+
+// rawC1 writes each numeric reference to a C1 code point as the raw character. The HTML parser
+// would decode most of them through Windows-1252 (&#x85; is an ellipsis), so the row's control
+// check would never see them; raw, they reach it and fail the refresh.
+func rawC1(b []byte) []byte {
+	return c1RefRE.ReplaceAllFunc(b, func(ref []byte) []byte {
+		m := c1RefRE.FindSubmatch(ref)
+		n, err := strconv.ParseUint(string(m[1]), 16, 8)
+		if len(m[1]) == 0 {
+			n, err = strconv.ParseUint(string(m[2]), 10, 8)
+		}
+		if err != nil {
+			return ref
+		}
+		return []byte(string(rune(n)))
+	})
 }
 
 // pageDate reads the "last updated" date and checks it against the snapshot's date for the list

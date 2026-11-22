@@ -131,7 +131,8 @@ var categories = []category{
 		// One per address, whatever its type, so the row is the same while the address moves
 		// between a network match (medium) and an AS-only one (low), and a rise is announced. The
 		// found line reads "address <ip> in abusive network <entry> (<organisation>)" or "address
-		// <ip> in abusive AS<n> (<organisation>)", from the entry and org attributes.
+		// <ip> in abusive AS<n> (<organisation>)", from the entry and org attributes, with no
+		// parentheses when the organisation is blank.
 		name:  AbusiveNetwork,
 		key:   func(f Finding) string { return f.Target },
 		parse: func(rest string) (string, string) { return "", rest },
@@ -141,6 +142,9 @@ var categories = []category{
 			what := "network " + entry
 			if f.Type == "asn" {
 				what = entry
+			}
+			if org == "" { // a list may leave an entry's organisation blank
+				return "address " + f.Target + " in abusive " + what
 			}
 			return "address " + f.Target + " in abusive " + what + " (" + org + ")"
 		},
