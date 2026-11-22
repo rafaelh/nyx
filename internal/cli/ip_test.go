@@ -129,8 +129,8 @@ func TestIP_ConfigIsAnUnknownFlag(t *testing.T) {
 	}
 }
 
-// A NYX_* variable and a configuration file change nothing: not the result, not where anything is
-// written, and an invalid one is not an error.
+// Neither a configuration file nor a NYX_* variable changes anything: not the result, not where
+// anything is written, and an invalid one is not an error.
 func TestIP_SettingsAreNotRead(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -177,7 +177,7 @@ func TestIP_WritesNoFiles(t *testing.T) {
 	}
 	w := newIPWorld(t)
 	w.seed("8.8.4.4")
-	w.h.setenv("NYX_OUTPUT_DIR", w.h.out)
+	w.h.set("output_dir", w.h.out)
 	cfg := w.h.env["XDG_CONFIG_HOME"]
 	before, cfgBefore := listing("."), listing(cfg) // the harness leaves an empty config file there
 	for _, args := range [][]string{{"8.8.4.4"}, {"8.8.4.4", "https://example.com/x"}, {"8.8.4.4", "--fields", "ptr"}} {

@@ -359,7 +359,7 @@ func TestLayout_SummaryNoteIsCleanedBeforeLayout(t *testing.T) {
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		for _, note := range notes {
 			h := newHarness(t, noteStage{&testkit.Stage{StageName: "noter", Kind: run.ThirdParty}, note})
-			h.setenv("NYX_KEYS_FAKE", key)
+			h.setKey("fake", key)
 			h.setenv("COLUMNS", "60")
 			if d == palette.None {
 				h.stdoutTTY = true

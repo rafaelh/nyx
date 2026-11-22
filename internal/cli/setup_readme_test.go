@@ -29,7 +29,7 @@ func TestSetup_ReadmeDocumentsTheCommand(t *testing.T) {
 	flat := flatWords(readme)
 	for _, want := range []string{
 		"run nyx setup to store api keys and settings", // the hint's text
-		"nyx_* environment variables and nvd_api_key still override what nyx setup saves",
+		"what setup shows and saves is what nyx reads",
 		"a key test may spend a query",
 		"no prompts, no stdin",
 	} {

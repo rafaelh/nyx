@@ -26,8 +26,7 @@ import (
 type StoreOptions struct {
 	// Path is the config file.
 	Path string
-	// Env is the environment the file is checked in. Only HOME (for "~") is read from it: the NYX_*
-	// variables and NVD_API_KEY are dropped, so what the file says is what is shown.
+	// Env is the environment the file is checked in. Only HOME (for "~") is read from it.
 	Env config.Env
 	// Sources and Stages are what the setup tabs list, handed back by Info.
 	Sources []setup.Source
@@ -58,7 +57,7 @@ func NewStore(o StoreOptions) *Store {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	return &Store{o: o, path: path, env: config.FileOnlyEnv(o.Env)}
+	return &Store{o: o, path: path, env: o.Env}
 }
 
 // Info is the config file's absolute path and what the setup tabs list.

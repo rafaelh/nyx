@@ -136,7 +136,7 @@ func newOriginWorld(t *testing.T, mod ...func(*originOpts)) *oworld {
 	x := &oworld{web: newWeb(t), hist: &stHistory{records: map[string][]histRec{}},
 		cdnTitle: acmeTitle, cdnStatus: 200, originWWW: acmeTitle, ownTitle: "Origin Server", provider: "fastly"}
 	if !o.noKey {
-		x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+		x.h.setKey("securitytrails", securityTrailsKey)
 	}
 	x.handle("api.securitytrails.com", x.hist.serve)
 	serveAWSElsewhere(x.world) // the providers are the ones each case sets
@@ -650,7 +650,7 @@ func TestOrigin_NoKeyLeavesSiblingCandidatesOnly(t *testing.T) {
 func TestDNSHistory_CapAndDeferredCount(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
-	x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+	x.h.setKey("securitytrails", securityTrailsKey)
 	hist := &stHistory{records: map[string][]histRec{}}
 	x.handle("api.securitytrails.com", hist.serve)
 	x.names("www3.example.com", "www1.example.com", "www2.example.com", "plain.example.com")

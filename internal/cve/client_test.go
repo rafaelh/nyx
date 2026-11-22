@@ -78,7 +78,7 @@ var (
 // newTestClient is a Client over the script, with a 1ms backoff.
 func newTestClient(keyed bool, script ...answer) (*Client, *fakeNVD) {
 	f := &fakeNVD{script: script}
-	c := NewClient(Config{HTTP: f, Keyed: keyed, AuthHint: "check NVD_API_KEY"})
+	c := NewClient(Config{HTTP: f, Keyed: keyed, AuthHint: "check keys.nvd in nyx.yaml"})
 	c.backoff = time.Millisecond
 	return c, f
 }
@@ -156,9 +156,9 @@ func TestClient_Classification(t *testing.T) {
 		msg, hint string
 	}{
 		{"no vulnerabilities is not found", false, []answer{none}, clierr.NotFound, false, 1, "not in the NVD", "check the ID; the NVD lists only published CVEs"},
-		{"401", true, []answer{{status: 401}}, clierr.AuthFailed, false, 1, "the NVD refused the API key", "check NVD_API_KEY"},
-		{"404 naming the key in its message header", true, []answer{badKey404}, clierr.AuthFailed, false, 1, "the NVD refused the API key", "check NVD_API_KEY"},
-		{"403 naming the key in its body", true, []answer{{status: 403, body: `{"message":"Invalid APIKEY"}`}}, clierr.AuthFailed, false, 1, "the NVD refused the API key", "check NVD_API_KEY"},
+		{"401", true, []answer{{status: 401}}, clierr.AuthFailed, false, 1, "the NVD refused the API key", "check keys.nvd in nyx.yaml"},
+		{"404 naming the key in its message header", true, []answer{badKey404}, clierr.AuthFailed, false, 1, "the NVD refused the API key", "check keys.nvd in nyx.yaml"},
+		{"403 naming the key in its body", true, []answer{{status: 403, body: `{"message":"Invalid APIKEY"}`}}, clierr.AuthFailed, false, 1, "the NVD refused the API key", "check keys.nvd in nyx.yaml"},
 		{"any other 404", false, []answer{badParam404}, clierr.UpstreamError, false, 1, "Invalid cveId parameter.", ""},
 		{"500 is not retried", false, []answer{{status: 500}}, clierr.UpstreamError, true, 1, "500", "retry later"},
 		{"503 three times", false, []answer{unavailable}, clierr.UpstreamError, true, 3, "503", "retry later"},
@@ -167,7 +167,7 @@ func TestClient_Classification(t *testing.T) {
 		{"truncated body", false, []answer{{status: 200, body: `{"vulnerabilities":[`, trunc: true}}, clierr.UpstreamError, false, 1, "", ""},
 		{"unkeyed 403 with a plain body", false, []answer{plain403}, clierr.RateLimited, true, 3, "", "retry after"},
 		{"keyed 403 with a plain body", true, []answer{plain403}, clierr.RateLimited, true, 3, "", "retry after"},
-		{"429 three times", false, []answer{tooMany}, clierr.RateLimited, true, 3, "", "or set NVD_API_KEY for 50 requests per 30s"},
+		{"429 three times", false, []answer{tooMany}, clierr.RateLimited, true, 3, "", "or set keys.nvd in the config file for 50 requests per 30s"},
 		{"network error three times", false, []answer{networkError}, clierr.NetworkError, true, 3, "connection refused", "retry later"},
 	}
 	for _, c := range cases {
@@ -185,7 +185,7 @@ func TestClient_RateLimitHintWhenKeyed(t *testing.T) {
 	t.Parallel()
 	cl, f := newTestClient(true, tooMany)
 	_, err := cl.Get(withTimeout(t, time.Minute), "CVE-2021-44228")
-	if fl := expectFailure(t, err, f, clierr.RateLimited, true, 3, "", "retry after"); strings.Contains(fl.Err.Hint, "NVD_API_KEY") {
+	if fl := expectFailure(t, err, f, clierr.RateLimited, true, 3, "", "retry after"); strings.Contains(fl.Err.Hint, "keys.nvd") {
 		t.Errorf("hint %q suggests a key the call already has", fl.Err.Hint)
 	}
 }
@@ -217,7 +217,7 @@ func TestClient_RetryAfterPastTheDeadline(t *testing.T) {
 	cl, f := newTestClient(false, answer{status: 429, header: map[string][]string{"Retry-After": {"120"}}})
 	start := time.Now()
 	_, err := cl.Get(withTimeout(t, time.Second), "CVE-2021-44228")
-	fl := expectFailure(t, err, f, clierr.RateLimited, true, 1, "", "retry after 120s; or set NVD_API_KEY for 50 requests per 30s")
+	fl := expectFailure(t, err, f, clierr.RateLimited, true, 1, "", "retry after 120s; or set keys.nvd in the config file for 50 requests per 30s")
 	if fl.Wait != 120*time.Second || time.Since(start) > 500*time.Millisecond {
 		t.Errorf("wait %v after %v, want 120s at once", fl.Wait, time.Since(start))
 	}
@@ -271,7 +271,7 @@ func TestClient_WindowSlotPastTheDeadline(t *testing.T) {
 	}
 	start := time.Now()
 	_, err := cl.Get(ctx, "CVE-2021-44228")
-	fl := expectFailure(t, err, f, clierr.RateLimited, true, 5, "", "; or set NVD_API_KEY for 50 requests per 30s")
+	fl := expectFailure(t, err, f, clierr.RateLimited, true, 5, "", "; or set keys.nvd in the config file for 50 requests per 30s")
 	if !strings.HasPrefix(fl.Err.Hint, "retry after 30s") && !strings.HasPrefix(fl.Err.Hint, "retry after 29s") || time.Since(start) > 200*time.Millisecond {
 		t.Errorf("hint %q after %v, want the wait for the slot, at once", fl.Err.Hint, time.Since(start))
 	}
@@ -292,7 +292,7 @@ func TestClient_RefusedKeyStopsTheBatch(t *testing.T) {
 	ctx := withTimeout(t, time.Minute)
 	first, second := failure(t, second(cl.Get(ctx, "CVE-2021-44228"))), failure(t, second(cl.Get(ctx, "CVE-2021-45046")))
 	if f.calls() != 1 || first.Err.Code != clierr.AuthFailed || second.Err.Code != clierr.AuthFailed ||
-		first.Err.Message != second.Err.Message || second.Err.Hint != "check NVD_API_KEY" {
+		first.Err.Message != second.Err.Message || second.Err.Hint != "check keys.nvd in nyx.yaml" {
 		t.Errorf("after %d requests: %+v then %+v", f.calls(), first.Err, second.Err)
 	}
 	// A 404 that does not name the key does not stop it.

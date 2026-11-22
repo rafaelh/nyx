@@ -233,7 +233,8 @@ func TestSetup_FileProblemsExitTwo(t *testing.T) {
 }
 
 // With nothing to change, setup writes nothing, exits 0 and leaves the terminal as it found it;
-// a missing file is not created. NYX_* variables and NVD_API_KEY neither show nor stop it.
+// a missing file is not created. NYX_* variables and NVD_API_KEY are not read: they neither show
+// nor stop it.
 func TestSetup_QuitWithNoChangeWritesNothing(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, body string }{{"missing", ""}, {"existing", "concurrency: 7\n"}} {

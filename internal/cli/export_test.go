@@ -576,7 +576,7 @@ func TestExport_NoSecrets(t *testing.T) {
 		t.Fatal("the test needs the value in the database")
 	}
 
-	h.setenv("NYX_KEYS_SHODAN", secret)
+	h.setKey("shodan", secret)
 	e := export(h, "-e", "a.com")
 	if e.code != 0 {
 		t.Fatalf("exit %d: %s", e.code, e.stderr)
@@ -768,7 +768,7 @@ func inode(fi fs.FileInfo) uint64 {
 func TestExport_FindsEngagementUnderConfiguredOutputDir(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)
-	w.h.setenv("NYX_OUTPUT_DIR", w.h.out)
+	w.h.set("output_dir", w.h.out)
 	var stdout, stderr bytes.Buffer
 	d := w.h.deps()
 	d.Stdout, d.Stderr = &stdout, &stderr

@@ -36,7 +36,7 @@ const (
 const (
 	hintNotFound   = "check the ID; the NVD lists only published CVEs"
 	hintRetryLater = "retry later"
-	hintNoKey      = "; or set NVD_API_KEY for 50 requests per 30s"
+	hintNoKey      = "; or set keys.nvd in the config file for 50 requests per 30s"
 )
 
 // Config is what a Client needs.

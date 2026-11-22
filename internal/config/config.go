@@ -1,5 +1,5 @@
-// Package config loads and validates nyx settings from a YAML file,
-// environment variables and flags (file < env < flag).
+// Package config loads and validates nyx settings from a YAML file and flags (flags win). No
+// setting or API key is read from the environment: the file is the only place one is kept.
 package config
 
 import (
@@ -264,8 +264,9 @@ func DKIMSelectorHash() string {
 	return hex.EncodeToString(sum[:4])
 }
 
-// Env is the process environment in the "NAME=value" form os.Environ returns. Settings are read
-// from an Env rather than from the process, so the caller decides what it holds.
+// Env is the process environment in the "NAME=value" form os.Environ returns. Only HOME and
+// XDG_CONFIG_HOME are read from it, to find the config file and expand "~"; it is passed in rather
+// than read from the process, so the caller decides what it holds.
 type Env []string
 
 // Get returns the value of name, or "" when it is unset. As with os.Getenv, the first entry for a
@@ -383,51 +384,6 @@ func floatFlag(fs *pflag.FlagSet, name string, def float64, usage string) {
 	fs.Var(&numberFlag{raw: strconv.FormatFloat(def, 'f', -1, 64), kind: "float"}, name, usage)
 }
 
-// EnvKeyValues are the API keys set in the environment, as NYX_KEYS_<SOURCE>
-// and as NVD_API_KEY (as given and trimmed), for masking before the
-// configuration has loaded.
-func EnvKeyValues(env Env) []string {
-	keys := envKeys(env)
-	if v := env.Get("NVD_API_KEY"); v != "" {
-		keys["NVD_API_KEY"] = Secret(v)
-	}
-	return Settings{Keys: keys}.KeyValues()
-}
-
-// envKeys are the API keys set as NYX_KEYS_<SOURCE>, by lower-case source.
-func envKeys(env Env) map[string]Secret {
-	keys := map[string]Secret{}
-	for _, kv := range env {
-		name, val, _ := strings.Cut(kv, "=")
-		if src, ok := envKeySource(name); ok && val != "" {
-			keys[src] = Secret(val)
-		}
-	}
-	return keys
-}
-
-// WithoutEnvKey is env without the NYX_KEYS_<SOURCE> variables of source,
-// however <SOURCE> is cased, and whether one of them was set.
-func WithoutEnvKey(env Env, source string) (Env, bool) {
-	out := make(Env, 0, len(env))
-	set := false
-	for _, kv := range env {
-		name, val, _ := strings.Cut(kv, "=")
-		if src, ok := envKeySource(name); ok && src == source {
-			set = set || val != ""
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out, set
-}
-
-// envKeySource is the lower-case source of a NYX_KEYS_<SOURCE> variable's name.
-func envKeySource(name string) (string, bool) {
-	src, ok := strings.CutPrefix(name, "NYX_KEYS_")
-	return strings.ToLower(src), ok
-}
-
 // rawPages is the raw form of a PagedSource.
 type rawPages struct {
 	MaxPages string `mapstructure:"max_pages"`
@@ -501,8 +457,8 @@ type rawSettings struct {
 	KeyTests any `mapstructure:"key_tests"`
 }
 
-// Load merges defaults, the config file, the NYX_* variables in env and the flags in fs that were
-// set (flags win over env, env over file). configPath "" means the default location, which is
+// Load merges defaults, the config file and the flags in fs that were set (flags win over the
+// file). configPath "" means the default location, which is
 // optional; an explicit path must exist.
 //
 // Every problem is reported together, as clierr.Problems named by setting key: a config file that
@@ -516,7 +472,7 @@ func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 }
 
 // Check parses and checks the bytes of one config file as Load does for that file with no flags:
-// the NYX_* variables of env apply, and every problem is reported together, named by setting key
+// every problem is reported together, named by setting key
 // (a problem with the file as a whole is named "config" and names path). The settings are returned
 // even when there are problems, as Load returns them. Empty data is an empty file.
 func Check(data []byte, path string, env Env) (Settings, error) {
@@ -536,11 +492,6 @@ func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, 
 		}
 	}
 	bindFlags(v, fs, &probs)
-	// Viper ranks its config layer above the file it read and below the flags, which is where the
-	// NYX_* variables go.
-	if err := v.MergeConfigMap(envSettings(v.AllKeys(), env)); err != nil {
-		probs.Add("config", "", fmt.Sprintf("environment: %v", err), "")
-	}
 
 	var raw rawSettings
 	if err := v.UnmarshalExact(&raw); err != nil {
@@ -548,7 +499,6 @@ func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, 
 		// Decode again without the unknown keys, so the rest is still checked.
 		raw = rawSettings{}
 		if err := v.Unmarshal(&raw); err != nil {
-			d.Keys = envKeys(env) // still masked
 			return d, probs
 		}
 	}
@@ -558,7 +508,6 @@ func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, 
 	for name, val := range raw.Keys {
 		s.Keys[strings.ToLower(name)] = Secret(val)
 	}
-	maps.Copy(s.Keys, envKeys(env))
 
 	c := settingChecker{probs: &probs}
 	c.ports("ports", raw.Ports, &s.Ports)
@@ -778,34 +727,8 @@ func SkipNames(items []string) (names []string, none bool) {
 	return names, none
 }
 
-// envSettings are the NYX_* variables in env for the settings in keys, as a nested map for viper:
-// rate.per_host is NYX_RATE_PER_HOST. As with viper's AutomaticEnv, which reads only the process
-// environment, a variable counts only for a setting viper already knows of and only when it is not
-// empty.
-func envSettings(keys []string, env Env) map[string]any {
-	out := map[string]any{}
-	for _, key := range keys {
-		val := env.Get("NYX_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_")))
-		if val == "" {
-			continue
-		}
-		parts := strings.Split(key, ".")
-		m := out
-		for _, p := range parts[:len(parts)-1] {
-			next, ok := m[p].(map[string]any)
-			if !ok {
-				next = map[string]any{}
-				m[p] = next
-			}
-			m = next
-		}
-		m[parts[len(parts)-1]] = val
-	}
-	return out
-}
-
 // expandHome replaces a leading "~" or "~/" with home, the user's home directory. Paths from the
-// config file or environment are not shell-expanded, so without this "output_dir: ~/engagements"
+// config file are not shell-expanded, so without this "output_dir: ~/engagements"
 // would create a directory named "~". "~user" forms, and every path when home is unknown, are left
 // as is.
 func expandHome(p, home string) string {
@@ -854,15 +777,6 @@ func SettingText(s Settings, key string) string {
 		return f(s.Rate.DNS)
 	}
 	return ""
-}
-
-// FileOnlyEnv is env without the variables that override the config file (the NYX_* variables and
-// NVD_API_KEY), so that what Load or Check returns for a file is what the file holds.
-func FileOnlyEnv(env Env) Env {
-	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
-		name, _, _ := strings.Cut(kv, "=")
-		return strings.HasPrefix(name, "NYX_") || name == "NVD_API_KEY"
-	})
 }
 
 // ErrorText is err's text without the operation and file names an os error carries, which are

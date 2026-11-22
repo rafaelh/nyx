@@ -50,7 +50,7 @@ linters:
         - pattern: ^(os\.(Setenv|Unsetenv)|\(\*testing\.T\)\.Setenv)$
           msg: set a variable with the harness's h.setenv; Go forbids t.Setenv in a parallel test
         - pattern: ^(viper\.AutomaticEnv|\(\*github\.com/spf13/viper\.Viper\)\.AutomaticEnv)$
-          msg: config reads NYX_* variables only from the config.Env passed in
+          msg: no setting is read from the environment; the config file is the only source
         - pattern: ^fmt\.Print(f|ln)?$
           msg: write to the command's writer; only cli.Execute writes errors and picks the exit code
     misspell:

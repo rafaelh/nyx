@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
 	_ "modernc.org/sqlite"
 
 	"github.com/rafaelh/nyx/internal/cli"
@@ -44,6 +45,7 @@ type harness struct {
 	now                      time.Time
 	version                  string
 	env                      map[string]string // the environment cli.Execute sees; see setenv
+	file                     map[string]any    // what set has put in the default config file
 	stdin                    io.Reader         // nil means an empty one
 	stdinTTY                 bool              // whether stdin is a terminal, as nyx setup asks
 	winW, winH               int               // the window size nyx setup draws in; 0 means none
@@ -154,6 +156,52 @@ func (h *harness) getwd() (string, error) {
 // setenv sets a variable in the environment of the runs that follow. To nyx, "" is the same as
 // unset.
 func (h *harness) setenv(name, val string) { h.env[name] = val }
+
+// set puts a setting, named by its dotted key (keys.shodan, archive.max_urls), in the default config
+// file of the runs that follow, which it rewrites; nil removes it. It replaces whatever the file held.
+func (h *harness) set(key string, val any) {
+	h.t.Helper()
+	if h.file == nil {
+		h.file = map[string]any{}
+	}
+	parts := strings.Split(key, ".")
+	m := h.file
+	for _, p := range parts[:len(parts)-1] {
+		next, ok := m[p].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			m[p] = next
+		}
+		m = next
+	}
+	if val == nil {
+		delete(m, parts[len(parts)-1])
+	} else {
+		m[parts[len(parts)-1]] = val
+	}
+	data, err := yaml.Marshal(h.file)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := os.WriteFile(h.configFile(), data, 0o600); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// setKey sets keys.<source> in the default config file, as set does; "" removes it.
+func (h *harness) setKey(source, val string) {
+	h.t.Helper()
+	if val == "" {
+		h.set("keys."+source, nil)
+		return
+	}
+	h.set("keys."+source, val)
+}
+
+// configFile is the default config file of the runs that follow.
+func (h *harness) configFile() string {
+	return filepath.Join(h.env["XDG_CONFIG_HOME"], "nyx", "config.yaml")
+}
 
 func (h *harness) environ() []string {
 	env := make([]string, 0, len(h.env))

@@ -103,9 +103,9 @@ func TestSources_InternationalNamesAreStoredAsPunycode(t *testing.T) {
 func TestSources_KeyedSources(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	keys := map[string]string{"VIRUSTOTAL": "vt-SECRET-1", "SECURITYTRAILS": "st-SECRET-2", "SHODAN": "sh-SECRET-3", "WHOISXML": "wx-SECRET-4"}
+	keys := map[string]string{"virustotal": "vt-SECRET-1", "securitytrails": "st-SECRET-2", "shodan": "sh-SECRET-3", "whoisxml": "wx-SECRET-4"}
 	for k, v := range keys {
-		w.h.setenv("NYX_KEYS_"+k, v)
+		w.h.setKey(k, v)
 	}
 	w.handle("www.virustotal.com", func(rw http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-apikey") != "vt-SECRET-1" {
@@ -177,7 +177,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			w.h.setenv("NYX_KEYS_VIRUSTOTAL", "vt-key")
+			w.h.setKey("virustotal", "vt-key")
 			w.handle("www.virustotal.com", status(code))
 			f := w.h.partial(w.run("--concurrency", "1", "--passive", "example.com", "example.org"), true)
 			if want := code == 429; f.transient != want || !strings.Contains(f.msg, "virustotal") {
@@ -194,7 +194,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 			}
 			// Fix the key: the same checks run and complete.
 			w.handle("www.virustotal.com", jsonBody(`{"data":[{"id":"fixed.example.com"}],"meta":{}}`))
-			w.h.setenv("NYX_KEYS_VIRUSTOTAL", "vt-key-fixed")
+			w.h.setKey("virustotal", "vt-key-fixed")
 			if c := w.run("--passive", "example.com"); c != 0 {
 				t.Fatalf("exit %d", c)
 			}
@@ -214,7 +214,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 func TestSources_NotFoundIsNoData(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_VIRUSTOTAL", "vt-key")
+	w.h.setKey("virustotal", "vt-key")
 	w.handle("www.virustotal.com", status(404))
 	w.handle("index.commoncrawl.org", func(rw http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -764,7 +764,7 @@ func TestOwnerLookupFailureFailsClosed(t *testing.T) {
 func TestOrganisationPivots(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_WHOISXML", "wx-key")
+	w.h.setKey("whoisxml", "wx-key")
 	w.crtsh(nil, map[string][]string{"Acme Corp": {"www.acme-global.com", "*.acme-global.net", "someone@acme-global.org"}})
 	w.handle("reverse-whois.whoisxmlapi.com", jsonBody(`{"domainsCount":1,"domainsList":["acme-brands.com"]}`))
 	var cats []string
@@ -828,7 +828,7 @@ func TestOrganisationPivots(t *testing.T) {
 func TestReverseDNSAndShodan(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_SHODAN", "sh-key")
+	w.h.setKey("shodan", "sh-key")
 	w.dns.PTR("198.51.100.1", "host1.example.com")
 	w.dns.PTR("198.51.100.2", "ptr.other.org")
 	w.dns.A("host1.example.com", "198.51.100.1")

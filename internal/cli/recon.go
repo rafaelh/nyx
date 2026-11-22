@@ -96,12 +96,9 @@ func newReconCommand(inv *invocation) *cobra.Command {
 
 // reconFooter is what recon's own help shows after its flags.
 const reconFooter = `Configuration:
-  Settings come from a YAML config file, NYX_* environment variables or flags; flags override
-  environment variables, which override the file. The default config file is
-  $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml).
-  Environment variables are NYX_<SETTING> with dots as underscores, e.g. NYX_CONCURRENCY and
-  NYX_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
-  NYX_KEYS_<SOURCE> in the environment.
+  Settings come from a YAML config file or flags; flags override the file. The default config
+  file is $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml). No setting is
+  read from the environment. API keys are never flags: set keys.<source> in the config file.
 `
 
 // runRecon checks every value and combination, reporting all problems in one
@@ -118,7 +115,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	}
 	inv.noteNoConfig(o.configPath)
 	probs := inv.problems()
-	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, d.Env, probs)
+	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, probs)
 	timeout := reconTimeout(probs, cmd, o.timeout)
 
 	parsed, perr := input.Parse(input.Raw{

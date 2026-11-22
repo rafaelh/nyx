@@ -30,8 +30,8 @@ func newSetupCommand(inv *invocation) *cobra.Command {
 		Short: "Store API keys and common settings in the config file, and test the keys",
 		Long: "setup opens a full-screen editor for the config file: your API keys (each can be tested without being\n" +
 			"saved), the output directory and the common settings, and the stages to skip. Edits are held until you\n" +
-			"save. It needs a terminal, takes no arguments, and edits only the config file: NYX_* environment\n" +
-			"variables and NVD_API_KEY still override what it saves.",
+			"save. It needs a terminal, takes no arguments, and edits only the config file, which is where\n" +
+			"every setting and key nyx uses is kept.",
 		Example: "  nyx setup\n" +
 			"  nyx setup --config ./nyx.yaml",
 		Args: cobra.ArbitraryArgs,
@@ -69,7 +69,7 @@ func (s *secrets) add(vs ...string) {
 	if len(s.values) > n || n == 0 {
 		// The longest first: the values include each prefix of a key as it is typed, and a prefix
 		// masked first would leave the rest of the key in the text.
-		vals := slices.Concat(s.values, config.EnvKeyValues(s.inv.d.Env))
+		vals := slices.Clone(s.values)
 		slices.SortStableFunc(vals, func(a, b string) int { return len(b) - len(a) })
 		s.inv.fw.setRedactor(config.NewRedactor(vals...))
 	}
@@ -149,7 +149,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	// Every key the file holds is masked before anything can fail, the keys of sources nyx does
 	// not know included, which setup never shows.
 	seen := &secrets{inv: inv}
-	held, _ := config.Load(nil, abs, config.FileOnlyEnv(d.Env)) // the keys it holds are returned even when the file has problems
+	held, _ := config.Load(nil, abs, d.Env) // the keys it holds are returned even when the file has problems
 	seen.add(held.KeyValues()...)
 	w, h := 0, 0
 	if d.WindowSize != nil {

@@ -90,7 +90,7 @@ func sharedWorld(t *testing.T, key bool) (*risk, *stReverse) {
 		},
 		total: map[string]int{},
 	}
-	x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+	x.h.setKey("securitytrails", securityTrailsKey)
 	x.handle("api.securitytrails.com", f.serve)
 	return x, f
 }

@@ -152,10 +152,10 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 		}
 	}
 	x := archiveWorld(t)
-	x.h.setenv("NYX_ARCHIVE_MAX_URLS", "4") // after the harness, which clears NYX_*
+	x.h.set("archive.max_urls", 4)
 	x.mustPassive()
 	if got := x.completedKeys("wayback"); !slices.Equal(got, []string{"example.com|urls=4"}) {
-		t.Errorf("NYX_ARCHIVE_MAX_URLS ignored: %v", got)
+		t.Errorf("archive.max_urls in the config file ignored: %v", got)
 	}
 
 	h := newHarness(t, defaultStageList()...)

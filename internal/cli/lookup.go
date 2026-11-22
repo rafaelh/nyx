@@ -132,28 +132,6 @@ func endLookup(outErr *clierr.Error, write func() error) error {
 	return nil
 }
 
-// withWarning appends the warning to the hint of an error that leaves stdout
-// empty: anything but a PARTIAL that wrote to stdout, a usage error included,
-// whose default hint is help, as Execute's would be.
-func withWarning(err error, warning, help string, wrote bool) error {
-	if err == nil || warning == "" {
-		return err
-	}
-	if probs, ok := errors.AsType[clierr.Problems](err); ok {
-		err = probs.Usage(help)
-	}
-	var e *clierr.Error
-	if !errors.As(err, &e) || e.Code == clierr.Partial && wrote {
-		return err
-	}
-	if e.Hint == "" {
-		e.Hint = warning
-	} else {
-		e.Hint += "; " + warning
-	}
-	return e
-}
-
 // lookupEnvelope is the --json result of a lookup command.
 type lookupEnvelope[T any] struct {
 	Data []T        `json:"data"`

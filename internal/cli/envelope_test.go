@@ -165,7 +165,7 @@ func TestEnvelope_WarningsAreInMetaMaskedAndStripped(t *testing.T) {
 			return nil, nil
 		}}
 	h := newHarness(t, warner)
-	h.setenv("NYX_KEYS_SHODAN", "sekret-key-123")
+	h.setKey("shodan", "sekret-key-123")
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
@@ -332,7 +332,7 @@ func TestEnvelope_FindingTextIsStrippedAndMasked(t *testing.T) {
 	st := finder("finder", obs("finding", "e", "category", "exposed", "severity", "high",
 		"target", "https://a.com/\x1b[2Jx", "detail", "echoed \x1b]0;pwn\x07"+key))
 	h := newHarness(t, st)
-	h.setenv("NYX_KEYS_FAKE", key)
+	h.setKey("fake", key)
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
@@ -364,7 +364,7 @@ func TestEnvelope_NotesAreStrippedAndMasked(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
 	h := newHarness(t, noteStage{&testkit.Stage{StageName: "noter", Kind: run.ThirdParty}, "seen \x1b[31mred\x1b[0m " + key})
-	h.setenv("NYX_KEYS_FAKE", key)
+	h.setKey("fake", key)
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}

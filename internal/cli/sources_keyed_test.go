@@ -26,7 +26,7 @@ const (
 // keyedSource describes one of the three stages: its key, the host it asks, how
 // to tell the request carries the key, and the answers it gets.
 type keyedSource struct {
-	stage, host, env, key string
+	stage, host, source, key string
 	// auth reports whether the request carries the key the way the source wants it.
 	auth func(*http.Request) bool
 	// ok holds the names in names plus noise that must not be recorded.
@@ -36,7 +36,7 @@ type keyedSource struct {
 
 var keyedSources = []keyedSource{
 	{
-		stage: "shodan-dns", host: "api.shodan.io", env: "NYX_KEYS_SHODAN", key: shodanKey,
+		stage: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey,
 		auth: func(r *http.Request) bool { return r.URL.Query().Get("key") == shodanKey && r.Method == http.MethodGet },
 		ok: `{"domain":"example.com","tags":[],"subdomains":["sd","only"],"more":false,"data":[
 			{"subdomain":"sd","type":"A","value":"198.51.100.7","last_seen":"2026-01-01T00:00:00"},
@@ -44,7 +44,7 @@ var keyedSources = []keyedSource{
 		names: []string{"sd.example.com", "only.example.com"},
 	},
 	{
-		stage: "censys", host: "api.platform.censys.io", env: "NYX_KEYS_CENSYS", key: censysKey,
+		stage: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey,
 		auth: func(r *http.Request) bool {
 			return r.Header.Get("Authorization") == "Bearer "+censysKey && r.Method == http.MethodPost
 		},
@@ -54,7 +54,7 @@ var keyedSources = []keyedSource{
 		names: []string{"cs.example.com", "wild.example.com"},
 	},
 	{
-		stage: "chaos", host: "dns.projectdiscovery.io", env: "NYX_KEYS_CHAOS", key: chaosKey,
+		stage: "chaos", host: "dns.projectdiscovery.io", source: "chaos", key: chaosKey,
 		auth: func(r *http.Request) bool {
 			return r.Header.Get("Authorization") == chaosKey && r.Method == http.MethodGet
 		},
@@ -117,7 +117,7 @@ func TestKeyed_NotConfiguredWithoutKey(t *testing.T) {
 func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 	t.Parallel()
 	forEachKeyed(t, func(t *testing.T, w *world, s keyedSource) {
-		w.h.setenv(s.env, s.key)
+		w.h.setKey(s.source, s.key)
 		s.serveOK(w)
 		for _, n := range s.names {
 			w.dns.A(n, "203.0.113.5")
@@ -157,9 +157,9 @@ func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 func TestKeyed_RequestShapes(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_SHODAN", shodanKey)
-	w.h.setenv("NYX_KEYS_CENSYS", censysKey)
-	w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
+	w.h.setKey("shodan", shodanKey)
+	w.h.setKey("censys", censysKey)
+	w.h.setKey("chaos", chaosKey)
 	for _, s := range keyedSources {
 		s.serveOK(w)
 	}
@@ -205,7 +205,7 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 				t.Parallel()
 				w := newWorld(t)
 				for _, o := range keyedSources {
-					w.h.setenv(o.env, o.key)
+					w.h.setKey(o.source, o.key)
 					if o.host != s.host {
 						o.serveOK(w)
 					}
@@ -261,7 +261,7 @@ func TestKeyed_RejectionWithAnotherFailureIsTransient(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	for _, o := range keyedSources {
-		w.h.setenv(o.env, o.key)
+		w.h.setKey(o.source, o.key)
 	}
 	for _, o := range keyedSources {
 		switch o.stage {
@@ -289,7 +289,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
+			w.h.setKey("chaos", chaosKey)
 			w.handle("dns.projectdiscovery.io", h)
 			if code := w.run("--passive", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
@@ -311,7 +311,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 	t.Parallel()
 	forEachKeyed(t, func(t *testing.T, w *world, s keyedSource) {
-		w.h.setenv(s.env, s.key)
+		w.h.setKey(s.source, s.key)
 		s.serveWith(w, `{"error":"nope"}`)
 		if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient {
 			t.Errorf("an unreadable answer may be a passing fault: %+v", f)
@@ -329,13 +329,13 @@ func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 
 // pagedSource serves three pages of names p1..p3 for the root.
 type pagedSource struct {
-	stage, host, env, key, flag string
+	stage, host, source, key, flag string
 	serve                       func(w *world)
 }
 
 func pagedSources() []pagedSource {
 	return []pagedSource{
-		{stage: "shodan-dns", host: "api.shodan.io", env: "NYX_KEYS_SHODAN", key: shodanKey, flag: "--shodan-dns-max-pages",
+		{stage: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey, flag: "--shodan-dns-max-pages",
 			serve: func(w *world) {
 				w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 					var n int
@@ -343,7 +343,7 @@ func pagedSources() []pagedSource {
 					fmt.Fprintf(rw, `{"domain":"example.com","subdomains":["p%d"],"data":[{"subdomain":"p%d","type":"A","value":"203.0.113.5"}],"more":%v}`, n, n, n < 3)
 				})
 			}},
-		{stage: "censys", host: "api.platform.censys.io", env: "NYX_KEYS_CENSYS", key: censysKey, flag: "--censys-max-pages",
+		{stage: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey, flag: "--censys-max-pages",
 			serve: func(w *world) {
 				w.handle("api.platform.censys.io", func(rw http.ResponseWriter, r *http.Request) {
 					var req struct {
@@ -372,7 +372,7 @@ func TestKeyed_PageCap(t *testing.T) {
 		t.Run(s.stage, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			w.h.setenv(s.env, s.key)
+			w.h.setKey(s.source, s.key)
 			s.serve(w)
 			resolveAll(w, "p1", "p2", "p3")
 			if code := w.run("--passive", "--no-permutations", s.flag, "2", "example.com"); code != 0 {
@@ -432,7 +432,7 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 		t.Run(s.stage, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			w.h.setenv(s.env, s.key)
+			w.h.setKey(s.source, s.key)
 			s.serve(w)
 			if code := w.run("--passive", s.flag, "3", "example.com"); code != 0 {
 				t.Fatalf("exit %d", code)
@@ -449,7 +449,7 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_CHAOS", chaosKey)
+	w.h.setKey("chaos", chaosKey)
 	w.handle("dns.projectdiscovery.io", jsonBody(`{"domain":"example.com","subdomains":["a"],"count":1}`))
 	if code := w.run("--passive", "--chaos-max-pages", "3", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
@@ -500,7 +500,7 @@ func resolutionSource(w *world, name, typ, value string) string {
 func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	w.h.setKey("shodan", shodanKey)
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
 			_, _ = rw.Write([]byte(claimsBody))
@@ -566,7 +566,7 @@ func TestShodanDNS_RecordsAreShownWithTheirSource(t *testing.T) {
 func TestShodanDNS_TargetsBecomeHostnamesOnlyInScope(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	w.h.setKey("shodan", shodanKey)
 	w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {
 			_, _ = rw.Write([]byte(`{"domain":"example.com","subdomains":["www"],"more":false,"data":[
@@ -613,7 +613,7 @@ func TestShodanDNS_TargetsBecomeHostnamesOnlyInScope(t *testing.T) {
 func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
-	p.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	p.h.setKey("shodan", shodanKey)
 	const ghost = "198.51.100.77"
 	p.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dns/domain/example.com") {

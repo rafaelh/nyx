@@ -710,7 +710,7 @@ func TestLog_JSON(t *testing.T) {
 	var base string
 	for i, args := range [][]string{{}, {"--debug"}, {"--quiet"}} {
 		h := newHarness(t, mk()...)
-		h.setenv("NYX_KEYS_FAKE", key)
+		h.setKey("fake", key)
 		f := h.partial(h.exec(append([]string{"a.com", "--json"}, args...)...), true)
 		if f.msg != "1 checks failed: bad 1" {
 			t.Errorf("%v: error = %+v", args, f)
@@ -800,7 +800,7 @@ func TestLog_MessageHandling(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t, st)
-			h.setenv("NYX_KEYS_FAKE", key)
+			h.setKey("fake", key)
 			c.tune(t, h)
 			if c.width > 0 {
 				h.setenv("COLUMNS", strconv.Itoa(c.width))

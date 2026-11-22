@@ -4,8 +4,8 @@ Examples:
 
 setup opens a full-screen editor for the config file: your API keys (each can be tested without being
 saved), the output directory and the common settings, and the stages to skip. Edits are held until you
-save. It needs a terminal, takes no arguments, and edits only the config file: NYX_* environment
-variables and NVD_API_KEY still override what it saves.
+save. It needs a terminal, takes no arguments, and edits only the config file, which is where
+every setting and key nyx uses is kept.
 
 Usage:
   nyx setup [flags]

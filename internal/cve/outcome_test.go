@@ -59,9 +59,9 @@ func TestOutcome_Rows(t *testing.T) {
 		{"all not found", []Result{notFound(a), notFound(c)}, nil, []string{a, c}, &clierr.Error{
 			Code: clierr.NotFound, Message: "2 IDs: not in the NVD", Hint: "check the ID; the NVD lists only published CVEs",
 			Input: map[string][]string{"id": {a, c}}}},
-		{"all refused keys", []Result{failed(a, clierr.AuthFailed, "the NVD refused the API key", "check NVD_API_KEY", false, 0),
-			failed(b, clierr.AuthFailed, "the NVD refused the API key", "check NVD_API_KEY", false, 0)}, nil, []string{a, b}, &clierr.Error{
-			Code: clierr.AuthFailed, Message: "2 IDs: the NVD refused the API key", Hint: "check NVD_API_KEY",
+		{"all refused keys", []Result{failed(a, clierr.AuthFailed, "the NVD refused the API key", "check keys.nvd in nyx.yaml", false, 0),
+			failed(b, clierr.AuthFailed, "the NVD refused the API key", "check keys.nvd in nyx.yaml", false, 0)}, nil, []string{a, b}, &clierr.Error{
+			Code: clierr.AuthFailed, Message: "2 IDs: the NVD refused the API key", Hint: "check keys.nvd in nyx.yaml",
 			Input: map[string][]string{"id": {a, b}}}},
 		{"all rate-limited: the command hint, after the longest wait", []Result{limited(a, 10*time.Second), limited(b, 24200*time.Millisecond)},
 			nil, []string{a, b}, &clierr.Error{

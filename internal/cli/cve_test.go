@@ -335,7 +335,7 @@ func TestCVE_RecordIsTheUnitRecord(t *testing.T) {
 func TestCVE_ArgumentOrderAndConcurrency(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	h.setenv("NVD_API_KEY", "k") // 50 per window, so the window never binds
+	h.setKey("nvd", "k") // 50 per window, so the window never binds
 	nvd := newNVD(t, h)
 	var args []string
 	for i := range 10 {
@@ -748,7 +748,8 @@ func TestCVE_Fields(t *testing.T) {
 	}
 }
 
-// The key is NVD_API_KEY, else keys.nvd from the config file; NVD_API_KEY wins.
+// The key is keys.nvd from the config file, trimmed. No variable sets it: NVD_API_KEY and
+// NYX_KEYS_NVD are not read.
 func TestCVE_KeySources(t *testing.T) {
 	t.Parallel()
 	cfgDir := t.TempDir()
@@ -760,11 +761,11 @@ func TestCVE_KeySources(t *testing.T) {
 		dflt string // the default config file's contents, "" for none
 		want string
 	}{
-		{"NVD_API_KEY", map[string]string{"NVD_API_KEY": " env-key "}, nil, "", "env-key"},
 		{"keys.nvd in --config", nil, []string{"--config", cfg}, "", "file-key"},
 		{"keys.nvd in the default file", nil, nil, "keys:\n  nvd: default-key\n", "default-key"},
-		{"NVD_API_KEY over keys.nvd", map[string]string{"NVD_API_KEY": "env-key"}, []string{"--config", cfg}, "", "env-key"},
-		{"keys.nvd over NYX_KEYS_NVD", map[string]string{"NYX_KEYS_NVD": "nyx-key"}, []string{"--config", cfg}, "", "file-key"},
+		{"keys.nvd is trimmed", nil, nil, "keys:\n  nvd: ' padded-key '\n", "padded-key"},
+		{"no variable over keys.nvd", map[string]string{"NVD_API_KEY": "env-key", "NYX_KEYS_NVD": "nyx-key"}, []string{"--config", cfg}, "", "file-key"},
+		{"no variable without keys.nvd", map[string]string{"NVD_API_KEY": "env-key", "NYX_KEYS_NVD": "nyx-key"}, nil, "", ""},
 		{"no key", nil, nil, "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -775,10 +776,7 @@ func TestCVE_KeySources(t *testing.T) {
 				h.setenv(k, v)
 			}
 			if c.dflt != "" {
-				if err := os.MkdirAll(filepath.Join(h.env["XDG_CONFIG_HOME"], "nyx"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				writeFile(t, filepath.Join(h.env["XDG_CONFIG_HOME"], "nyx"), "config.yaml", c.dflt)
+				writeFile(t, filepath.Dir(h.configFile()), "config.yaml", c.dflt)
 			}
 			id := nvd.fixture("rejected.json")
 			if code := h.cveRun(true, append([]string{id}, c.args...)...); code != 0 {
@@ -787,83 +785,32 @@ func TestCVE_KeySources(t *testing.T) {
 			if keys := nvd.apiKeys(); !slices.Equal(keys, []string{c.want}) {
 				t.Errorf("apiKey headers %q, want %q", keys, c.want)
 			}
+			if w := h.cveEnvelope().Meta.Warnings; len(w) != 0 {
+				t.Errorf("warnings %q, want none", w)
+			}
 		})
 	}
 }
 
-const nyxKeysWarning = "NYX_KEYS_NVD is not read; set NVD_API_KEY instead"
-
-// NYX_KEYS_NVD is not read: when it is set and no key was found, the call
-// warns, in meta.warnings, on stderr, or in the hint of a failure.
-func TestCVE_NYXKeysNVDWarns(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{"NYX_KEYS_NVD", "NYX_KEYS_nvd", "NYX_KEYS_Nvd"} {
-		h := newHarness(t)
-		nvd := newNVD(t, h)
-		h.setenv(name, "nyx-secret-value")
-		id := nvd.fixture("rejected.json")
-		if code := h.cveRun(true, id); code != 0 {
-			t.Fatalf("%s: exit %d: %s", name, code, h.stderr.String())
-		}
-		if w := h.cveEnvelope().Meta.Warnings; !slices.Equal(w, []string{nyxKeysWarning}) || h.stderr.Len() != 0 {
-			t.Errorf("%s: warnings %q, stderr %q", name, w, h.stderr.String())
-		}
-		if keys := nvd.apiKeys(); !slices.Equal(keys, []string{""}) {
-			t.Errorf("%s: apiKey headers %q, want none", name, keys)
-		}
-		if code := h.cveRun(false, id); code != 0 || !slices.Equal(h.logMsgs("WARN"), []string{nyxKeysWarning}) {
-			t.Errorf("%s, human: exit %d, stderr %q", name, code, h.stderr.String())
-		}
-		for _, jsonMode := range modes {
-			f := h.failed(h.cveRun(jsonMode, id, "--fields", "bogus"), 2, jsonMode)
-			if !strings.HasSuffix(f.hint, "; "+nyxKeysWarning) {
-				t.Errorf("%s: a failure's hint %q lacks the warning", name, f.hint)
-			}
-			f = h.failed(h.cveRun(jsonMode, "CVE-2099-0001"), 3, jsonMode)
-			if !strings.HasSuffix(f.hint, "; "+nyxKeysWarning) {
-				t.Errorf("%s: a not-found's hint %q lacks the warning", name, f.hint)
-			}
-			// None returned, with mixed codes: human mode leaves stdout empty, so the hint warns;
-			// --json writes the envelope, whose meta.warnings holds the warning.
-			nvd.script("CVE-2099-0003", reply{status: 500})
-			f = h.partialOf(h.cveRun(jsonMode, "CVE-2099-0001", "CVE-2099-0003"), jsonMode, []string{"CVE-2099-0001", "CVE-2099-0003"}, false)
-			if strings.HasSuffix(f.hint, "; "+nyxKeysWarning) == jsonMode {
-				t.Errorf("%s, json=%v: a PARTIAL with no records has the hint %q", name, jsonMode, f.hint)
-			}
-		}
-		if all := h.stdout.String() + h.stderr.String(); strings.Contains(all, "nyx-secret-value") {
-			t.Errorf("%s: the value was printed", name)
-		}
-	}
-	// With a key found, there is nothing to warn about.
-	h := newHarness(t)
-	nvd := newNVD(t, h)
-	h.setenv("NYX_KEYS_NVD", "nyx-key")
-	h.setenv("NVD_API_KEY", "env-key")
-	if code := h.cveRun(true, nvd.fixture("rejected.json")); code != 0 || len(h.cveEnvelope().Meta.Warnings) != 0 {
-		t.Errorf("exit %d, %s", code, h.stdout.String())
-	}
-}
-
-// The configuration is read as recon reads it: a bad file or NYX_* setting is
-// a usage error, and a missing default file is not.
+// The configuration is read as recon reads it: a bad file or setting is a
+// usage error, and a missing default file is not.
 func TestCVE_Configuration(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		name string
-		env  map[string]string
+		set  map[string]any // settings in the default file
 		args []string
 		code int
 	}{
 		{"an unreadable config file", nil, []string{"--config", "/nonexistent/nyx.yaml"}, 2},
 		{"an invalid config file", nil, []string{"--config", "BAD"}, 2},
-		{"an invalid NYX_RATE_PER_HOST", map[string]string{"NYX_RATE_PER_HOST": "fast"}, nil, 2},
+		{"an invalid rate.per_host", map[string]any{"rate.per_host": "fast"}, nil, 2},
 		{"no default file", nil, nil, 0},
 	} {
 		h := newHarness(t)
 		nvd := newNVD(t, h)
-		for k, v := range c.env {
-			h.setenv(k, v)
+		for k, v := range c.set {
+			h.set(k, v)
 		}
 		args := slices.Clone(c.args)
 		if len(args) > 1 && args[1] == "BAD" {
@@ -901,13 +848,13 @@ const secretKey = "sekrit-nvd-key-0123"
 // usage error, and on an NVD message that echoes it, in either mode and with --debug.
 func TestCVE_KeyNeverPrinted(t *testing.T) {
 	t.Parallel()
-	for _, source := range []string{"env", "file"} {
+	for _, source := range []string{"default file", "--config"} {
 		for _, jsonMode := range modes {
 			h := newHarness(t)
 			nvd := newNVD(t, h)
 			var keyArgs []string
-			if source == "env" {
-				h.setenv("NVD_API_KEY", secretKey)
+			if source == "default file" {
+				h.setKey("nvd", secretKey)
 			} else {
 				keyArgs = []string{"--config", writeFile(t, t.TempDir(), "nyx.yaml", "keys:\n  nvd: "+secretKey+"\n")}
 			}
@@ -972,7 +919,7 @@ func TestCVE_Pacing(t *testing.T) {
 	}
 	f := h.partialOf(code, true, []string{late}, true)
 	e := env.Meta.Errors[0]
-	if e.Code != "RATE_LIMITED" || !e.Transient || e.Hint == nil || !strings.HasPrefix(*e.Hint, "retry after ") || !strings.Contains(*e.Hint, "NVD_API_KEY") {
+	if e.Code != "RATE_LIMITED" || !e.Transient || e.Hint == nil || !strings.HasPrefix(*e.Hint, "retry after ") || !strings.Contains(*e.Hint, "keys.nvd") {
 		t.Errorf("entry %+v (hint %v)", e, *e.Hint)
 	}
 	if !f.transient || !strings.HasPrefix(f.hint, "after ") || !strings.HasSuffix(f.hint, ", run: nyx cve "+late+" --json --timeout 20s") {
@@ -985,7 +932,7 @@ func TestCVE_Pacing(t *testing.T) {
 		t.Errorf("the hint's command: exit %d, %s", code, h.stdout.String())
 	}
 
-	h.setenv("NVD_API_KEY", "k")
+	h.setKey("nvd", "k")
 	if code := h.cveRun(true, append(slices.Clone(ids), "--timeout", "20s")...); code != 0 || len(h.cveEnvelope().Data) != 6 {
 		t.Errorf("keyed: exit %d, %s", code, h.stdout.String())
 	}
@@ -1039,7 +986,7 @@ func TestCVE_RefusedKey(t *testing.T) {
 	for name, rp := range refusals {
 		for _, jsonMode := range modes {
 			h := newHarness(t)
-			h.setenv("NVD_API_KEY", "bad")
+			h.setKey("nvd", "bad")
 			nvd := newNVD(t, h)
 			var ids []string
 			for i := range 10 {
@@ -1048,7 +995,7 @@ func TestCVE_RefusedKey(t *testing.T) {
 				ids = append(ids, id)
 			}
 			f := h.failed(h.cveRun(jsonMode, ids[0]), 1, jsonMode)
-			if f.code != "AUTH_FAILED" || f.msg != ids[0]+": the NVD refused the API key" || f.hint != "check NVD_API_KEY" || f.transient {
+			if f.code != "AUTH_FAILED" || f.msg != ids[0]+": the NVD refused the API key" || f.hint != "check keys.nvd in "+h.configFile() || f.transient {
 				t.Errorf("%s: %+v", name, f)
 			}
 			before := len(nvd.requests())
@@ -1121,7 +1068,7 @@ func TestCVE_Signal(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
 		h := newHarness(t)
-		h.setenv("NVD_API_KEY", secretKey)
+		h.setKey("nvd", secretKey)
 		h.signals = make(chan os.Signal, 2)
 		nvd := newNVD(t, h)
 		nvd.hold = true
@@ -1290,7 +1237,7 @@ func TestCVE_HumanOutputRedactsTheKey(t *testing.T) {
 	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"
 	for _, terminal := range []bool{false, true} {
 		h := newHarness(t)
-		h.setenv("NVD_API_KEY", key)
+		h.setKey("nvd", key)
 		h.setenv("COLUMNS", "80")
 		h.stdoutTTY = terminal
 		nvd := newNVD(t, h)
@@ -1833,7 +1780,7 @@ func TestCVE_MatchedKeyIsMasked(t *testing.T) {
 	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"
 	for _, jsonMode := range modes {
 		h := newHarness(t)
-		h.setenv("NVD_API_KEY", key)
+		h.setKey("nvd", key)
 		nvd := newNVD(t, h)
 		nvd.mu.Lock()
 		nvd.entries["CVE-2024-1000"] = `{"id":"CVE-2024-1000","vulnStatus":"Analyzed","published":"2024-01-01T00:00:00.000","lastModified":"2024-01-02T00:00:00.000",` +

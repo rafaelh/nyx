@@ -426,7 +426,7 @@ func hit(ip string, hostnames ...string) map[string]any {
 // pivot installs the fake and the key.
 func (x *web) pivot() *pivotFake {
 	x.t.Helper()
-	x.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	x.h.setKey("shodan", shodanKey)
 	f := &pivotFake{answers: map[string]string{}, status: map[string]int{}}
 	x.handle("api.shodan.io", f.serve)
 	return f
@@ -550,7 +550,7 @@ func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
 func TestIdentifierPivot_NotConfiguredWithoutKey(t *testing.T) {
 	t.Parallel()
 	x, _, _, _ := pivotWorld(t)
-	x.h.setenv("NYX_KEYS_SHODAN", "")
+	x.h.setKey("shodan", "")
 	x.mustRun()
 	if st, reason := x.stageState("identifier-pivot"); st != "not-configured" || reason != "no key" {
 		t.Errorf("identifier-pivot = %s (%s), want not-configured (no key)", st, reason)
@@ -678,7 +678,7 @@ func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
 func TestIdentifierPivot_PassivePivotsStoredIdentifiers(t *testing.T) {
 	t.Parallel()
 	x, _, _, sites := pivotWorld(t)
-	x.h.setenv("NYX_KEYS_SHODAN", "")
+	x.h.setKey("shodan", "")
 	x.mustRun() // records the identifiers; nothing to search with
 	hits := func() (n int) {
 		for _, s := range sites {
@@ -687,7 +687,7 @@ func TestIdentifierPivot_PassivePivotsStoredIdentifiers(t *testing.T) {
 		return n
 	}
 	before := hits()
-	x.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	x.h.setKey("shodan", shodanKey)
 	if code := x.passive(); code != 0 {
 		t.Fatalf("exit %d", code)
 	}

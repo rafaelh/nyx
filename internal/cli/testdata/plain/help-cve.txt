@@ -7,7 +7,7 @@ Examples:
 cve looks each CVE ID up in the NVD and returns one record for each ID the NVD holds, in argument
 order. A lone - reads the IDs from stdin, one per line. It needs no engagement, writes no files and
 contacts only the NVD, paced to its rate limit: 50 requests per 30 seconds with an API key
-(NVD_API_KEY, else keys.nvd in the config file), 5 without.
+(keys.nvd in the config file), 5 without.
 
 Usage:
   nyx cve <CVE-ID>... [flags]

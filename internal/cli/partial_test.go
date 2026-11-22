@@ -178,7 +178,7 @@ func TestPartial_KeyedSourceStatuses(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", c.code) }))
 			t.Cleanup(srv.Close)
 			h.eopts.SourceBaseURLs = map[string]string{"api.example-source.test": srv.URL}
-			h.setenv("NYX_KEYS_SHODAN", "sekret-key-123")
+			h.setKey("shodan", "sekret-key-123")
 			f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true)
 			if f.transient != c.transient || !strings.Contains(f.msg, "keyed ") {
 				t.Errorf("%d: %+v", c.code, f)
@@ -193,7 +193,7 @@ func TestPartial_KeyedSourceStatuses(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", http.StatusUnauthorized) }))
 	t.Cleanup(srv.Close)
 	h.eopts.SourceBaseURLs = map[string]string{"api.example-source.test": srv.URL}
-	h.setenv("NYX_KEYS_SHODAN", "sekret-key-123")
+	h.setKey("shodan", "sekret-key-123")
 	if f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true); !f.transient {
 		t.Errorf("a rejected key and another failure: %+v", f)
 	}

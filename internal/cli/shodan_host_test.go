@@ -112,7 +112,7 @@ func (f *shodanFake) serve(rw http.ResponseWriter, r *http.Request) {
 // shodan installs the fake and the key.
 func (p *pworld) shodan() *shodanFake {
 	p.t.Helper()
-	p.h.setenv("NYX_KEYS_SHODAN", shodanKey)
+	p.h.setKey("shodan", shodanKey)
 	f := &shodanFake{hosts: map[string]string{}}
 	p.handle("api.shodan.io", f.serve)
 	return f

@@ -28,12 +28,8 @@ type cveOptions struct {
 	limitSets, matchSets int
 }
 
-const (
-	// cveConcurrency is how many lookups are in flight at once.
-	cveConcurrency = 4
-	// nyxKeysWarning is the warning of a NYX_KEYS_NVD that cve does not read.
-	nyxKeysWarning = "NYX_KEYS_NVD is not read; set NVD_API_KEY instead"
-)
+// cveConcurrency is how many lookups are in flight at once.
+const cveConcurrency = 4
 
 // newCVECommand builds the cve command: CVE records from the NVD, by CVE ID.
 func newCVECommand(inv *invocation) *cobra.Command {
@@ -45,7 +41,7 @@ func newCVECommand(inv *invocation) *cobra.Command {
 		Long: "cve looks each CVE ID up in the NVD and returns one record for each ID the NVD holds, in argument\n" +
 			"order. A lone - reads the IDs from stdin, one per line. It needs no engagement, writes no files and\n" +
 			"contacts only the NVD, paced to its rate limit: 50 requests per 30 seconds with an API key\n" +
-			"(NVD_API_KEY, else keys.nvd in the config file), 5 without.",
+			"(keys.nvd in the config file), 5 without.",
 		Example: "  nyx cve CVE-2021-44228 CVE-2024-3094 --json\n" +
 			"  nyx cve - --json < ids.txt\n" +
 			"  nyx cve CVE-2021-44228 --fields id,cvss_score,cvss_severity --json\n" +
@@ -74,13 +70,10 @@ func newCVECommand(inv *invocation) *cobra.Command {
 
 // runCVE checks every flag and argument, reporting all problems in one usage
 // error before stdin is read or the NVD is asked, then looks the IDs up and
-// writes the records, unless a signal arrived while it did. A warning about
-// NYX_KEYS_NVD joins the hint of an error that leaves stdout empty.
+// writes the records, unless a signal arrived while it did.
 func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []string, o *cveOptions) (err error) {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d
-	warning, wrote := "", false
-	defer func() { err = withWarning(err, warning, helpOf(cmd), wrote) }()
 
 	inv.noteNoConfig(o.configPath)
 	probs := inv.problems()
@@ -94,15 +87,9 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	}
 	view := cveView(probs, o, fields, len(unknown) == 0)
 	timeout := parseTimeout(probs, o.timeout, "--timeout 60s")
-	// The file's keys.nvd is told apart from NYX_KEYS_NVD, which cve does not read, by loading
-	// without it; the error still masks its value.
-	env, nyxKeysSet := config.WithoutEnvKey(d.Env, "nvd")
-	settings, red := inv.loadSettings(fs, o.configPath, env, probs)
+	settings, red := inv.loadSettings(fs, o.configPath, probs)
 	stdin := lookupArgs(probs, args, cveStdin)
 	key, authHint := cveKey(d.Env, settings, o.configPath)
-	if key == "" && nyxKeysSet {
-		warning = nyxKeysWarning
-	}
 	if err := probs.Err(); err != nil {
 		return err
 	}
@@ -117,9 +104,6 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	}
 
 	em, warnings := newEmitter(inv, red)
-	if warning != "" {
-		report.Say(em, "warning")(warning)
-	}
 	cfg := cve.Config{HTTP: nvdHTTP(d.Egress, key, red), Keyed: key != "", AuthHint: authHint}
 	if inv.sh.debug {
 		cfg.Debug = report.Say(em, "debug")
@@ -132,7 +116,6 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	}
 	retry := retryCommand("cve", inv.sh.json, fs, "fields", "timeout", "config", "limit", "match")
 	records, metaErrs, outErr := cve.Outcome(results, retry)
-	wrote = inv.sh.json || len(records) > 0 // for a PARTIAL, which writes; human mode writes nothing without a record
 	return endLookup(outErr, func() error { return writeCVE(inv, records, metaErrs, view, warnings, red) })
 }
 
@@ -177,11 +160,8 @@ func cveView(probs *clierr.Problems, o *cveOptions, fields cve.Fields, known boo
 }
 
 // cveKey is the NVD's API key, "" for none, and the hint of its refusal: the
-// trimmed NVD_API_KEY, else keys.nvd from the configuration.
+// trimmed keys.nvd from the configuration.
 func cveKey(env config.Env, settings config.Settings, configPath string) (key, authHint string) {
-	if k := strings.TrimSpace(env.Get("NVD_API_KEY")); k != "" {
-		return k, "check NVD_API_KEY"
-	}
 	if k := strings.TrimSpace(settings.Keys["nvd"].Reveal()); k != "" {
 		if configPath == "" {
 			configPath = config.DefaultConfigPath(env)

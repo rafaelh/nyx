@@ -252,17 +252,16 @@ func newInvocation(d Deps, args []string) *invocation {
 	// The pre-scan decides --json: a value refused later still leaves the streams as they were.
 	inv.d.Stdout = inv.mg.wrap(d.Stdout, inv.st.out.Terminal && !inv.raw.json)
 	inv.d.Stderr = inv.mg.wrap(d.Stderr, inv.st.err.Terminal && !inv.raw.json)
-	inv.fw = newFailureWriter(inv.d.Stderr, inv.raw.json, inv.st.err.Depth, config.NewRedactor(config.EnvKeyValues(d.Env)...))
+	inv.fw = newFailureWriter(inv.d.Stderr, inv.raw.json, inv.st.err.Depth, config.NewRedactor())
 	return inv
 }
 
-// loadSettings loads a command's settings from env into probs, and has the
-// error mask every key that loaded, even when some setting did not, and every
-// key set in the whole environment, whatever env leaves out.
-func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, env config.Env, probs *clierr.Problems) (config.Settings, *config.Redactor) {
-	settings, err := config.Load(fs, configPath, env)
+// loadSettings loads a command's settings into probs, and has the error mask
+// every key that loaded, even when some setting did not.
+func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs *clierr.Problems) (config.Settings, *config.Redactor) {
+	settings, err := config.Load(fs, configPath, inv.d.Env)
 	probs.Merge(err)
-	red := config.NewRedactor(append(settings.KeyValues(), config.EnvKeyValues(inv.d.Env)...)...)
+	red := config.NewRedactor(settings.KeyValues()...)
 	inv.fw.setRedactor(red)
 	return settings, red
 }

@@ -70,11 +70,8 @@ Shared flags:
   -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
 
 Configuration:
-  Settings come from a YAML config file, NYX_* environment variables or flags; flags override
-  environment variables, which override the file. The default config file is
-  $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml).
-  Environment variables are NYX_<SETTING> with dots as underscores, e.g. NYX_CONCURRENCY and
-  NYX_RATE_PER_HOST. API keys are never flags: set keys.<source> in the config file or
-  NYX_KEYS_<SOURCE> in the environment.
+  Settings come from a YAML config file or flags; flags override the file. The default config
+  file is $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml). No setting is
+  read from the environment. API keys are never flags: set keys.<source> in the config file.
 
 Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)

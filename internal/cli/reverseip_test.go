@@ -152,7 +152,7 @@ func (f *stReverse) setStatus(code int) {
 
 func (x *web) securityTrails(byAddr map[string][]string) *stReverse {
 	x.t.Helper()
-	x.h.setenv("NYX_KEYS_SECURITYTRAILS", securityTrailsKey)
+	x.h.setKey("securitytrails", securityTrailsKey)
 	f := &stReverse{byAddr: byAddr}
 	x.handle("api.securitytrails.com", f.serve)
 	return f

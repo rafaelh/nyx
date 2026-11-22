@@ -82,8 +82,8 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 - **Flags are spelt in full.** An abbreviation (`--pass` for `--passive`) is an unknown flag;
   `--authorized` is the one alias.
 - **Prompts and stdin.** Only `nyx setup` asks anything, in its full-screen editor, and it needs a
-  terminal for stdin and stdout. No command loads a `.env` file: the environment is the one you
-  gave it. Otherwise only `nyx cve` and `nyx ip`, given a lone `-`, read stdin.
+  terminal for stdin and stdout. No command loads a `.env` file or reads a setting or key from the
+  environment (see [Configuration](#configuration)). Otherwise only `nyx cve` and `nyx ip`, given a lone `-`, read stdin.
 - **Version.** `nyx --version` prints the version; every HTTP request nyx makes carries
   `nyx/<version>` (`nyx/devel` for a build with no version) as its User-Agent.
 
@@ -106,8 +106,7 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
   deadline stopped (see [Deadline](#deadline)).
 - **`--redo <stage>`:** performs every check of one stage again. `nyx help stages` lists the stages
   in run order, with whom each contacts, the key it needs and what it does.
-- **`--skip <stage>`:** turns a stage off (repeatable; the `skip` setting, or `NYX_SKIP` as a
-  comma-separated list, does the same). A skipped stage is shown as `not-configured (skipped)`,
+- **`--skip <stage>`:** turns a stage off (repeatable; the `skip` setting does the same). A skipped stage is shown as `not-configured (skipped)`,
   whatever else would stop it, and does nothing: results it found earlier stay in the files. The flag
   replaces the setting for that run, and `--skip none` runs every stage. An unknown stage, a stage
   also given to `--redo`, and `resolve`, `wildcard`, `ipowner` and `providerranges` (other stages'
@@ -118,17 +117,16 @@ exits 7; run the same command again to carry on (see [Deadline](#deadline) and
 - **Config file:** `$XDG_CONFIG_HOME/nyx/config.yaml`, which defaults to
   `~/.config/nyx/config.yaml`. Use `--config <file>` to choose another. Unknown keys are
   rejected. `key_tests` is nyx setup's record of key tests (see [Setup](#setup)), which every other
-  command accepts and ignores. `nyx setup` edits keys and the common settings for you (see [Setup](#setup)); NYX_*
-  environment variables and NVD_API_KEY still override what nyx setup saves.
-- **Precedence:** flags override `NYX_*` environment variables, which override the file. An
-  environment variable is `NYX_<UPPER_SNAKE>` with `.` replaced by `_`, for example
-  `NYX_RATE_PER_HOST` and `NYX_CRAWL_MAX_DEPTH`.
-- **API keys:** set only as `keys.<source>` in the file or `NYX_KEYS_<SOURCE>` in the
-  environment. There are no key flags, so keys never appear in shell history or process lists.
-  Keys are redacted from all output and files.
-- **The NVD key:** `nyx cve` reads its key from `NVD_API_KEY`, and otherwise from `keys.nvd` in the
-  file. `NYX_KEYS_NVD` is not read (see [CVE lookup](#cve-lookup)). `keys.nvd` is a valid key for
-  every command.
+  command accepts and ignores. `nyx setup` edits keys and the common settings for you (see [Setup](#setup)).
+- **The file is the only source.** No setting or key is read from the environment: `NYX_*`
+  variables and `NVD_API_KEY` are ignored, and no command loads a `.env` file. The environment is
+  read only to find the config file and expand a leading `~` in a path (`XDG_CONFIG_HOME`, `HOME`),
+  and for the terminal (`TERM`, `COLORTERM`, `NO_COLOR`, `COLUMNS`).
+- **Precedence:** flags override the file.
+- **API keys:** set only as `keys.<source>` in the file. There are no key flags, so keys never
+  appear in shell history or process lists. Keys are redacted from all output and files.
+- **The NVD key:** `nyx cve` reads its key from `keys.nvd` in the file (see [CVE lookup](#cve-lookup)).
+  `keys.nvd` is a valid key for every command.
 - **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos` and
   `github`. A stage whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
   `shodan-dns`, which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
@@ -183,10 +181,6 @@ keys:
   whoisxml: your-whoisxml-key
 ```
 
-```sh
-NYX_KEYS_SHODAN=your-shodan-key nyx recon example.com
-```
-
 ## Setup
 
 `nyx setup` is a full-screen terminal editor for one config file: the one `--config` names, or the
@@ -238,8 +232,8 @@ the bottom of the screen lists the keys each tab offers.
   file that cannot be read or parsed, or holds an unknown key, exits 2 with the problems `nyx recon`
   reports for it; one that parses but holds an invalid value opens with that value marked, and saving
   is blocked until it is fixed or cleared.
-- **What it ignores.** `NYX_*` environment variables and `NVD_API_KEY` still override what
-  `nyx setup` saves, and setup neither shows nor edits them: it edits the file only.
+- **What it ignores.** The environment: what setup shows and saves is what nyx reads, as no setting
+  or key comes from anywhere else.
 - **Exit codes.** 0 after a save, a discard or no change. It exits 2, before drawing anything, when
   there is no `--config` and no default path (neither `XDG_CONFIG_HOME` nor `HOME` is set), when it
   is given an argument, when stdin or stdout is not a terminal (error code `INVALID_INPUT`, with the
@@ -402,8 +396,8 @@ remembered with the engagement.
 ## Deadline
 
 `--timeout <duration>` gives a recon run a deadline: `--timeout 30m`, `--timeout 2h`, `--timeout
-1m30s`. It is a flag only, with no default and no config key or `NYX_*` variable (`NYX_TIMEOUT` is
-ignored and a `timeout:` key in the config file is an unknown key). A value that is not a positive
+1m30s`. It is a flag only, with no default and no config key (a `timeout:` key in the config file is
+an unknown key). A value that is not a positive
 duration (`0`, `-5s`, `abc`, and `30` with no unit) exits 2. `nyx recon export` makes no network
 calls and takes no `--timeout`. Without the flag a run takes as long as it needs.
 
@@ -830,8 +824,7 @@ A run writes two things, to two streams.
 - **`--debug`** also writes a `DEBUG` line for each check that failed
   (`<stage> check <key> failed: <message>`). A failed check is not a warning: the stage line and the
   summary count it, and it is retried on the next run.
-- `--quiet` with `--debug` exits 2. Neither is a setting: there is no config key or `NYX_*`
-  variable for them.
+- `--quiet` with `--debug` exits 2. Neither is a setting: there is no config key for them.
 
 A finding's `+` line and the summary show its severity as a badge: the severity as recorded (`high`,
 `medium`, `low`) in a fixed-width column.
@@ -1477,12 +1470,9 @@ nyx cve CVE-2021-44228 --fields affected_products --match log4j --limit 10 --jso
   blank line, and text is wrapped to `COLUMNS` (default 100, at least 60). The NVD's text is
   stripped of anything that would act on a terminal. On a terminal the layout is the one in
   [Terminal layout](#terminal-layout): a header bar, headings, and labels with no colon.
-- **The key.** `NVD_API_KEY`, and otherwise `keys.nvd` in the config file. `nyx cve` takes
-  `--config` and reads the configuration as recon does: an unreadable or invalid config file, or an
-  invalid `NYX_*` setting, exits 2, and a missing default file is fine. `NYX_KEYS_NVD` is not read:
-  when it is set and no key was found, the call warns `NYX_KEYS_NVD is not read; set NVD_API_KEY
-  instead`, in `meta.warnings` under `--json`, as a `WARN` line on stderr otherwise, and in the
-  error's hint when the call fails with nothing on stdout. The key never appears in any output.
+- **The key.** `keys.nvd` in the config file. `nyx cve` takes `--config` and reads the
+  configuration as recon does: an unreadable or invalid config file exits 2, and a missing default
+  file is fine. `NVD_API_KEY` and `NYX_KEYS_NVD` are not read. The key never appears in any output.
 - **Pacing.** Requests are paced to the NVD's rate limit with a sliding window: 50 per rolling 30
   seconds with a key and 5 without, with at most 4 in flight. A batch longer than that waits for the
   window, within the deadline.
@@ -1519,12 +1509,12 @@ CVE-2024-3094 --json`. When none is worth retrying it lists the IDs to check. Pa
 at the failures instead of listing them. A single-code error that is transient carries the same
 command, listing every ID however many, as its failures are not written; when the code is `TIMEOUT`
 it adds `, or raise --timeout`. One that is not transient keeps its code's hint, such as `check the
-ID; the NVD lists only published CVEs` or `check NVD_API_KEY`.
+ID; the NVD lists only published CVEs` or `check keys.nvd in <config file>`.
 
 **Differences from the `cve` tool.** The default record leaves out the affected products and the
 references, which the `cve` tool returns, and has a count of each (see above). A 404 is never "not
-found" (see above). The `--api-key` flag is gone: the key comes only from `NVD_API_KEY` or
-`keys.nvd`. Colours are nyx's palette.
+found" (see above). The `--api-key` flag and the `NVD_API_KEY` variable are gone: the key comes
+only from `keys.nvd`. Colours are nyx's palette.
 
 **A deliberate break.** Leaving the two lists out of the default record broke the promise that
 every record has every key (see [Errors](#errors), "What stays stable"). It was made once, on
@@ -1550,7 +1540,7 @@ nyx ip 192.0.2.10 --active
 - **Inputs.** Pass IPv4 and IPv6 addresses, hostnames and CIDRs as arguments, or a lone `-` to read
   them from stdin, one per line, with blank lines ignored and surrounding whitespace trimmed. A bare
   `nyx ip`, a `-` alongside other arguments, and a `-` with no inputs on stdin exit 2. `nyx ip`
-  takes no `--config` and reads no `NYX_*` setting: nothing configures it, and the port lists and
+  takes no `--config`: nothing configures it, and the port lists and
   paces below are built in.
   - A **hostname** has two or more labels, parses as a domain name and is not all digits and dots. It
     is resolved (A and AAAA) through the public resolvers, and each address it gives has a record.
@@ -1856,7 +1846,7 @@ The guidance in `docs/agent-tools` is followed, except in these eleven ways:
 
 1. recon has no default `--timeout`: a run takes as long as it needs unless you give a deadline.
 2. `nyx recon export` writes JSON lines with no envelope, cap or paging.
-3. API keys may come from the config file (`keys.<source>`), as well as from the environment.
+3. API keys come only from the config file (`keys.<source>`), never from the environment.
 4. A stage whose key is missing is `not-configured`, not a usage error.
 5. `--authorized` is accepted as an alias of `--authorised`.
 6. `--quiet` with `--debug` is rejected (exit 2).

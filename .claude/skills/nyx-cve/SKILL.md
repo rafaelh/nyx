@@ -19,7 +19,7 @@ and returns one record per ID, covering:
   them, and `--match` and `--limit` narrow the lists
 
 It contacts only the NVD, needs no engagement and writes no files. It works without an API key but
-is paced to the NVD's rate limit, which is ten times faster when `NVD_API_KEY` is set.
+is paced to the NVD's rate limit, which is ten times faster when `keys.nvd` is set in the config file.
 
 Run `nyx cve help` for the inputs, flags, fields and exit codes. Use `--json` when you will parse
 the output.

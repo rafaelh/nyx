@@ -118,7 +118,7 @@ func (g *ghFake) serve(rw http.ResponseWriter, r *http.Request) {
 func ghWorld(t *testing.T, g *ghFake) *world {
 	t.Helper()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_GITHUB", githubKey)
+	w.h.setKey("github", githubKey)
 	w.handle("api.github.com", g.serve)
 	return w
 }
@@ -401,9 +401,9 @@ func TestGitHub_MaxResultsIsBounded(t *testing.T) {
 		})
 	}
 	w := newWorld(t)
-	w.h.setenv("NYX_GITHUB_MAX_RESULTS", "2000")
+	w.h.set("github.max_results", 2000)
 	if code := w.run("--passive", "example.com"); code != 2 {
-		t.Errorf("an environment value above 1000: exit %d, want 2", code)
+		t.Errorf("a config file value above 1000: exit %d, want 2", code)
 	}
 }
 

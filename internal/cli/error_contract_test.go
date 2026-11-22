@@ -106,17 +106,16 @@ func TestContract_FailedRunWritesNothingToStdout(t *testing.T) {
 	h.envelope()
 }
 
-// An API key never reaches the error, in either mode, from the environment or
-// the config file, also when the configuration fails to load.
+// An API key in the config file never reaches the error, in either mode, also
+// when the configuration fails to load.
 func TestContract_KeysAreMaskedInTheError(t *testing.T) {
 	t.Parallel()
-	const envKey, fileKey = "envsecret4242", "filesecret777"
+	const fakeKey, otherKey = "fakesecret4242", "othersecret777"
 	for _, jsonMode := range []bool{false, true} {
 		for _, broken := range []bool{false, true} {
 			h := newHarness(t, noop())
-			h.setenv("NYX_KEYS_FAKE", envKey)
-			cfg := writeFile(t, t.TempDir(), "config.yaml", "keys:\n  other: "+fileKey+"\n")
-			args := []string{"--config", cfg, "--asn", envKey, "--cidr", fileKey}
+			cfg := writeFile(t, t.TempDir(), "config.yaml", "keys:\n  fake: "+fakeKey+"\n  other: "+otherKey+"\n")
+			args := []string{"--config", cfg, "--asn", fakeKey, "--cidr", otherKey}
 			if broken {
 				args = append(args, "--concurrency", "abc")
 			}
@@ -125,7 +124,7 @@ func TestContract_KeysAreMaskedInTheError(t *testing.T) {
 			}
 			f := h.failed(h.exec(args...), 2, jsonMode)
 			all := h.stderr.String()
-			if strings.Contains(all, envKey) || strings.Contains(all, fileKey) {
+			if strings.Contains(all, fakeKey) || strings.Contains(all, otherKey) {
 				t.Errorf("json %v, broken config %v: a key reached stderr: %s", jsonMode, broken, all)
 			}
 			if !strings.Contains(f.msg, "invalid ASN") || !strings.Contains(f.msg, "****") {

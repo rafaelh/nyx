@@ -615,7 +615,7 @@ func TestCertSpotter_UnkeyedSendsNoCredentials(t *testing.T) {
 func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
+	w.h.setKey("certspotter", certspotterKey)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
 	resolveAll(w, "p1")
 	if code := w.run("--passive", "example.com"); code != 0 {
@@ -640,7 +640,7 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
+			w.h.setKey("certspotter", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
 			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.org"), true); f.transient || f.msg != "2 checks failed: certspotter 2" {
 				t.Errorf("a refused key is not transient: %+v", f)
@@ -674,7 +674,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 	if st, _ := stateOf(w, "certspotter"); st != "failed" {
 		t.Fatalf("without the key the server refuses: state = %s", st)
 	}
-	w.h.setenv("NYX_KEYS_CERTSPOTTER", certspotterKey)
+	w.h.setKey("certspotter", certspotterKey)
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}

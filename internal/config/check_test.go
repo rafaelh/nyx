@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -32,7 +31,7 @@ func TestCheck_AgreesWithLoad(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			path := writeFile(t, body)
-			env := config.Env{"HOME=" + t.TempDir(), "NYX_RATE_DNS=7"}
+			env := config.Env{"HOME=" + t.TempDir()}
 			want, wantErr := config.Load(nil, path, env)
 			got, gotErr := config.Check([]byte(body), path, env)
 			if !reflect.DeepEqual(got, want) {
@@ -51,19 +50,16 @@ func TestCheck_AgreesWithLoad(t *testing.T) {
 	}
 }
 
-// Check reads the NYX_* variables of the env it is given, as Load does, and nothing else.
-func TestCheck_AppliesEnv(t *testing.T) {
+// Check, like Load, reads no setting or key from the env it is given: what the file says is what
+// it returns.
+func TestCheck_IgnoresSettingVariables(t *testing.T) {
 	t.Parallel()
-	s, err := config.Check([]byte("concurrency: 2\n"), "c.yaml", config.Env{"NYX_CONCURRENCY=3", "NYX_KEYS_SHODAN=envkey"})
+	s, err := config.Check([]byte("concurrency: 2\n"), "c.yaml", config.Env{"NYX_CONCURRENCY=3", "NYX_KEYS_SHODAN=envkey", "NVD_API_KEY=n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Concurrency != 3 || s.Keys["shodan"].Reveal() != "envkey" {
-		t.Errorf("env not applied: concurrency=%d keys=%v", s.Concurrency, s.Keys)
-	}
-	s, err = config.Check([]byte("concurrency: 2\n"), "c.yaml", nil)
-	if err != nil || s.Concurrency != 2 {
-		t.Errorf("clean env: %v %d", err, s.Concurrency)
+	if s.Concurrency != 2 || len(s.Keys) != 0 {
+		t.Errorf("a variable was read: concurrency=%d keys=%v", s.Concurrency, s.Keys)
 	}
 }
 
@@ -123,19 +119,5 @@ func TestFileReadMessage(t *testing.T) {
 	want := "config file " + p + ": no such file or directory"
 	if got := config.FileReadMessage(p, err); got != want || loadErr == nil || loadErr.Error() != want {
 		t.Errorf("FileReadMessage = %q, Load = %v, want %q", got, loadErr, want)
-	}
-}
-
-// A file is read without the variables that override it (the NYX_* ones and NVD_API_KEY), keeping
-// what gives the paths.
-func TestFileOnlyEnv_DropsTheOverrides(t *testing.T) {
-	t.Parallel()
-	env := config.Env{"HOME=/h", "XDG_CONFIG_HOME=/x", "NYX_CONCURRENCY=abc", "NYX_KEYS_SHODAN=k", "NVD_API_KEY=n", "TERM=xterm"}
-	got := config.FileOnlyEnv(env)
-	if !slices.Equal(got, config.Env{"HOME=/h", "XDG_CONFIG_HOME=/x", "TERM=xterm"}) {
-		t.Errorf("env %v", got)
-	}
-	if len(env) != 6 {
-		t.Error("the caller's environment was changed")
 	}
 }

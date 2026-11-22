@@ -132,10 +132,9 @@ func TestHelp_ParagraphsReflow(t *testing.T) {
 		t.Errorf("the root description keeps its hard line break:\n%s", strings.Join(root, "\n"))
 	}
 
-	const configuration = "Settings come from a YAML config file, NYX_* environment variables or flags; flags override environment variables, which override the file. " +
+	const configuration = "Settings come from a YAML config file or flags; flags override the file. " +
 		"The default config file is $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml). " +
-		"Environment variables are NYX_<SETTING> with dots as underscores, e.g. NYX_CONCURRENCY and NYX_RATE_PER_HOST. " +
-		"API keys are never flags: set keys.<source> in the config file or NYX_KEYS_<SOURCE> in the environment."
+		"No setting is read from the environment. API keys are never flags: set keys.<source> in the config file."
 	recon := blockFrom(t, textLines(helpOn(t, palette.None, 80, "recon", "--help")), "Configuration:")
 	if recon[0] != "Configuration:" || joinedWords(recon[1:]) != configuration || widest(recon) > 80 {
 		t.Errorf("recon's Configuration footer: %q", recon)
@@ -145,7 +144,7 @@ func TestHelp_ParagraphsReflow(t *testing.T) {
 			t.Errorf("footer line %q is not indented 2", l)
 		}
 	}
-	if len(recon) < 6 {
+	if len(recon) < 4 {
 		t.Errorf("the footer was not re-flowed into the width: %d lines", len(recon))
 	}
 

@@ -65,7 +65,7 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
-// File < env < flag for a scalar and a list.
+// Flags win over the file for a scalar and a list, and a NYX_* variable changes nothing.
 func TestPrecedence(t *testing.T) {
 	t.Parallel()
 	cfg := writeFile(t, "concurrency: 2\nports: [80, 443]\n")
@@ -83,8 +83,8 @@ func TestPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Concurrency != 3 || config.FormatPorts(s.Ports) != "8080-8081" {
-		t.Fatalf("env: %d %v", s.Concurrency, s.Ports)
+	if s.Concurrency != 2 || config.FormatPorts(s.Ports) != "80,443" {
+		t.Fatalf("env: %d %v: a NYX_* variable was read", s.Concurrency, s.Ports)
 	}
 
 	s, err = load(t, env, cfg, "--concurrency", "7", "--ports", "9000,9001-9003")
@@ -96,22 +96,23 @@ func TestPrecedence(t *testing.T) {
 	}
 }
 
-// Load reads the environment it is given, never the process's, so that callers (and parallel
-// tests) each decide what a run sees. It sets the process environment, so it cannot be parallel.
-func TestLoadReadsOnlyTheGivenEnv(t *testing.T) {
+// Load reads no setting or key from the environment, neither the one it is given nor the
+// process's; it reads only where the config file is, and that from the given environment. It sets
+// the process environment, so it cannot be parallel.
+func TestLoadReadsNoSettingFromTheEnvironment(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("NYX_CONCURRENCY", "3")
 	t.Setenv("NYX_KEYS_SHODAN", "process-key")
 	t.Setenv("HOME", home)
-	s, err := config.Load(nil, "", config.Env{"NYX_RATE_DNS=9", "NYX_KEYS_CENSYS=given-key"})
+	s, err := config.Load(nil, "", config.Env{"NYX_RATE_DNS=9", "NYX_KEYS_CENSYS=given-key", "NVD_API_KEY=nvd-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Concurrency != config.Defaults().Concurrency || s.Rate.DNS != 9 {
-		t.Errorf("concurrency %d, rate.dns %v: want the default and the given 9", s.Concurrency, s.Rate.DNS)
+	if s.Concurrency != config.Defaults().Concurrency || s.Rate.DNS != config.Defaults().Rate.DNS {
+		t.Errorf("concurrency %d, rate.dns %v: want the defaults", s.Concurrency, s.Rate.DNS)
 	}
-	if got := s.KeyValues(); !slices.Equal(got, []string{"given-key"}) {
-		t.Errorf("keys = %v, want only the given one", got)
+	if got := s.KeyValues(); len(got) != 0 {
+		t.Errorf("keys = %v, want none", got)
 	}
 	if got := config.DefaultConfigPath(config.Env{"HOME=/given"}); got != "/given/.config/nyx/config.yaml" {
 		t.Errorf("DefaultConfigPath = %q", got)
@@ -124,7 +125,7 @@ func TestLoadReadsOnlyTheGivenEnv(t *testing.T) {
 func TestNestedSettings(t *testing.T) {
 	t.Parallel()
 	cfg := writeFile(t, "rate:\n  per_host: 2\ncrawl:\n  max_depth: 4\n")
-	s, err := load(t, config.Env{"NYX_RATE_DNS=10"}, cfg, "--crawl-pages", "7")
+	s, err := load(t, nil, cfg, "--rate-dns", "10", "--crawl-pages", "7")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,27 +134,30 @@ func TestNestedSettings(t *testing.T) {
 	}
 }
 
-// Keys from file and env only; never a flag; never formatted.
+// Keys from the file only; never a flag or a variable; never formatted.
 func TestKeys(t *testing.T) {
 	t.Parallel()
-	cfg := writeFile(t, "keys:\n  shodan: filesecret123\n")
-	s, err := load(t, config.Env{"NYX_KEYS_CENSYS=envsecret456"}, cfg)
+	cfg := writeFile(t, "keys:\n  shodan: filesecret123\n  censys: filesecret456\n")
+	s, err := load(t, config.Env{"NYX_KEYS_CENSYS=envsecret789", "NYX_KEYS_CHAOS=envsecret000"}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Keys["shodan"].Reveal() != "filesecret123" || s.Keys["censys"].Reveal() != "envsecret456" {
+	if s.Keys["shodan"].Reveal() != "filesecret123" || s.Keys["censys"].Reveal() != "filesecret456" {
 		t.Fatalf("keys not loaded: %v", s.Keys)
+	}
+	if _, ok := s.Keys["chaos"]; ok {
+		t.Errorf("NYX_KEYS_CHAOS was read: %v", s.Keys)
 	}
 	for _, out := range []string{
 		fmt.Sprintf("%v", s.Keys["shodan"]), fmt.Sprintf("%s", s.Keys["shodan"]),
 		fmt.Sprintf("%+v", s), fmt.Sprintf("%#v", s), fmt.Sprint(s.Keys),
 	} {
-		if strings.Contains(out, "filesecret123") || strings.Contains(out, "envsecret456") {
+		if strings.Contains(out, "filesecret123") || strings.Contains(out, "filesecret456") {
 			t.Errorf("secret leaked in %q", out)
 		}
 	}
 	b, _ := json.Marshal(s) //nolint:musttag // Settings has no JSON form; this checks that a Secret stays redacted if one is ever marshalled
-	if strings.Contains(string(b), "filesecret123") || strings.Contains(string(b), "envsecret456") {
+	if strings.Contains(string(b), "filesecret123") || strings.Contains(string(b), "filesecret456") {
 		t.Errorf("secret leaked in JSON %s", b)
 	}
 	kv := s.KeyValues()
@@ -187,7 +191,7 @@ func TestValidation(t *testing.T) {
 		{"port range reversed", "", nil, []string{"--ports", "90-80"}, "ports", "90-80"},
 		{"risky port", "", nil, []string{"--risky-ports", "99999"}, "risky_ports", "99999"},
 		{"concurrency zero", "concurrency: 0\n", nil, nil, "concurrency", "0"},
-		{"concurrency env text", "", config.Env{"NYX_CONCURRENCY=lots"}, nil, "concurrency", "lots"},
+		{"concurrency text", "concurrency: lots\n", nil, nil, "concurrency", "lots"},
 		{"rate negative", "", nil, []string{"--rate-per-host", "-1"}, "rate.per_host", "-1"},
 		{"rate dns zero", "rate:\n  dns: 0\n", nil, nil, "rate.dns", "0"},
 		{"unknown key", "concurency: 3\n", nil, nil, "concurency", "concurency"},
@@ -285,10 +289,6 @@ func TestRedactor(t *testing.T) {
 	if got := config.NewRedactor(" ", "\t").Redact("a b\tc"); got != "a b\tc" {
 		t.Errorf("blank values masked: %q", got)
 	}
-	// NVD_API_KEY is masked as given and trimmed, as nyx cve sends it trimmed.
-	if got := config.NewRedactor(config.EnvKeyValues(config.Env{"NVD_API_KEY= k3y "})...).Redact("[ k3y ] [k3y]"); got != "[****] [****]" {
-		t.Errorf("NVD_API_KEY: %q", got)
-	}
 	var nilR *config.Redactor
 	if nilR.Redact("x") != "x" {
 		t.Error("nil redactor must pass through")
@@ -379,14 +379,6 @@ func TestLoadReportsFileProblemsWithTheRest(t *testing.T) {
 	if !errors.As(err, &probs) || len(probs) != 2 || probs[0].Name != "config" || !strings.Contains(err.Error(), "rate.dns") {
 		t.Errorf("unreadable file and a bad flag: %v", err)
 	}
-	if got := config.EnvKeyValues(config.Env{"NYX_KEYS_SOURCE=envkey"}); !slices.Equal(got, []string{"envkey"}) {
-		t.Errorf("EnvKeyValues = %v", got)
-	}
-}
-
-// envName is the variable that sets a key: rate.per_host is NYX_RATE_PER_HOST.
-func envName(key string) string {
-	return "NYX_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 }
 
 // yamlFor is a config file that sets a key, dotted or not, to val.
@@ -397,9 +389,9 @@ func yamlFor(key, val string) string {
 	return key + ": " + val + "\n"
 }
 
-// Each whole-number setting has its default (shown in its flag's help), takes the config file,
-// the environment and a flag in rising order of precedence, and accepts its least value. A value
-// below that, or not a whole number, is an error naming the key from any of the three.
+// Each whole-number setting has its default (shown in its flag's help), takes the config file and
+// a flag over it, and accepts its least value. A value below that, or not a whole number, is an
+// error naming the key from either.
 func TestIntSettings(t *testing.T) {
 	t.Parallel()
 	for _, c := range []intSetting{
@@ -444,20 +436,16 @@ func checkIntDefault(t *testing.T, c intSetting) {
 	}
 }
 
-// checkIntPrecedence checks that the file, the environment and a flag each set the setting, in
-// rising order of precedence, and that the least value is accepted.
+// checkIntPrecedence checks that the file and a flag each set the setting, the flag winning, and
+// that the least value is accepted.
 func checkIntPrecedence(t *testing.T, c intSetting) {
 	t.Helper()
 	file := writeFile(t, yamlFor(c.key, "70"))
-	env := config.Env{envName(c.key) + "=80"}
 	if s, err := load(t, nil, file); err != nil || c.get(s) != 70 {
 		t.Errorf("file: %d %v", c.get(s), err)
 	}
-	if s, err := load(t, env, file); err != nil || c.get(s) != 80 {
-		t.Errorf("env over file: %d %v", c.get(s), err)
-	}
-	if s, err := load(t, env, file, c.flag, "90"); err != nil || c.get(s) != 90 {
-		t.Errorf("flag over env: %d %v", c.get(s), err)
+	if s, err := load(t, nil, file, c.flag, "90"); err != nil || c.get(s) != 90 {
+		t.Errorf("flag over file: %d %v", c.get(s), err)
 	}
 	if s, err := load(t, nil, "", c.flag, strconv.Itoa(c.min)); err != nil || c.get(s) != c.min {
 		t.Errorf("least value %d: %d %v", c.min, c.get(s), err)
@@ -465,13 +453,12 @@ func checkIntPrecedence(t *testing.T, c intSetting) {
 }
 
 // checkIntRejected checks that a value below the least, or not a whole number, is an error
-// naming the key, whether it comes from a flag, the environment or the file.
+// naming the key, whether it comes from a flag or the file.
 func checkIntRejected(t *testing.T, c intSetting) {
 	t.Helper()
 	for _, bad := range []string{strconv.Itoa(c.min - 1), "many"} {
 		for from, run := range map[string]func() (config.Settings, error){
 			"flag": func() (config.Settings, error) { return load(t, nil, "", c.flag, bad) },
-			"env":  func() (config.Settings, error) { return load(t, config.Env{envName(c.key) + "=" + bad}, "") },
 			"file": func() (config.Settings, error) { return load(t, nil, writeFile(t, yamlFor(c.key, bad))) },
 		} {
 			if _, err := run(); err == nil || !strings.Contains(err.Error(), c.key) {

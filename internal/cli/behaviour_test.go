@@ -140,11 +140,14 @@ func TestHelp(t *testing.T) {
 	for _, w := range []string{
 		"--ports", "37,53,79-81,443", "--risky-ports", "21,23,445,1433", "--concurrency", "10", "--rate-per-host", "--rate-per-source", "--rate-dns", "50",
 		"--crawl-depth", "--crawl-pages", "100", "--output-dir", "--netblock-limit", "4096", "--wordlist", "--sensitive-paths", config.BuiltinSensitivePathsLabel(), "--storage-max-names", "--cert-expiry-days",
-		"config.yaml", ".config/nyx", "NYX_", "NYX_KEYS_", "--redo", "--passive", "--authorised", "--json",
+		"config.yaml", ".config/nyx", "keys.<source>", "--redo", "--passive", "--authorised", "--json",
 	} {
 		if !strings.Contains(help, w) {
 			t.Errorf("help missing %q", w)
 		}
+	}
+	if strings.Contains(help, "NYX_") {
+		t.Error("help must not name a NYX_* variable: no setting is read from the environment")
 	}
 	if strings.Contains(help, "49152-49157") {
 		t.Error("help must not list the default ports")
@@ -517,7 +520,7 @@ func TestRedactedCheckKeyCompletes(t *testing.T) {
 	st := &testkit.Stage{StageName: "asnish", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check { return []run.Check{{Key: "AS4123"}} }}
 	h := newHarness(t, st)
-	h.setenv("NYX_KEYS_FAKE", "123")
+	h.setKey("fake", "123")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if code := h.execCtx(ctx, "a.com"); code != 0 {
@@ -1098,8 +1101,8 @@ func TestInterruptedByContext(t *testing.T) {
 // Keys never leak.
 func TestSecretsNeverLeak(t *testing.T) {
 	t.Parallel()
-	const envKey, fileKey = "ENVSENTINEL-7f3a91", "FILESENTINEL-c20b44"
-	var gotEnv, gotFile string
+	const fakeKey, otherKey = "FAKESENTINEL-7f3a91", "OTHERSENTINEL-c20b44"
+	var gotFake, gotOther string
 	mk := func(name, source string, got *string) *testkit.Stage {
 		return &testkit.Stage{StageName: name, Kind: run.ThirdParty, Src: []string{"api.example.net"},
 			ConfiguredFn: func(e run.Env) (bool, string) {
@@ -1121,12 +1124,11 @@ func TestSecretsNeverLeak(t *testing.T) {
 			}}
 	}
 	cfgDir := t.TempDir()
-	cfg := writeFile(t, cfgDir, "config.yaml", "keys:\n  other: "+fileKey+"\n")
+	cfg := writeFile(t, cfgDir, "config.yaml", "keys:\n  fake: "+fakeKey+"\n  other: "+otherKey+"\n")
 	for _, jsonMode := range []bool{true, false} {
-		a, b := mk("viaenv", "fake", &gotEnv), mk("viafile", "other", &gotFile)
+		a, b := mk("viafake", "fake", &gotFake), mk("viaother", "other", &gotOther)
 		h := newHarness(t, a, b)
 		h.eopts.SourceBaseURLs = map[string]string{"api.example.net": "http://127.0.0.1:1"} // refuses connections; error text includes the URL
-		h.setenv("NYX_KEYS_FAKE", envKey)
 		args := []string{"a.com", "--debug", "--config", cfg, "--rate-per-source", "1000"}
 		if jsonMode {
 			args = append(args, "--json")
@@ -1134,11 +1136,11 @@ func TestSecretsNeverLeak(t *testing.T) {
 		if code := h.exec(args...); code != 7 { // each stage's rejected check is a failed check
 			t.Fatalf("exit %d: %s", code, h.stderr.String())
 		}
-		if gotEnv != envKey || gotFile != fileKey {
-			t.Fatalf("keys not delivered to stages: %q %q", gotEnv, gotFile)
+		if gotFake != fakeKey || gotOther != otherKey {
+			t.Fatalf("keys not delivered to stages: %q %q", gotFake, gotOther)
 		}
 		scan := func(where string, data []byte) {
-			for _, k := range []string{envKey, fileKey} {
+			for _, k := range []string{fakeKey, otherKey} {
 				if strings.Contains(string(data), k) {
 					t.Errorf("json=%v: %s contains %s", jsonMode, where, k)
 				}

@@ -68,8 +68,7 @@ gets a `setup.Backend`, defined in `backend.go`) → `internal/configedit` (the 
 comments and order, `Save`, and the `Store` that implements the Backend's file side) and
 `internal/keycheck` (one authenticated request to one source's host, through egress's third-party
 client with no `Policy`; the NVD's status rules are shared with `nyx cve` through `cve.Meaning`).
-`config.Check` parses and checks a file's bytes, which `Load` calls too. Setup reads the file with no
-`NYX_*` variable and no `NVD_API_KEY`.
+`config.Check` parses and checks a file's bytes, which `Load` calls too.
 `nyx ip` skips it too: `internal/cli/ip.go` (flags, stdin and the writing) → `internal/iplookup`
 (the inputs, the sources, active probing, the record and its field table, the outcome and the
 render), which reaches third parties and DNS through `egress` with no `Policy`, and the targets
@@ -160,9 +159,11 @@ terminal; the renderers take a `layout.Stream` and return their plain output unc
 not a terminal). The built-in wordlist and sensitive-path list are embedded in
 `internal/config/builtin/`.
 
-**Config** (`internal/config`): precedence is file < `NYX_*` env < flags, and unknown keys are
-rejected. The environment is read only from the `config.Env` passed in (`Deps.Env`), never with
-`os.Getenv` or viper's `AutomaticEnv`, so tests can each give a run their own. API keys come only from `keys.<source>` or `NYX_KEYS_<SOURCE>`. They are
+**Config** (`internal/config`): the config file is the only source of settings and keys; flags
+override it, and unknown keys are rejected. No setting or key is read from the environment (no
+`NYX_*` variable, no `NVD_API_KEY`, no `.env`). `config` reads only `HOME` and `XDG_CONFIG_HOME`, from the `config.Env` passed in
+(`Deps.Env`), never with `os.Getenv` or viper's `AutomaticEnv`. API keys come only from
+`keys.<source>`; tests set one with the harness's `h.setKey` (and any setting with `h.set`). They are
 `config.Secret` values and get redacted from all output, so never add a key flag or log a key.
 
 **Output** files are written to `.nyx/tmp` and then renamed into place. A file is written only
