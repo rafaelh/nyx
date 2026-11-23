@@ -33,7 +33,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/rafaelh/nyx/internal/abusive"
@@ -76,8 +75,8 @@ type List struct {
 	Downloaded bool // the copy in use is the downloaded one, not the built-in one
 }
 
-// Notice is a warning or a stale notice about one source. Text is the whole line, without a
-// "hint: " or "warning: " prefix.
+// Notice is a warning or a stale notice about one source. Text is the whole line, sanitised,
+// without a "hint: " or "warning: " prefix.
 type Notice struct {
 	Source string
 	Text   string
@@ -113,11 +112,9 @@ func Dir(env config.Env) string {
 	return filepath.Join(filepath.Dir(path), "threat-data")
 }
 
-// Load reads the lists in use from dir and the embedded built-in copies. now decides staleness.
-// With dir "" it uses the built-in copies, with no warning and no stale notice.
-func Load(dir string, now time.Time) Set { return (*BuiltIn)(nil).Load(dir, now) }
-
-// Load is the package's Load with b's built-in copies, or the embedded ones when b is nil.
+// Load reads the lists in use from dir and b's built-in copies, or the embedded ones when b is nil.
+// now decides staleness. With dir "" it uses the built-in copies, with no warning and no stale
+// notice.
 func (b *BuiltIn) Load(dir string, now time.Time) Set {
 	builtSH := b.spamhausLists()
 	builtIP, loadedIP := b.ipapiSnapshot()
@@ -170,24 +167,12 @@ const (
 // command says so.
 const staleAfter = 30 * 24 * time.Hour
 
-var (
-	embeddedOnce sync.Once
-	embeddedSH   spamhaus.Lists
-)
-
 // spamhausLists is the built-in Spamhaus copy: b's, or the embedded one.
 func (b *BuiltIn) spamhausLists() spamhaus.Lists {
 	if b != nil {
 		return b.Spamhaus
 	}
-	embeddedOnce.Do(func() {
-		l, err := spamhaus.ParseBundle(spamhaus.Builtin())
-		if err != nil {
-			panic("threatdata: the embedded Spamhaus data is unreadable: " + err.Error())
-		}
-		embeddedSH = l
-	})
-	return embeddedSH
+	return *spamhaus.Default()
 }
 
 // ipapiSnapshot is the built-in ipapi.is copy: b's, or the embedded one. For the embedded copy it

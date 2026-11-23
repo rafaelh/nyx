@@ -152,16 +152,6 @@ type observersCache struct {
 // (succeeded when without error), the ones the context ended, and the failures a refused key caused.
 type stageStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
 
-// builtinDrop is Spamhaus's lists as built into the binary, parsed once. It panics on a bad embed,
-// as abusive.Default does: a test validates the file.
-var builtinDrop = sync.OnceValue(func() *spamhaus.Lists {
-	l, err := spamhaus.ParseBundle(spamhaus.Builtin())
-	if err != nil {
-		panic("run: the built-in Spamhaus lists are unreadable: " + err.Error())
-	}
-	return &l
-})
-
 // New creates a Runner.
 func New(cfg Config) *Runner {
 	r := &Runner{
@@ -176,7 +166,7 @@ func New(cfg Config) *Runner {
 		r.cfg.Abusive = abusive.Default()
 	}
 	if r.cfg.Drop == nil {
-		r.cfg.Drop = builtinDrop()
+		r.cfg.Drop = spamhaus.Default()
 	}
 	for _, s := range cfg.Stages {
 		r.order = append(r.order, s.Name())

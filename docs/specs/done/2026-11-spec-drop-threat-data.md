@@ -110,8 +110,9 @@ Done when:
   for one.
 - **B15 Validation.** A download is refused, and its source fails and keeps its previous copy, when
   any of these is true:
-  - a row doesn't parse, or lacks a required field (an unknown field in a row is ignored);
-  - any text holds a control character;
+  - a row doesn't parse, or lacks a required field (an unknown field in a row is ignored, except
+    as the next item says);
+  - any text holds a control character, an unknown field's text included (amended by D29);
   - an entry is listed twice (a DROP or DROPv6 entry is its CIDR and SBL ID together, so one CIDR
     under two SBL IDs is two entries; an ASN-DROP entry is its ASN; an ipapi.is entry is its range
     or ASN) (amended by D2);
@@ -133,6 +134,9 @@ Done when:
     complete new one, never a mix.
   - A download that passes validation but can't be stored (permission denied, disk full) fails its
     source with `UNEXPECTED_ERROR` and the reason, and leaves the previous copy in place.
+  - A download stored whose check then can't be recorded still fails its source with
+    `UNEXPECTED_ERROR`, but reports the lists as they are after the update, and its reason says
+    the data was replaced and only the check couldn't be recorded. (amended by D28)
 - **B18 Rate limit.** Within an hour of the last time a source sent nyx an HTTP response, whatever its
   status, an update sends nothing to that source. It reports when the source was last contacted
   and when it can be updated next, and the source counts as skipped.
@@ -553,6 +557,13 @@ Done when:
   SLU` and `https://www.spamhaus.org/drop/terms/`. The run-time places take theirs from the
   metadata (D9). README's credits list adds Spamhaus.
 - **D27 File stem of ipapi.is** (settled while writing tests). ipapi.is's per-source files use the stem `ipapi`: `ipapi.json`, `ipapi.state.json`, `ipapi.lock`, `.ipapi-*.tmp`; Spamhaus's use `spamhaus`. (D11 says `<source>`; the source's name `ipapi.is` is not a good file stem.)
+- **D28 A failed state write after the data file is stored** (user, settled after verification).
+  The source still fails with `UNEXPECTED_ERROR`, but its lists are reported as they are after the
+  update (the new copy is in use), and the reason says the data was replaced and only the check
+  could not be recorded. Amends B17.
+- **D29 A control character in an unknown Spamhaus field** (user, settled after verification).
+  Refused like one in a known field: every string of a row or of the metadata line is checked,
+  whatever its key. Amends B15, and resolves the B5/D12 known limitation.
 - **D26 Shrink override** (user). Only the maintainer tool can lift the shrink rule, with
   `-allow-shrink` (`make threat-data ALLOW_SHRINK=1`). A user's update can't, and B15's remedy (a
   newer build) stays.
@@ -752,14 +763,6 @@ data, or the rate limit. Run a mutation check on them in `/spec-develop`.
   Atomic writes. `clierr` and `cli.Execute` own exit codes.
 - Specs workflow: `.claude/skills/spec-*`.
 
-# Follow-ups
-
-- Run `make threat-data` before the release, review the diff, and put the five dates in
-  `docs/abusive-networks.md`.
-- Licence: Spamhaus's terms grant no licence to redistribute the lists (D1). Consider asking
-  Spamhaus to confirm that shipping a dated copy inside an open-source binary, with credit, is
-  acceptable.
-
 # Implementation
 
 ## Develop
@@ -834,8 +837,221 @@ Deviations and decisions made while building:
 
 ## Known limitations
 
-- **B5/D12**: a control character inside an *unknown* Spamhaus field is not refused (unknown fields are ignored whole).
 - **B27**: "no stale hint on a usage error" can't be told from the load order: every `INVALID_INPUT` that recon or `nyx ip` can produce exits before the data is loaded, so the rule is untested as a rule.
 - **B11**: "a run uses the data in place when it started, through all its passes" is pinned through the final findings only, not each pass's derivation.
 - **B13**: TIMEOUT through the command (as opposed to `threatdata.Update`) isn't tested, as the 30 s timeout can't be shortened through `Deps`.
 - **B28**: if only one ipapi.is page is newer and the kept list is an old file with no `stated`, the refresh tool writes `stated: 0` for it. It doesn't occur with the current data.
+
+## Simplify
+
+Fixed:
+
+- One parse-once copy of the embedded Spamhaus bundle, `spamhaus.Default()` (like `abusive.Default()`), replaces the three in `threatdata`, `run` and `iplookup`.
+- `threatdata.Update`: the five constant methods of `sourceOps` (name, stem, file, lists, URLs) became a `source` struct (`spamhausSource`, `ipapiSource`); `spamhausOps.after` copies `s.down` whole.
+- `fault.Inject`/`fault.Err` (a context-carried error read by production code for one test) are gone, with `internal/fault/fault_test.go`: `threatdata.Options.Rename` replaces `os.Rename` for the data file, as `configedit.SaveOptions.Rename` does, and the `threat-before-rename` crash point is a plain `fault.Point`.
+- Text `threatdata` already sanitises (the credit, a failure's reason, a notice) is no longer sanitised again in `internal/cli`; the producers' doc comments now say it is sanitised.
+- `writeNoConfigHint` and `writeStaleHints` became one `writeHints` (same order, same exceptions); `loadThreat` moved to `threat.go` and reads through the `threatKeeper`; `threatOutcome` finds the failed sources itself.
+- The test-only package-level `threatdata.Load` was removed (the `*BuiltIn` method stays); the `abusive` package doc names the parsers the update uses.
+- `iplookup`'s `matchLine`, `dropLine` and `text` share one `clean` helper.
+- Tests: the refresh tests read the ipapi.is pages from `internal/abusive/testdata` (the byte-identical copies under `internal/threatdata/refresh/testdata` were removed); the bundle helpers in `internal/cli` and `internal/threatdata` tests call `spamhaus.Bundle`.
+- A source skipped within the hour was reported with the built-in copy's dates and counts, as `skipped` read the copy in use before reading the downloaded one; it now prepares first, and `TestUpdate_WithinTheHourIsSkipped` checks the skipped lists against the copy in use.
+
+Skipped:
+
+- One shared decision function for `Update` and the refresh tool, and one future-date rule (`abusive.pageDate` and `CheckDate`): a design change to the refresh tool. The two already differ: `Update` refuses an empty list that is not newer, the refresh lets it through.
+- A shared atomic-write helper (now five copies) and a shared flock package (`threatdata` and `engagement`): outside this change.
+- Indexing `spamhaus.Lists.Networks` (a scan of ~1,850 entries per address, ~4 µs): D14 accepted the scan.
+- Loading only the sources `nyx ip`'s selected keys read, and not parsing a built-in copy a downloaded one replaces: a few milliseconds per command; the output is already the same. The `ipReadsThreatSource` comment no longer claims the source isn't loaded.
+- Pre-filtering `spamhaus.ParseBundle`'s marker lines before decoding: about 1 ms a parse.
+- One threat-data value in place of the `Abusive`/`Drop` pair in `run.Config`, `findings.Input` and `iplookup.Config`; the credit and update availability carried apart from the drop_v4 row and `setup.Info`; a threat-source attribute on `iplookup`'s field table in place of the key prefixes: interface changes larger than their gain.
+- Sharing `hasControl`, `maxASN` and the 90% count rule between `spamhaus` and `abusive`; dropping `ASNList.byASN`: small, and would couple two leaf packages.
+- Merging the two threat-data helper sets in `internal/cli`'s tests and the near-copy in `internal/threatdata`: test churn only.
+
+Failing tests after simplify, checked against the base commit (cd8a75e) in a scratch worktree:
+
+- `TestThreatSetup_AnUnreadableCopyIsNoted` was the change's own. On macOS the long `/var/folders/...` temporary path pushed "unreadable" past the 100-column window, so the note was cut short. It now runs in a 300-column window and passes 10/10.
+- `go test ./internal/iplookup/ -run 'TestActive_EndToEnd$' -count=10` fails 10/10 here and 10/10 on the base ("port 21 = no-answer, want closed").
+- `go test ./internal/cli/ -run 'TestSetup_FailedSaveKeepsTheEdits$' -count=5` fails 5/5 here and 5/5 on the base (the same path-width cut).
+
+Both predate the change and are listed in `docs/todo.md` under CI improvements/fixes.
+
+## Mutation checks
+
+Each mutation was applied by hand to the source, the tests were run, and the file was then restored from a copy saved just before.
+
+- **B4**: no mutation site. `Drop` reaches only `findings.Input` (`internal/run/derive.go`). Scope, inventory, port eligibility, egress's `Policy` and the candidate ranking never receive it, so the property holds by construction. `TestAbusiveRecon_InformationOnly` pins the outcome.
+- **B13**: a failing list no longer stopping its source, and the request timeout not passed to egress, were each caught by `TestUpdate_AFailureStopsItsSource`, `TestUpdate_NoResponse`, `TestUpdate_Timeout` and `TestUpdate_AsksForEachListOnce`. A redirect no longer named was caught by `TestUpdate_AFailureStopsItsSource`.
+- **B14**: `www.spamhaus.org` added to a recon stage's `Sources()`, and `ipapi.is` added to `nyx ip`'s source hosts, were each caught by `TestAbusiveDocs_NoCommandContactsTheThreatDataHosts`.
+- **B15**: the date rule removed or off by one at the boundary, the shrink rule weakened, the empty rule removed, the 90% records rule lowered to 80%, a duplicate network pair let through, and a control character in a CIDR or RIR let through were all caught (`TestCheckDate`, `TestCheckShrink`, `TestCheckEmpty`, `TestParse_Rules`, `TestParse_Decisions`, `TestUpdate_Refusals`).
+- **B17**:
+  - Stale temporary files kept: caught by `TestUpdate_RemovesStaleTemporaryFiles`.
+  - The data file written in place instead of renamed: caught by `TestUpdate_LoadDuringUpdates`, `TestUpdate_StoreFailure` and `TestUpdate_Refusals`.
+  - Two mutations were first missed:
+    - The write-the-state-before-sending guard removed. A fresh read-only directory already fails when the lock is opened, so this guard matters only for a directory made read-only after an earlier update.
+    - The temporary file not removed after a failed rename.
+  - New tests in `internal/threatdata/extra_test.go` catch both: `TestUpdate_ADirectoryMadeReadOnlyLater` and `TestUpdate_AFailedRenameLeavesNoTemporaryFile`.
+- **B18**:
+  - The hour guard removed: caught by six tests.
+  - A future `last_response` or `last_checked` not clamped: caught by `TestUpdate_FutureLastResponse` and `TestUpdate_FutureLastChecked`.
+  - A 500 not starting the hour: caught by `TestUpdate_WithinTheHourIsSkipped`.
+  - The lock removed: caught by `TestUpdate_UnusableLock`, `TestUpdate_LockWaitEndsWithTheContext` and `TestUpdate_TwoAtOnce`.
+  - A cancelled request reported as a network error was first missed. The new `TestUpdate_AnInterruptedRequestIsCancelled` catches it.
+
+## Settled after verification
+
+- **D28**: `srcRun.replace` no longer turns a failed state write after a stored copy into a plain
+  `fail`. It reports the lists and Spamhaus's credit as they are after the update, fails the source
+  with UNEXPECTED_ERROR ("the downloaded <source> data was replaced, but its check could not be
+  recorded: …") and sets `NextUpdate`. Each list keeps its own `updated` or `current` outcome, which
+  the test leaves unpinned. Pinned by `TestUpdate_StateWriteFailsAfterTheDataIsStored`
+  (`internal/threatdata/statefail_test.go`).
+- **D29**: `spamhaus.jsonHasControl` walks every JSON token of a row and of the metadata line, keys
+  and nested values included, in place of the per-field `hasControl` calls. Pinned by
+  `internal/spamhaus/unknownfield_test.go`. The three cases of `TestParse_Decisions`
+  (`decisions_test.go`, not frozen) that pinned the earlier behaviour now expect a refusal.
+  `docs/abusive-networks.md` says an unknown field's text is checked too.
+- Both new test files were staged (frozen) before the code was written, and fail on their
+  assertions without it.
+- Frozen tests changed with the user's agreement (2026-11-23), following simplify's API removals:
+  `TestLoad` in `threatdata_test.go` lost its case for the removed package-level `threatdata.Load`
+  (the `nil *BuiltIn` case covers the same path), and `TestUpdate_StoreFailure` injects the rename
+  failure through `Options.Rename` instead of the removed `fault.Inject`, with the same assertions.
+
+# Verification
+
+## Result
+
+The implementation meets the goal and every behaviour, except the parts named under
+`## Known limitations`, none of which `## Out of scope` covers. The four "done when" conditions
+hold: a DROP network gives a high finding, `nyx ip` reports the DROP entries, the next recon run or
+`nyx ip` call uses an update's lists with no new build, and a source more than 30 days old gets the
+hint naming the command. There are no untracked files. `## External facts` lists no *assumed* fact
+and `## Known limitations` no *unconfirmed* one, so nothing needed a probe. A live run against the
+real sources, in a scratch `XDG_CONFIG_HOME`, confirmed them anyway. It updated drop_v4 and asndrop,
+which Spamhaus had moved on since the build, and found the other three lists already current. A
+second run within the hour was skipped with `last_contacted` and `next_update`. The run passed with
+an invalid config file and under `--quiet`. An argument exited 2, and so did a run with neither
+`HOME` nor `XDG_CONFIG_HOME`. `nyx ip --fields drop_networks` then read the downloaded drop_v4. With
+the bundle corrupted, it warned once under `--quiet` and used the built-in copy, and
+`--fields abusive_networks` did not warn.
+
+By behaviour:
+
+- **B1–B5** (the data, credit, dates, information only, matching): met. `spamhaus.Default()` and
+  `abusive.Default()` are the built-in copies. `Drop` reaches only `findings.Input`. Matching
+  unmaps, keeps every holding prefix, sorts longest first with ties in file order, and sanitises
+  Spamhaus's text. One part is only partly met: a control character in an *unknown* Spamhaus field
+  is not refused (Known limitations, B5/D12).
+- **B6** (`nyx ip` keys): met. The two keys come after `abusive_asn`. `drop_networks` has no
+  source, so it counts through `Sourceless()`. `drop_asn` is `null` on a Cymru failure and `[]`
+  with no owner, and both keys are `null` for a non-public address.
+- **B7–B10** (severity, CSV, help, addresses checked): met. The type is the first of the B7 order
+  that has a match. The CSV has the 12 columns of D22, leaving out a blank RIR, AS name, country or
+  domain (a recorded deviation). The netblockowner AS is checked against ASN-DROP.
+- **B11** (a change of data): met. A rise is announced, a weakening stays one current finding and is
+  not announced, and a finding with no match left stops being current. A run loads the data once,
+  before the runner. Export loads none. That a run uses the data through *each* pass is pinned only
+  through the final findings (Known limitations).
+- **B12–B21** (the update): met. It runs before the config, TTY and path checks, and exits 2 for an
+  argument. It sends one request per list with no retry, stops a source at its first failure, and
+  refuses a redirect. Each request has a 30 s per-request timeout, read from its own deadline. The
+  refusal rules, already-current, per-source atomic replacement, the polled flock and the hour rule
+  (with future times clamped) are in place, as are the human lines under `--quiet`, the exit matrix,
+  the transient flag and hint, and the envelope. TIMEOUT through the command, as opposed to
+  `threatdata.Update`, is untested (Known limitations, B13).
+- **B22–B24** (location, precedence, unreadable copy): met. The directory is
+  `threat-data` beside the default config path, whatever `--config` is given. An equal date picks
+  the downloaded copy. An unreadable source falls back whole, warns once per command that reads it,
+  and is replaced by the next update even when that download is no newer.
+- **B25–B26** (setup tab): met. The tab lists five rows with their provenance and the credit. `u`
+  runs `threatKeeper.update` under `m.base`, is ignored while an update runs, isn't counted by
+  `changes()`, and its result isn't part of the exit code.
+- **B27** (stale hint): met as specified. That no hint prints on a usage error holds only because every
+  `INVALID_INPUT` comes before the data is loaded. It is not tested as a rule (Known limitations).
+- **B28** (`make threat-data`): met. The edge case of a kept ipapi.is list with no `stated` is in
+  Known limitations.
+- **B29** (docs): met, after one correction below.
+
+Changed while verifying:
+
+- `docs/abusive-networks.md` (### Output): the example of the human output showed lines that the
+  code never prints. "already current", "skipped" and "failed" appeared without the list's date
+  and entry count, and the columns were two spaces apart where the code pads them. The example now
+  matches the golden `internal/cli/testdata/plain/threat-update.txt`, and the sentence under it
+  says a list that was not replaced gives its date and count.
+- `internal/threatdata/update.go`: the doc comment of `SourceResult.LastContacted` said it was the
+  last response "recorded", but a source that failed with no response in this update gives zero
+  even when the state file has an older one. The frozen tests pin that zero. The comment now
+  describes the behaviour (in this update, or the recorded time for a skipped source).
+
+The full suite passes except the two tests that also fail on the base (`TestActive_EndToEnd` and
+`TestSetup_FailedSaveKeepsTheEdits`), which are already in `docs/todo.md`. `make lint` reports 0
+issues, and `go vet` passes for the linux and darwin targets.
+
+## Code review
+
+`/code-review high --fix` found five issues. It fixed four, and I checked each one against the
+spec and kept it:
+
+- **B15, B24** (`internal/abusive/abusive.go`, `rawC1`): the regex that turns numeric references to
+  C1 code points into raw characters had no end anchor. It matched the first digits of a longer
+  reference (`&#x8F` of `&#x8F66;`, `&#148` of `&#1488;`), so an ipapi.is page with a CJK or Hebrew
+  name written as a numeric reference was refused for a control character. It now takes the whole
+  reference and converts it only when the value is 0x80 to 0x9f. `TestParsePages_ReferencesBeyondC1`
+  was added.
+- **B24** (`internal/abusive/abusive.go`, `ParseLenient`): a downloaded `ipapi.json` with data after
+  the snapshot was used without the unreadable warning. It is now refused.
+  `TestParseLenient_RefusesDataAfterTheSnapshot` was added (an addition to the frozen
+  `abusive_test.go`; no existing assertion changed).
+- **B28, D26** (`Makefile`): `ALLOW_SHRINK=0` passed `-allow-shrink`, because any non-empty value
+  counted. Now only `ALLOW_SHRINK=1` passes it, as the docs say.
+- **B5, B29** (`docs/abusive-networks.md`): the guide said matches of one size are ordered "by rank".
+  It now says that only ipapi.is ranges are ordered by rank, and that DROP entries of one length keep
+  list order (D14).
+
+I also reflowed an over-long line in the `abusive` package comment. The full suite, the race
+detector on the changed packages and `make lint` pass, apart from the two tests that also fail on the
+base.
+
+Left unfixed:
+
+- **B17** (`internal/threatdata/update.go`, `srcRun.replace`): if the data file is renamed into
+  place and writing `last_checked` then fails, the source is reported as `failed` with the lists as
+  they were before, though the new copy is in use. The spec doesn't say what to report there, so this
+  is a decision (see Follow-ups).
+- Considered and dropped: a download no newer than the built-in copy that replaces an unreadable
+  copy is reported as `updated`, though the built-in copy stays in use. B24 asks for the replacement,
+  and `TestUpdate_ReplacesAnUnreadableCopy` pins it.
+
+# Follow-ups
+
+**Decisions:**
+
+- A state write that fails after the data file is stored: report the lists as they are after the
+  update (D28).
+- A control character in an unknown Spamhaus field: refused (D29).
+
+**Deferred work** (now in `docs/todo.md`):
+
+- `TestActive_EndToEnd` and `TestSetup_FailedSaveKeepsTheEdits` failing on macOS: "CI
+  improvements/fixes".
+- TIMEOUT through `nyx setup --update-threat-data`, and every recon pass using the data loaded at
+  the start: "Missing tests".
+- The refresh tool's `stated: 0`: "Suspected bugs".
+- The atomic-write copies and the polled-flock helper: "Shared helpers".
+
+**Manual steps:**
+
+1. Before the release, run `make threat-data`, review the diff, and put the five dates in the table
+   in `docs/abusive-networks.md`. A live run on 2026-11-23 found that Spamhaus had already moved
+   drop_v4 and asndrop on since the built-in copy.
+2. Licence (D1): Spamhaus's terms grant no licence to redistribute the lists. Ask Spamhaus
+   (https://www.spamhaus.org/drop/terms/) to confirm that shipping a dated copy inside an
+   open-source binary, with credit, is acceptable.
+3. In a real terminal, run `nyx setup`, open the Threat data tab and press `u`. Check that each row
+   shows "updating…" and then its result. Then press `q` during a second update, which should be
+   skipped within the hour, and check that it quits with no dialog.
+4. On Linux or WSL, run `make test`, or at least
+   `go test ./internal/threatdata/... ./internal/cli/ -run 'Threat|Abusive' -count=1`, then
+   `nyx setup --update-threat-data` once. This confirms the flock and the XDG/HOME path on a
+   platform other than the macOS one this was built and verified on.

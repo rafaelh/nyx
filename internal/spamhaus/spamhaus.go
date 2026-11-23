@@ -27,6 +27,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -120,11 +121,21 @@ type ASNMatch struct {
 // Builtin is the bundle embedded in the binary. The caller must not change it.
 func Builtin() []byte { return builtin }
 
+// Default is the bundle embedded in the binary, parsed once. The caller must not change it. It
+// panics on a bad embed, as abusive.Default does: a test validates the file.
+var Default = sync.OnceValue(func() *Lists {
+	l, err := ParseBundle(builtin)
+	if err != nil {
+		panic("spamhaus: the embedded bundle is unreadable: " + err.Error())
+	}
+	return &l
+})
+
 // ParseDrop reads and checks DROP (v6 false) or DROPv6 (v6 true) as Spamhaus serves it. It refuses
 // a row that does not parse or lacks its CIDR or SBL ID, a CIDR that is not canonical or not of the
-// list's family, a control character in any text it reads, an entry listed twice, a list whose last
-// line is not its metadata, and a list holding fewer than 90% of the records its metadata gives.
-// Fields it does not read are ignored, whatever they hold.
+// list's family, a control character anywhere in a line (in a field it does not read too), an entry
+// listed twice, a list whose last line is not its metadata, and a list holding fewer than 90% of
+// the records its metadata gives. Fields it does not read are otherwise ignored.
 func ParseDrop(b []byte, v6 bool) (NetworkList, error) {
 	meta, rows, err := splitFile(b)
 	if err != nil {
@@ -152,7 +163,7 @@ func ParseDrop(b []byte, v6 bool) (NetworkList, error) {
 			return NetworkList{}, fmt.Errorf("line %d: the row has no sblid", r.line)
 		}
 		e := NetworkEntry{SBLID: *row.SBLID, RIR: str(row.RIR)}
-		if hasControl(*row.CIDR, e.SBLID, e.RIR) {
+		if jsonHasControl(r.text) {
 			return NetworkList{}, fmt.Errorf("line %d: the row holds a control character", r.line)
 		}
 		if e.CIDR, err = netip.ParsePrefix(*row.CIDR); err != nil {
@@ -203,7 +214,7 @@ func ParseASNDrop(b []byte) (ASNList, error) {
 			return ASNList{}, fmt.Errorf("line %d: AS%d is not an AS number (1 to %d)", r.line, *row.ASN, maxASN)
 		}
 		e := ASNEntry{ASN: int(*row.ASN), ASName: str(row.ASName), Country: str(row.CC), Domain: str(row.Domain), RIR: str(row.RIR)}
-		if hasControl(e.ASName, e.Country, e.Domain, e.RIR) {
+		if jsonHasControl(r.text) {
 			return ASNList{}, fmt.Errorf("line %d: the row holds a control character", r.line)
 		}
 		if _, ok := l.byASN[e.ASN]; ok {
@@ -237,6 +248,21 @@ func hasControl(texts ...string) bool {
 		}
 	}
 	return false
+}
+
+// jsonHasControl reports whether any string of a valid JSON text, a key or a value at any depth,
+// holds a control character.
+func jsonHasControl(b []byte) bool {
+	d := json.NewDecoder(bytes.NewReader(b))
+	for {
+		t, err := d.Token()
+		if err != nil {
+			return false // the end of the text: the caller has already decoded it
+		}
+		if s, ok := t.(string); ok && hasControl(s) {
+			return true
+		}
+	}
 }
 
 // checkCount refuses a list that holds fewer than 90% of the records its metadata gives.
@@ -283,7 +309,7 @@ func splitFile(b []byte) (Meta, []row, error) {
 		return Meta{}, nil, fmt.Errorf("line %d: the metadata has no timestamp", last.line)
 	case m.Records == nil || *m.Records < 0:
 		return Meta{}, nil, fmt.Errorf("line %d: the metadata has no records count", last.line)
-	case hasControl(str(m.Copyright), str(m.Terms)):
+	case jsonHasControl(last.text):
 		return Meta{}, nil, fmt.Errorf("line %d: the metadata holds a control character", last.line)
 	}
 	return Meta{Timestamp: time.Unix(*m.Timestamp, 0).UTC(), Records: *m.Records, Copyright: str(m.Copyright), Terms: str(m.Terms)}, rows, nil

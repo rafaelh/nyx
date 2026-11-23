@@ -12,11 +12,15 @@
 
   - ThreatFox, a project between abuse.ch and SpamHaus, provides threat reports for ASNs. See ThreatFox. To search for an ASN, enter the ASN number in the URL: https://threatfox.abuse.ch/asn/[ASN #].
 
-
-
 # CI improvements/fixes
 
-None currently.
+- **Two tests fail every time on macOS** (seen on cd8a75e and later, 2026-11-23):
+  - `go test ./internal/iplookup/ -run 'TestActive_EndToEnd$' -count=10`: 10/10 fail with
+    "port 21 = no-answer, want closed" (and 3306). A connection to a closed loopback port times
+    out instead of being refused, probably because of the local firewall.
+  - `go test ./internal/cli/ -run 'TestSetup_FailedSaveKeepsTheEdits$' -count=5`: 5/5 fail. The
+    100-column test window cuts the long `/var/folders/...` temporary path short with `…`, so the
+    asserted reason and path never appear whole. A wider `h.winW` in the test would fix it.
 
 # Refactoring opportunities
 
@@ -32,6 +36,19 @@ Confirm each with `/code-review` before fixing.
 
 - **Stale records skip the showing rule.** Historical addresses and code mentions that are no
   longer current stay listed after their host or root is excluded.
+
+- **Refresh tool writes `stated: 0`.** When only one ipapi.is page is newer and the kept list is
+  an old file with no `stated`, `internal/threatdata/refresh` writes `stated: 0` for it. Every
+  built-in list has a `stated` now, so it happens only if an old snapshot is restored; a guard in
+  `refresh.go` would close it.
+
+## Missing tests
+
+- **Threat-data TIMEOUT through the command.** `nyx setup --update-threat-data` giving `TIMEOUT` is
+  tested only through `threatdata.Update`: the 30 s request timeout can't be shortened through
+  `Deps`.
+- **Threat data fixed for a whole run.** That every recon pass, not only the final findings, uses
+  the threat data loaded when the run started.
 
 ## Design changes
 
@@ -63,8 +80,10 @@ Confirm each with `/code-review` before fixing.
 
 - **Provider "fronts a site" rule.** Give the provider data its own rule.
 
-- **Shared helpers.** Shared hash and atomic-write helpers; shared test fixtures, including a scope
-  builder in `testkit` and the copied test helper that strips escapes.
+- **Shared helpers.** Shared hash and atomic-write helpers (five copies of the atomic write now,
+  `threatdata` included), and one polled-flock helper for `threatdata` and `engagement`; shared
+  test fixtures, including a scope builder in `testkit` and the copied test helper that strips
+  escapes.
 
 - **Numeric port order.** Sort `OpenPorts` with `AddrPort.Compare`. Changes the order users see
   from text to numeric.

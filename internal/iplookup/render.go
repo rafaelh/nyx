@@ -254,8 +254,11 @@ func text(p *string) string {
 	if p == nil {
 		return ""
 	}
-	return squash(sanitize.Line(*p))
+	return clean(*p)
 }
+
+// clean is third-party text as a line shows it: sanitised, with its whitespace squashed.
+func clean(s string) string { return squash(sanitize.Line(s)) }
 
 // join is the non-empty parts, separated by "; ".
 func join(parts ...string) string {
@@ -442,7 +445,6 @@ func (r termRenderer) rows(rows []row) []string {
 // organisation and type, and the date of its list. Its text came from a snapshot and is cleaned
 // like any third party's.
 func matchLine(entry, tag string, score float64, org, typ, updated string) string {
-	clean := func(s string) string { return squash(sanitize.Line(s)) }
 	return fmt.Sprintf("%s: %s, %s%%, %s (%s), updated %s", clean(entry), clean(tag),
 		abusive.ScoreText(score), clean(org), clean(typ), clean(updated))
 }
@@ -450,7 +452,6 @@ func matchLine(entry, tag string, score float64, org, typ, updated string) strin
 // dropLine is a Spamhaus list's match as one line: the entry, then its non-empty details, then the
 // date of its list. Its text came from a list and is cleaned like any third party's.
 func dropLine(entry, updated string, details ...string) string {
-	clean := func(s string) string { return squash(sanitize.Line(s)) }
 	parts := []string{}
 	for _, d := range details {
 		if d = clean(d); d != "" {

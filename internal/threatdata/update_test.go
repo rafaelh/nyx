@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/fault"
 	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
@@ -372,6 +371,12 @@ func TestUpdate_WithinTheHourIsSkipped(t *testing.T) {
 				t.Errorf("an update 59m59s later asked for %v", got)
 			}
 			allSkipped(t, r, now)
+			// A skipped list is reported as the copy in use: the downloaded one when there is one.
+			for i, in := range w.load(w.now).Lists {
+				if l := r.Lists[i]; l.NewUpdated != in.Updated || l.Entries != in.Entries {
+					t.Errorf("skipped %s: %s, %d entries; want the copy in use's %s, %d", l.List, l.NewUpdated, l.Entries, in.Updated, in.Entries)
+				}
+			}
 
 			w.now = now.Add(time.Hour)
 			r = w.update()
@@ -894,8 +899,9 @@ func TestUpdate_StoreFailure(t *testing.T) {
 	w := newWorld(t)
 	w.serveNewer()
 	sh, ip := w.previous(0o600)
-	ctx := fault.Inject(context.Background(), "threat-before-rename", errors.New("injected rename failure"))
-	r := w.updateCtx(ctx)
+	w.rename = func(string, string) error { return errors.New("injected rename failure") }
+	r := w.update()
+	w.rename = nil
 	for _, name := range []string{threatdata.Spamhaus, threatdata.Ipapi} {
 		s := source(t, r, name)
 		failedWith(t, "a failed rename", s, clierr.Unexpected, false, "injected rename failure")

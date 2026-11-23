@@ -34,9 +34,9 @@ when a listed range holds it, and an ASN-DROP or ASN entry when its origin AS is
 IPv4-mapped IPv6 address is matched as its IPv4 address. A network of ipapi.is is written as a CIDR
 when the range is exactly one, and otherwise as `start-end`, as `rdap_netblock` is. Only the first
 origin AS Team Cymru gives is checked. Every matching entry is reported, the most specific range
-first (ranges of one size by rank), then the AS. Spamhaus's SBL IDs, AS names and domains and
-ipapi.is's organisation names, score tags and types are cleaned of anything that acts on a terminal,
-as other third-party text is.
+first (ipapi.is ranges of one size by rank, DROP entries of one length in list order), then the AS.
+Spamhaus's SBL IDs, AS names and domains and ipapi.is's organisation names, score tags and types
+are cleaned of anything that acts on a terminal, as other third-party text is.
 
 - **`nyx ip`** reports an address's matches in the `drop_networks`, `drop_asn`, `abusive_networks`
   and `abusive_asn` keys (see [IP lookup](ip.md)). It is triage context for an address that is often
@@ -151,7 +151,7 @@ the source. Once one request of a source fails, the source's remaining requests 
 recon stage, `nyx ip`, `nyx cve` or key test sends anything to either host as a threat-data source.
 
 - **A download is refused** when a row does not parse or lacks a required field (an unknown field is
-  ignored), when any text holds a control character, when an entry is listed twice, when a Spamhaus
+  otherwise ignored), when any text holds a control character (an unknown field's too), when an entry is listed twice, when a Spamhaus
   file has no final metadata line, when a list holds fewer than 90% of the entries it says it has,
   when it is dated after the end of tomorrow (UTC), and when it has no entries or fewer than half the
   entries of the copy in use. A DROP or DROPv6 entry is its CIDR and SBL ID together, so one CIDR
@@ -183,15 +183,17 @@ entries were added and removed, one line each, then Spamhaus's copyright line an
 terms. It goes to stdout, and `--quiet` does not suppress it:
 
 ```
-spamhaus  drop_v4  2026-11-20T09:56:44Z -> 2026-11-21T17:56:44Z  1752 entries (+5, -2)
-spamhaus  drop_v6  already current
-spamhaus  asndrop  skipped: last contacted <time>; can be updated after <time>
-ipapi.is  networks failed: <reason>
+spamhaus  drop_v4   2026-11-20T09:56:44Z -> 2026-11-21T17:56:44Z  1752 entries (+5, -2)
+spamhaus  drop_v6   2026-11-20T09:56:44Z  90 entries  already current
+spamhaus  asndrop   2026-11-23T08:56:44Z  459 entries  already current
+ipapi.is  networks  2026-11-22  5000 entries  skipped: last contacted <time>; can be updated after <time>
+ipapi.is  asns      2026-11-22  1000 entries  skipped: last contacted <time>; can be updated after <time>
 Spamhaus DROP data (c) 2026 The Spamhaus Project SLU; terms: https://www.spamhaus.org/drop/terms/
 ```
 
-A list that was not replaced says that it is already current, that it was skipped (with when it can
-next be updated) or that it failed (with the reason). The copyright line and the link are those the
+A list that was not replaced gives the date and entry count of the copy in use, then says that it is
+already current, that it was skipped (with when it can next be updated) or that it failed (with the
+reason: `failed: drop_v4: HTTP 500`, for example). The copyright line and the link are those the
 list in use carries.
 
 **Exit codes.** The update exits 0 when every source updated, was already current or was skipped, 7

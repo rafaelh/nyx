@@ -297,8 +297,7 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	defer sigs.stop()
 
 	err := inv.execute(runCtx)
-	inv.writeNoConfigHint(err)
-	inv.writeStaleHints(err)
+	inv.writeHints(err)
 	if err == nil {
 		return 0
 	}
@@ -339,11 +338,12 @@ func (inv *invocation) noteNoConfig(configPath string) {
 	}
 }
 
-// writeNoConfigHint writes the hint, once the command has returned and before any error line. It
-// stays out of a usage error, which the user is already fixing, and out of --json and --quiet. It
-// is not an event, so the events and stdout are as they would be without it.
-func (inv *invocation) writeNoConfigHint(err error) {
-	if inv.hintNoConfig == "" || inv.sh.json || inv.sh.quiet {
+// writeHints writes the hints a command left, once it has returned and before any error line: the
+// no-config hint, then the hints that say threat data is old. They stay out of a usage error, which
+// the user is already fixing, and out of --json (a stale notice is a warning there) and --quiet.
+// They are not events, so the events and stdout are as they would be without them.
+func (inv *invocation) writeHints(err error) {
+	if (inv.hintNoConfig == "" && len(inv.staleHints) == 0) || inv.sh.json || inv.sh.quiet {
 		return
 	}
 	// A panic is never a usage error, and toError would write its stack under --debug, which
@@ -352,49 +352,12 @@ func (inv *invocation) writeNoConfigHint(err error) {
 	if err != nil && !errors.As(err, &pe) && inv.toError(err).Code == clierr.InvalidInput {
 		return
 	}
-	_, _ = io.WriteString(inv.d.Stderr, noConfigHint(inv.hintNoConfig))
-}
-
-// writeStaleHints writes the hints that say threat data is old, right after the no-config hint and
-// before any error line, with the same exceptions: not under --json (the notice is a warning there)
-// or --quiet, and not on a usage error.
-func (inv *invocation) writeStaleHints(err error) {
-	if len(inv.staleHints) == 0 || inv.sh.json || inv.sh.quiet {
-		return
-	}
-	var pe *clierr.PanicError
-	if err != nil && !errors.As(err, &pe) && inv.toError(err).Code == clierr.InvalidInput {
-		return
+	if inv.hintNoConfig != "" {
+		_, _ = io.WriteString(inv.d.Stderr, noConfigHint(inv.hintNoConfig))
 	}
 	for _, h := range inv.staleHints {
-		_, _ = io.WriteString(inv.d.Stderr, "hint: "+sanitize.Line(h)+"\n")
+		_, _ = io.WriteString(inv.d.Stderr, "hint: "+h+"\n")
 	}
-}
-
-// loadThreat reads the threat data a command checks addresses against, once, from the threat-data
-// directory and the built-in copies. read says whether the command reads a source (threatdata.Spamhaus
-// or threatdata.Ipapi); a source it doesn't read gives no warning and no hint.
-//
-// A downloaded copy that is unreadable is a warning event, which prints even under --quiet and goes
-// to meta.warnings under --json. A stale source is a warning in the envelope under --json, whatever
-// --quiet says, and otherwise a hint that Execute writes once the command has returned.
-func (inv *invocation) loadThreat(em report.Emitter, warnings *report.Warnings, read func(source string) bool) threatdata.Set {
-	set := inv.d.ThreatBuiltIn.Load(threatdata.Dir(inv.d.Env), inv.d.Clock())
-	for _, w := range set.Warnings {
-		if read(w.Source) {
-			report.Say(em, "warning")(w.Text)
-		}
-	}
-	for _, n := range set.Stale {
-		switch {
-		case !read(n.Source):
-		case warnings != nil:
-			warnings.Emit(report.Event{Type: "warning", Fields: map[string]any{"message": n.Text}})
-		default:
-			inv.staleHints = append(inv.staleHints, n.Text)
-		}
-	}
-	return set
 }
 
 // execute builds the tree, classifies the arguments and runs the command. A

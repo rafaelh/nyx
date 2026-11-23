@@ -639,7 +639,7 @@ func (s *state) abusive(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 func (s *state) drop(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	lists := s.cfg.Drop
 	if lists == nil {
-		lists = builtinDrop()
+		lists = spamhaus.Default()
 	}
 	if s.cfg.Fields.Has("drop_networks") {
 		rec.DropNetworks = lists.Networks(addr)
@@ -653,16 +653,6 @@ func (s *state) drop(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	}
 	rec.DropASN = lists.ASN(int(*rec.ASN))
 }
-
-// builtinDrop is Spamhaus's lists as built into the binary, parsed once. It panics on a bad embed,
-// as abusive.Default does: a test validates the file.
-var builtinDrop = sync.OnceValue(func() *spamhaus.Lists {
-	l, err := spamhaus.ParseBundle(spamhaus.Builtin())
-	if err != nil {
-		panic("iplookup: the built-in Spamhaus lists are unreadable: " + err.Error())
-	}
-	return &l
-})
 
 // publicSources asks the sources of a public address concurrently. The provider and HackerTarget
 // wait for the owner. It returns what the provider data says of the address, and the failure of

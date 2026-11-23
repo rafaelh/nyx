@@ -15,7 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
@@ -66,13 +66,7 @@ func runThreatUpdate(ctx context.Context, inv *invocation) error {
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
-	var failed []threatdata.SourceResult
-	for _, s := range res.Sources {
-		if s.Outcome == threatdata.Failed {
-			failed = append(failed, s)
-		}
-	}
-	outErr := threatOutcome(res, failed, inv.sh.json)
+	outErr := threatOutcome(res, inv.sh.json)
 	return endLookup(outErr, func() error {
 		if inv.sh.json {
 			return writeThreatEnvelope(inv.d.Stdout, res)
@@ -85,7 +79,13 @@ func runThreatUpdate(ctx context.Context, inv *invocation) error {
 // and when both did, an error that covers them with their code if they share one, else
 // UPSTREAM_ERROR. Each failed source is one of its targets, which the human error writes. It is
 // transient when any failure was a network failure, a timeout or a 429.
-func threatOutcome(res threatdata.Result, failed []threatdata.SourceResult, jsonMode bool) *clierr.Error {
+func threatOutcome(res threatdata.Result, jsonMode bool) *clierr.Error {
+	var failed []threatdata.SourceResult
+	for _, s := range res.Sources {
+		if s.Outcome == threatdata.Failed {
+			failed = append(failed, s)
+		}
+	}
 	if len(failed) == 0 {
 		return nil
 	}
@@ -206,8 +206,7 @@ func writeThreatEnvelope(w io.Writer, res threatdata.Result) error {
 		out := threatSource{Source: s.Source, Outcome: string(s.Outcome),
 			LastContacted: optionalTime(s.LastContacted), NextUpdate: optionalTime(s.NextUpdate)}
 		if s.Source == threatdata.Spamhaus {
-			copyright, terms := sanitize.Line(s.Copyright), sanitize.Line(s.Terms)
-			out.Copyright, out.Terms = &copyright, &terms
+			out.Copyright, out.Terms = &s.Copyright, &s.Terms
 		}
 		if s.Outcome == threatdata.Failed {
 			e := threatSourceError(s, red)
@@ -234,7 +233,7 @@ func listStatus(l threatdata.ListResult, source threatdata.SourceResult) string 
 	case threatdata.Skipped:
 		return "skipped: last contacted " + threatTime(source.LastContacted) + "; can be updated after " + threatTime(source.NextUpdate)
 	case threatdata.Failed:
-		return "failed: " + sanitize.Line(source.Reason)
+		return "failed: " + source.Reason
 	case threatdata.Updated:
 	}
 	return ""
@@ -267,9 +266,35 @@ func writeThreatLines(w io.Writer, res threatdata.Result) error {
 	}
 	for _, s := range res.Sources {
 		if s.Source == threatdata.Spamhaus && s.Copyright != "" {
-			fmt.Fprintf(&b, "Spamhaus DROP data %s; terms: %s\n", sanitize.Line(s.Copyright), sanitize.Line(s.Terms))
+			fmt.Fprintf(&b, "Spamhaus DROP data %s; terms: %s\n", s.Copyright, s.Terms)
 		}
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// loadThreat reads the threat data a command checks addresses against, once, from the threat-data
+// directory and the built-in copies. read says whether the command reads a source (threatdata.Spamhaus
+// or threatdata.Ipapi); a source it doesn't read gives no warning and no hint.
+//
+// A downloaded copy that is unreadable is a warning event, which prints even under --quiet and goes
+// to meta.warnings under --json. A stale source is a warning in the envelope under --json, whatever
+// --quiet says, and otherwise a hint that Execute writes once the command has returned.
+func (inv *invocation) loadThreat(em report.Emitter, warnings *report.Warnings, read func(source string) bool) threatdata.Set {
+	set := newThreatKeeper(inv.d).load()
+	for _, w := range set.Warnings {
+		if read(w.Source) {
+			report.Say(em, "warning")(w.Text)
+		}
+	}
+	for _, n := range set.Stale {
+		switch {
+		case !read(n.Source):
+		case warnings != nil:
+			warnings.Emit(report.Event{Type: "warning", Fields: map[string]any{"message": n.Text}})
+		default:
+			inv.staleHints = append(inv.staleHints, n.Text)
+		}
+	}
+	return set
 }

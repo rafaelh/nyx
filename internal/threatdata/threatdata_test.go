@@ -95,7 +95,7 @@ func TestLoad_NoDirectory(t *testing.T) {
 	}
 }
 
-// The package's Load and a nil *BuiltIn use the copies embedded in the binary.
+// A nil *BuiltIn uses the copies embedded in the binary.
 func TestLoad_TheEmbeddedCopies(t *testing.T) {
 	t.Parallel()
 	embedded, err := spamhaus.ParseBundle(spamhaus.Builtin())
@@ -111,8 +111,8 @@ func TestLoad_TheEmbeddedCopies(t *testing.T) {
 		{Source: threatdata.Ipapi, Name: threatdata.ListASNs, Updated: ip.ASNs.Updated, Entries: len(ip.ASNs.Entries)},
 	}
 	for name, s := range map[string]threatdata.Set{
-		"Load":          threatdata.Load("", now),
-		"a nil BuiltIn": (*threatdata.BuiltIn)(nil).Load(t.TempDir(), now),
+		"no directory": (*threatdata.BuiltIn)(nil).Load("", now),
+		"an empty one": (*threatdata.BuiltIn)(nil).Load(t.TempDir(), now),
 	} {
 		if !slices.Equal(s.Lists, want) {
 			t.Errorf("%s: lists\n%+v\nwant\n%+v", name, s.Lists, want)

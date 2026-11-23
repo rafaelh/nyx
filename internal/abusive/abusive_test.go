@@ -522,3 +522,18 @@ func TestNetworks_AgreesWithAScanOfEveryEntry(t *testing.T) {
 		}
 	}
 }
+
+// ParseLenient refuses a file with anything after the snapshot, rather than reading the first value
+// of it.
+func TestParseLenient_RefusesDataAfterTheSnapshot(t *testing.T) {
+	t.Parallel()
+	plain := abusive.Marshal(counted())
+	for _, tail := range []string{"x", "{}", `{"networks":{}}`} {
+		if _, err := abusive.ParseLenient(append(slices.Clone(plain), tail...)); err == nil {
+			t.Errorf("ParseLenient accepted a file ending in %q", tail)
+		}
+	}
+	if _, err := abusive.ParseLenient(append(slices.Clone(plain), " \n\t"...)); err != nil {
+		t.Errorf("ParseLenient refused a file ending in white space: %v", err)
+	}
+}

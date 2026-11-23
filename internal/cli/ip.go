@@ -184,8 +184,8 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 }
 
 // ipReadsThreatSource reports whether a selected key reads the threat-data source: the abusive_
-// keys read ipapi.is's lists, and the drop_ keys Spamhaus's. A source no key reads isn't loaded, so
-// it gives no warning and no hint.
+// keys read ipapi.is's lists, and the drop_ keys Spamhaus's. A source no key reads gives no warning
+// and no hint.
 func ipReadsThreatSource(fields iplookup.Fields, source string) bool {
 	prefix := "drop_"
 	if source == threatdata.Ipapi {

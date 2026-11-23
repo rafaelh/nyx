@@ -9,7 +9,6 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/keycheck"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/sanitize"
 	"github.com/rafaelh/nyx/internal/setup"
 	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
@@ -103,14 +102,14 @@ func (k threatKeeper) ThreatData() []setup.ThreatList {
 	set := k.load()
 	notes := map[string]string{}
 	for _, w := range set.Warnings {
-		notes[w.Source] = sanitize.Line(w.Text)
+		notes[w.Source] = w.Text
 	}
 	lists := make([]setup.ThreatList, len(set.Lists))
 	for i, l := range set.Lists {
 		lists[i] = setup.ThreatList{Source: l.Source, List: l.Name, Date: l.Updated, Entries: l.Entries,
 			Downloaded: l.Downloaded, Note: notes[l.Source]}
 		if l.Name == spamhaus.ListV4 {
-			lists[i].Copyright, lists[i].Terms = sanitize.Line(set.Copyright), sanitize.Line(set.Terms)
+			lists[i].Copyright, lists[i].Terms = set.Copyright, set.Terms
 		}
 	}
 	return lists

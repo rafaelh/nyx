@@ -101,17 +101,7 @@ func tdSpamhausAt(date time.Time, from int) tdSpamhausFiles {
 }
 
 // tdBundle is a downloaded Spamhaus copy as nyx keeps it: each file after its marker line.
-func tdBundle(f tdSpamhausFiles) []byte {
-	var b bytes.Buffer
-	for _, l := range []struct {
-		name string
-		raw  []byte
-	}{{spamhaus.ListV4, f.v4}, {spamhaus.ListV6, f.v6}, {spamhaus.ListASN, f.asn}} {
-		fmt.Fprintf(&b, "{\"list\":%q}\n", l.name)
-		b.Write(l.raw)
-	}
-	return b.Bytes()
-}
+func tdBundle(f tdSpamhausFiles) []byte { return spamhaus.Bundle(f.v4, f.v6, f.asn) }
 
 func tdNetEntry(i int) abusive.NetworkEntry {
 	return abusive.NetworkEntry{Rank: i + 1, Start: netip.MustParseAddr(fmt.Sprintf("172.%d.%d.0", 16+i/200, i%200)),

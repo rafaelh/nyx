@@ -2,9 +2,9 @@
 // ASNs, and says which entries an address falls under. An integration with their paid service will
 // be added in the future - the snapshot avoids spamming them with queries. It does no I/O: the
 // snapshot is one JSON file embedded in the binary, refreshed by running `make threat-data`, and
-// a copy downloaded by an update (parsed from ipapi.is's pages by [ParsePages] and kept in the
-// same format) may supersede it. The package reads a snapshot and matches against it; which copy
-// is in use is for the caller to decide.
+// a copy downloaded by an update (parsed from ipapi.is's pages by [ParseNetworksPage] and
+// [ParseASNsPage], and kept in the same format) may supersede it. The package reads a snapshot and
+// matches against it; which copy is in use is for the caller to decide.
 //
 // # Terms
 //
@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/bits"
 	"net/netip"
@@ -145,8 +146,12 @@ func Parse(b []byte) (Snapshot, error) {
 // file written by a newer nyx stays readable. It does not validate it (see Validate).
 func ParseLenient(b []byte) (Snapshot, error) {
 	var s Snapshot
-	if err := json.NewDecoder(bytes.NewReader(b)).Decode(&s); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if err := dec.Decode(&s); err != nil {
 		return Snapshot{}, fmt.Errorf("reading the abusive-network snapshot: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return Snapshot{}, errors.New("reading the abusive-network snapshot: data after the snapshot")
 	}
 	return s, nil
 }
@@ -575,21 +580,22 @@ func readPage(b []byte, cols columns, now time.Time) (parsedPage, error) {
 	return p, nil
 }
 
-// c1RefRE is a numeric character reference to a C1 code point, 0x80 to 0x9f, hex or decimal, its
-// semicolon optional as HTML allows.
-var c1RefRE = regexp.MustCompile(`&#(?:[xX]0*([89][0-9a-fA-F])|0*(12[89]|1[3-5][0-9]));?`)
+// numRefRE is a whole numeric character reference, hex or decimal, its semicolon optional as HTML
+// allows. All its digits are taken, so &#x8F66; is one reference and never &#x8F followed by 66;.
+var numRefRE = regexp.MustCompile(`&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?`)
 
-// rawC1 writes each numeric reference to a C1 code point as the raw character. The HTML parser
-// would decode most of them through Windows-1252 (&#x85; is an ellipsis), so the row's control
-// check would never see them; raw, they reach it and the page is refused.
+// rawC1 writes each numeric reference to a C1 code point (0x80 to 0x9f) as the raw character, and
+// leaves every other reference as it is. The HTML parser would decode most C1 references through
+// Windows-1252 (&#x85; is an ellipsis), so the row's control check would never see them; raw, they
+// reach it and the page is refused.
 func rawC1(b []byte) []byte {
-	return c1RefRE.ReplaceAllFunc(b, func(ref []byte) []byte {
-		m := c1RefRE.FindSubmatch(ref)
-		n, err := strconv.ParseUint(string(m[1]), 16, 8)
+	return numRefRE.ReplaceAllFunc(b, func(ref []byte) []byte {
+		m := numRefRE.FindSubmatch(ref)
+		n, err := strconv.ParseUint(string(m[1]), 16, 32)
 		if len(m[1]) == 0 {
-			n, err = strconv.ParseUint(string(m[2]), 10, 8)
+			n, err = strconv.ParseUint(string(m[2]), 10, 32)
 		}
-		if err != nil {
+		if err != nil || n < 0x80 || n > 0x9f {
 			return ref
 		}
 		return []byte(string(rune(n)))

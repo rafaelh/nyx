@@ -15,9 +15,9 @@ import (
 	"github.com/rafaelh/nyx/internal/abusive"
 )
 
-// The clock of every test: 2026-11-21 12:00 UTC. The pages in testdata are dated that day, and
-// every other date is set against it, so no test depends on the day it runs or on the dates of
-// the copies built into nyx.
+// The clock of every test: 2026-11-21 12:00 UTC. The test pages (in internal/abusive/testdata)
+// are dated that day, and every other date is set against it, so no test depends on the day it
+// runs or on the dates of the copies built into nyx.
 var now = time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 
 var (
@@ -121,9 +121,10 @@ func withRow(rows []string, i int, row string) []string {
 
 // ---- ipapi.is pages and snapshots ----
 
+// page reads one of the ipapi.is test pages, which the abusive package's tests share.
 func page(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", name))
+	b, err := os.ReadFile(filepath.Join("..", "..", "abusive", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}

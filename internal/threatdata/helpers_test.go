@@ -107,17 +107,7 @@ func dropFile(row func(int) string, date time.Time, from, n int) []byte {
 }
 
 // bundle is a downloaded Spamhaus copy as nyx keeps it: each file after its marker line.
-func bundle(v4, v6, asn []byte) []byte {
-	var b bytes.Buffer
-	for _, l := range []struct {
-		name string
-		raw  []byte
-	}{{spamhaus.ListV4, v4}, {spamhaus.ListV6, v6}, {spamhaus.ListASN, asn}} {
-		fmt.Fprintf(&b, "{\"list\":%q}\n", l.name)
-		b.Write(l.raw)
-	}
-	return b.Bytes()
-}
+func bundle(v4, v6, asn []byte) []byte { return spamhaus.Bundle(v4, v6, asn) }
 
 // netEntry and asEntry are entry i of a generated ipapi.is list, in the snapshot format.
 func netEntry(i int) abusive.NetworkEntry {
@@ -474,7 +464,8 @@ type world struct {
 	client   egress.ThirdPartyHTTP // nil: egress's client over eopts
 	timeout  time.Duration
 	now      time.Time
-	rec      *recorder // the last update's requests
+	rename   func(oldpath, newpath string) error // nil: os.Rename
+	rec      *recorder                           // the last update's requests
 }
 
 func newWorld(t *testing.T) *world {
@@ -512,7 +503,8 @@ func (w *world) options() threatdata.Options {
 	}
 	w.rec = &recorder{inner: inner}
 	clock := w.now
-	return threatdata.Options{Dir: w.dir, HTTP: w.rec, Now: func() time.Time { return clock }, NoFsync: true, Timeout: w.timeout, BuiltIn: w.builtIn}
+	return threatdata.Options{Dir: w.dir, HTTP: w.rec, Now: func() time.Time { return clock }, NoFsync: true, Timeout: w.timeout, BuiltIn: w.builtIn,
+		Rename: w.rename}
 }
 
 // update runs one update with a minute's deadline.

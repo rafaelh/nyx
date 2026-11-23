@@ -2,11 +2,13 @@ package threatdata_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -162,5 +164,71 @@ func TestUpdate_SourcesAreReplacedSeparately(t *testing.T) {
 	}
 	if !slices.ContainsFunc(w.load(now).Lists, func(l threatdata.List) bool { return l.Name == spamhaus.ListV4 && l.Downloaded }) {
 		t.Error("the new Spamhaus copy isn't in use")
+	}
+}
+
+// A request interrupted by the update's context fails the source as cancelled, not as a network
+// error, and nothing marks it transient.
+func TestUpdate_AnInterruptedRequestIsCancelled(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.serveNewer()
+	w.spamhaus.set(pathV4, reply{status: 200, body: newerLists().v4, gate: make(chan struct{})})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		if w.spamhaus.asked(pathV4) {
+			cancel()
+		}
+	}()
+	s := source(t, w.updateCtx(ctx), threatdata.Spamhaus)
+	if s.Outcome != threatdata.Failed || s.Code != clierr.Unexpected || s.Transient || !strings.Contains(s.Reason, "cancelled") {
+		t.Errorf("the interrupted source: %+v, want an UNEXPECTED_ERROR that says it was cancelled", s)
+	}
+}
+
+// A directory made read-only after an earlier update, so its lock files are still there to open,
+// fails both sources before anything is sent.
+func TestUpdate_ADirectoryMadeReadOnlyLater(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a read-only directory")
+	}
+	w := newWorld(t)
+	w.serveNewer()
+	w.update()
+	before := len(w.spamhaus.requests()) + len(w.ipapi.requests())
+	if err := os.Chmod(w.dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(w.dir, 0o700) })
+	w.now = now.Add(2 * time.Hour)
+	r := w.update()
+	for _, name := range []string{threatdata.Spamhaus, threatdata.Ipapi} {
+		if s := source(t, r, name); s.Outcome != threatdata.Failed || s.Code != clierr.Unexpected || !strings.Contains(s.Reason, "permission denied") {
+			t.Errorf("%s: %+v, want an UNEXPECTED_ERROR that gives the reason", name, s)
+		}
+	}
+	if after := len(w.spamhaus.requests()) + len(w.ipapi.requests()); after != before {
+		t.Errorf("the read-only update sent %d requests, want none", after-before)
+	}
+}
+
+// A data file that can't be put in place leaves no temporary file behind.
+func TestUpdate_AFailedRenameLeavesNoTemporaryFile(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.serveNewer()
+	w.previous(0o600)
+	w.rename = func(string, string) error { return errors.New("injected rename failure") }
+	w.update()
+	entries, err := os.ReadDir(w.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("%s is left in the threat-data directory", e.Name())
+		}
 	}
 }

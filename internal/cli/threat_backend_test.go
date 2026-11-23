@@ -64,7 +64,9 @@ func TestThreatSetup_ASkippedSourceSaysWhen(t *testing.T) {
 // A downloaded copy that cannot be read is said on the tab, as a note on each of its lists.
 func TestThreatSetup_AnUnreadableCopyIsNoted(t *testing.T) {
 	t.Parallel()
-	w := newThreatWorldOn(t, setupHarness(t))
+	h := setupHarness(t)
+	h.winW = 300 // wide enough that a long temporary path (macOS) doesn't cut the note short
+	w := newThreatWorldOn(t, h)
 	tdWrite(t, w.dir(), tdSpamhausData, []byte("not a bundle\n"))
 	if code := threatTab(w, func() { time.Sleep(200 * time.Millisecond) }); code != 0 {
 		t.Fatalf("exit %d, want 0\nstderr %s", code, w.h.stderr.String())

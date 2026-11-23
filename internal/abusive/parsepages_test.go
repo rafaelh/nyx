@@ -338,3 +338,19 @@ func TestParsePages_DateWindow(t *testing.T) {
 		t.Errorf("tomorrow in UTC with the clock in UTC+10: %v", err)
 	}
 }
+
+// A numeric reference beyond the C1 range is read as the character it names, even when its first
+// digits spell a C1 code point (&#x8F66; is not &#x8F followed by 66;), so the page is not refused.
+func TestParsePages_ReferencesBeyondC1(t *testing.T) {
+	t.Parallel()
+	p := fixtures(t)
+	p.asns = replaceOnce(t, p.asns, "Plain Net Ltd", "Plain &#x8F66;&#1488;&#12900;&#x9A6C Net Ltd")
+	s, err := p.parse(pagesNow)
+	if err != nil {
+		t.Fatalf("ParsePages: %v", err)
+	}
+	want := "Plain 车א㉤马 Net Ltd"
+	if !slices.ContainsFunc(s.ASNs.Entries, func(e abusive.ASNEntry) bool { return e.Org == want }) {
+		t.Errorf("no ASN entry has the organisation %q: %+v", want, s.ASNs.Entries)
+	}
+}

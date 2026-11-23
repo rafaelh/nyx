@@ -29,6 +29,10 @@ type Options struct {
 	NoFsync bool                  // write files without syncing them to disk first
 	Timeout time.Duration         // each request's; 0 means 30 s
 	BuiltIn *BuiltIn              // nil means the embedded copies
+
+	// Rename replaces os.Rename for putting a data file in place, so a test can make that step
+	// fail. nil means os.Rename.
+	Rename func(oldpath, newpath string) error
 }
 
 // Outcome is how an update ended for a source or a list.
@@ -54,16 +58,18 @@ type SourceResult struct {
 	Source  string // Spamhaus or Ipapi
 	Outcome Outcome
 
-	// LastContacted is the last time the source sent an HTTP response, or zero when none is
-	// recorded. NextUpdate is when it can next be updated: set when it was skipped, and when it
-	// failed after a response; otherwise zero.
+	// LastContacted is when the source last sent an HTTP response: in this update, or, for a
+	// skipped source, the recorded time that made it skip; zero when it sent none in this update.
+	// NextUpdate is when it can next be updated: set when it was skipped, and when it failed after a
+	// response; otherwise zero.
 	LastContacted, NextUpdate time.Time
 
-	// Copyright and Terms are Spamhaus's credit, as Set gives it after the update; "" for ipapi.is.
+	// Copyright and Terms are Spamhaus's credit, sanitised, as Set gives it after the update; ""
+	// for ipapi.is.
 	Copyright, Terms string
 
-	// Code, Reason and Transient describe a failure: Transient is set for NETWORK_ERROR, TIMEOUT
-	// and RATE_LIMITED.
+	// Code, Reason and Transient describe a failure: Reason is sanitised, and Transient is set for
+	// NETWORK_ERROR, TIMEOUT and RATE_LIMITED.
 	Code      clierr.Code
 	Reason    string
 	Transient bool
@@ -92,11 +98,14 @@ func Update(ctx context.Context, o Options) Result {
 		o.Timeout = defaultTimeout
 	}
 	builtIP, _ := o.BuiltIn.ipapiSnapshot()
-	ops := []sourceOps{&spamhausOps{built: o.BuiltIn.spamhausLists()}, &ipapiOps{built: builtIP}}
-	runs := make([]sourceRun, len(ops))
+	srcs := []*srcRun{
+		{o: &o, ctx: ctx, src: spamhausSource, op: &spamhausOps{built: o.BuiltIn.spamhausLists()}},
+		{o: &o, ctx: ctx, src: ipapiSource, op: &ipapiOps{built: builtIP}},
+	}
+	runs := make([]sourceRun, len(srcs))
 	var wg sync.WaitGroup
-	for i, op := range ops {
-		wg.Go(func() { runs[i] = (&srcRun{o: &o, op: op, ctx: ctx}).execute() })
+	for i, r := range srcs {
+		wg.Go(func() { runs[i] = r.execute() })
 	}
 	wg.Wait()
 	var res Result
@@ -136,13 +145,36 @@ type sourceRun struct {
 	lists  []ListResult
 }
 
-// sourceOps is what differs between the two sources: the lists, their formats and how the
+// source is what is fixed about a source: its name, the stem of its state and lock files, its data
+// file, and its lists and the URL of each.
+type source struct {
+	name, stem, file string
+	lists, urls      []string
+}
+
+var (
+	spamhausSource = source{
+		name: Spamhaus, stem: stemSpamhaus, file: fileSpamhaus,
+		lists: []string{spamhaus.ListV4, spamhaus.ListV6, spamhaus.ListASN},
+		urls: []string{
+			"https://" + SpamhausHost + "/drop/drop_v4.json",
+			"https://" + SpamhausHost + "/drop/drop_v6.json",
+			"https://" + SpamhausHost + "/drop/asndrop.json",
+		},
+	}
+	ipapiSource = source{
+		name: Ipapi, stem: stemIpapi, file: fileIpapi,
+		lists: []string{ListNetworks, ListASNs},
+		urls: []string{
+			"https://" + IpapiHost + "/most-abusive-networks.html",
+			"https://" + IpapiHost + "/most-abusive-asn.html",
+		},
+	}
+)
+
+// sourceOps is what differs between the two sources in how their lists are read and their
 // downloaded copy is kept.
 type sourceOps interface {
-	name() string
-	stem() string
-	listNames() []string
-	urls() []string
 	// prepare reads the previous downloaded copy, once.
 	prepare(dir string)
 	// unreadable reports whether a previous downloaded copy exists and can't be used.
@@ -156,13 +188,12 @@ type sourceOps interface {
 	// after describes the lists in use, and the credit, once the download of each list for which
 	// useDownload is set replaces the previous downloaded one, and gives the data file's bytes.
 	after(useDownload []bool) ([]view, string, string, []byte)
-	// file is the data file's name.
-	file() string
 }
 
 // srcRun is the update of one source.
 type srcRun struct {
 	o   *Options
+	src source
 	op  sourceOps
 	ctx context.Context //nolint:containedctx // the run lives for one call
 
@@ -185,7 +216,7 @@ func (r *srcRun) execute() sourceRun {
 	r.removeTemporaryFiles()
 
 	now := r.o.Now()
-	r.st = readState(r.o.Dir, r.op.stem())
+	r.st = readState(r.o.Dir, r.src.stem)
 	if r.st.LastResponse != nil && r.st.LastResponse.After(now) {
 		r.st.LastResponse = &now
 	}
@@ -202,8 +233,8 @@ func (r *srcRun) execute() sourceRun {
 	}
 
 	r.op.prepare(r.o.Dir)
-	downloads := make([]view, len(r.op.listNames()))
-	for i, name := range r.op.listNames() {
+	downloads := make([]view, len(r.src.lists))
+	for i, name := range r.src.lists {
 		body, f := r.request(i)
 		if f != nil {
 			return r.fail(f)
@@ -254,17 +285,18 @@ func (r *srcRun) replace(downloads []view) sourceRun {
 		}
 		var data []byte
 		after, copyright, terms, data = r.op.after(useDownload)
-		if err := r.writeFile(r.op.file(), data); err != nil {
-			return r.fail(unexpected("cannot store the downloaded %s data: %v", r.op.name(), err))
+		if err := r.writeFile(r.src.file, data); err != nil {
+			return r.fail(unexpected("cannot store the downloaded %s data: %v", r.src.name, err))
 		}
 	}
 	checked := r.o.Now()
 	r.st.LastChecked = &checked
-	if err := r.writeState(); err != nil {
-		return r.fail(unexpected("cannot record the check of %s: %v", r.op.name(), err))
+	stateErr := r.writeState()
+	if stateErr != nil && !anyNewer {
+		return r.fail(unexpected("cannot record the check of %s: %v", r.src.name, stateErr))
 	}
 
-	out := sourceRun{source: SourceResult{Source: r.op.name(), Outcome: Current, LastContacted: r.responded, Copyright: copyright, Terms: terms}}
+	out := sourceRun{source: SourceResult{Source: r.src.name, Outcome: Current, LastContacted: r.responded, Copyright: copyright, Terms: terms}}
 	if anyNewer {
 		out.source.Outcome = Updated
 	}
@@ -274,6 +306,13 @@ func (r *srcRun) replace(downloads []view) sourceRun {
 			l.Outcome = Updated
 		}
 		out.lists = append(out.lists, l)
+	}
+	if stateErr != nil {
+		// The new copy is in place and in use, so the lists are reported as they are now; only the
+		// check went unrecorded.
+		f := unexpected("the downloaded %s data was replaced, but its check could not be recorded: %v", r.src.name, stateErr)
+		out.source.Outcome, out.source.Code, out.source.Reason = Failed, f.code, sanitize.Line(f.reason)
+		out.source.NextUpdate = r.responded.Add(rateWindow)
 	}
 	return out
 }
@@ -305,8 +344,9 @@ func listResult(before, after view, outcome Outcome) ListResult {
 
 // skipped is the result of a source that answered within the hour.
 func (r *srcRun) skipped(last time.Time) sourceRun {
+	r.op.prepare(r.o.Dir)
 	before, copyright, terms := r.op.before()
-	out := sourceRun{source: SourceResult{Source: r.op.name(), Outcome: Skipped, LastContacted: last, NextUpdate: last.Add(rateWindow),
+	out := sourceRun{source: SourceResult{Source: r.src.name, Outcome: Skipped, LastContacted: last, NextUpdate: last.Add(rateWindow),
 		Copyright: copyright, Terms: terms}}
 	for _, v := range before {
 		out.lists = append(out.lists, unchanged(v, Skipped))
@@ -318,7 +358,7 @@ func (r *srcRun) skipped(last time.Time) sourceRun {
 func (r *srcRun) fail(f *failure) sourceRun {
 	r.op.prepare(r.o.Dir)
 	before, copyright, terms := r.op.before()
-	out := sourceRun{source: SourceResult{Source: r.op.name(), Outcome: Failed, Copyright: copyright, Terms: terms,
+	out := sourceRun{source: SourceResult{Source: r.src.name, Outcome: Failed, Copyright: copyright, Terms: terms,
 		Code: f.code, Reason: sanitize.Line(f.reason), Transient: f.transient()}}
 	if !r.responded.IsZero() {
 		out.source.LastContacted, out.source.NextUpdate = r.responded, r.responded.Add(rateWindow)
@@ -334,9 +374,9 @@ func cancelled() *failure { return unexpected("the update was cancelled") }
 // lock takes the source's lock, polling until the context ends: a blocking flock can't be
 // cancelled. The returned function releases it.
 func (r *srcRun) lock() (func(), *failure) {
-	f, err := os.OpenFile(r.path(r.op.stem()+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(r.path(r.src.stem+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, unexpected("cannot open the lock for %s: %v", r.op.name(), err)
+		return nil, unexpected("cannot open the lock for %s: %v", r.src.name, err)
 	}
 	for {
 		err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
@@ -345,14 +385,14 @@ func (r *srcRun) lock() (func(), *failure) {
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) {
 			f.Close()
-			return nil, unexpected("cannot lock %s: %v", r.op.name(), err)
+			return nil, unexpected("cannot lock %s: %v", r.src.name, err)
 		}
 		wait := time.NewTimer(lockPoll)
 		select {
 		case <-r.ctx.Done():
 			wait.Stop()
 			f.Close()
-			return nil, unexpected("the update was cancelled while it waited for another update of %s to finish", r.op.name())
+			return nil, unexpected("the update was cancelled while it waited for another update of %s to finish", r.src.name)
 		case <-wait.C:
 		}
 	}
@@ -365,7 +405,7 @@ func (r *srcRun) removeTemporaryFiles() {
 	if err != nil {
 		return
 	}
-	prefix := "." + r.op.stem() + "-"
+	prefix := "." + r.src.stem + "-"
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), prefix) && strings.HasSuffix(e.Name(), ".tmp") {
 			_ = os.Remove(r.path(e.Name()))
@@ -379,16 +419,17 @@ func (r *srcRun) writeState() error {
 	if err != nil {
 		return err
 	}
-	return r.write(r.op.stem()+".state.json", append(b, '\n'), false)
+	return r.write(r.src.stem+".state.json", append(b, '\n'), false)
 }
 
-// writeFile writes a data file, with the fault point between its sync and its rename.
+// writeFile writes a data file, with the fault point between its sync and its rename, which
+// Options.Rename may replace.
 func (r *srcRun) writeFile(name string, b []byte) error { return r.write(name, b, true) }
 
 // write puts the file in place: it is written to a temporary file, synced (unless the options say
 // not) and renamed over the old one, so a reader sees the old file or the whole new one.
 func (r *srcRun) write(name string, b []byte, point bool) (err error) {
-	f, err := os.CreateTemp(r.o.Dir, "."+r.op.stem()+"-*.tmp")
+	f, err := os.CreateTemp(r.o.Dir, "."+r.src.stem+"-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -411,12 +452,14 @@ func (r *srcRun) write(name string, b []byte, point bool) (err error) {
 	if err = f.Close(); err != nil {
 		return err
 	}
+	rename := os.Rename
 	if point {
-		if err = fault.Err(r.ctx, "threat-before-rename"); err != nil {
-			return err
+		fault.Point("threat-before-rename")
+		if r.o.Rename != nil {
+			rename = r.o.Rename
 		}
 	}
-	if err = os.Rename(tmp, r.path(name)); err != nil {
+	if err = rename(tmp, r.path(name)); err != nil {
 		return err
 	}
 	if !r.o.NoFsync {
@@ -431,10 +474,10 @@ func (r *srcRun) write(name string, b []byte, point bool) (err error) {
 // request asks for list i and returns the body of a 200. A response of any status is recorded at
 // once, as it starts the hour.
 func (r *srcRun) request(i int) ([]byte, *failure) {
-	name := r.op.listNames()[i]
+	name := r.src.lists[i]
 	ctx, cancel := context.WithTimeout(r.ctx, r.o.Timeout)
 	defer cancel()
-	resp, err := r.o.HTTP.Do(ctx, egress.ThirdPartyRequest{Method: "GET", URL: r.op.urls()[i], Timeout: r.o.Timeout})
+	resp, err := r.o.HTTP.Do(ctx, egress.ThirdPartyRequest{Method: "GET", URL: r.src.urls[i], Timeout: r.o.Timeout})
 	if err != nil {
 		if r.ctx.Err() != nil {
 			return nil, cancelled()
@@ -447,7 +490,7 @@ func (r *srcRun) request(i int) ([]byte, *failure) {
 	r.responded = r.o.Now()
 	r.st.LastResponse = &r.responded
 	if err := r.writeState(); err != nil {
-		return nil, unexpected("cannot record the response of %s: %v", r.op.name(), err)
+		return nil, unexpected("cannot record the response of %s: %v", r.src.name, err)
 	}
 	fault.Point("threat-after-response")
 	switch {
@@ -473,19 +516,6 @@ type spamhausOps struct {
 	down     spamhaus.Lists
 }
 
-var spamhausURLs = []string{
-	"https://" + SpamhausHost + "/drop/drop_v4.json",
-	"https://" + SpamhausHost + "/drop/drop_v6.json",
-	"https://" + SpamhausHost + "/drop/asndrop.json",
-}
-
-func (s *spamhausOps) name() string { return Spamhaus }
-func (s *spamhausOps) stem() string { return stemSpamhaus }
-func (s *spamhausOps) listNames() []string {
-	return []string{spamhaus.ListV4, spamhaus.ListV6, spamhaus.ListASN}
-}
-func (s *spamhausOps) urls() []string    { return spamhausURLs }
-func (s *spamhausOps) file() string      { return fileSpamhaus }
 func (s *spamhausOps) unreadable() bool  { return s.prevBad }
 func (s *spamhausOps) hasPrevious() bool { return s.prev != nil }
 
@@ -527,8 +557,7 @@ func (s *spamhausOps) parse(i int, body []byte, _ time.Time) (view, error) {
 }
 
 func (s *spamhausOps) after(useDownload []bool) ([]view, string, string, []byte) {
-	var next spamhaus.Lists
-	next.V4, next.V6, next.ASNs = s.down.V4, s.down.V6, s.down.ASNs
+	next := s.down
 	if !useDownload[0] {
 		next.V4 = s.prev.V4
 	}
@@ -553,18 +582,8 @@ type ipapiOps struct {
 	down     abusive.Snapshot
 }
 
-var ipapiURLs = []string{
-	"https://" + IpapiHost + "/most-abusive-networks.html",
-	"https://" + IpapiHost + "/most-abusive-asn.html",
-}
-
-func (s *ipapiOps) name() string        { return Ipapi }
-func (s *ipapiOps) stem() string        { return stemIpapi }
-func (s *ipapiOps) listNames() []string { return []string{ListNetworks, ListASNs} }
-func (s *ipapiOps) urls() []string      { return ipapiURLs }
-func (s *ipapiOps) file() string        { return fileIpapi }
-func (s *ipapiOps) unreadable() bool    { return s.prevBad }
-func (s *ipapiOps) hasPrevious() bool   { return s.prev != nil }
+func (s *ipapiOps) unreadable() bool  { return s.prevBad }
+func (s *ipapiOps) hasPrevious() bool { return s.prev != nil }
 
 func (s *ipapiOps) prepare(dir string) {
 	if s.prepared {

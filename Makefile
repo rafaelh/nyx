@@ -70,4 +70,4 @@ threat-data:
 	curl -fsS --retry 3 -o "$$d/asndrop.json" https://www.spamhaus.org/drop/asndrop.json; \
 	curl -fsS --retry 3 -o "$$d/networks.html" https://ipapi.is/most-abusive-networks.html; \
 	curl -fsS --retry 3 -o "$$d/asns.html" https://ipapi.is/most-abusive-asn.html; \
-	go run ./internal/threatdata/refresh -dir "$$d" -spamhaus internal/spamhaus/builtin.jsonl -ipapi internal/abusive/snapshot.json $(if $(ALLOW_SHRINK),-allow-shrink)
+	go run ./internal/threatdata/refresh -dir "$$d" -spamhaus internal/spamhaus/builtin.jsonl -ipapi internal/abusive/snapshot.json $(if $(filter 1,$(ALLOW_SHRINK)),-allow-shrink)
