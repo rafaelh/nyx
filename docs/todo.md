@@ -8,10 +8,8 @@
 
 - Evaluate the difference in approach that  https://github.com/blacklanternsecurity/bbot uses for scanning.
 
-- Check the validity and validation of each key
-
 - Add check for known bulletproof hosting providers - https://github.com/crimsonvector/BPH_Research and compare with the following free threat feeds:
-  - The SpamHaus Project provides free blocklists of internet resources associated with spam, phishing, malware, and ransomware. See SpamHaus Project’s Don’t Route Or Peer Lists (DROP).
+
   - ThreatFox, a project between abuse.ch and SpamHaus, provides threat reports for ASNs. See ThreatFox. To search for an ASN, enter the ASN number in the URL: https://threatfox.abuse.ch/asn/[ASN #].
 
 

@@ -56,3 +56,10 @@ prints the whole reference.
 - [IP lookup](docs/ip.md): `nyx ip`
 - [Exit codes and errors](docs/exit-codes.md)
 - [Migrating from the Python version](docs/migrating.md)
+
+# Credits
+
+Data on abusive networks is available thanks to:
+
+- SpamHaus’s [Don’t Route Or Peer Lists (DROP)](https://www.spamhaus.org/blocklists/do-not-route-or-peer/) Project.
+- ipapis.is [Most Abusive Networks on the Internet](https://ipapi.is/most-abusive-networks.html)
