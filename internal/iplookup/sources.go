@@ -22,6 +22,7 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
 // The hosts of the sources that have one request per address.
@@ -587,6 +588,9 @@ func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 		if s.cfg.Fields.Has("abusive_networks") || s.cfg.Fields.Has("abusive_asn") {
 			s.abusive(&rec, addr, ownerFailed)
 		}
+		if s.cfg.Fields.Has("drop_networks") || s.cfg.Fields.Has("drop_asn") {
+			s.drop(&rec, addr, ownerFailed)
+		}
 	} else {
 		s.nonPublicSources(ctx, &rec, addr, &runs)
 	}
@@ -627,6 +631,38 @@ func (s *state) abusive(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	}
 	rec.AbusiveASN = snap.ASN(int(*rec.ASN))
 }
+
+// drop sets the selected DROP keys of a public address from Spamhaus's lists, which need no
+// request, by the rules of the abusive keys: the network entries are always set when selected, and
+// the ASN-DROP entry follows the origin AS (its entry when listed, [] when the AS is not listed or
+// Team Cymru knows no owner, and null when the origin lookup failed).
+func (s *state) drop(rec *Record, addr netip.Addr, ownerFailed *Failure) {
+	lists := s.cfg.Drop
+	if lists == nil {
+		lists = builtinDrop()
+	}
+	if s.cfg.Fields.Has("drop_networks") {
+		rec.DropNetworks = lists.Networks(addr)
+	}
+	if !s.cfg.Fields.Has("drop_asn") || ownerFailed != nil {
+		return
+	}
+	if rec.ASN == nil {
+		rec.DropASN = []spamhaus.ASNMatch{}
+		return
+	}
+	rec.DropASN = lists.ASN(int(*rec.ASN))
+}
+
+// builtinDrop is Spamhaus's lists as built into the binary, parsed once. It panics on a bad embed,
+// as abusive.Default does: a test validates the file.
+var builtinDrop = sync.OnceValue(func() *spamhaus.Lists {
+	l, err := spamhaus.ParseBundle(spamhaus.Builtin())
+	if err != nil {
+		panic("iplookup: the built-in Spamhaus lists are unreadable: " + err.Error())
+	}
+	return &l
+})
 
 // publicSources asks the sources of a public address concurrently. The provider and HackerTarget
 // wait for the owner. It returns what the provider data says of the address, and the failure of

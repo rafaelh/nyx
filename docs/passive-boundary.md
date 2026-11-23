@@ -70,8 +70,18 @@ Team Cymru, through the public resolvers, also receives one query for each /24 (
 that holds an in-scope netblock address nyx knows, or for an in-scope netblock that is smaller. The
 query names the first address of that /24, /48 or netblock, and its answer is the origin AS the
 abusive-network check uses (see [Abusive networks](abusive-networks.md)). It is a third-party lookup,
-so it runs under `--passive`, and the target never receives it. No command contacts ipapi.is: its
-lists of abusive networks and ASNs are a snapshot built into nyx.
+so it runs under `--passive`, and the target never receives it.
+
+nyx contacts Spamhaus and ipapi.is only when you ask it for a threat-data update with
+`nyx setup --update-threat-data` (or `u` on the Threat data tab of `nyx setup`). The lists the
+abusive-network check reads (Spamhaus's DROP, DROPv6 and ASN-DROP, and ipapi.is's most-abusive
+networks and ASNs) are built into nyx, and a copy an update downloaded replaces one only when it is
+newer, so recon, `nyx ip`, `nyx cve` and a key test never send either source a request. An update
+sends at most one request per list and no retry, and nothing to any target: a GET to
+`www.spamhaus.org` for each of `/drop/drop_v4.json`, `/drop/drop_v6.json` and `/drop/asndrop.json`,
+and one to `ipapi.is` for each of its most-abusive networks and ASNs pages. It follows no redirect,
+gives up on a request after 30 seconds and sends a source nothing more within an hour of its last
+answer (see [Abusive networks](abusive-networks.md#updating-the-threat-data)).
 
 **`nyx ip`** keeps no engagement and has no scope, so the list above is for recon and is unchanged.
 By default `nyx ip` sends nothing to the address it looks up. It contacts only third parties and DNS
@@ -115,6 +125,9 @@ to that source alone and never to a target: `api.securitytrails.com`, `api.shoda
 `www.virustotal.com`, `user.whoisxmlapi.com`, `api.platform.censys.io`, `dns.projectdiscovery.io`,
 `api.github.com`, `api.certspotter.com` and `services.nvd.nist.gov`. A key test may spend a query
 from the source's quota (VirusTotal and Censys do).
+
+The threat-data update is the one other thing `nyx setup` sends: the requests above to
+`www.spamhaus.org` and `ipapi.is`, which carry no key, and never to a target.
 
 All network access goes through one package. On every supported platform, a test fails if any other
 package imports a network package or `syscall`, or uses `golang.org/x/sys/unix` for anything other

@@ -141,6 +141,8 @@ func TestSeverityTable(t *testing.T) {
 		"origin-exposure/possible":       "low",
 		"eol-software/eol":               "medium",
 		"eol-software/eol-approaching":   "low",
+		"abusive-network/drop-network":   "high",
+		"abusive-network/drop-asn":       "medium",
 		"abusive-network/network":        "medium",
 		"abusive-network/asn":            "low",
 	}

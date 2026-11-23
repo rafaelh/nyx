@@ -16,7 +16,7 @@ make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
 make lint                       # golangci-lint pinned in tools/go.mod; config in .golangci.yml
 make eol-data                   # refresh internal/eol/data from endoflife.date (needs curl, jq); review the diff
-make abusive-data               # refresh internal/abusive/snapshot.json from ipapi.is (needs curl); review the diff and update the dates in docs/abusive-networks.md
+make threat-data                # refresh the built-in threat data (internal/spamhaus/builtin.jsonl from spamhaus.org, internal/abusive/snapshot.json from ipapi.is; needs curl); review the diff and update the five dates in docs/abusive-networks.md. ALLOW_SHRINK=1 lets through a list you reviewed that shrank to under half
 ```
 
 - While iterating, run targeted tests without `-race`: the race detector roughly triples the cost.
@@ -34,12 +34,15 @@ make abusive-data               # refresh internal/abusive/snapshot.json from ip
 - **Only `internal/egress` does network I/O.** `internal/egress/boundary_test.go` checks the
   non-test files of every package, for all four targets, and fails if any of them imports `net`,
   `net/http`, `crypto/tls`, `syscall` or `github.com/miekg/dns`. Uses of `golang.org/x/sys/unix`
-  are limited to an allowlist: signals in `internal/cli`, flock in `internal/engagement`. No
+  are limited to an allowlist: signals in `internal/cli`, flock in `internal/engagement` and `internal/threatdata`. No
   first-party package may import `os/exec`. Stages get `egress.Clients` and egress's own result
   types, never `net/*` types. Test files may use `net` (fake servers);
   `internal/egress/egresstest` is the fake DNS server.
 - **Key tests contact sources only.** `nyx setup`'s key test sends one request to the tested
   source's host and never to a target; `keycheck.Run` builds its egress client with that one host.
+- **Threat-data updates contact their sources only.** Only `nyx setup --update-threat-data` (and `u`
+  on setup's Threat data tab) sends anything to `www.spamhaus.org` or `ipapi.is`, never to a target;
+  no recon stage, `nyx ip`, `nyx cve` or key test names either host (a test checks).
 - **Passive boundary.** Target-owned systems may only receive DNS lookups, TCP handshakes (read the
   unprompted banner, send nothing) and HTTP GET/HEAD to in-scope hosts. Egress enforces this
   through a `Policy` the runner rebuilds whenever the scope changes. Candidates and excluded
@@ -71,6 +74,11 @@ comments and order, `Save`, and the `Store` that implements the Backend's file s
 `internal/keycheck` (one authenticated request to one source's host, through egress's third-party
 client with no `Policy`; the NVD's status rules are shared with `nyx cve` through `cve.Meaning`).
 `config.Check` parses and checks a file's bytes, which `Load` calls too.
+`nyx setup --update-threat-data` skips the editor and the config: `internal/cli/threat.go` (the
+branch in `runSetup`, the output, the `--json` envelope and the exit code) → `internal/threatdata`
+(`Dir`, `Load`, the shared acceptance rules and `Update`, which reaches Spamhaus and ipapi.is
+through `egress`'s third-party client with no `Policy`). The Threat data tab uses the same `Update`
+through two more `setup.Backend` methods.
 `nyx ip` skips it too: `internal/cli/ip.go` (flags, stdin and the writing) → `internal/iplookup`
 (the inputs, the sources, active probing, the record and its field table, the outcome and the
 render), which reaches third parties and DNS through `egress` with no `Policy`, and the targets
@@ -86,8 +94,8 @@ don't send any; `cli.NotifySignals` in `main`) delivers signals: the first cance
 once. A new command needs only `AddCommand`, an `Example` and its help annotations
 (`internal/cli/help.go`) to be in the root help and the pre-scan. **The exit codes, the error codes,
 the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
-keys of the CVE record and of the `nyx cve` envelope, and the keys of the `nyx ip` record and
-envelope are a stable interface**: adding one is
+keys of the CVE record and of the `nyx cve` envelope, the keys of the `nyx ip` record and
+envelope, and the keys of the threat-data update's envelope are a stable interface**: adding one is
 compatible, renaming, removing or retyping one is a breaking change (`docs/exit-codes.md`
 and `docs/console-and-json.md`). The default `nyx cve` selection broke this once, deliberately: it leaves out the
 `affected_products` and `references` lists and has their counts instead (`--fields all` has both).
@@ -153,7 +161,7 @@ takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives
 **Pure knowledge packages** with no I/O: `cloudstorage` (bucket naming, S3/GCS/Azure),
 `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data in the
 embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.date data and
-`products.yaml`), `abusive` (ipapi.is's most-abusive network and ASN lists, an embedded snapshot refreshed by `make abusive-data`; the matches are information only), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
+`products.yaml`), `abusive` (ipapi.is's most-abusive network and ASN lists: the embedded snapshot, refreshed by `make threat-data`, and the parser of its pages; the matches are information only), `spamhaus` (Spamhaus's DROP, DROPv6 and ASN-DROP lists: parsing, validation, matching and the embedded `builtin.jsonl`, also refreshed by `make threat-data`), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
 belong to an organisation input), `origin` (origin-behind-CDN decisions, which the `origincheck`
 stage and the findings both call so they can't disagree), `thirdparty`, `palette`, `shellquote`,
 `dnsname`, `sanitize` (strips terminal-acting characters from

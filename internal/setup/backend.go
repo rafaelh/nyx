@@ -42,6 +42,59 @@ type Info struct {
 	Path    string   // the config file's absolute path, as the header shows it
 	Sources []Source // in display order
 	Stages  []Stage  // the skippable stages, in registry order
+	// ThreatUnavailable, when not empty, is why there is nowhere to keep threat data, so it cannot be
+	// updated from setup ("nowhere to keep threat data: neither XDG_CONFIG_HOME nor HOME is set"). The
+	// Threat data tab says it, and u shows it.
+	ThreatUnavailable string
+}
+
+// ThreatList is one threat-data list as the Threat data tab shows it: the copy in use.
+type ThreatList struct {
+	Source string // "spamhaus" or "ipapi.is"
+	List   string // "drop_v4", "drop_v6", "asndrop", "networks" or "asns"
+	// Date is the list's date as its source dates it, already written out: RFC 3339 UTC to the second
+	// for a Spamhaus list, YYYY-MM-DD for an ipapi.is list.
+	Date    string
+	Entries int
+	// Downloaded is whether the copy in use is the downloaded one; otherwise it is built in.
+	Downloaded bool
+	// Note, when not empty, is a line about the list shown with it (a downloaded copy that is
+	// unreadable, so the built-in one is used).
+	Note string
+	// Copyright and Terms are the credit its source asks for, shown at the foot of the tab. They are
+	// set on the list whose data carries them (Spamhaus's drop_v4), and empty on the others.
+	Copyright, Terms string
+}
+
+// ThreatOutcome is how an update ended for one list.
+type ThreatOutcome int
+
+// The ways an update ends for a list.
+const (
+	// ThreatUpdated is a list replaced by a newer download.
+	ThreatUpdated ThreatOutcome = iota
+	// ThreatCurrent is a list that was already current.
+	ThreatCurrent
+	// ThreatSkipped is a list whose source was contacted too recently to be asked again.
+	ThreatSkipped
+	// ThreatFailed is a list whose source failed.
+	ThreatFailed
+)
+
+// ThreatListResult is one list after an update.
+type ThreatListResult struct {
+	// ThreatList is the list as it stands after the update, the copy in use then.
+	ThreatList
+	Outcome ThreatOutcome
+	// Text is what the list's row says of the update: "already current", "skipped: last contacted
+	// <t>; can be updated after <t>" or "failed: <reason>", for example.
+	Text string
+}
+
+// ThreatResult is the outcome of one update of the threat data.
+type ThreatResult struct {
+	// Lists holds one entry for each list ThreatData gives, in the same order.
+	Lists []ThreatListResult
 }
 
 // Value is how one non-key setting stands in the file.
@@ -177,7 +230,7 @@ func (r TestResult) String() string {
 }
 
 // Backend is everything setup does outside the terminal. Each method is called from the model's
-// goroutine, except Test, which runs in a Cmd.
+// goroutine, except Test and UpdateThreatData, which run in a Cmd.
 type Backend interface {
 	// Info is the static description of the config file and what it can hold.
 	Info() Info
@@ -197,6 +250,11 @@ type Backend interface {
 	// Test sends one authenticated request to source with key and classifies the answer. ctx
 	// carries the 15 second limit; an expired ctx gives TestUnknown with reason "timed out".
 	Test(ctx context.Context, source string, key config.Secret) TestResult
+	// ThreatData is the five threat-data lists in use, in display order.
+	ThreatData() []ThreatList
+	// UpdateThreatData runs one update of the threat data, as nyx setup --update-threat-data does,
+	// and returns how each list stands after it. It runs in a Cmd, and ends early when ctx does.
+	UpdateThreatData(ctx context.Context) ThreatResult
 }
 
 // Options are what Run needs besides the Backend.

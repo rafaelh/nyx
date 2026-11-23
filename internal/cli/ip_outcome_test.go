@@ -856,7 +856,7 @@ func TestIPRender_ActiveRecordHasPortsTLSAndWeb(t *testing.T) {
 			body[section] = append(body[section], l)
 		}
 	}
-	want := []string{"Owner", "Registration", "Names", "Provider", "Location", "Exposure", "Reverse IP", "Abusive networks", "Abusive ASN", "Not contacted", "Ports", "TLS", "Web", "Failures"}
+	want := []string{"Owner", "Registration", "Names", "Provider", "Location", "Exposure", "Reverse IP", "Abusive networks", "Abusive ASN", "Spamhaus DROP networks", "Spamhaus ASN-DROP", "Not contacted", "Ports", "TLS", "Web", "Failures"}
 	if !slices.Equal(titles, want) {
 		t.Errorf("sections %v, want %v", titles, want)
 	}

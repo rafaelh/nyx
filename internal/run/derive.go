@@ -86,7 +86,7 @@ func plain(f func(deriveInput) []store.Obs) func(deriveInput) ([]store.Obs, func
 func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
 	fs, attribution := findings.DeriveAll(findings.Input{Scope: in.Scope, Inv: in.Inv, Settings: r.cfg.Settings,
 		Today: in.Today, Records: in.Records, Roots: in.Inputs.Roots, Orgs: in.Inputs.Orgs, Vis: in.Vis,
-		Abusive: r.cfg.Abusive, HistoryOnly: r.historyOnly(in.Records)})
+		Abusive: r.cfg.Abusive, Drop: r.cfg.Drop, HistoryOnly: r.historyOnly(in.Records)})
 	was := map[string]string{} // the severity of each current finding, by key
 	for _, rec := range in.Records(kinds.Finding) {
 		if rec.Current {

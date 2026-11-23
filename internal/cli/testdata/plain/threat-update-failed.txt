@@ -1,0 +1,6 @@
+spamhaus  drop_v4   2026-10-12T09:00:00Z  80 entries  failed: drop_v4: HTTP 500
+spamhaus  drop_v6   2026-10-12T09:00:00Z  20 entries  failed: drop_v4: HTTP 500
+spamhaus  asndrop   2026-10-12T09:00:00Z  20 entries  failed: drop_v4: HTTP 500
+ipapi.is  networks  2026-10-12 -> 2026-10-14  80 entries (+5, -5)
+ipapi.is  asns      2026-10-12 -> 2026-10-14  20 entries (+5, -5)
+Spamhaus DROP data (c) 2026 The Spamhaus Project SLU; terms: https://www.spamhaus.org/drop/terms/

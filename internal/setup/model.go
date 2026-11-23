@@ -33,6 +33,7 @@ const (
 	tabKeys tabID = iota
 	tabSettings
 	tabSkip
+	tabThreat
 	tabCount
 )
 
@@ -120,6 +121,16 @@ func (m *model) newRecord(r *keyRow) (KeyRecord, bool) {
 
 // testing reports whether a test of the key is running.
 func (r *keyRow) testing() bool { return r.cancel != nil }
+
+// threatEntry is one threat-data list on the Threat data tab: the copy in use, and what the last
+// update of this session said of it.
+type threatEntry struct {
+	list ThreatList
+	// outcome and text are the last update's word on the list; text is empty before one, and while
+	// one runs.
+	outcome ThreatOutcome
+	text    string
+}
 
 // settingRow is one setting on the Settings tab.
 type settingRow struct {
@@ -223,6 +234,10 @@ type model struct {
 	keys []*keyRow
 	sets []*settingRow
 	skip skipState
+	// threat is the lists of the Threat data tab, and updating is whether an update of them runs.
+	// Neither is part of the file: changes and edits know nothing of them.
+	threat   []threatEntry
+	updating bool
 
 	tab  tabID
 	sel  [tabCount]int
@@ -269,6 +284,9 @@ func newModel(ctx context.Context, b Backend, o Options) (*model, error) {
 	m.info.Stages = slices.Clone(m.info.Stages)
 	for i, s := range m.info.Stages {
 		m.info.Stages[i].Does = sanitize.Line(s.Does)
+	}
+	for _, l := range b.ThreatData() {
+		m.threat = append(m.threat, threatEntry{list: l})
 	}
 	m.load(snap, false)
 	return m, nil
@@ -387,7 +405,7 @@ func (m *model) tabChanged(t tabID) bool {
 		return slices.ContainsFunc(m.keys, (*keyRow).changed)
 	case tabSettings:
 		return slices.ContainsFunc(m.sets, (*settingRow).changed)
-	case tabCount:
+	case tabCount, tabThreat:
 	case tabSkip:
 		return m.skip.changed()
 	}
@@ -423,7 +441,7 @@ func (m *model) invalid(t tabID) (string, bool) {
 		if m.skip.list != "" {
 			return "skip: " + m.skip.list, true
 		}
-	case tabCount:
+	case tabCount, tabThreat:
 	}
 	return "", false
 }
@@ -495,6 +513,8 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.onPaste(msg.Content)
 	case testDone:
 		m.onTestDone(msg)
+	case threatDone:
+		m.onThreatDone(msg)
 	}
 	return nil
 }
@@ -541,6 +561,10 @@ func (m *model) browseKey(s string) tea.Cmd {
 		if m.tab == tabKeys {
 			return m.startTest()
 		}
+	case "u":
+		if m.tab == tabThreat {
+			return m.startUpdate()
+		}
 	case "x", "delete":
 		m.clearRow()
 	}
@@ -560,6 +584,8 @@ func (m *model) rows(t tabID) int {
 			n++
 		}
 		return n
+	case tabThreat:
+		return len(m.threat)
 	case tabCount:
 	}
 	return 0
@@ -586,7 +612,7 @@ func (m *model) activate() {
 		} else {
 			m.say(roleHelp, "Press x to remove this entry")
 		}
-	case tabCount:
+	case tabThreat, tabCount:
 	}
 }
 
@@ -601,7 +627,7 @@ func (m *model) clearRow() {
 		r.text, r.set, r.problem = "", false, ""
 	case tabSkip:
 		m.clearSkip(i)
-	case tabCount:
+	case tabThreat, tabCount:
 	}
 }
 
@@ -762,6 +788,47 @@ func (m *model) onTestDone(d testDone) {
 	res := d.res
 	res.Reason = m.text(res.Reason)
 	r.cancel, r.result = nil, &res
+}
+
+// threatDone is the end of an update of the threat data.
+type threatDone struct{ res ThreatResult }
+
+// startUpdate is u on the Threat data tab. The update runs under the model's base context, so
+// quitting ends it, and under no deadline of its own: the backend bounds each request. With nowhere
+// to keep the data it runs nothing and says why.
+func (m *model) startUpdate() tea.Cmd {
+	switch {
+	case m.updating:
+		return nil
+	case m.info.ThreatUnavailable != "":
+		m.say(roleCaution, m.info.ThreatUnavailable)
+		return nil
+	}
+	m.updating = true
+	for i := range m.threat {
+		m.threat[i].text = ""
+	}
+	ctx, b := m.base, m.b
+	return func() tea.Msg { // root.Update makes it safe
+		return threatDone{res: b.UpdateThreatData(ctx)}
+	}
+}
+
+// onThreatDone shows each list's result in its row. A list the result does not hold keeps its row as
+// it was.
+func (m *model) onThreatDone(d threatDone) {
+	m.updating = false
+	for i := range m.threat {
+		row := &m.threat[i]
+		j := slices.IndexFunc(d.res.Lists, func(r ThreatListResult) bool {
+			return r.Source == row.list.Source && r.List == row.list.List
+		})
+		if j < 0 {
+			continue
+		}
+		r := d.res.Lists[j]
+		row.list, row.outcome, row.text = r.ThreatList, r.Outcome, r.Text
+	}
 }
 
 // askQuit is q, esc or ctrl+c.

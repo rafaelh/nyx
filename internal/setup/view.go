@@ -86,7 +86,7 @@ func (m *model) header() string {
 }
 
 func (m *model) tabLine() string {
-	names := [tabCount]string{"Keys", "Settings", "Skip"}
+	names := [tabCount]string{"Keys", "Settings", "Skip", "Threat data"}
 	var l line
 	for t := range tabCount {
 		if t > 0 {
@@ -171,6 +171,8 @@ func (m *model) keymap() [][]hint {
 		return [][]hint{move, {{"enter", "Edit"}, {"x", "Clear"}, save}}
 	case tabSkip:
 		return [][]hint{move, {{"enter", "Toggle"}, {"x", "Remove entry"}, save}}
+	case tabThreat:
+		return [][]hint{move, {{"u", "Update"}, save}}
 	case tabCount:
 	}
 	return nil

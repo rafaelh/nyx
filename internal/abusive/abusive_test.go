@@ -65,6 +65,146 @@ func TestDefault_EmbeddedSnapshotIsValid(t *testing.T) {
 	}
 }
 
+// Each list of the embedded snapshot states how many entries its page listed, and holds at least
+// 90% of them, so the built-in copy passes the same count rule as a downloaded one.
+func TestDefault_EmbeddedSnapshotStatesItsCounts(t *testing.T) {
+	t.Parallel()
+	d := abusive.Default()
+	if d.Nets.Stated < 1 || d.ASNs.Stated < 1 {
+		t.Errorf("stated counts %d and %d, want both at least 1", d.Nets.Stated, d.ASNs.Stated)
+	}
+	if err := abusive.ValidateCounts(*d); err != nil {
+		t.Errorf("the embedded snapshot fails the count rule: %v", err)
+	}
+}
+
+// counted is snap, sorted, with each list stating exactly the entries it holds.
+func counted() abusive.Snapshot {
+	s := sorted(snap())
+	s.Nets.Stated, s.ASNs.Stated = len(s.Nets.Entries), len(s.ASNs.Entries)
+	return s
+}
+
+// nASNs is a snapshot whose ASN list holds n entries and states stated, and whose networks list is
+// counted.
+func nASNs(stated, n int) abusive.Snapshot {
+	s := counted()
+	s.ASNs.Entries = nil
+	for i := range n {
+		s.ASNs.Entries = append(s.ASNs.Entries, asnEntry(i+1, 64000+i, "High", 50, "Org", "isp"))
+	}
+	s.ASNs.Stated = stated
+	return s
+}
+
+// A list must state its count, and hold at least 90% of it; more than it states is fine. Both lists
+// are checked.
+func TestValidateCounts(t *testing.T) {
+	t.Parallel()
+	if err := abusive.ValidateCounts(counted()); err != nil {
+		t.Fatalf("lists that hold what they state: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		s    abusive.Snapshot
+		ok   bool
+	}{
+		{"90 of 100", nASNs(100, 90), true},
+		{"89 of 100", nASNs(100, 89), false},
+		{"9 of 10", nASNs(10, 9), true},
+		{"8 of 10", nASNs(10, 8), false},
+		{"120 of 100", nASNs(100, 120), true},
+		{"none of 4", nASNs(4, 0), false},
+		{"no stated count", nASNs(0, 4), false},
+		{"a negative stated count", nASNs(-1, 4), false},
+		{"networks short", func() abusive.Snapshot { s := counted(); s.Nets.Stated = 100; return s }(), false},
+		{"networks with no stated count", func() abusive.Snapshot { s := counted(); s.Nets.Stated = 0; return s }(), false},
+	} {
+		if err := abusive.ValidateCounts(tc.s); (err == nil) != tc.ok {
+			t.Errorf("%s: err = %v, want ok=%v", tc.name, err, tc.ok)
+		}
+	}
+}
+
+// The stated counts survive Marshal and Parse.
+func TestMarshal_KeepsTheStatedCounts(t *testing.T) {
+	t.Parallel()
+	s := counted()
+	s.Nets.Stated, s.ASNs.Stated = 7, 3
+	back, err := abusive.Parse(abusive.Marshal(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Nets.Stated != 7 || back.ASNs.Stated != 3 {
+		t.Errorf("stated counts after a round trip = %d and %d, want 7 and 3", back.Nets.Stated, back.ASNs.Stated)
+	}
+}
+
+// withUnknownFields is a marshalled snapshot with a field nyx does not know at the top, in each
+// list and in an entry of each, as a newer nyx could write.
+func withUnknownFields(t *testing.T, s abusive.Snapshot) []byte {
+	t.Helper()
+	b := string(abusive.Marshal(s))
+	for _, r := range []struct{ old, new string }{
+		{"{\n", "{\n \"source\": \"ipapi.is\",\n"},
+		{`"networks": {`, `"networks": {"url": "https://ipapi.is/most-abusive-networks.html",`},
+		{`"asns": {`, `"asns": {"url": "https://ipapi.is/most-abusive-asn.html",`},
+		{`{"rank":`, `{"hosts":256,"rank":`},
+		{`{"rank":1,"asn"`, `{"cc":"AU","rank":1,"asn"`},
+	} {
+		if !strings.Contains(b, r.old) {
+			t.Fatalf("the marshalled snapshot has no %q:\n%s", r.old, b)
+		}
+		b = strings.Replace(b, r.old, r.new, 1)
+	}
+	if !json.Valid([]byte(b)) {
+		t.Fatalf("not JSON:\n%s", b)
+	}
+	return []byte(b)
+}
+
+// ParseLenient reads a file with fields it does not know, as a downloaded copy written by a newer
+// nyx, while Parse, which reads the built-in file, still refuses one.
+func TestParseLenient_IgnoresUnknownFields(t *testing.T) {
+	t.Parallel()
+	s := counted()
+	b := withUnknownFields(t, s)
+	if _, err := abusive.Parse(b); err == nil {
+		t.Error("Parse accepted a file with unknown fields")
+	}
+	got, err := abusive.ParseLenient(b)
+	if err != nil {
+		t.Fatalf("ParseLenient: %v", err)
+	}
+	if !slices.Equal(got.Nets.Entries, s.Nets.Entries) || !slices.Equal(got.ASNs.Entries, s.ASNs.Entries) {
+		t.Errorf("entries = %+v\nwant %+v", got, s)
+	}
+	if got.Nets.Updated != s.Nets.Updated || got.ASNs.Updated != s.ASNs.Updated || got.Nets.Stated != s.Nets.Stated || got.ASNs.Stated != s.ASNs.Stated {
+		t.Errorf("dates and counts = %s %d, %s %d; want %s %d, %s %d", got.Nets.Updated, got.Nets.Stated, got.ASNs.Updated, got.ASNs.Stated,
+			s.Nets.Updated, s.Nets.Stated, s.ASNs.Updated, s.ASNs.Stated)
+	}
+	// A file that matches without unknown fields reads the same either way.
+	plain := abusive.Marshal(s)
+	strict, err1 := abusive.Parse(plain)
+	lenient, err2 := abusive.ParseLenient(plain)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("Parse: %v; ParseLenient: %v", err1, err2)
+	}
+	if !bytes.Equal(abusive.Marshal(strict), abusive.Marshal(lenient)) {
+		t.Error("ParseLenient reads a plain file differently from Parse")
+	}
+}
+
+// ParseLenient still refuses what is not a snapshot.
+func TestParseLenient_RefusesWhatIsNotJSON(t *testing.T) {
+	t.Parallel()
+	for _, b := range []string{"", "not json", `{"networks": {"updated": 5}}`, `{"networks": {"entries": [{"rank": "one"}]}}`} {
+		if _, err := abusive.ParseLenient([]byte(b)); err == nil {
+			t.Errorf("ParseLenient(%q) succeeded", b)
+		}
+	}
+}
+
 // Validate rejects what a hand edit or a bad refresh could leave in the file.
 func TestValidate(t *testing.T) {
 	t.Parallel()

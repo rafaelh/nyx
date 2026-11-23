@@ -129,26 +129,34 @@ var categories = []category{
 	},
 	{
 		// One per address, whatever its type, so the row is the same while the address moves
-		// between a network match (medium) and an AS-only one (low), and a rise is announced. The
-		// found line reads "address <ip> in abusive network <entry> (<organisation>)" or "address
-		// <ip> in abusive AS<n> (<organisation>)", from the entry and org attributes, with no
-		// parentheses when the organisation is blank.
+		// between a DROP network (high), an ASN-DROP AS (medium), an ipapi.is network (medium) and
+		// an ipapi.is AS (low), and a rise is announced. The found line reads "address <ip> in
+		// Spamhaus DROP network <entry> (<SBL ID>)", "address <ip> in Spamhaus ASN-DROP <AS>
+		// (<name>)", "address <ip> in abusive network <entry> (<organisation>)" or "address <ip> in
+		// abusive AS<n> (<organisation>)", from the entry and org attributes, with no parentheses
+		// when the second is blank.
 		name:  AbusiveNetwork,
 		key:   func(f Finding) string { return f.Target },
 		parse: func(rest string) (string, string) { return "", rest },
 		found: func(f Finding) string {
 			entry, _ := f.Attrs["entry"].(string)
 			org, _ := f.Attrs["org"].(string)
-			what := "network " + entry
-			if f.Type == "asn" {
-				what = entry
+			what := "abusive network " + entry
+			switch f.Type {
+			case "drop-network":
+				what = "Spamhaus DROP network " + entry
+			case "drop-asn":
+				what = "Spamhaus ASN-DROP " + entry
+			case "asn":
+				what = "abusive " + entry
 			}
 			if org == "" { // a list may leave an entry's organisation blank
-				return "address " + f.Target + " in abusive " + what
+				return "address " + f.Target + " in " + what
 			}
-			return "address " + f.Target + " in abusive " + what + " (" + org + ")"
+			return "address " + f.Target + " in " + what + " (" + org + ")"
 		},
-		columns: []string{"severity", "ip", "hostnames", "type", "networks", "asn", "networks_updated", "asns_updated"},
+		columns: []string{"severity", "ip", "hostnames", "type", "drop_networks", "drop_asn", "networks", "asn",
+			"drop_networks_updated", "drop_asn_updated", "networks_updated", "asns_updated"},
 		fromKey: targetAs("ip"),
 	},
 }

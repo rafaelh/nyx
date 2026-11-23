@@ -1,7 +1,10 @@
 // This package holds a snapshot of ipapi.is's two lists of the most abusive networks and
 // ASNs, and says which entries an address falls under. An integration with their paid service will
 // be added in the future - the snapshot avoids spamming them with queries. It does no I/O: the
-// snapshot is one JSON file embedded in the binary, refreshed by running `make abusive-data`.
+// snapshot is one JSON file embedded in the binary, refreshed by running `make threat-data`, and
+// a copy downloaded by an update (parsed from ipapi.is's pages by [ParsePages] and kept in the
+// same format) may supersede it. The package reads a snapshot and matches against it; which copy
+// is in use is for the caller to decide.
 //
 // # Terms
 //
@@ -14,7 +17,8 @@
 // fields and its list's date, as [NetworkMatch] or [ASNMatch]. An address matches a network entry
 // when a listed range holds it, and an ASN entry when its origin AS is the listed one.
 //
-// The snapshot's file holds every entry as ipapi.is gave it: [Validate] checks it, and
+// The snapshot's file holds every entry as ipapi.is gave it, and the number of entries each page
+// stated: [Validate] and [ValidateCounts] check it, and
 // [Snapshot.Networks] and [Snapshot.ASN] sanitise the text of a match (organisation, score tag and
 // type) as other third-party text is, so no output carries it raw.
 package abusive
@@ -25,15 +29,20 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"math/bits"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+
+	"golang.org/x/net/html"
 
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/sanitize"
@@ -63,9 +72,11 @@ type ASNEntry struct {
 	OrgType    string  `json:"org_type"`
 }
 
-// List is one list: its entries and the YYYY-MM-DD date ipapi.is says it was last updated.
+// List is one list: its entries, the YYYY-MM-DD date ipapi.is says it was last updated, and the
+// number of entries its page says it lists.
 type List[E any] struct {
 	Updated string `json:"updated"`
+	Stated  int    `json:"stated"`
 	Entries []E    `json:"entries"`
 }
 
@@ -130,6 +141,109 @@ func Parse(b []byte) (Snapshot, error) {
 	return s, nil
 }
 
+// ParseLenient reads a snapshot file as Parse does, but ignores fields it does not know, so that a
+// file written by a newer nyx stays readable. It does not validate it (see Validate).
+func ParseLenient(b []byte) (Snapshot, error) {
+	var s Snapshot
+	if err := json.NewDecoder(bytes.NewReader(b)).Decode(&s); err != nil {
+		return Snapshot{}, fmt.Errorf("reading the abusive-network snapshot: %w", err)
+	}
+	return s, nil
+}
+
+// minShare is the share, in percent, of the entries a list states that it must hold: below it the
+// page was cut short or its layout has changed.
+const minShare = 90
+
+// ValidateCounts checks that each list states how many entries it has (at least 1) and holds at
+// least 90% of them.
+func ValidateCounts(s Snapshot) error {
+	if err := validCount("networks", s.Nets.Stated, len(s.Nets.Entries)); err != nil {
+		return err
+	}
+	return validCount("asns", s.ASNs.Stated, len(s.ASNs.Entries))
+}
+
+func validCount(list string, stated, held int) error {
+	if stated < 1 {
+		return fmt.Errorf("%s list: the stated count %d is not a positive number", list, stated)
+	}
+	if held*100 < stated*minShare {
+		return fmt.Errorf("%s list: states %d entries but holds %d (under %d%%)", list, stated, held, minShare)
+	}
+	return nil
+}
+
+// ParsePages reads ipapi.is's most-abusive networks and ASNs pages into a snapshot that passes
+// Validate and ValidateCounts. A page dated later than tomorrow in UTC, by now, is refused. A page
+// is not refused for being old: whether a list is newer than the copy in use is for the caller.
+func ParsePages(networks, asns []byte, now time.Time) (Snapshot, error) {
+	nets, err := ParseNetworksPage(networks, now)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("networks page: %w", err)
+	}
+	as, err := ParseASNsPage(asns, now)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("ASNs page: %w", err)
+	}
+	return Snapshot{Nets: nets, ASNs: as}, nil
+}
+
+// ParseNetworksPage reads the most-abusive networks page into its list, sorted, with the rules of
+// ParsePages for that list alone.
+func ParseNetworksPage(page []byte, now time.Time) (List[NetworkEntry], error) {
+	p, err := readPage(page, networkColumns, now)
+	if err != nil {
+		return List[NetworkEntry]{}, err
+	}
+	list := List[NetworkEntry]{Updated: p.updated, Stated: p.stated, Entries: []NetworkEntry{}}
+	for i, row := range p.rows {
+		e, err := commonFields(row, p.col)
+		if err != nil {
+			return List[NetworkEntry]{}, fmt.Errorf("row %d: %w", i+1, err)
+		}
+		start, end, err := parseRange(row[p.col["entry"]])
+		if err != nil {
+			return List[NetworkEntry]{}, fmt.Errorf("row %d: %w", i+1, err)
+		}
+		list.Entries = append(list.Entries, NetworkEntry{Rank: e.rank, Start: start, End: end, ScoreTag: e.tag,
+			AbuseScore: e.score, Org: e.org, OrgType: e.typ})
+	}
+	slices.SortFunc(list.Entries, CompareNetworks)
+	if err := validNetworks(list); err != nil {
+		return List[NetworkEntry]{}, err
+	}
+	return list, nil
+}
+
+// ParseASNsPage reads the most-abusive ASNs page into its list, sorted, with the rules of
+// ParsePages for that list alone.
+func ParseASNsPage(page []byte, now time.Time) (List[ASNEntry], error) {
+	p, err := readPage(page, asnColumns, now)
+	if err != nil {
+		return List[ASNEntry]{}, err
+	}
+	list := List[ASNEntry]{Updated: p.updated, Stated: p.stated, Entries: []ASNEntry{}}
+	for i, row := range p.rows {
+		e, err := commonFields(row, p.col)
+		if err != nil {
+			return List[ASNEntry]{}, fmt.Errorf("row %d: %w", i+1, err)
+		}
+		cell := row[p.col["entry"]]
+		digits, ok := strings.CutPrefix(strings.ToLower(cell), "as")
+		n, perr := strconv.ParseUint(digits, 10, 32)
+		if !ok || perr != nil || n < 1 {
+			return List[ASNEntry]{}, fmt.Errorf("row %d: the ASN %q is not as<n> with n from 1 to 4294967295", i+1, cell)
+		}
+		list.Entries = append(list.Entries, ASNEntry{Rank: e.rank, ASN: int(n), ScoreTag: e.tag, AbuseScore: e.score, Org: e.org, OrgType: e.typ})
+	}
+	slices.SortFunc(list.Entries, func(a, b ASNEntry) int { return a.ASN - b.ASN })
+	if err := validASNs(list); err != nil {
+		return List[ASNEntry]{}, err
+	}
+	return list, nil
+}
+
 // Marshal is the snapshot as its file holds it: JSON with one entry to a line, so that a refresh
 // diffs as the entries that changed. Text is not escaped for HTML, so an organisation reads as it
 // is written.
@@ -144,7 +258,7 @@ func Marshal(s Snapshot) []byte {
 
 // writeList writes one list of the snapshot file, one entry to a line, and then sep.
 func writeList[E any](b *bytes.Buffer, name string, l List[E], sep string) {
-	fmt.Fprintf(b, " %q: {\n  \"updated\": %q,\n  \"entries\": [\n", name, l.Updated)
+	fmt.Fprintf(b, " %q: {\n  \"updated\": %q,\n  \"stated\": %d,\n  \"entries\": [\n", name, l.Updated, l.Stated)
 	for i, e := range l.Entries {
 		var eb bytes.Buffer
 		enc := json.NewEncoder(&eb)
@@ -165,21 +279,27 @@ const maxASN = 4294967295
 // Validate checks a snapshot file's contents: entries sorted and without repeats, each range
 // valid, of one family and in order, each AS number in 1 to 4294967295, each rank at least 1, each
 // abuse score 0 to 100, each date a day, and no C0 or C1 control character in any text. The
-// refresh calls it before writing, and a test calls it on the embedded file.
+// refresh calls it before writing, and a test calls it on the embedded file. It does not check the
+// stated counts (see ValidateCounts).
 func Validate(s Snapshot) error {
-	if err := validDate("networks", s.Nets.Updated); err != nil {
+	if err := validNetworks(s.Nets); err != nil {
 		return err
 	}
-	if err := validDate("asns", s.ASNs.Updated); err != nil {
+	return validASNs(s.ASNs)
+}
+
+// validNetworks is the networks half of Validate.
+func validNetworks(l List[NetworkEntry]) error {
+	if err := validDate("networks", l.Updated); err != nil {
 		return err
 	}
-	for i, e := range s.Nets.Entries {
+	for i, e := range l.Entries {
 		at := fmt.Sprintf("networks entry %d", i+1)
 		if !e.Start.IsValid() || !e.End.IsValid() || e.Start.Is4() != e.End.Is4() || e.Start.Compare(e.End) > 0 {
 			return fmt.Errorf("%s: %s-%s is not a range of one family in order", at, e.Start, e.End)
 		}
 		if i > 0 {
-			p := s.Nets.Entries[i-1]
+			p := l.Entries[i-1]
 			switch c := CompareNetworks(p, e); {
 			case c == 0:
 				return fmt.Errorf("%s: %s is listed twice", at, input.RangeText(e.Start, e.End))
@@ -191,13 +311,21 @@ func Validate(s Snapshot) error {
 			return err
 		}
 	}
-	for i, e := range s.ASNs.Entries {
+	return nil
+}
+
+// validASNs is the ASNs half of Validate.
+func validASNs(l List[ASNEntry]) error {
+	if err := validDate("asns", l.Updated); err != nil {
+		return err
+	}
+	for i, e := range l.Entries {
 		at := fmt.Sprintf("asns entry %d", i+1)
 		if e.ASN < 1 || e.ASN > maxASN {
 			return fmt.Errorf("%s: AS%d is not an AS number", at, e.ASN)
 		}
 		if i > 0 {
-			switch p := s.ASNs.Entries[i-1].ASN; {
+			switch p := l.Entries[i-1].ASN; {
 			case p == e.ASN:
 				return fmt.Errorf("%s: AS%d is listed twice", at, e.ASN)
 			case p > e.ASN:
@@ -357,3 +485,266 @@ func (s *Snapshot) ASN(n int) []ASNMatch {
 	}
 	return []ASNMatch{}
 }
+
+// ---- reading a page ----
+
+var (
+	updatedRE = regexp.MustCompile(`Data last updated on\s+(\p{L}+ \d{1,2}, \d{4})`)
+	statedRE  = regexp.MustCompile(`lists the ([\d,]+) most abusive`)
+)
+
+// parsedPage is what a fetched page gives before its rows are read.
+type parsedPage struct {
+	updated string     // YYYY-MM-DD
+	stated  int        // the number of entries the page says it lists
+	rows    [][]string // the cells of each row, by the position of the header
+	col     map[string]int
+}
+
+// columns are the headers a page's table must have, by the name a row's reader asks for. A header
+// may be written more than one way.
+type columns []struct {
+	name string
+	alts []string
+}
+
+var (
+	networkColumns = columns{{"rank", []string{"Rank"}}, {"entry", []string{"Network"}}, {"tag", []string{"Score Tag"}},
+		{"score", []string{"Abuse Score"}}, {"org", []string{headerOrg}}, {"type", []string{"Type", "Org Type"}}}
+	asnColumns = columns{{"rank", []string{"Rank"}}, {"entry", []string{"ASN"}}, {"tag", []string{"Score Tag"}},
+		{"score", []string{"Abuse Score"}}, {"org", []string{headerOrg}}, {"type", []string{"Org Type", "Type"}}}
+)
+
+func (c columns) String() string {
+	names := make([]string, len(c))
+	for i, col := range c {
+		names[i] = col.alts[0]
+	}
+	return strings.Join(names, ", ")
+}
+
+// readPage parses the HTML and checks what every list's page must say: its date (not later than
+// tomorrow), the number of entries it lists and a table with the headers. It returns the table's
+// rows.
+func readPage(b []byte, cols columns, now time.Time) (parsedPage, error) {
+	doc, err := html.Parse(bytes.NewReader(rawC1(b)))
+	if err != nil {
+		return parsedPage{}, fmt.Errorf("unreadable HTML: %w", err)
+	}
+	text := strings.Join(strings.Fields(textOf(doc)), " ")
+	var p parsedPage
+	if p.updated, err = pageDate(text, now); err != nil {
+		return parsedPage{}, err
+	}
+	m := statedRE.FindStringSubmatch(text)
+	if m == nil {
+		return parsedPage{}, errors.New(`the page does not state how many entries it lists ("lists the N most abusive"): its layout has changed, so no count can be checked`)
+	}
+	if p.stated, err = strconv.Atoi(strings.ReplaceAll(m[1], ",", "")); err != nil || p.stated < 1 {
+		return parsedPage{}, fmt.Errorf("the stated count %q is not a number", m[1])
+	}
+	table, col := findTable(doc, cols)
+	if table == nil {
+		return parsedPage{}, fmt.Errorf("no table has the headers %s", cols)
+	}
+	p.col = col
+	need := 0
+	for _, i := range col {
+		need = max(need, i+1)
+	}
+	for _, tr := range descendants(table, "tr") {
+		cells := directCells(tr, "td")
+		if len(cells) == 0 {
+			continue
+		}
+		if len(cells) < need {
+			return parsedPage{}, fmt.Errorf("row %d has %d cells, want at least %d (the headers need that many)", len(p.rows)+1, len(cells), need)
+		}
+		row := make([]string, len(cells))
+		for i, c := range cells {
+			row[i] = strings.Trim(textOf(c), " \t\r\n")
+			if HasControl(row[i]) {
+				return parsedPage{}, fmt.Errorf("row %d: %q holds a control character", len(p.rows)+1, row[i])
+			}
+		}
+		p.rows = append(p.rows, row)
+	}
+	if len(p.rows)*100 < p.stated*minShare {
+		return parsedPage{}, fmt.Errorf("the page states %d entries but its table has %d rows (under %d%%)", p.stated, len(p.rows), minShare)
+	}
+	return p, nil
+}
+
+// c1RefRE is a numeric character reference to a C1 code point, 0x80 to 0x9f, hex or decimal, its
+// semicolon optional as HTML allows.
+var c1RefRE = regexp.MustCompile(`&#(?:[xX]0*([89][0-9a-fA-F])|0*(12[89]|1[3-5][0-9]));?`)
+
+// rawC1 writes each numeric reference to a C1 code point as the raw character. The HTML parser
+// would decode most of them through Windows-1252 (&#x85; is an ellipsis), so the row's control
+// check would never see them; raw, they reach it and the page is refused.
+func rawC1(b []byte) []byte {
+	return c1RefRE.ReplaceAllFunc(b, func(ref []byte) []byte {
+		m := c1RefRE.FindSubmatch(ref)
+		n, err := strconv.ParseUint(string(m[1]), 16, 8)
+		if len(m[1]) == 0 {
+			n, err = strconv.ParseUint(string(m[2]), 10, 8)
+		}
+		if err != nil {
+			return ref
+		}
+		return []byte(string(rune(n)))
+	})
+}
+
+// pageDate reads the "last updated" date and checks it against the clock: not later than tomorrow
+// in UTC, which lets ipapi.is's own time zone be a day ahead. How it compares with the copy in use
+// is not its business.
+func pageDate(text string, now time.Time) (string, error) {
+	m := updatedRE.FindStringSubmatch(text)
+	if m == nil {
+		return "", errors.New(`the page has no "Data last updated on" date`)
+	}
+	t, err := time.Parse("January 2, 2006", m[1])
+	if err != nil {
+		return "", fmt.Errorf("the date %q is not a date", m[1])
+	}
+	date := t.Format(time.DateOnly)
+	if tomorrow := now.UTC().AddDate(0, 0, 1).Format(time.DateOnly); date > tomorrow {
+		return "", fmt.Errorf("the page's date %s is in the future (later than %s, tomorrow in UTC)", date, tomorrow)
+	}
+	return date, nil
+}
+
+// findTable is the first table whose header cells include every column, and the position of each.
+func findTable(doc *html.Node, cols columns) (*html.Node, map[string]int) {
+	for _, table := range descendants(doc, "table") {
+		var heads []string
+		for _, tr := range descendants(table, "tr") {
+			if ths := directCells(tr, "th"); len(ths) > 0 {
+				for _, th := range ths {
+					heads = append(heads, strings.Join(strings.Fields(textOf(th)), " "))
+				}
+				break
+			}
+		}
+		pos := map[string]int{}
+		for _, c := range cols {
+			for _, alt := range c.alts {
+				if i := slices.IndexFunc(heads, func(h string) bool { return strings.EqualFold(h, alt) }); i >= 0 {
+					pos[c.name] = i
+					break
+				}
+			}
+		}
+		if len(pos) == len(cols) {
+			return table, pos
+		}
+	}
+	return nil, nil
+}
+
+// descendants are the elements called tag below n, in document order, not looking into a nested
+// table.
+func descendants(n *html.Node, tag string) []*html.Node {
+	var out []*html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && c.Data == tag {
+				out = append(out, c)
+			}
+			if c.Type == html.ElementNode && c.Data == "table" && tag != "table" {
+				continue
+			}
+			walk(c)
+		}
+	}
+	walk(n)
+	return out
+}
+
+// directCells are the td or th children of a row.
+func directCells(tr *html.Node, tag string) []*html.Node {
+	var out []*html.Node
+	for c := tr.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == tag {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// textOf is the text of a node and everything in it, without scripts and styles.
+func textOf(n *html.Node) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		switch {
+		case n.Type == html.TextNode:
+			b.WriteString(n.Data)
+		case n.Type == html.ElementNode && (n.Data == "script" || n.Data == "style"):
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return b.String()
+}
+
+// ---- reading the rows ----
+
+// pageFields are the columns the two lists share, read.
+type pageFields struct {
+	rank          int
+	tag, org, typ string
+	score         float64
+}
+
+func commonFields(row []string, col map[string]int) (pageFields, error) {
+	var f pageFields
+	rank := row[col["rank"]]
+	n, err := strconv.Atoi(rank)
+	if err != nil || n < 1 {
+		return f, fmt.Errorf("the rank %q is not a positive whole number", rank)
+	}
+	f.rank = n
+	score := row[col["score"]]
+	num, ok := strings.CutSuffix(score, "%")
+	v, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
+	if !ok || err != nil || math.IsNaN(v) || !(v >= 0 && v <= 100) {
+		return f, fmt.Errorf("the abuse score %q is not a percentage from 0 to 100", score)
+	}
+	f.score = v
+	f.tag = row[col["tag"]]
+	if f.tag == "" {
+		return f, errors.New("the score tag is empty")
+	}
+	f.org, f.typ = row[col["org"]], row[col["type"]]
+	return f, nil
+}
+
+// parseRange reads "start - end": two addresses of one family, the start not after the end.
+func parseRange(cell string) (start, end netip.Addr, err error) {
+	s, e, ok := strings.Cut(cell, " - ")
+	if !ok {
+		return start, end, fmt.Errorf("the network %q is not \"start - end\"", cell)
+	}
+	start, err1 := netip.ParseAddr(strings.TrimSpace(s))
+	end, err2 := netip.ParseAddr(strings.TrimSpace(e))
+	if err1 != nil || err2 != nil || start.Zone() != "" || end.Zone() != "" {
+		return start, end, fmt.Errorf("the network %q does not hold two addresses", cell)
+	}
+	start, end = start.Unmap(), end.Unmap()
+	if start.Is4() != end.Is4() {
+		return start, end, fmt.Errorf("the network %q mixes IPv4 and IPv6 (a range has one address family)", cell)
+	}
+	if start.Compare(end) > 0 {
+		return start, end, fmt.Errorf("the network %q is not in order: its start is after its end", cell)
+	}
+	return start, end, nil
+}
+
+// headerOrg is the organisation column's header as ipapi.is spells it.
+const headerOrg = "Organization" //nolint:misspell // the page's own spelling

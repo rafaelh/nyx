@@ -165,6 +165,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	inv.setInterruptHint(interruptedRecon)
 
 	em, warnings := newEmitter(inv, red)
+	threat := inv.loadThreat(em, warnings, func(string) bool { return true })
 	eopts := d.Egress.WithSettings(settings, red)
 	if eopts.Now == nil {
 		eopts.Now = d.Clock
@@ -172,7 +173,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	runner := run.New(run.Config{
 		Engagement: eng, Settings: settings, Stages: d.Stages, Egress: egress.New(eopts), Emitter: em,
 		Files: d.Files, Clock: d.Clock,
-		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync, Abusive: d.Abusive,
+		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync, Abusive: threat.Abusive, Drop: &threat.Drop,
 	})
 
 	// The deadline is a timer that cancels, not a context deadline: a rate limiter would fail the

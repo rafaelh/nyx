@@ -4,7 +4,10 @@
 exposed on it: a readable record for each address, or one JSON envelope. It is for triaging an
 address seen in a log or an alert in seconds, with no engagement and no key. By default it contacts
 third parties and DNS resolvers only, and sends nothing to the address (see
-[Passive boundary](passive-boundary.md#passive-boundary)). Recon and `nyx cve` are unchanged.
+[Passive boundary](passive-boundary.md#passive-boundary)). Recon and `nyx cve` are unchanged. It
+reads the threat data (Spamhaus's DROP lists and ipapi.is's abuse lists) from the copy that
+`nyx setup --update-threat-data` downloaded, when there is one newer than the copy built into nyx,
+and its result depends on the threat data in use (see [Abusive networks](abusive-networks.md)).
 
 ```sh
 nyx ip 1.1.1.1 --json
@@ -96,7 +99,9 @@ nyx ip 192.0.2.10 --active
   | `geo_country`, `geo_city` | Approximate location. `?` or an empty country, and an empty city, are `null`. There is no region |
   | `internetdb_ports`, `internetdb_hostnames`, `internetdb_tags`, `internetdb_cpes`, `internetdb_vulns` | What Shodan's InternetDB reports: open ports, hostnames, tags, CPEs and CVE IDs |
   | `reverse_ip`, `reverse_ip_count` | HackerTarget's reverse-IP hostnames: the first 100, sorted, and the total count. `null` for an IPv6 address or a shared provider address, which is not asked and is not a failure |
-  | `abusive_networks` | The entries of ipapi.is's most-abusive network list that hold the address, the most specific first, each `{network, rank, score_tag, abuse_score, org, org_type, updated}` (`rank` an integer, `abuse_score` the percentage as a number, `updated` the list's date, `YYYY-MM-DD`). From the snapshot built into nyx, so it needs no request and is `[]` when nothing holds the address; `null` for a non-public address (see [Abusive networks](abusive-networks.md)) |
+  | `drop_networks` | The entries of Spamhaus's DROP and DROPv6 lists that hold the address, the most specific first, each `{cidr, sbl_id, rir, updated}` (`updated` the list's date, an RFC 3339 UTC timestamp to the second). From the threat data in use, so it needs no request and is `[]` when nothing holds the address; `null` for a non-public address. Spamhaus's data, with its copyright and terms (see [Abusive networks](abusive-networks.md)) |
+  | `drop_asn` | The entry of Spamhaus's ASN-DROP list for the address's origin AS: a list of at most one `{asn, as_name, country, domain, rir, updated}`. `[]` when the AS is known and not listed, and when Team Cymru found no owner; `null` when Team Cymru failed (that failure is in `failures`, and the call exits 7) and for a non-public address. Asking for it asks Team Cymru. An empty field in a Spamhaus entry is an empty string |
+  | `abusive_networks` | The entries of ipapi.is's most-abusive network list that hold the address, the most specific first, each `{network, rank, score_tag, abuse_score, org, org_type, updated}` (`rank` an integer, `abuse_score` the percentage as a number, `updated` the list's date, `YYYY-MM-DD`). From the threat data in use, so it needs no request and is `[]` when nothing holds the address; `null` for a non-public address (see [Abusive networks](abusive-networks.md)) |
   | `abusive_asn` | The entry of ipapi.is's most-abusive ASN list for the address's origin AS: a list of at most one `{asn, rank, score_tag, abuse_score, org, org_type, updated}`. `[]` when the AS is known and not listed, and when Team Cymru found no owner; `null` when Team Cymru failed (that failure is in `failures`, and the call exits 7) and for a non-public address. Asking for it asks Team Cymru |
   | `not_contacted` | Only under `--active`: why the address was not contacted, or `null` when it was |
   | `ports` | Only under `--active`: a list of `{port, state, banner}` |
@@ -121,13 +126,14 @@ nyx ip 192.0.2.10 --active
 
   | Source | Gives | Pace |
   |---|---|---|
-  | Team Cymru (TXT over DNS) | `asn`, `as_name`, `as_prefix`, and the AS for `abusive_asn` | DNS, 50 a second |
+  | Team Cymru (TXT over DNS) | `asn`, `as_name`, `as_prefix`, and the AS for `drop_asn` and `abusive_asn` | DNS, 50 a second |
   | RDAP (IANA's bootstrap file, then the registry, referrals followed) | the `rdap_*` keys | IANA and each registry host 1 a second |
   | PTR (DNS) | `ptr` | DNS, 50 a second |
   | RIPEstat, `maxmind-geo-lite` | `geo_country`, `geo_city` | 4 a second |
   | Shodan InternetDB | the `internetdb_*` keys | 1 a second |
   | HackerTarget | `reverse_ip`, `reverse_ip_count` | 1 a second |
-  | The snapshot built into nyx (ipapi.is's most-abusive lists) | `abusive_networks`, and the entry of the AS for `abusive_asn` | no request |
+  | The threat data in use: the copy built into nyx, or the one `nyx setup --update-threat-data` downloaded when it is newer, of Spamhaus's DROP lists | `drop_networks`, and the entry of the AS for `drop_asn` | no request |
+  | The threat data in use: the copy built into nyx, or the downloaded one when it is newer, of ipapi.is's most-abusive lists | `abusive_networks`, and the entry of the AS for `abusive_asn` | no request |
 
   Under `--active`, connections to one address are also limited to 10 a second.
   - **RIPEstat's** geolocation is MaxMind GeoLite data, and RIPEstat is run by the RIPE NCC: credit
@@ -139,10 +145,16 @@ nyx ip 192.0.2.10 --active
     because its daily quota is small and a CDN address returns thousands of meaningless names. The
     names are cleaned as recon cleans them, de-duplicated and sorted; `reverse_ip` has the first 100
     and `reverse_ip_count` the total.
-  - **The snapshot** counts as a source that always answers. An address whose only failed source is
-    Team Cymru therefore still has its record, with its `abusive_networks` and a `null` `abusive_asn`,
-    and the call exits 7. `--fields abusive_networks` sends no request beyond resolving a hostname
-    input, and `--fields abusive_asn` asks Team Cymru. A match changes nothing about `--active`.
+  - **The threat data** counts as a source that always answers. An address whose only failed source is
+    Team Cymru therefore still has its record, with its `drop_networks` and `abusive_networks` and a
+    `null` `drop_asn` and `abusive_asn`, and the call exits 7. `--fields drop_networks` and
+    `--fields abusive_networks` send no request beyond resolving a hostname input, and
+    `--fields drop_asn` and `--fields abusive_asn` ask Team Cymru. A match changes nothing about
+    `--active`. For each list nyx uses whichever copy is dated later, the built-in one or the
+    downloaded one, so a call after an update can give a different answer for the same address. The
+    call warns once on stderr when a downloaded copy cannot be read, and prints a hint when the data
+    is over 30 days old, but only for a source that a selected key reads (see
+    [Abusive networks](abusive-networks.md#the-data-in-use)).
   - **A 429** from InternetDB, RIPEstat or one RDAP host is `RATE_LIMITED`, transient, and that source
     (for RDAP, that host) is not asked again in the call: each address not yet asked records
     `RATE_LIMITED`, with "not asked: rate-limited earlier in this call", and one warning names the
@@ -204,15 +216,16 @@ nyx ip 192.0.2.10 --active
 - **Without `--json`** each record is laid out for reading, as [Terminal layout](console-and-json.md#terminal-layout)
   describes, and records are separated by a blank line. One `error: <input>: <message> (<CODE>)` line
   for each failure follows the records, and each warning is a `WARN` line on stderr.
-- **Contact.** `nyx ip` keeps no state and writes no files, so a call gives the same result for the
-  same answers, and a crash leaves nothing behind.
+- **Contact.** `nyx ip` keeps no state and writes no files (it only reads the threat data an update
+  left), so a call gives the same result for the same answers and the same threat data, and a crash
+  leaves nothing behind.
 
 **The outcome** of a call depends on how many of its inputs succeeded. An input succeeds when it is
 valid, resolves (for a hostname), and every address it gives is a success. An address is a success
 when every source it needed answered, and a non-public address is always one. A source that failed
 for want of its quota never counts against it: the failure is in the record and the warning, and
 nowhere else. An address for which none of the sources it needed answered is a failed input, with the
-failures' error code, and has no record. The snapshot of abusive networks is a source that always answers (see [Abusive networks](abusive-networks.md)), so while `abusive_networks` is selected, which it is by default, an address always has its record, and one whose every other source failed is a partial result (exit 7) and not a failed input. Selecting keys that leave it out (`--fields`) restores the rule.
+failures' error code, and has no record. The threat data is a source that always answers (see [Abusive networks](abusive-networks.md)), so while `drop_networks` or `abusive_networks` is selected, which they are by default, an address always has its record, and one whose every other source failed is a partial result (exit 7) and not a failed input. Selecting keys that leave it out (`--fields`) restores the rule.
 
 | Outcome | Exit | stdout |
 |---|---|---|

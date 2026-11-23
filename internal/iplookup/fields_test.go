@@ -9,13 +9,14 @@ import (
 
 	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
 const defaultKeys = "address,hostnames,kind,asn,as_name,as_prefix,rdap_netblock,rdap_org,rdap_registry,ptr,provider,provider_class," +
-	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,abusive_networks,abusive_asn,failures"
+	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,abusive_networks,abusive_asn,drop_networks,drop_asn,failures"
 
 const activeKeys = "address,hostnames,kind,asn,as_name,as_prefix,rdap_netblock,rdap_org,rdap_registry,ptr,provider,provider_class," +
-	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,abusive_networks,abusive_asn," +
+	"geo_country,geo_city,internetdb_ports,internetdb_hostnames,internetdb_tags,internetdb_cpes,internetdb_vulns,reverse_ip,reverse_ip_count,abusive_networks,abusive_asn,drop_networks,drop_asn," +
 	"not_contacted,ports,tls,web,failures"
 
 func mustSelect(t *testing.T, spec string, active bool) Fields {
@@ -43,7 +44,7 @@ func TestFieldNames_AreTheKeysInOrder(t *testing.T) {
 func TestValidFields(t *testing.T) {
 	t.Parallel()
 	got := ValidFields(false)
-	if !strings.HasPrefix(got, "valid fields: asn, as_name,") || !strings.HasSuffix(got, "reverse_ip_count, abusive_networks, abusive_asn, or all") {
+	if !strings.HasPrefix(got, "valid fields: asn, as_name,") || !strings.HasSuffix(got, "reverse_ip_count, abusive_networks, abusive_asn, drop_networks, drop_asn, or all") {
 		t.Errorf("default hint: %s", got)
 	}
 	for _, always := range []string{"address", "hostnames", "kind", "failures", "not_contacted", "ports"} {
@@ -51,7 +52,7 @@ func TestValidFields(t *testing.T) {
 			t.Errorf("default hint names %q: %s", always, got)
 		}
 	}
-	if got := ValidFields(true); !strings.Contains(got, "abusive_asn, not_contacted, ports, tls, web, or all") {
+	if got := ValidFields(true); !strings.Contains(got, "abusive_asn, drop_networks, drop_asn, not_contacted, ports, tls, web, or all") {
 		t.Errorf("active hint: %s", got)
 	}
 }
@@ -153,6 +154,8 @@ func TestFields_Needs(t *testing.T) {
 		{"internetdb", "internetdb_tags", false, "internetdb", false, false, false, false},
 		{"reverse ip needs the provider, so cymru, and hackertarget", "reverse_ip", false, "cymru,hackertarget", false, false, false, false},
 		{"its count too", "reverse_ip_count", false, "cymru,hackertarget", false, false, false, false},
+		{"the DROP networks ask nothing", "drop_networks", false, "", false, false, false, false},
+		{"the ASN-DROP entry needs the origin AS", "drop_asn", false, "cymru", false, false, false, false},
 		{"all default keys", "all", false, "cymru,rdap,ptr,ripestat,internetdb,hackertarget", false, false, false, false},
 		{"not_contacted needs only the shared check", "not_contacted", true, "cymru", false, false, false, true},
 		{"ports alone scans, with no TLS or GET", "ports", true, "cymru,internetdb,probe", true, false, false, true},
@@ -215,6 +218,8 @@ func full() Record {
 		InternetDBPorts: []int{22, 443}, InternetDBHostnames: []string{}, InternetDBTags: []string{"cloud"},
 		InternetDBCPEs: []string{}, InternetDBVulns: []string{"CVE-2024-3094"},
 		ReverseIP: []string{"x.example.com"}, ReverseIPCount: new(1),
+		DropNetworks: []spamhaus.NetworkMatch{{CIDR: "203.0.113.0/24", SBLID: "SBL5", RIR: "arin", Updated: "2026-10-01T08:30:05Z"}},
+		DropASN:      []spamhaus.ASNMatch{},
 		NotContacted: nil,
 		Ports:        []Port{{Port: 22, State: PortOpen, Banner: new("SSH-2.0-x")}, {Port: 25, State: PortClosed}},
 		TLS: []TLSEntry{{Port: 443, ServerName: new("a.example.com"), Outcome: OutcomeOK, Names: []string{"a.example.com"},
@@ -236,6 +241,7 @@ func TestProjected_EveryKeyInOrder(t *testing.T) {
 		`"internetdb_ports":[22,443],"internetdb_hostnames":[],"internetdb_tags":["cloud"],"internetdb_cpes":[],"internetdb_vulns":["CVE-2024-3094"],` +
 		`"reverse_ip":["x.example.com"],"reverse_ip_count":1,` +
 		`"abusive_networks":null,"abusive_asn":null,` +
+		`"drop_networks":[{"cidr":"203.0.113.0/24","sbl_id":"SBL5","rir":"arin","updated":"2026-10-01T08:30:05Z"}],"drop_asn":[],` +
 		`"not_contacted":null,` +
 		`"ports":[{"port":22,"state":"open","banner":"SSH-2.0-x"},{"port":25,"state":"closed","banner":null}],` +
 		`"tls":[{"port":443,"server_name":"a.example.com","outcome":"ok","names":["a.example.com"],"issuer":"Test CA","expiry":"2027-01-01"},` +
@@ -278,7 +284,7 @@ func TestProjected_UnknownIsNullAndNoneIsEmpty(t *testing.T) {
 		`"rdap_netblock":null,"rdap_org":null,"rdap_registry":null,"ptr":null,"provider":null,"provider_class":null,` +
 		`"geo_country":null,"geo_city":null,"internetdb_ports":null,"internetdb_hostnames":null,"internetdb_tags":null,` +
 		`"internetdb_cpes":null,"internetdb_vulns":null,"reverse_ip":null,"reverse_ip_count":null,` +
-		`"abusive_networks":null,"abusive_asn":null,` +
+		`"abusive_networks":null,"abusive_asn":null,"drop_networks":null,"drop_asn":null,` +
 		`"not_contacted":null,"ports":null,"tls":null,"web":null,"failures":[]}`
 	if got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
@@ -342,5 +348,72 @@ func TestProjected_AbusiveKeysEncode(t *testing.T) {
 	want := `{"address":"203.0.113.9","hostnames":[],"kind":"public","abusive_networks":[{"network":"203.0.113.0/24","rank":12,"score_tag":"High","abuse_score":91.5,"org":"A & B","org_type":"isp","updated":"2026-11-21"}],"abusive_asn":null,"failures":[]}`
 	if string(b) != want {
 		t.Errorf("record\n got %s\nwant %s", b, want)
+	}
+}
+
+// drop_networks is answered by the DROP lists in use and asks no source, so it is a source that
+// always answers; drop_asn is the origin AS's ASN-DROP entry, so it asks Team Cymru, as abusive_asn
+// does. Both come right after abusive_asn, in the default selection, and before the keys only
+// --active has.
+func TestSelect_DropKeysAndTheirSources(t *testing.T) {
+	t.Parallel()
+	nets := mustSelect(t, "drop_networks", false)
+	if got := nets.Sources(); len(got) != 0 {
+		t.Errorf("drop_networks asks %v, want no source", got)
+	}
+	if !nets.Sourceless() {
+		t.Error("drop_networks is not a source that always answers")
+	}
+	if got := strings.Join(nets.Names(), ","); got != "address,hostnames,kind,drop_networks,failures" {
+		t.Errorf("keys = %s", got)
+	}
+	asn := mustSelect(t, "drop_asn", false)
+	if got := asn.Sources(); !slices.Equal(got, []Source{SourceCymru}) {
+		t.Errorf("drop_asn asks %v, want cymru", got)
+	}
+	if asn.Sourceless() {
+		t.Error("drop_asn alone is a source that always answers")
+	}
+	both := mustSelect(t, "drop_asn,drop_networks,abusive_asn", false)
+	if got := strings.Join(both.Names(), ","); got != "address,hostnames,kind,abusive_asn,drop_networks,drop_asn,failures" {
+		t.Errorf("keys in table order = %s", got)
+	}
+	for _, active := range []bool{false, true} {
+		all := AllFields(active)
+		if !all.Has("drop_networks") || !all.Has("drop_asn") {
+			t.Errorf("active=%v: the default selection lacks a DROP key: %v", active, all.Names())
+		}
+		names := ChoosableFieldNames(active)
+		i := slices.Index(names, "abusive_asn")
+		if i < 0 || i+3 > len(names) || names[i+1] != "drop_networks" || names[i+2] != "drop_asn" {
+			t.Errorf("active=%v: the DROP keys do not follow abusive_asn: %v", active, names)
+		}
+	}
+	if _, unknown, activeOnly := Select("drop_networks,drop_asn", false); unknown != nil || activeOnly != nil {
+		t.Errorf("the DROP keys are refused without --active: unknown %v, active only %v", unknown, activeOnly)
+	}
+}
+
+// A DROP match's JSON has the keys and order a record promises: the list's date is RFC 3339, an
+// empty field of a Spamhaus row is "", and a key with no answer is null.
+func TestProjected_DropKeysEncode(t *testing.T) {
+	t.Parallel()
+	r := Record{Address: "203.0.113.9", Hostnames: []string{}, Kind: "public", Failures: []Failure{},
+		DropNetworks: []spamhaus.NetworkMatch{
+			{CIDR: "203.0.113.0/28", SBLID: "SBL6", RIR: "", Updated: "2026-10-01T08:30:05Z"},
+			{CIDR: "203.0.113.0/24", SBLID: "SBL5", RIR: "ripencc", Updated: "2026-10-01T08:30:05Z"},
+		},
+		DropASN: []spamhaus.ASNMatch{{ASN: 64500, ASName: "BAD & AS", Country: "RU", Domain: "", RIR: "ripencc", Updated: "2026-10-02T00:00:01Z"}}}
+	want := `{"address":"203.0.113.9","hostnames":[],"kind":"public",` +
+		`"drop_networks":[{"cidr":"203.0.113.0/28","sbl_id":"SBL6","rir":"","updated":"2026-10-01T08:30:05Z"},` +
+		`{"cidr":"203.0.113.0/24","sbl_id":"SBL5","rir":"ripencc","updated":"2026-10-01T08:30:05Z"}],` +
+		`"drop_asn":[{"asn":64500,"as_name":"BAD & AS","country":"RU","domain":"","rir":"ripencc","updated":"2026-10-02T00:00:01Z"}],"failures":[]}`
+	if got := encode(t, mustSelect(t, "drop_networks,drop_asn", false).Project(r)); got != want {
+		t.Errorf("record\n got %s\nwant %s", got, want)
+	}
+	none := Record{Address: "203.0.113.9", Hostnames: []string{}, Kind: "public", Failures: []Failure{}, DropNetworks: []spamhaus.NetworkMatch{}}
+	want = `{"address":"203.0.113.9","hostnames":[],"kind":"public","drop_networks":[],"drop_asn":null,"failures":[]}`
+	if got := encode(t, mustSelect(t, "drop_networks,drop_asn", false).Project(none)); got != want {
+		t.Errorf("record\n got %s\nwant %s", got, want)
 	}
 }

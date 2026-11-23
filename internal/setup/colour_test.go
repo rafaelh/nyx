@@ -124,10 +124,10 @@ func TestView_TheArrowKeysSwitchTabsAndARuleSitsUnderThem(t *testing.T) {
 	}
 	h.press("right")
 	mustHave(t, h.view(), "[Settings]")
-	h.press("right", "right")
+	h.press("right", "right", "right")
 	mustHave(t, h.view(), "[Keys]")
 	h.press("left")
-	mustHave(t, h.view(), "[Skip]")
+	mustHave(t, h.view(), "[Threat data]")
 	h.press("tab")
 	mustHave(t, h.view(), "[Keys]")
 	mustNotHave(t, h.view(), "tab Switch")

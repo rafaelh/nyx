@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -35,7 +36,12 @@ type fakeBackend struct {
 	overFn  func(e Edits) (Snapshot, error)
 	testFn  func(ctx context.Context, source string, key config.Secret) TestResult
 
+	// threat is what ThreatData gives; an update's result replaces it, as the real data would be.
+	threat   []ThreatList
+	updateFn func(ctx context.Context) ThreatResult
+
 	opens     int
+	updates   int
 	saves     []Edits
 	saveSnaps []Snapshot
 	overs     []Edits
@@ -187,6 +193,39 @@ func (f *fakeBackend) Test(ctx context.Context, source string, key config.Secret
 		return fn(ctx, source, key)
 	}
 	return TestResult{Status: TestAccepted}
+}
+
+func (f *fakeBackend) ThreatData() []ThreatList {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.threat)
+}
+
+func (f *fakeBackend) UpdateThreatData(ctx context.Context) ThreatResult {
+	f.mu.Lock()
+	f.updates++
+	fn := f.updateFn
+	f.mu.Unlock()
+	var res ThreatResult
+	if fn != nil {
+		res = fn(ctx)
+	}
+	if res.Lists != nil {
+		f.mu.Lock()
+		f.threat = f.threat[:0:0]
+		for _, l := range res.Lists {
+			f.threat = append(f.threat, l.ThreatList)
+		}
+		f.mu.Unlock()
+	}
+	return res
+}
+
+// updateCount is how many times UpdateThreatData was called.
+func (f *fakeBackend) updateCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.updates
 }
 
 func (f *fakeBackend) counts() (saves, overs, opens int) {

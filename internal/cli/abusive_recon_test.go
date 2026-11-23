@@ -4,21 +4,25 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
 // Recon's abusive-network check: which addresses are flagged, the origin AS of netblock addresses
-// and what a rebuilt snapshot does to an engagement already run. The snapshots are injected through
-// Deps.Abusive: the addresses of the tests are not on the real lists.
+// and what a rebuilt snapshot does to an engagement already run. The snapshots are the built-in
+// copy of ipapi.is's lists for the test (the harness's abusive, which Deps.ThreatBuiltIn carries):
+// the addresses of the tests are not on the real lists.
 
 const abusiveFile = "risk-abusive-network.csv"
 
@@ -33,9 +37,15 @@ func abASN(rank, asn int, tag string, score float64, org, typ string) abusive.AS
 // abSnapshot is a snapshot of the entries, ready to match, whose lists are dated 2026-11-21
 // (networks) and 2026-11-20 (ASNs).
 func abSnapshot(nets []abusive.NetworkEntry, asns []abusive.ASNEntry) *abusive.Snapshot {
+	return abSnapshotOn("2026-11-21", "2026-11-20", nets, asns)
+}
+
+// abSnapshotOn is abSnapshot with its lists dated as given (YYYY-MM-DD). Each list states the
+// number of entries it holds.
+func abSnapshotOn(netsDate, asnsDate string, nets []abusive.NetworkEntry, asns []abusive.ASNEntry) *abusive.Snapshot {
 	return abusive.Load(abusive.Snapshot{
-		Nets: abusive.List[abusive.NetworkEntry]{Updated: "2026-11-21", Entries: nets},
-		ASNs: abusive.List[abusive.ASNEntry]{Updated: "2026-11-20", Entries: asns},
+		Nets: abusive.List[abusive.NetworkEntry]{Updated: netsDate, Stated: len(nets), Entries: nets},
+		ASNs: abusive.List[abusive.ASNEntry]{Updated: asnsDate, Stated: len(asns), Entries: asns},
 	})
 }
 
@@ -291,11 +301,13 @@ func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 	}
 }
 
-// The AS Team Cymru gives a unit is used only for the abusive check: provider classification, ips.csv,
-// port eligibility and the candidates are exactly what they are without it, whatever the snapshot lists.
-func TestAbusiveRecon_InformationOnly(t *testing.T) {
+// The AS Team Cymru gives a unit is used only for the abusive check, and a match, of ipapi.is's
+// lists or of Spamhaus's DROP lists, changes only the finding: provider classification, ips.csv,
+// port eligibility, the candidates and what is sent are exactly what they are without it, whatever
+// the lists hold.
+func TestAbusiveRecon_InformationOnly(t *testing.T) { // mutation target
 	t.Parallel()
-	build := func(snap *abusive.Snapshot, args ...string) *abWorld {
+	build := func(snap *abusive.Snapshot, drop *spamhaus.Lists, args ...string) *abWorld {
 		x := newAbWorld(t)
 		x.names("app.example.com", "other.example.com")
 		x.host("app.example.com", "198.51.100.7")
@@ -303,7 +315,7 @@ func TestAbusiveRecon_InformationOnly(t *testing.T) {
 		x.owner("203.0.113.9", 64500, "ACME-NET")
 		x.dns.PTR("198.51.100.5", "p5.example.com")
 		x.origin("198.51.100.0", 13335) // an AS the provider data knows: Cloudflare
-		x.h.abusive = snap
+		x.h.abusive, x.h.drop = snap, drop
 		x.mustPassive(append([]string{"--cidr", "198.51.100.0/24"}, args...)...)
 		return x
 	}
@@ -311,33 +323,96 @@ func TestAbusiveRecon_InformationOnly(t *testing.T) {
 		abNet(1, "198.51.100.0", "198.51.100.255", "High", 80, "Block Org", "isp"),
 		abNet(2, "203.0.113.0", "203.0.113.255", "High", 80, "Other Org", "isp"),
 	}, []abusive.ASNEntry{abASN(3, 13335, "High", 80, "Cloudflare", "hosting")})
-	with := build(listed)
-	without := build(abSnapshot(nil, nil), "--skip", "netblockowner")
+	// DROP holds the netblock and the other host's /24 (the root's address too), and ASN-DROP lists
+	// the netblock's origin AS and the hosts'.
+	dropped := dropListsAt(t, time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC),
+		[]spamhaus.NetworkEntry{dropNet("198.51.100.0/24", "SBL1001", "arin"), dropNet("203.0.113.0/24", "SBL1002", "apnic")},
+		[]spamhaus.ASNEntry{dropASN(13335, "CLOUDFLARENET", "US", "cloudflare.com", "arin"), dropASN(64500, "ACME-NET", "AU", "acme.example", "apnic")})
+	with := build(listed, nil)
+	withDrop := build(nil, dropped)
+	none := build(abSnapshot(nil, nil), nil)
+	without := build(abSnapshot(nil, nil), nil, "--skip", "netblockowner")
 	if rows := current(with.table(eng, abusiveFile)); len(rows) != 4 {
 		t.Fatalf("%d flagged addresses with the snapshot, want 4 (the netblock's two, the host's and the root's): %v", len(rows), rows)
 	}
+	rows := current(withDrop.table(eng, abusiveFile))
+	if len(rows) != 4 {
+		t.Fatalf("%d flagged addresses with DROP, want 4 (the netblock's two, the host's and the root's): %v", len(rows), rows)
+	}
+	for _, r := range rows {
+		if r["type"] != "drop-network" || r["severity"] != "high" {
+			t.Errorf("%s = %v, want a high drop-network finding", r["ip"], r)
+		}
+	}
 	if rows := without.table(eng, abusiveFile); len(rows) != 0 {
 		t.Errorf("the empty snapshot flagged %v", rows)
+	}
+	if rows := none.table(eng, abusiveFile); len(rows) != 0 {
+		t.Errorf("the empty lists flagged %v", rows)
 	}
 	for _, file := range []string{"ips.csv", "hostnames.csv", "netblocks.csv"} {
 		if a, b := with.file(eng, file), without.file(eng, file); a != b {
 			t.Errorf("%s differs:\nwith the abusive check:\n%s\nwithout:\n%s", file, a, b)
 		}
-	}
-	for _, r := range with.table(eng, "ips.csv") {
-		if strings.HasPrefix(r["ip"], "198.51.100.") {
-			if r["provider"] != "" || r["owner"] != "in-scope netblock" || r["port_eligible"] != "true" {
-				t.Errorf("%s in ips.csv = %v: the AS Team Cymru gave the netblock changed it", r["ip"], r)
-			}
+		if a, b := withDrop.file(eng, file), none.file(eng, file); a != b {
+			t.Errorf("%s differs:\nwith DROP:\n%s\nwithout:\n%s", file, a, b)
 		}
 	}
+	with.netblockUnchanged()
+	withDrop.netblockUnchanged()
 	if a, b := with.candidateKeys(), without.candidateKeys(); !slices.Equal(a, b) {
 		t.Errorf("candidate_rank records differ:\nwith    %v\nwithout %v", a, b)
 	}
-	// A netblock_owner record is not a scope kind, so the AS 13335 did not make the netblock a provider's.
-	if with.h.network() != 0 {
-		t.Error("a network canary was hit")
+	if a, b := withDrop.candidateKeys(), none.candidateKeys(); !slices.Equal(a, b) {
+		t.Errorf("candidate_rank records differ:\nwith DROP %v\nwithout   %v", a, b)
 	}
+	// What is sent does not change with DROP: the same queries and the same requests.
+	if a, b := namesAsked(withDrop), namesAsked(none); !slices.Equal(a, b) {
+		t.Errorf("DNS queries differ:\nwith DROP %v\nwithout   %v", a, b)
+	}
+	if a, b := withDrop.sent(), none.sent(); !slices.Equal(a, b) {
+		t.Errorf("requests differ:\nwith DROP %v\nwithout   %v", a, b)
+	}
+	// A netblock_owner record is not a scope kind, so the AS 13335 did not make the netblock a provider's.
+	for _, x := range []*abWorld{with, withDrop} {
+		if x.h.network() != 0 {
+			t.Error("a network canary was hit")
+		}
+	}
+}
+
+// netblockUnchanged checks that the netblock's addresses in ips.csv are an in-scope netblock's, with
+// no provider and eligible for ports, whatever Team Cymru gave or the lists hold.
+func (x *abWorld) netblockUnchanged() {
+	x.t.Helper()
+	for _, r := range x.table(eng, "ips.csv") {
+		if strings.HasPrefix(r["ip"], "198.51.100.") {
+			if r["provider"] != "" || r["owner"] != "in-scope netblock" || r["port_eligible"] != "true" {
+				x.t.Errorf("%s in ips.csv = %v: the AS Team Cymru gave the netblock, or a match, changed it", r["ip"], r)
+			}
+		}
+	}
+}
+
+// randomLabel is the first label of a wildcard probe: a random name under an in-scope domain.
+var randomLabel = regexp.MustCompile(`^[0-9a-f]{16}\.`)
+
+// namesAsked are the names the world's DNS server was asked about, sorted, without the random
+// names of the wildcard probes, which differ from run to run.
+func namesAsked(x *abWorld) []string {
+	return slices.DeleteFunc(dnsNames(x.dns), randomLabel.MatchString)
+}
+
+// sent are the requests the world's third-party fakes received, as "<host> <method> <URI>", sorted.
+func (x *abWorld) sent() []string {
+	var out []string
+	for host, s := range x.src {
+		for _, r := range s.requestLog() {
+			out = append(out, host+" "+r.Method+" "+r.URI)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // candidateKeys are the keys of the candidate_rank observations of the engagement, sorted.

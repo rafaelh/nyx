@@ -45,7 +45,7 @@ prints the whole reference.
   origin exposure
 - [Third-party sources](docs/sources.md): RDAP, Shodan per address, reverse IP, GitHub code search
 - [End-of-life software](docs/end-of-life.md)
-- [Abusive networks](docs/abusive-networks.md)
+- [Abusive networks](docs/abusive-networks.md): Spamhaus DROP and ipapi.is data, and `nyx setup --update-threat-data`
 - [Built-in lists and per-run limits](docs/lists-and-limits.md)
 - [Ranked candidates](docs/candidates.md)
 - [Console and JSON](docs/console-and-json.md): the log, the summary, terminal layout, the `--json`
@@ -61,5 +61,5 @@ prints the whole reference.
 
 Data on abusive networks is available thanks to:
 
-- SpamHaus’s [Don’t Route Or Peer Lists (DROP)](https://www.spamhaus.org/blocklists/do-not-route-or-peer/) Project.
-- ipapis.is [Most Abusive Networks on the Internet](https://ipapi.is/most-abusive-networks.html)
+- Spamhaus’s [Don’t Route Or Peer Lists (DROP)](https://www.spamhaus.org/blocklists/do-not-route-or-peer/) Project, (c) The Spamhaus Project SLU ([terms](https://www.spamhaus.org/drop/terms/)).
+- ipapi.is [Most Abusive Networks on the Internet](https://ipapi.is/most-abusive-networks.html)

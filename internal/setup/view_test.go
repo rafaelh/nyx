@@ -109,8 +109,10 @@ func TestView_TheSelectedRowIsMarkedAndTabSwitchingWraps(t *testing.T) {
 		t.Errorf("selection left the list:\n%s", h.view())
 	}
 	h.press("shift+tab")
+	mustHave(t, h.view(), "[Threat data]")
+	h.press("shift+tab")
 	mustHave(t, h.view(), "[x] dns")
-	h.press("tab")
+	h.press("tab", "tab")
 	mustHave(t, h.view(), "securitytrails")
 }
 

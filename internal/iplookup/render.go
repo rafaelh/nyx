@@ -201,6 +201,18 @@ func (b body) sections() []section {
 			return matchLine("AS"+strconv.Itoa(m.ASN), m.ScoreTag, m.AbuseScore, m.Org, m.OrgType, m.Updated)
 		}))
 	}
+	if has("drop_networks") {
+		add("Spamhaus DROP networks", b.items("drop_networks", len(rec.DropNetworks), rec.DropNetworks == nil, func(i int) string {
+			m := rec.DropNetworks[i]
+			return dropLine(m.CIDR, m.Updated, m.SBLID, m.RIR)
+		}))
+	}
+	if has("drop_asn") {
+		add("Spamhaus ASN-DROP", b.items("drop_asn", len(rec.DropASN), rec.DropASN == nil, func(i int) string {
+			m := rec.DropASN[i]
+			return dropLine("AS"+strconv.Itoa(m.ASN), m.Updated, m.ASName, m.Country, m.Domain, m.RIR)
+		}))
+	}
 
 	if has("not_contacted") {
 		add("Not contacted", []row{{rowText, "", b.str("not_contacted", rec.NotContacted)}})
@@ -433,4 +445,18 @@ func matchLine(entry, tag string, score float64, org, typ, updated string) strin
 	clean := func(s string) string { return squash(sanitize.Line(s)) }
 	return fmt.Sprintf("%s: %s, %s%%, %s (%s), updated %s", clean(entry), clean(tag),
 		abusive.ScoreText(score), clean(org), clean(typ), clean(updated))
+}
+
+// dropLine is a Spamhaus list's match as one line: the entry, then its non-empty details, then the
+// date of its list. Its text came from a list and is cleaned like any third party's.
+func dropLine(entry, updated string, details ...string) string {
+	clean := func(s string) string { return squash(sanitize.Line(s)) }
+	parts := []string{}
+	for _, d := range details {
+		if d = clean(d); d != "" {
+			parts = append(parts, d)
+		}
+	}
+	parts = append(parts, "updated "+clean(updated))
+	return clean(entry) + ": " + strings.Join(parts, ", ")
 }

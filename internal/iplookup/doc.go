@@ -18,9 +18,12 @@
 // its registrant), ptr (the address's reverse names), ripestat (geolocation), internetdb (open
 // ports, names, tags, CPEs and CVE IDs), hackertarget (the other names on the address) and probe
 // (the connections --active makes to the address itself). The provider is not a source: it is
-// decided from the built-in provider data and the AS number, so it comes with cymru. Nor is the
-// snapshot of abusive networks built into nyx (internal/abusive): it needs no request and always
-// answers, so a public address whose abusive_networks is selected always has a record.
+// decided from the built-in provider data and the AS number, so it comes with cymru. Nor are the
+// lists of abusive and DROP networks (internal/abusive's ipapi.is snapshot and internal/spamhaus's
+// DROP, DROPv6 and ASN-DROP), which are built into nyx or downloaded by nyx setup
+// --update-threat-data and checked with no request. The network keys (abusive_networks and
+// drop_networks) always answer, so a public address whose one of them is selected always has a
+// record; the AS keys (abusive_asn and drop_asn) follow the origin AS cymru gives.
 //
 // A source failure is a source that did not answer for an address: it failed, timed out, was
 // rate-limited, or was not asked because it had already refused earlier in the call. It is a

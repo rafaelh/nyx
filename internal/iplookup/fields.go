@@ -49,6 +49,8 @@ var table = []field{
 	{name: "reverse_ip_count", sources: []Source{SourceHackerTarget, SourceCymru}, value: func(r *Record) any { return r.ReverseIPCount }},
 	{name: "abusive_networks", value: func(r *Record) any { return r.AbusiveNetworks }},
 	{name: "abusive_asn", sources: []Source{SourceCymru}, value: func(r *Record) any { return r.AbusiveASN }},
+	{name: "drop_networks", value: func(r *Record) any { return r.DropNetworks }},
+	{name: "drop_asn", sources: []Source{SourceCymru}, value: func(r *Record) any { return r.DropASN }},
 	{name: "not_contacted", active: true, sources: []Source{SourceCymru}, value: func(r *Record) any { return r.NotContacted }},
 	{name: "ports", active: true, sources: activeSources, value: func(r *Record) any { return r.Ports }},
 	{name: "tls", active: true, sources: activeSources, value: func(r *Record) any { return r.TLS }},
@@ -198,7 +200,7 @@ func (f Fields) Sources() []Source {
 }
 
 // Sourceless reports whether a selected key needs no source, so a public address always has its
-// value (the abusive network matches, from the snapshot built into nyx).
+// value (the abusive and DROP network matches, from the lists in use, which need no request).
 func (f Fields) Sourceless() bool {
 	for i, t := range table {
 		if i < len(f.has) && f.has[i] && !t.always && len(t.sources) == 0 {

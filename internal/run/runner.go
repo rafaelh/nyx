@@ -32,6 +32,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/store"
 )
 
@@ -65,6 +66,9 @@ type Config struct {
 	// Abusive is the snapshot of abusive networks and ASNs the findings check addresses against;
 	// nil means the one built into the binary.
 	Abusive *abusive.Snapshot
+	// Drop is Spamhaus's DROP, DROPv6 and ASN-DROP lists the findings check addresses against;
+	// nil means the ones built into the binary.
+	Drop *spamhaus.Lists
 }
 
 // Runner runs the stages.
@@ -148,6 +152,16 @@ type observersCache struct {
 // (succeeded when without error), the ones the context ended, and the failures a refused key caused.
 type stageStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
 
+// builtinDrop is Spamhaus's lists as built into the binary, parsed once. It panics on a bad embed,
+// as abusive.Default does: a test validates the file.
+var builtinDrop = sync.OnceValue(func() *spamhaus.Lists {
+	l, err := spamhaus.ParseBundle(spamhaus.Builtin())
+	if err != nil {
+		panic("run: the built-in Spamhaus lists are unreadable: " + err.Error())
+	}
+	return &l
+})
+
 // New creates a Runner.
 func New(cfg Config) *Runner {
 	r := &Runner{
@@ -160,6 +174,9 @@ func New(cfg Config) *Runner {
 	r.historical = map[string]bool{}
 	if r.cfg.Abusive == nil {
 		r.cfg.Abusive = abusive.Default()
+	}
+	if r.cfg.Drop == nil {
+		r.cfg.Drop = builtinDrop()
 	}
 	for _, s := range cfg.Stages {
 		r.order = append(r.order, s.Name())

@@ -51,6 +51,8 @@ func (m *model) items(t tabID) []item {
 		return m.settingItems()
 	case tabSkip:
 		return m.skipItems()
+	case tabThreat:
+		return m.threatItems()
 	case tabCount:
 	}
 	return nil
@@ -198,6 +200,82 @@ func (m *model) skipItems() []item {
 	if m.skip.list != "" {
 		sel := len(m.info.Stages)+len(m.skip.problems) == m.sel[tabSkip] && m.tab == tabSkip
 		out = append(out, item{lines: []line{append(m.marks(sel, false), m.paint(roleBad, "[!] "+m.text(m.skip.list)))}})
+	}
+	return out
+}
+
+// threatItems are the lists, each a line naming it with its source and date, a line with its count
+// and where the copy in use comes from, then its note and what the last update said of it. The
+// credit its source asks for, and why nothing can be updated, follow the last row.
+func (m *model) threatItems() []item {
+	out := make([]item, 0, len(m.threat))
+	for i, r := range m.threat {
+		sel := i == m.sel[tabThreat] && m.tab == tabThreat
+		l := r.list
+		provenance := "built in"
+		if l.Downloaded {
+			provenance = "downloaded"
+		}
+		value := pick(sel, roleValue, roleValueDim)
+		head := append(m.head(sel, false, m.text(l.List)), m.padded(value, m.text(l.Source), 10)...)
+		head = append(head, m.paint(value, m.text(l.Date)))
+		lines := []line{
+			head,
+			{plain(indent()), m.paint(value, fmt.Sprintf("%d entries, %s", l.Entries, provenance))},
+		}
+		if l.Note != "" {
+			lines = append(lines, m.noteLines(roleCaution, l.Note)...)
+		}
+		switch {
+		case m.updating:
+			lines = append(lines, m.noteLines(roleHelp, "updating…")...)
+		case r.text != "":
+			lines = append(lines, m.noteLines(threatRole(r.outcome), r.text)...)
+		}
+		out = append(out, item{lines: lines})
+	}
+	foot := m.threatFoot()
+	switch {
+	case len(foot) == 0:
+	case len(out) == 0:
+		out = append(out, item{lines: foot})
+	default:
+		last := &out[len(out)-1]
+		last.lines = append(last.lines, foot...)
+	}
+	return out
+}
+
+// threatRole is the role an update's word on a list is drawn in.
+func threatRole(o ThreatOutcome) string {
+	switch o {
+	case ThreatUpdated:
+		return roleGood
+	case ThreatSkipped:
+		return roleCaution
+	case ThreatFailed:
+		return roleBad
+	case ThreatCurrent:
+	}
+	return roleHelp
+}
+
+// threatFoot is the lines under the last list: the copyright line and terms link of the first list
+// that carries them, then why the data cannot be updated, when it cannot.
+func (m *model) threatFoot() []line {
+	var out []line
+	if i := slices.IndexFunc(m.threat, func(r threatEntry) bool { return r.list.Copyright != "" || r.list.Terms != "" }); i >= 0 {
+		for _, s := range []string{m.threat[i].list.Copyright, m.threat[i].list.Terms} {
+			if s != "" {
+				out = append(out, m.noteLines(roleHelp, s)...)
+			}
+		}
+	}
+	if why := m.info.ThreatUnavailable; why != "" {
+		out = append(out, m.noteLines(roleCaution, why)...)
+	}
+	if len(out) > 0 {
+		out = append([]line{{plain("")}}, out...)
 	}
 	return out
 }

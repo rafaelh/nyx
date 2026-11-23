@@ -13,6 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
 // Config is what a lookup needs from its caller.
@@ -32,6 +33,9 @@ type Config struct {
 	// Abusive is the snapshot of abusive networks and ASNs the addresses are checked against; nil
 	// means the one built into the binary. No request is made for it.
 	Abusive *abusive.Snapshot
+	// Drop is Spamhaus's DROP, DROPv6 and ASN-DROP lists the addresses are checked against; nil
+	// means the ones built into the binary. No request is made for them.
+	Drop *spamhaus.Lists
 	// Warn receives each warning once (a latched source, an RDAP referral problem).
 	Warn func(string)
 	// Debug, when set, receives diagnostic lines.

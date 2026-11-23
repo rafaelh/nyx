@@ -6,6 +6,8 @@
   writes what an engagement holds as JSON lines (see [Exporting an engagement](output.md#exporting-an-engagement)).
 - **`nyx setup`** opens a full-screen terminal editor for the config file: your API keys, the output
   directory and the common settings (see [Setup](configuration.md#setup)). It needs a terminal.
+  `nyx setup --update-threat-data` instead updates the threat data that recon and `nyx ip` check
+  addresses against, needs no terminal, and exits.
 - **`nyx cve <CVE-ID>... [flags]`** looks CVEs up in the NVD by CVE ID (see [CVE lookup](cve.md)).
   It needs no engagement and no authorisation, and writes no files.
 - **`nyx ip <input>... [flags]`** looks up who runs an IP address, where it is, what it is called and
@@ -32,8 +34,8 @@
   command: one placed before it exits 2 with the same call, the command moved first, as the hint.
 - **Flags are spelt in full.** An abbreviation (`--pass` for `--passive`) is an unknown flag;
   `--authorized` is the one alias.
-- **Prompts and stdin.** Only `nyx setup` asks anything, in its full-screen editor, and it needs a
-  terminal for stdin and stdout. No command loads a `.env` file or reads a setting or key from the
+- **Prompts and stdin.** Only `nyx setup` asks anything, in its full-screen editor, and the editor
+  needs a terminal for stdin and stdout (`nyx setup --update-threat-data` asks nothing). No command loads a `.env` file or reads a setting or key from the
   environment (see [Configuration](configuration.md#configuration)). Otherwise only `nyx cve` and `nyx ip`, given a lone `-`, read stdin.
 - **Version.** `nyx --version` prints the version; every HTTP request nyx makes carries
   `nyx/<version>` (`nyx/devel` for a build with no version) as its User-Agent.

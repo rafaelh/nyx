@@ -38,5 +38,11 @@ none
 Abusive ASN
 none
 
+Spamhaus DROP networks
+none
+
+Spamhaus ASN-DROP
+none
+
 Failures
 none

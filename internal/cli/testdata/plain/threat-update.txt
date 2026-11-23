@@ -1,0 +1,6 @@
+spamhaus  drop_v4   2026-10-12T09:00:00Z -> 2026-10-14T09:00:00Z  80 entries (+5, -5)
+spamhaus  drop_v6   2026-10-12T09:00:00Z  20 entries  already current
+spamhaus  asndrop   2026-10-12T09:00:00Z  20 entries  already current
+ipapi.is  networks  2026-10-12  80 entries  skipped: last contacted 2026-11-01T08:50:00Z; can be updated after 2026-11-01T09:50:00Z
+ipapi.is  asns      2026-10-12  20 entries  skipped: last contacted 2026-11-01T08:50:00Z; can be updated after 2026-11-01T09:50:00Z
+Spamhaus DROP data (c) 2026 The Spamhaus Project SLU; terms: https://www.spamhaus.org/drop/terms/

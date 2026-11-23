@@ -29,6 +29,8 @@ import (
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
 // harness drives cli.Execute in-process with fakes.
@@ -53,7 +55,13 @@ type harness struct {
 	cwd                      string            // the working directory nyx reports; "" means the process's
 	getwdPanicAfter          int               // when positive, the call of Getwd after this many panics, to force a panic in nyx setup
 	getwdCalls               atomic.Int32
-	abusive                  *abusive.Snapshot // the snapshot recon and nyx ip check addresses against; nil means the built-in one
+	// The threat data built into nyx for this test's runs (see builtInThreat): ipapi.is's lists
+	// (abusive) and Spamhaus's (drop). When either is set, the other is empty, so a test sees only
+	// the entries it gives; when neither is, the runs use the copies embedded in the binary.
+	// threatBuiltIn, when set, is the whole built-in copy, and abusive and drop are ignored.
+	abusive       *abusive.Snapshot
+	drop          *spamhaus.Lists
+	threatBuiltIn *threatdata.BuiltIn
 
 	stdout, stderr bytes.Buffer
 	rec            recorder // the events of the last call, as cli.Deps.Events delivers them
@@ -122,28 +130,51 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 
 func (h *harness) deps() cli.Deps {
 	return cli.Deps{
-		Stages:      h.stages,
-		Files:       h.files,
-		Egress:      h.eopts,
-		Stdout:      &h.stdout,
-		Stderr:      &h.stderr,
-		StdoutIsTTY: func() bool { return h.stdoutTTY },
-		StderrIsTTY: func() bool { return h.stderrTTY },
-		StdoutWidth: func() int { return h.stdoutWidth },
-		StderrWidth: func() int { return h.stderrWidth },
-		Location:    h.loc,
-		Clock:       func() time.Time { return h.now },
-		Version:     h.version,
-		Signals:     h.signals,
-		Env:         h.environ(),
-		NoFsync:     true,
-		Events:      &h.rec,
-		Stdin:       h.stdin,
-		StdinIsTTY:  func() bool { return h.stdinTTY },
-		WindowSize:  func() (int, int) { return h.winW, h.winH },
-		Getwd:       h.getwd,
-		Abusive:     h.abusive,
+		Stages:        h.stages,
+		Files:         h.files,
+		Egress:        h.eopts,
+		Stdout:        &h.stdout,
+		Stderr:        &h.stderr,
+		StdoutIsTTY:   func() bool { return h.stdoutTTY },
+		StderrIsTTY:   func() bool { return h.stderrTTY },
+		StdoutWidth:   func() int { return h.stdoutWidth },
+		StderrWidth:   func() int { return h.stderrWidth },
+		Location:      h.loc,
+		Clock:         func() time.Time { return h.now },
+		Version:       h.version,
+		Signals:       h.signals,
+		Env:           h.environ(),
+		NoFsync:       true,
+		Events:        &h.rec,
+		Stdin:         h.stdin,
+		StdinIsTTY:    func() bool { return h.stdinTTY },
+		WindowSize:    func() (int, int) { return h.winW, h.winH },
+		Getwd:         h.getwd,
+		ThreatBuiltIn: h.builtInThreat(),
 	}
+}
+
+// builtInThreat is the built-in copy of the threat data the runs see, as the fields abusive, drop and
+// threatBuiltIn describe; nil means the embedded copies. A list the test does not give is empty and
+// dated the day before the clock, so it is neither stale nor newer than a test's downloaded copy
+// dated after it.
+func (h *harness) builtInThreat() *threatdata.BuiltIn {
+	if h.threatBuiltIn != nil {
+		return h.threatBuiltIn
+	}
+	if h.abusive == nil && h.drop == nil {
+		return nil
+	}
+	day := h.now.Add(-24 * time.Hour)
+	b := &threatdata.BuiltIn{Ipapi: *abSnapshotOn(day.Format(time.DateOnly), day.Format(time.DateOnly), nil, nil),
+		Spamhaus: *dropListsAt(h.t, day, nil, nil)}
+	if h.abusive != nil {
+		b.Ipapi = *h.abusive
+	}
+	if h.drop != nil {
+		b.Spamhaus = *h.drop
+	}
+	return b
 }
 
 func (h *harness) getwd() (string, error) {

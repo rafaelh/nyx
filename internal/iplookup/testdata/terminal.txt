@@ -38,6 +38,12 @@ Abusive networks
 Abusive ASN
   none
 
+Spamhaus DROP networks
+  - 203.0.113.0/24: SBL5, arin, updated 2026-10-01T08:30:05Z
+
+Spamhaus ASN-DROP
+  none
+
 Not contacted
   none
 
@@ -95,6 +101,12 @@ Abusive networks
   none
 
 Abusive ASN
+  none
+
+Spamhaus DROP networks
+  none
+
+Spamhaus ASN-DROP
   none
 
 Not contacted

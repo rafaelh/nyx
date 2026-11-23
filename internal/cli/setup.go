@@ -15,12 +15,14 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/configedit"
-	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/setup"
 )
 
 // setupOptions are the flags of nyx setup.
-type setupOptions struct{ configPath string }
+type setupOptions struct {
+	configPath       string
+	updateThreatData bool
+}
 
 // newSetupCommand builds the setup command: a full-screen editor for the config file.
 func newSetupCommand(inv *invocation) *cobra.Command {
@@ -29,14 +31,22 @@ func newSetupCommand(inv *invocation) *cobra.Command {
 		Use:   "setup [flags]",
 		Short: "Store API keys and common settings in the config file, and test the keys",
 		Long: "setup opens a full-screen editor for the config file: your API keys (each can be tested without being\n" +
-			"saved), the output directory and the common settings, and the stages to skip. Edits are held until you\n" +
-			"save. It needs a terminal, takes no arguments, and edits only the config file, which is where\n" +
-			"every setting and key nyx uses is kept.",
+			"saved), the output directory and the common settings, the stages to skip, and a tab for the threat data nyx\n" +
+			"checks addresses against. Edits to the config file are held until you save. It needs a terminal and takes no\n" +
+			"arguments. The config file is where every setting and key nyx uses is kept.\n" +
+			"\n" +
+			"setup --update-threat-data is its one use without the editor (u on the Threat data tab runs the same update):\n" +
+			"it downloads Spamhaus's DROP lists and ipapi.is's abuse lists, needs no terminal, reads no config file and\n" +
+			"exits. It writes the downloaded copy, and nothing else, to the threat-data directory beside the default\n" +
+			"config file: spamhaus.jsonl and ipapi.json, each with a state file and a lock file. Its exit codes are 0 when\n" +
+			"no source failed, 7 when one did, 1 when both did, 2 when there is nowhere to keep the data, and 130, 143 or\n" +
+			"129 on a signal.",
 		Example: "  nyx setup\n" +
-			"  nyx setup --config ./nyx.yaml",
+			"  nyx setup --config ./nyx.yaml\n" +
+			"  nyx setup --update-threat-data",
 		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
-			annotationEveryday: "config",
+			annotationEveryday: "config," + updateThreatDataFlag,
 		},
 		RunE: func(c *cobra.Command, positional []string) error {
 			return inv.start(c, runSetup(c.Context(), inv, positional, o))
@@ -45,6 +55,8 @@ func newSetupCommand(inv *invocation) *cobra.Command {
 	f := cmd.Flags()
 	f.SortFlags = false
 	f.StringVar(&o.configPath, "config", "", configFlagUsage)
+	f.BoolVar(&o.updateThreatData, updateThreatDataFlag, false,
+		"Update the threat data (Spamhaus's DROP lists and ipapi.is's abuse lists) and exit, with no editor, no terminal and no config file")
 	f.BoolP("help", "h", false, "Help for setup")
 	return cmd
 }
@@ -78,7 +90,7 @@ func (s *secrets) add(vs ...string) {
 // setupBackend is the configedit store, with the key test added.
 type setupBackend struct {
 	*configedit.Store
-	egress egress.Options
+	threatKeeper // the Threat data tab's lists and its update, and the options of the key test's client
 }
 
 // Save and Overwrite give a failed save's reason alone: the editor shows the file's path beside it.
@@ -105,7 +117,8 @@ func (b setupBackend) Test(ctx context.Context, source string, key config.Secret
 
 // runSetup checks what can be checked before the terminal is taken over, each failure a usage
 // error and in this order: an argument, no path to the config file, no terminal, a file that
-// cannot be edited. It then runs the editor.
+// cannot be edited. It then runs the editor. With --update-threat-data it updates the threat data
+// instead, after the argument check and with none of the others.
 func runSetup(ctx context.Context, inv *invocation, positional []string, o *setupOptions) error {
 	d := inv.d
 	if err := inv.problems().Err(); err != nil {
@@ -114,6 +127,9 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	if len(positional) > 0 {
 		return &clierr.Error{Code: clierr.InvalidInput, Message: "nyx setup takes no arguments",
 			Hint: "nyx setup --help", Input: map[string][]string{"argument": positional}}
+	}
+	if o.updateThreatData {
+		return runThreatUpdate(ctx, inv)
 	}
 	path := o.configPath
 	if path == "" {
@@ -155,7 +171,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	if d.WindowSize != nil {
 		w, h = d.WindowSize()
 	}
-	err := setup.Run(ctx, setupBackend{Store: store, egress: d.Egress}, setup.Options{
+	err := setup.Run(ctx, setupBackend{Store: store, threatKeeper: newThreatKeeper(d)}, setup.Options{
 		In: d.Stdin, Out: inv.rawOut, Env: d.Env, Depth: inv.st.out.Depth, Width: w, Height: h,
 		Now:      func() time.Time { return d.Clock().In(d.Location) },
 		OnSecret: func(v string) { seen.add(v) },

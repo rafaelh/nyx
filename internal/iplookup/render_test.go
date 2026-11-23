@@ -13,6 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")
@@ -395,5 +396,119 @@ func TestRender_AbusiveTextIsSanitised(t *testing.T) {
 	got := renderTo(t, []Record{r}, "abusive_networks,abusive_asn", false, stream(false, palette.None, 100))
 	if strings.ContainsAny(got, "\x1b\x07") {
 		t.Errorf("unsanitised output: %q", got)
+	}
+}
+
+// lines are the rendered lines, each without its indentation and bullet.
+func lines(s string) []string {
+	var out []string
+	for l := range strings.SplitSeq(s, "\n") {
+		out = append(out, strings.TrimPrefix(strings.TrimSpace(l), "- "))
+	}
+	return out
+}
+
+// countLines is how many rendered lines end in the word, as a value of its own.
+func countLines(s, word string) int {
+	n := 0
+	for _, l := range lines(s) {
+		if f := strings.Fields(l); len(f) > 0 && f[len(f)-1] == word {
+			n++
+		}
+	}
+	return n
+}
+
+// The DROP keys name Spamhaus and read as one line to each match, in order: a network with its
+// CIDR, SBL ID, RIR and its list's date, and the AS with its number, name, country, domain, RIR
+// and its list's date.
+func TestRender_DropSections(t *testing.T) {
+	t.Parallel()
+	nets := []spamhaus.NetworkMatch{
+		{CIDR: "34.68.34.64/27", SBLID: "SBL697779", RIR: "arin", Updated: dropV4Date},
+		{CIDR: "34.68.0.0/16", SBLID: "SBL671779", RIR: "ripencc", Updated: dropV4Date},
+	}
+	asn := []spamhaus.ASNMatch{{ASN: 64050, ASName: "BAD-AS", Country: "RU", Domain: "bad.example", RIR: "lacnic", Updated: dropASNDate}}
+	rec := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public", DropNetworks: nets, DropASN: asn}
+	for _, term := range []bool{false, true} {
+		s := stream(term, palette.None, 200)
+		got := renderTo(t, []Record{rec}, "drop_networks,drop_asn", false, s)
+		if !strings.Contains(got, "Spamhaus") {
+			t.Errorf("terminal=%v: Spamhaus is not named:\n%s", term, got)
+		}
+		at := func(parts ...string) int {
+			for i, l := range lines(got) {
+				all := true
+				for _, p := range parts {
+					all = all && strings.Contains(l, p)
+				}
+				if all {
+					return i
+				}
+			}
+			return -1
+		}
+		inner := at("34.68.34.64/27", "SBL697779", "arin", dropV4Date)
+		outer := at("34.68.0.0/16", "SBL671779", "ripencc", dropV4Date)
+		as := at("AS64050", "BAD-AS", "RU", "bad.example", "lacnic", dropASNDate)
+		if inner < 0 || outer < 0 || as < 0 || inner >= outer || outer >= as {
+			t.Errorf("terminal=%v: the lines of the matches are at %d, %d and %d, want each on its own line in order:\n%s", term, inner, outer, as, got)
+		}
+	}
+}
+
+// An empty DROP key reads none, and drop_asn reads unknown when Team Cymru failed to give the AS.
+func TestRender_DropEmptyAndUnknown(t *testing.T) {
+	t.Parallel()
+	one := []spamhaus.NetworkMatch{{CIDR: "34.68.34.64/27", SBLID: "SBL697779", RIR: "arin", Updated: dropV4Date}}
+	pubRec := func(n []spamhaus.NetworkMatch, a []spamhaus.ASNMatch, fs ...Failure) Record {
+		r := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public", DropNetworks: n, DropASN: a}
+		for _, f := range fs {
+			r.AddFailure(f)
+		}
+		return r
+	}
+	cymru := Failure{Source: SourceCymru, Code: clierr.Timeout, Message: "no answer before the deadline", Transient: true}
+	for _, c := range []struct {
+		name          string
+		rec           Record
+		none, unknown int // more than the record shows with neither key selected
+	}{
+		{"nothing matches", pubRec([]spamhaus.NetworkMatch{}, []spamhaus.ASNMatch{}), 2, 0},
+		{"team cymru failed", pubRec(one, nil, cymru), 0, 1},
+		{"a non-public address", func() Record { r := private(); r.DropNetworks, r.DropASN = nil, nil; return r }(), 2, 0},
+	} {
+		for _, term := range []bool{false, true} {
+			s := stream(term, palette.None, 200)
+			got := renderTo(t, []Record{c.rec}, "drop_networks,drop_asn", false, s)
+			base := renderTo(t, []Record{c.rec}, "", false, s)
+			if n := countLines(got, "none") - countLines(base, "none"); n != c.none {
+				t.Errorf("terminal=%v, %s: %d more none lines, want %d:\n%s", term, c.name, n, c.none, got)
+			}
+			if n := countLines(got, "unknown") - countLines(base, "unknown"); n != c.unknown {
+				t.Errorf("terminal=%v, %s: %d more unknown lines, want %d:\n%s", term, c.name, n, c.unknown, got)
+			}
+			if !strings.Contains(got, "Spamhaus") {
+				t.Errorf("terminal=%v, %s: Spamhaus is not named:\n%s", term, c.name, got)
+			}
+		}
+	}
+}
+
+// Text from the DROP lists is cleaned of anything that would act on a terminal, as every other
+// value is.
+func TestRender_DropTextIsSanitised(t *testing.T) {
+	t.Parallel()
+	r := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public",
+		DropNetworks: []spamhaus.NetworkMatch{{CIDR: "34.68.34.0/24", SBLID: "SBL\x1b[31m5", RIR: "ar\u202ein", Updated: dropV4Date}},
+		DropASN:      []spamhaus.ASNMatch{{ASN: 1, ASName: "A\x1b]0;owned\x07b", Country: "R\x07U", Domain: "x\n.example", RIR: "t", Updated: dropASNDate}}}
+	for _, term := range []bool{false, true} {
+		got := renderTo(t, []Record{r}, "drop_networks,drop_asn", false, stream(term, palette.None, 200))
+		if strings.ContainsAny(got, "\x1b\x07\u202e") || strings.Contains(got, "owned") {
+			t.Errorf("terminal=%v: unsanitised output: %q", term, got)
+		}
+		if !strings.Contains(got, "SBL5") || !strings.Contains(got, "34.68.34.0/24") {
+			t.Errorf("terminal=%v: the match is not shown: %q", term, got)
+		}
 	}
 }

@@ -22,7 +22,6 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 )
@@ -60,11 +59,11 @@ var ipDefaultKeys = []string{
 	"address", "hostnames", "kind",
 	"asn", "as_name", "as_prefix", "rdap_netblock", "rdap_org", "rdap_registry", "ptr", "provider", "provider_class",
 	"geo_country", "geo_city", "internetdb_ports", "internetdb_hostnames", "internetdb_tags", "internetdb_cpes",
-	"internetdb_vulns", "reverse_ip", "reverse_ip_count", "abusive_networks", "abusive_asn",
+	"internetdb_vulns", "reverse_ip", "reverse_ip_count", "abusive_networks", "abusive_asn", "drop_networks", "drop_asn",
 	"failures",
 }
 
-// ipActiveKeys are the keys --active adds, in order, between the abusive keys and failures.
+// ipActiveKeys are the keys --active adds, in order, between the threat-data keys and failures.
 var ipActiveKeys = []string{"not_contacted", "ports", "tls", "web"}
 
 // ipSourceKeys are the keys a source's answer gives (everything between kind and failures), in order.
@@ -238,9 +237,9 @@ type ipRoute struct {
 func newIPWorld(t *testing.T) *ipWorld {
 	t.Helper()
 	h := newHarness(t)
-	// The addresses of the tests are not on the real lists, and an empty snapshot keeps them from
-	// ever being; a test of the keys gives its own.
-	h.abusive = abusive.Load(abusive.Snapshot{})
+	// The addresses of the tests are not on the real lists, and an empty built-in copy of the
+	// threat data keeps them from ever being; a test of the keys gives its own lists.
+	h.abusive = abSnapshot(nil, nil)
 	w := &ipWorld{t: t, h: h, nets: map[string][]rdapNet{}, targets: map[string]*ipTarget{}, rdap: map[string]*ipSource{}}
 	w.dns, w.local = egresstest.NewDNS(t), egresstest.NewDNS(t)
 	h.eopts.ResolverAddrs = []string{w.dns.Addr}

@@ -11,12 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/iplookup"
 	"github.com/rafaelh/nyx/internal/report"
+	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
 // ipOptions are the flags of nyx ip. Its text flags are kept as given, so that a bad value is
@@ -156,7 +156,8 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 
 	red := config.NewRedactor()
 	em, warnings := newEmitter(inv, red)
-	cfg := ipConfig(d.Egress, fields, red, em, d.Abusive)
+	threat := inv.loadThreat(em, warnings, func(source string) bool { return ipReadsThreatSource(fields, source) })
+	cfg := ipConfig(d.Egress, fields, red, em, threat)
 	if inv.sh.debug {
 		cfg.Debug = report.Say(em, "debug")
 	}
@@ -182,15 +183,26 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 	return endLookup(outErr, func() error { return writeIP(inv, records, metaErrs, fields, warnings, red) })
 }
 
+// ipReadsThreatSource reports whether a selected key reads the threat-data source: the abusive_
+// keys read ipapi.is's lists, and the drop_ keys Spamhaus's. A source no key reads isn't loaded, so
+// it gives no warning and no hint.
+func ipReadsThreatSource(fields iplookup.Fields, source string) bool {
+	prefix := "drop_"
+	if source == threatdata.Ipapi {
+		prefix = "abusive_"
+	}
+	return slices.ContainsFunc(fields.Names(), func(n string) bool { return strings.HasPrefix(n, prefix) })
+}
+
 // ipConfig is what the lookup needs: one egress for the resolvers and the third parties, with no
 // policy, since a policy would refuse source hosts that sit under an input hostname, built from
 // base so that tests can redirect it. Its own timeouts and paces fill only what base leaves unset.
-func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor, em report.Emitter, snap *abusive.Snapshot) iplookup.Config {
+func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor, em report.Emitter, threat threatdata.Set) iplookup.Config {
 	o := ipEgressOptions(base, red)
 	e := egress.New(o)
 	clients := e.Clients(false, iplookup.SourceHosts())
 	cfg := iplookup.Config{Fields: fields, ThirdParty: clients.ThirdParty, DNS: clients.DNS, Local: e.Local(),
-		ProbeOptions: o, Abusive: snap}
+		ProbeOptions: o, Abusive: threat.Abusive, Drop: &threat.Drop}
 	cfg.Warn = report.Say(em, "warning")
 	return cfg
 }

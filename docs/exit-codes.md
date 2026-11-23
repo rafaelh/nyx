@@ -7,11 +7,22 @@ Every command uses the same exit codes:
 | Code | Meaning | Error codes |
 |---|---|---|
 | 0 | Success: the run did all its work and no check failed. A `not-configured` stage, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
-| 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` |
-| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx setup`, an argument, no `--config` and no default config path, no terminal on stdin or stdout (it names the file and says to edit it by hand), or a config file that cannot be read or parsed or holds an unknown key; for `nyx cve`, no IDs, or only malformed ones; for `nyx ip`, no inputs, only invalid ones, or more than 256 addresses (when hostnames gave them, only their DNS lookups were sent). Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
+| 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` (for `nyx setup --update-threat-data`, when both sources failed: their shared code, or `UPSTREAM_ERROR`) |
+| 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx setup`, an argument, no `--config` and no default config path (and, for `--update-threat-data`, neither `XDG_CONFIG_HOME` nor `HOME`, so nowhere to keep threat data), no terminal on stdin or stdout (it names the file and says to edit it by hand), or a config file that cannot be read or parsed or holds an unknown key; for `nyx cve`, no IDs, or only malformed ones; for `nyx ip`, no inputs, only invalid ones, or more than 256 addresses (when hostnames gave them, only their DNS lookups were sent). Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
 | 3 | Not found: an engagement that does not exist, no CVE ID the NVD holds, or for `nyx ip` only names that do not resolve | `NOT_FOUND` |
-| 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes; the same for a `nyx ip` call and its inputs (a quota failure never counts, see [IP lookup](ip.md)) | `PARTIAL` |
+| 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes; the same for a `nyx ip` call and its inputs (a quota failure never counts, see [IP lookup](ip.md)); a threat-data update in which one source failed | `PARTIAL` |
 | 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |
+
+**Exit codes of the threat-data update.** `nyx setup --update-threat-data` exits 0 when every source
+updated, was already current or was skipped (a source that answered within the last hour is not
+asked), 7 (`PARTIAL`) when one source failed, whatever the other did, and 1 when both failed, with
+their shared error code or `UPSTREAM_ERROR` when the codes differ, an empty stdout and each source's
+reason in the error. It exits 2 for an argument, or when there is nowhere to keep threat data, and
+130, 143 or 129 on a signal. A source's failure is `NETWORK_ERROR`, `TIMEOUT` (a request gave up after
+30 seconds), `RATE_LIMITED` (a 429), `UPSTREAM_ERROR` (any other answer, a redirect or a refused
+download) or `UNEXPECTED_ERROR` (a download that could not be stored), and the error is transient
+when any failure was a network failure, a timeout or a 429 (see
+[Abusive networks](abusive-networks.md#updating-the-threat-data)).
 
 **Exit 7 for recon.** A recon run exits 7 when the deadline ended it (see [Deadline](commands.md#deadline)) or
 when any check failed in it. Exit 0 no longer covers failed checks. The summary or envelope has been
@@ -90,7 +101,8 @@ in the error as everywhere else.
 **What stays stable.** The exit codes, the error codes, the five keys of the error, the keys of
 the recon `--json` envelope (see [The `--json` envelope](console-and-json.md#the---json-envelope)), and the keys of the
 CVE record and of the `nyx cve` envelope (see [CVE lookup](cve.md)), and the keys of the
-`nyx ip` record and of its envelope (see [IP lookup](ip.md)) are an interface: a
+`nyx ip` record and of its envelope (see [IP lookup](ip.md)), and the keys of the threat-data update's
+envelope (see [Abusive networks](abusive-networks.md#updating-the-threat-data)) are an interface: a
 new one may be added, but renaming, removing or retyping one is a breaking change. The wording of
 messages and hints may change. The one exception so far is that the default `nyx cve` record no
 longer has the lists `affected_products` and `references`, only their counts: that was a deliberate

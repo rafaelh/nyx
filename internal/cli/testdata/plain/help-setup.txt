@@ -1,18 +1,27 @@
 Examples:
   nyx setup
   nyx setup --config ./nyx.yaml
+  nyx setup --update-threat-data
 
 setup opens a full-screen editor for the config file: your API keys (each can be tested without being
-saved), the output directory and the common settings, and the stages to skip. Edits are held until you
-save. It needs a terminal, takes no arguments, and edits only the config file, which is where
-every setting and key nyx uses is kept.
+saved), the output directory and the common settings, the stages to skip, and a tab for the threat data nyx
+checks addresses against. Edits to the config file are held until you save. It needs a terminal and takes no
+arguments. The config file is where every setting and key nyx uses is kept.
+
+setup --update-threat-data is its one use without the editor (u on the Threat data tab runs the same update):
+it downloads Spamhaus's DROP lists and ipapi.is's abuse lists, needs no terminal, reads no config file and
+exits. It writes the downloaded copy, and nothing else, to the threat-data directory beside the default
+config file: spamhaus.jsonl and ipapi.json, each with a state file and a lock file. Its exit codes are 0 when
+no source failed, 7 when one did, 1 when both did, 2 when there is nowhere to keep the data, and 130, 143 or
+129 on a signal.
 
 Usage:
   nyx setup [flags]
 
 Flags:
-      --config string   Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
-  -h, --help            Help for setup
+      --config string        Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
+      --update-threat-data   Update the threat data (Spamhaus's DROP lists and ipapi.is's abuse lists) and exit, with no editor, no terminal and no config file
+  -h, --help                 Help for setup
 
 Shared flags:
       --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure

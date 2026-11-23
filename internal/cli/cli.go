@@ -21,7 +21,6 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -45,6 +44,7 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/shodan"
 	"github.com/rafaelh/nyx/internal/stages/subdomains"
 	"github.com/rafaelh/nyx/internal/stages/web"
+	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
 // Deps are the collaborators of Execute, replaceable in tests.
@@ -86,9 +86,9 @@ type Deps struct {
 	// Getwd is the directory nyx was run from, which nyx setup resolves relative paths against;
 	// nil means os.Getwd.
 	Getwd func() (string, error)
-	// Abusive is the snapshot of abusive networks and ASNs that recon and nyx ip check addresses
-	// against. Only tests set it; nil means the one built into the binary.
-	Abusive *abusive.Snapshot
+	// ThreatBuiltIn replaces the threat-data copies built into the binary (the ipapi.is snapshot and
+	// the Spamhaus lists); nil means the embedded ones. Only tests set it.
+	ThreatBuiltIn *threatdata.BuiltIn
 }
 
 // DefaultDeps returns the production dependencies, except Signals, which only
@@ -243,6 +243,9 @@ type invocation struct {
 	// hintNoConfig is the default config path to suggest nyx setup for, set by a command that read
 	// no config file because there is none ("" for no hint).
 	hintNoConfig string
+	// staleHints are the stale-data notices a command that read threat data found, to print as hints
+	// (never under --json, where they are warnings instead).
+	staleHints []string
 
 	mu            sync.Mutex
 	interruptHint string // what to do after a signal, set by the command
@@ -295,6 +298,7 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 
 	err := inv.execute(runCtx)
 	inv.writeNoConfigHint(err)
+	inv.writeStaleHints(err)
 	if err == nil {
 		return 0
 	}
@@ -349,6 +353,48 @@ func (inv *invocation) writeNoConfigHint(err error) {
 		return
 	}
 	_, _ = io.WriteString(inv.d.Stderr, noConfigHint(inv.hintNoConfig))
+}
+
+// writeStaleHints writes the hints that say threat data is old, right after the no-config hint and
+// before any error line, with the same exceptions: not under --json (the notice is a warning there)
+// or --quiet, and not on a usage error.
+func (inv *invocation) writeStaleHints(err error) {
+	if len(inv.staleHints) == 0 || inv.sh.json || inv.sh.quiet {
+		return
+	}
+	var pe *clierr.PanicError
+	if err != nil && !errors.As(err, &pe) && inv.toError(err).Code == clierr.InvalidInput {
+		return
+	}
+	for _, h := range inv.staleHints {
+		_, _ = io.WriteString(inv.d.Stderr, "hint: "+sanitize.Line(h)+"\n")
+	}
+}
+
+// loadThreat reads the threat data a command checks addresses against, once, from the threat-data
+// directory and the built-in copies. read says whether the command reads a source (threatdata.Spamhaus
+// or threatdata.Ipapi); a source it doesn't read gives no warning and no hint.
+//
+// A downloaded copy that is unreadable is a warning event, which prints even under --quiet and goes
+// to meta.warnings under --json. A stale source is a warning in the envelope under --json, whatever
+// --quiet says, and otherwise a hint that Execute writes once the command has returned.
+func (inv *invocation) loadThreat(em report.Emitter, warnings *report.Warnings, read func(source string) bool) threatdata.Set {
+	set := inv.d.ThreatBuiltIn.Load(threatdata.Dir(inv.d.Env), inv.d.Clock())
+	for _, w := range set.Warnings {
+		if read(w.Source) {
+			report.Say(em, "warning")(w.Text)
+		}
+	}
+	for _, n := range set.Stale {
+		switch {
+		case !read(n.Source):
+		case warnings != nil:
+			warnings.Emit(report.Event{Type: "warning", Fields: map[string]any{"message": n.Text}})
+		default:
+			inv.staleHints = append(inv.staleHints, n.Text)
+		}
+	}
+	return set
 }
 
 // execute builds the tree, classifies the arguments and runs the command. A

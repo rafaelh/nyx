@@ -10,6 +10,7 @@ import (
 	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
 // Source is where a part of a record comes from.
@@ -153,6 +154,12 @@ type Record struct {
 	// no owner, and null when Team Cymru failed. A non-public address has both null.
 	AbusiveNetworks []abusive.NetworkMatch `json:"abusive_networks"`
 	AbusiveASN      []abusive.ASNMatch     `json:"abusive_asn"`
+
+	// DropNetworks are the entries of Spamhaus's DROP or DROPv6 that hold the address, the most
+	// specific first, and DropASN the ASN-DROP entry of its origin AS (a list of at most one). They
+	// follow the rules of the abusive keys.
+	DropNetworks []spamhaus.NetworkMatch `json:"drop_networks"`
+	DropASN      []spamhaus.ASNMatch     `json:"drop_asn"`
 
 	// NotContacted is why --active sent the address nothing; null when it was contacted.
 	NotContacted *string    `json:"not_contacted"`

@@ -74,7 +74,8 @@ keys:
 `nyx setup` is a full-screen terminal editor for one config file: the one `--config` names, or the
 default (`$XDG_CONFIG_HOME/nyx/config.yaml`, else `~/.config/nyx/config.yaml`). Use it once after
 installing, and again to add, rotate or remove a key. `nyx recon` and `nyx cve` then use what it
-saved. It takes no arguments. ↑ and ↓ move between rows, ← and → (or Tab) between the tabs, and
+saved. The editor takes no arguments. `nyx setup --update-threat-data` is setup's one use without the
+editor (see below). ↑ and ↓ move between rows, ← and → (or Tab) between the tabs, and
 the bottom of the screen lists the keys each tab offers.
 
 - **Keys tab.** Lists `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos`,
@@ -95,6 +96,15 @@ the bottom of the screen lists the keys each tab offers.
   `nyx help stages`). A stage that runs is marked `[x]`; toggling it off adds it to the `skip`
   setting and shows it muted. Stages that cannot be skipped are not offered. An entry in the file that
   is unknown or cannot be skipped is listed with its message and can be removed on its own.
+- **Threat data tab.** Lists the five lists the abusive-network check reads (Spamhaus's DROP,
+  DROPv6 and ASN-DROP, and ipapi.is's most-abusive networks and ASNs), each with its source, its date,
+  its entry count and whether the copy in use is built in or downloaded, and gives Spamhaus's
+  copyright line and a link to its terms. `u` runs the same update as `nyx setup --update-threat-data`
+  (see [Abusive networks](abusive-networks.md#updating-the-threat-data)). The tab shows it as in
+  progress, then each list's result in place: updated, already current, skipped (with when it can
+  next be updated) or failed (with the reason). An update is not an unsaved change: it writes no
+  config, quitting after it does not ask to save, quitting during it abandons it (each source keeps
+  its previous copy or gets its complete new one), and its result does not change setup's exit code.
 - **Testing a key.** `t` tests the key on the selected row, saved or not: one authenticated request
   to that source, never to a target (the hosts are listed under [Passive boundary](passive-boundary.md#passive-boundary)).
   It shows `accepted`, `rejected`, or `could not check: <reason>` for a rate limit, exhausted credits,
@@ -120,9 +130,24 @@ the bottom of the screen lists the keys each tab offers.
   file that cannot be read or parsed, or holds an unknown key, exits 2 with the problems `nyx recon`
   reports for it; one that parses but holds an invalid value opens with that value marked, and saving
   is blocked until it is fixed or cleared.
+- **Updating the threat data without the editor.** `nyx setup --update-threat-data` updates the five
+  lists and exits. It never opens the editor, needs no terminal on stdin or stdout, and reads no
+  config file, so it runs with no config file and with an invalid one; `--config` is accepted and
+  ignored, and an argument exits 2. It sends at most one request per list to `www.spamhaus.org` and
+  `ipapi.is`, and nothing to a target, and prints each list's old and new date, its entry count and
+  what was added and removed, which `--quiet` does not suppress. It writes the downloaded copy, and
+  nothing else, to the `threat-data` directory beside the default config file, in
+  `$XDG_CONFIG_HOME/nyx/` or else `~/.config/nyx/`, whatever `--config` is given: `spamhaus.jsonl`
+  and `ipapi.json` with, for each source, a `.state.json` file (when it last answered) and a `.lock`
+  file. Deleting the directory restores the built-in data. With neither `XDG_CONFIG_HOME` nor `HOME`
+  set it exits 2 and says why. The update exits 0 when every source updated, was already current or
+  was skipped (it sends a source nothing within an hour of its last answer), 7 when one source
+  failed, 1 when both failed, and 130, 143 or 129 on a signal; with `--json` it writes one envelope
+  on exit 0 or 7. The details are on [Abusive networks](abusive-networks.md#updating-the-threat-data),
+  and the codes in [Exit codes](exit-codes.md#exit-codes).
 - **What it ignores.** The environment: what setup shows and saves is what nyx reads, as no setting
   or key comes from anywhere else.
-- **Exit codes.** 0 after a save, a discard or no change. It exits 2, before drawing anything, when
+- **Exit codes.** For the editor, 0 after a save, a discard or no change. It exits 2, before drawing anything, when
   there is no `--config` and no default path (neither `XDG_CONFIG_HOME` nor `HOME` is set), when it
   is given an argument, when stdin or stdout is not a terminal (error code `INVALID_INPUT`, with the
   file's path and a hint to edit it by hand), and when the file cannot be read, parsed or holds an

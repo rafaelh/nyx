@@ -70,8 +70,10 @@ var table = []Row{
 	{OriginExposure, "possible", Low, "an address that may be the origin of a hostname behind a CDN or WAF, found from its history or a sibling and not confirmed"},
 	{EOLSoftware, "eol", Medium, "a web technology or banner version is past the end of security support of its release cycle; low for a distribution build or a version only Shodan reports"},
 	{EOLSoftware, "eol-approaching", Low, "the end of security support of the release cycle is within --eol-warn-days"},
-	{AbusiveNetwork, "network", Medium, "an address of the engagement is in a network ipapi.is lists among the most abusive on the internet (a snapshot built into nyx; nothing is requested)"},
-	{AbusiveNetwork, "asn", Low, "an address of the engagement is announced by an AS ipapi.is lists among the most abusive, and no listed network holds it"},
+	{AbusiveNetwork, "drop-network", High, "an address of the engagement is in a network on Spamhaus DROP or DROPv6 (hijacked or criminal-controlled; data built into nyx or downloaded by nyx setup --update-threat-data)"},
+	{AbusiveNetwork, "drop-asn", Medium, "an address of the engagement is announced by an AS on Spamhaus ASN-DROP, and no DROP network holds it"},
+	{AbusiveNetwork, "network", Medium, "an address of the engagement is in a network ipapi.is lists among the most abusive on the internet, and no Spamhaus list matches it (data built into nyx or downloaded by nyx setup --update-threat-data)"},
+	{AbusiveNetwork, "asn", Low, "an address of the engagement is announced by an AS ipapi.is lists among the most abusive, and no listed network holds it and no Spamhaus list matches it"},
 }
 
 // SeverityTable is the documented default severity of every finding type.

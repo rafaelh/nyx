@@ -11,8 +11,9 @@ import (
 )
 
 // nyx ip's abusive_networks and abusive_asn keys: the entries of ipapi.is's two lists that hold the
-// address or its origin AS, from the snapshot built into nyx (injected by Deps.Abusive here, since the
-// addresses of the tests are not on the real lists). Nothing is requested for the lists.
+// address or its origin AS, from the copy built into nyx (the test's own here, the harness's abusive,
+// which Deps.ThreatBuiltIn carries, since the addresses of the tests are not on the real lists).
+// Nothing is requested for the lists.
 
 const ipAbusiveAddr = "93.184.216.34"
 
