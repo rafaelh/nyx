@@ -2,8 +2,8 @@
   {
     "cycle": "1.31",
     "eol": false,
-    "latest": "1.31.8",
-    "latestReleaseDate": "2026-10-21",
+    "latest": "1.31.9",
+    "latestReleaseDate": "2026-11-18",
     "link": "https://nginx.org/en/CHANGES",
     "lts": false,
     "releaseDate": "2026-05-13"
@@ -11,8 +11,8 @@
   {
     "cycle": "1.30",
     "eol": false,
-    "latest": "1.30.6",
-    "latestReleaseDate": "2026-10-14",
+    "latest": "1.30.7",
+    "latestReleaseDate": "2026-11-18",
     "lts": false,
     "releaseDate": "2026-04-14"
   },

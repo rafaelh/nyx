@@ -30,5 +30,61 @@
     "latestReleaseDate": "2023-04-24",
     "lts": false,
     "releaseDate": "2021-10-08"
+  },
+  {
+    "cycle": "3.1",
+    "eol": "2022-12-28",
+    "latest": "3.1.2",
+    "latestReleaseDate": "2021-09-30",
+    "lts": false,
+    "releaseDate": "2020-05-04"
+  },
+  {
+    "cycle": "3.0",
+    "eol": "2021-10-08",
+    "latest": "3.0.1",
+    "latestReleaseDate": "2020-05-04",
+    "lts": false,
+    "releaseDate": "2020-02-24"
+  },
+  {
+    "cycle": "2.3",
+    "eol": "2020-05-04",
+    "latest": "2.3.1",
+    "latestReleaseDate": "2019-07-26",
+    "lts": false,
+    "releaseDate": "2018-12-05"
+  },
+  {
+    "cycle": "2.2",
+    "eol": "2020-02-24",
+    "latest": "2.2.0",
+    "latestReleaseDate": "2018-08-07",
+    "lts": false,
+    "releaseDate": "2018-08-07"
+  },
+  {
+    "cycle": "2.1",
+    "eol": "2018-12-05",
+    "latest": "2.1.2",
+    "latestReleaseDate": "2018-07-11",
+    "lts": false,
+    "releaseDate": "2017-08-04"
+  },
+  {
+    "cycle": "2.0",
+    "eol": "2018-08-07",
+    "latest": "2.0.0",
+    "latestReleaseDate": "2016-09-20",
+    "lts": false,
+    "releaseDate": "2016-09-19"
+  },
+  {
+    "cycle": "1",
+    "eol": "2018-08-07",
+    "latest": "1.7.2",
+    "latestReleaseDate": "2018-07-10",
+    "lts": false,
+    "releaseDate": "2010-07-09"
   }
 ]

@@ -2,8 +2,8 @@
   {
     "cycle": "1.3.9",
     "eol": false,
-    "latest": "1.3.9e",
-    "latestReleaseDate": "2026-10-26",
+    "latest": "1.3.9f",
+    "latestReleaseDate": "2026-11-18",
     "lts": false,
     "releaseDate": "2025-03-14",
     "staleReleaseThresholdDays": 500,

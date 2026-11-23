@@ -2,8 +2,8 @@
   {
     "cycle": "13",
     "eol": "2028-03-17",
-    "latest": "13.42.0",
-    "latestReleaseDate": "2026-11-10",
+    "latest": "13.43.0",
+    "latestReleaseDate": "2026-11-17",
     "lts": false,
     "releaseDate": "2026-03-17",
     "support": "2027-09-30",
@@ -12,8 +12,8 @@
   {
     "cycle": "12",
     "eol": "2027-02-24",
-    "latest": "12.72.0",
-    "latestReleaseDate": "2026-11-10",
+    "latest": "12.73.0",
+    "latestReleaseDate": "2026-11-17",
     "lts": false,
     "releaseDate": "2025-02-24",
     "support": "2026-08-13",

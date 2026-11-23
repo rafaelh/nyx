@@ -1,5 +1,13 @@
 [
   {
+    "cycle": "19",
+    "eol": "2031-11-19",
+    "latest": "19.0",
+    "latestReleaseDate": "2026-11-16",
+    "lts": false,
+    "releaseDate": "2026-11-19"
+  },
+  {
     "cycle": "18",
     "eol": "2030-11-14",
     "latest": "18.7",
