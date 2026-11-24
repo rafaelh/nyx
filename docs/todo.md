@@ -43,9 +43,6 @@ them as pure refactors.
 
 Confirm each with `/code-review` before fixing.
 
-- **Stale records skip the showing rule.** Historical addresses and code mentions that are no
-  longer current stay listed after their host or root is excluded.
-
 - **Refresh tool writes `stated: 0`.** When only one ipapi.is page is newer and the kept list is
   an old file with no `stated`, `internal/threatdata/refresh` writes `stated: 0` for it. Every
   built-in list has a `stated` now, so it happens only if an old snapshot is restored; a guard in

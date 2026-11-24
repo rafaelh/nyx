@@ -90,6 +90,31 @@ func TestWebShown(t *testing.T) {
 	}
 }
 
+// A record no longer current has lost its attributes, but a keyed kind's key still names its
+// host, so the showing rule hides it once that host is excluded.
+func TestStaleKeyedShown(t *testing.T) {
+	t.Parallel()
+	stale := func(key string) store.Record { return store.Record{Key: key} }
+	for _, c := range []struct {
+		name string
+		kind kinds.Named
+		key  string
+		excl []string
+		want bool
+	}{
+		{"historical address", kinds.HistoricalAddress, "www.example.com|A|192.0.2.7", nil, true},
+		{"historical address, host excluded", kinds.HistoricalAddress, "www.example.com|A|192.0.2.7", []string{"www.example.com"}, false},
+		{"historical IPv6 address, host excluded", kinds.HistoricalAddress, "www.example.com|AAAA|2001:db8::7", []string{"www.example.com"}, false},
+		{"third party", kinds.ThirdParty, "example.com|mx|mail.org", nil, true},
+		{"third party, root excluded", kinds.ThirdParty, "example.com|mx|mail.org", []string{"example.com"}, false},
+		{"third party, domain in scope", kinds.ThirdParty, "example.com|mx|example.com", nil, false},
+	} {
+		if got := world(t, c.excl...).Shown(c.kind, stale(c.key)); got != c.want {
+			t.Errorf("%s: Shown(%s %s) = %v, want %v", c.name, c.kind.Name(), c.key, got, c.want)
+		}
+	}
+}
+
 func TestOtherKindsShown(t *testing.T) {
 	t.Parallel()
 	v := world(t)

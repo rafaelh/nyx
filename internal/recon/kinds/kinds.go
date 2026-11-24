@@ -48,6 +48,9 @@ type Kind struct {
 	// evidence and internal kinds have none. Entity records use their candidate or excluded
 	// placement label when applicable, otherwise their in-scope Change label.
 	Change string
+	// fromKey, set for Keyed kinds, returns a record's attributes with the identifying fields its
+	// key carries filled in, so the showing rule applies to a non-current record too.
+	fromKey func(store.Record) map[string]any
 }
 
 // Entity reports whether this kind uses scope placement rather than ordinary shown/hidden
@@ -161,6 +164,14 @@ func define[A any](k Kind) Of[A] { table = append(table, k); return Of[A]{ref{k}
 
 // defineKeyed registers key construction and recovery of missing attributes from stored keys.
 func defineKeyed[A any](k Kind, key func(A) string, rebuild func(key string, a *A)) Keyed[A] {
+	k.fromKey = func(r store.Record) map[string]any {
+		var a A
+		if len(r.Attrs) > 0 {
+			decode(r.Attrs, &a)
+		}
+		rebuild(r.Key, &a)
+		return encode(a)
+	}
 	table = append(table, k)
 	return Keyed[A]{Of: Of[A]{ref{k}}, key: key, rebuild: rebuild}
 }

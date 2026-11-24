@@ -41,6 +41,10 @@ func (v *Visibility) shown(k Kind, r store.Record) bool {
 	case v == nil:
 		return !k.scoped()
 	}
+	if len(r.Attrs) == 0 && k.fromKey != nil && (k.HostAttr != "" || k.OutsideAttr != "") {
+		// A non-current record has lost its attributes; its key still names the host.
+		r.Attrs = k.fromKey(r)
+	}
 	return v.hostShown(k, r) && v.outside(k, r)
 }
 

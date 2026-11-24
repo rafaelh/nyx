@@ -495,7 +495,7 @@ func resolutionRows(s Snapshot) []Row {
 	}
 	vis := s.vis()
 	for _, r := range s.of(kinds.HistoricalAddress) {
-		if r.Current && !vis.Shown(kinds.HistoricalAddress, r) {
+		if !vis.Shown(kinds.HistoricalAddress, r) {
 			continue
 		}
 		a := kinds.HistoricalAddress.Attrs(r)

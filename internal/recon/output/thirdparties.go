@@ -13,16 +13,12 @@ func thirdPartyRows(s Snapshot) []Row {
 	var rows []Row
 	vis := s.vis()
 	for _, r := range s.of(kinds.ThirdParty) {
-		a := kinds.ThirdParty.Attrs(r)
-		// Recover root/domain from the key even for non-current records so dependencies
-		// brought into scope are hidden consistently.
-		asked := r
-		if len(r.Attrs) == 0 {
-			asked.Attrs = map[string]any{"root": a.Root, "domain": a.Domain}
-		}
-		if !vis.Shown(kinds.ThirdParty, asked) {
+		// Shown recovers a non-current record's root and domain from its key, so a dependency
+		// brought into scope is hidden whether or not it is current.
+		if !vis.Shown(kinds.ThirdParty, r) {
 			continue
 		}
+		a := kinds.ThirdParty.Attrs(r)
 		rows = append(rows, recordRow(r, a.Root, a.Mechanism, a.Domain, a.Provider, strconv.Itoa(a.Depth)))
 	}
 	return rows
