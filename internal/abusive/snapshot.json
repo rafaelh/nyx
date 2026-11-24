@@ -1,6 +1,6 @@
 {
  "networks": {
-  "updated": "2026-11-22",
+  "updated": "2026-11-23",
   "stated": 5000,
   "entries": [
 {"rank":3945,"start":"2.27.26.96","end":"2.27.26.127","score_tag":"High","abuse_score":3.13,"org":"H2.NEXUS Hanoi Network","org_type":"business"},
@@ -5006,7 +5006,7 @@
   ]
  },
  "asns": {
-  "updated": "2026-11-22",
+  "updated": "2026-11-23",
   "stated": 1000,
   "entries": [
 {"rank":162,"asn":245,"score_tag":"Very High","abuse_score":100,"org":"planningresearchcorp.com","org_type":"Spamhaus ASN-DROP"},

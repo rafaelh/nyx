@@ -210,7 +210,7 @@
 {"cidr":"45.197.177.0/24","sblid":"SBL697073","rir":"afrinic"}
 {"cidr":"45.197.178.0/24","sblid":"SBL697072","rir":"afrinic"}
 {"cidr":"45.197.179.0/24","sblid":"SBL697074","rir":"afrinic"}
-{"cidr":"45.198.224.0/24","sblid":"SBL701300","rir":null}
+{"cidr":"45.198.224.0/24","sblid":"SBL701300","rir":"afrinic"}
 {"cidr":"45.221.116.0/22","sblid":"SBL698397","rir":"afrinic"}
 {"cidr":"45.230.66.0/24","sblid":"SBL681084","rir":"lacnic"}
 {"cidr":"45.248.88.0/22","sblid":"SBL677713","rir":"apnic"}
@@ -237,8 +237,8 @@
 {"cidr":"62.60.134.0/24","sblid":"SBL700391","rir":"ripencc"}
 {"cidr":"62.60.135.0/24","sblid":"SBL689243","rir":"ripencc"}
 {"cidr":"62.60.188.0/22","sblid":"SBL657458","rir":"ripencc"}
-{"cidr":"62.60.226.0/24","sblid":"SBL697779","rir":"ripencc"}
 {"cidr":"62.60.226.0/24","sblid":"SBL671779","rir":"ripencc"}
+{"cidr":"62.60.226.0/24","sblid":"SBL697779","rir":"ripencc"}
 {"cidr":"62.204.41.0/24","sblid":"SBL690073","rir":"ripencc"}
 {"cidr":"63.80.8.0/22","sblid":"SBL623896","rir":"arin"}
 {"cidr":"64.15.0.0/20","sblid":"SBL530365","rir":"arin"}
@@ -799,7 +799,7 @@
 {"cidr":"150.129.212.0/22","sblid":"SBL277063","rir":"apnic"}
 {"cidr":"150.242.120.0/22","sblid":"SBL277066","rir":"apnic"}
 {"cidr":"151.131.0.0/16","sblid":"SBL691992","rir":"arin"}
-{"cidr":"151.243.11.0/24","sblid":"SBL701301","rir":null}
+{"cidr":"151.243.11.0/24","sblid":"SBL701301","rir":"ripencc"}
 {"cidr":"152.109.0.0/16","sblid":"SBL307830","rir":"afrinic"}
 {"cidr":"153.14.0.0/16","sblid":"SBL220726","rir":"arin"}
 {"cidr":"153.51.160.0/22","sblid":"SBL693984","rir":"ripencc"}
@@ -1751,7 +1751,7 @@
 {"cidr":"223.155.16.0/24","sblid":"SBL656595","rir":"apnic"}
 {"cidr":"223.169.0.0/16","sblid":"SBL208009","rir":"apnic"}
 {"cidr":"223.254.0.0/16","sblid":"SBL212803","rir":"apnic"}
-{"type":"metadata","timestamp":1795283804,"size":106859,"records":1752,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}
+{"type":"metadata","timestamp":1795433204,"size":106869,"records":1752,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}
 {"list":"drop_v6"}
 {"cidr":"2001:678:254::/48","sblid":"SBL697648","rir":"ripencc"}
 {"cidr":"2001:678:6c0::/48","sblid":"SBL624855","rir":"ripencc"}
@@ -1843,7 +1843,7 @@
 {"cidr":"2a14:8000::/29","sblid":"SBL690641","rir":"arin"}
 {"cidr":"2a14:c380:11::/48","sblid":"SBL688279","rir":"ripencc"}
 {"cidr":"2a14:c380:12::/48","sblid":"SBL688015","rir":"ripencc"}
-{"type":"metadata","timestamp":1795168604,"size":5676,"records":90,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}
+{"type":"metadata","timestamp":1795433204,"size":5676,"records":90,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}
 {"list":"asndrop"}
 {"asn":245,"rir":"arin","domain":"planningresearchcorp.com","cc":"US","asname":"PRC-AS"}
 {"asn":2601,"rir":"ripencc","domain":"pitline.net","cc":"UA","asname":"RADIOLINK-AS"}
@@ -2056,6 +2056,7 @@
 {"asn":152486,"rir":"apnic","domain":"jdmbroadband.com","cc":"IN","asname":"NTSHIELD-AS-IN"}
 {"asn":154177,"rir":"apnic","domain":"kaopuyun.com","cc":"CN","asname":"LIGHT4-AS-AP"}
 {"asn":154206,"rir":"apnic","domain":"cloudie.hk","cc":"HK","asname":"CDN1COM-AS-AP"}
+{"asn":155037,"rir":"apnic","domain":"techmoved.com","cc":"BD","asname":"TECHMOVED-AS-AP"}
 {"asn":197170,"rir":"ripencc","domain":"hostslick.de","cc":"DE","asname":"TECHTIES-AS"}
 {"asn":197176,"rir":"ripencc","domain":"kyliecdn","cc":"CN","asname":"KylieCDN-AS"}
 {"asn":197283,"rir":"ripencc","domain":"powerrdp.pro","cc":"UA","asname":"PowerRDP-Network-AS"}
@@ -2304,4 +2305,4 @@
 {"asn":402253,"rir":"arin","domain":"skntelecom.com","cc":"KN","asname":"SKN-NETWORK-1"}
 {"asn":402647,"rir":"arin","domain":"ipswat.com","cc":"US","asname":"NETRONEX_SOLUTIONS"}
 {"asn":403005,"rir":"arin","domain":"blatant.host","cc":"SC","asname":"BLATANTHOST"}
-{"type":"metadata","timestamp":1795424204,"size":40867,"records":459,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}
+{"type":"metadata","timestamp":1795481804,"size":40958,"records":460,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}
