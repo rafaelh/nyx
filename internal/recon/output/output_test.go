@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/recon/output"
+	"github.com/rafaelh/nyx/internal/recon/store"
 )
 
 func rows(rs ...output.Row) func(output.Snapshot) []output.Row {
@@ -300,5 +301,39 @@ func TestWriter_RewritesOnlyChangedFiles(t *testing.T) {
 	}
 	if os.SameFile(fixed, stat("fixed.txt")) {
 		t.Error("a new Writer did not write every file")
+	}
+}
+
+// A DNS claim keeps its name, type and value once it is no longer current, and merges into nyx's
+// own answer only while both are current.
+func TestResolutions_ClaimsNoLongerCurrent(t *testing.T) {
+	t.Parallel()
+	dir := newDir(t)
+	snap := output.Snapshot{Today: "2026-11-01", Records: map[string][]store.Record{
+		"resolution": {
+			srec("resolution", "a.example.com|A|192.0.2.1", true),
+			srec("resolution", "c.example.com|A|192.0.2.3", false),
+			srec("resolution", "d.example.com|A|192.0.2.4", true),
+		},
+		"dns_claim": {
+			srec("dns_claim", "a.example.com|A|192.0.2.1", false),
+			srec("dns_claim", "b.example.com|A|192.0.2.2", false),
+			srec("dns_claim", "c.example.com|A|192.0.2.3", true, "source", "shodan"),
+			srec("dns_claim", "d.example.com|A|192.0.2.4", true, "source", "shodan"),
+		},
+	}}
+	if err := output.Render(dir, []output.File{file(t, "resolutions.csv")}, snap, false); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"name,type,value,source,self_hosted,historical_first_seen,historical_last_seen,current,first_seen,last_seen",
+		"a.example.com,A,192.0.2.1,resolve,,,,true,2026-10-01,2026-11-01",
+		"b.example.com,A,192.0.2.2,,,,,false,2026-10-01,2026-11-01",
+		"c.example.com,A,192.0.2.3,resolve,,,,false,2026-10-01,2026-11-01",
+		"c.example.com,A,192.0.2.3,shodan,,,,true,2026-10-01,2026-11-01",
+		"d.example.com,A,192.0.2.4,resolve;shodan,,,,true,2026-10-01,2026-11-01",
+	}
+	if got := read(t, dir, "resolutions.csv"); got != strings.Join(want, "\n")+"\n" {
+		t.Errorf("resolutions.csv =\n%s\nwant\n%s", got, strings.Join(want, "\n"))
 	}
 }

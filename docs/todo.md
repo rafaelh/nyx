@@ -43,8 +43,6 @@ them as pure refactors.
 
 Confirm each with `/code-review` before fixing.
 
-- **Blank row in `resolutions.csv`.** A DNS claim that is no longer current writes a blank row.
-
 - **Stale records skip the showing rule.** Historical addresses and code mentions that are no
   longer current stay listed after their host or root is excluded.
 

@@ -479,10 +479,17 @@ func resolutionRows(s Snapshot) []Row {
 		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, "resolve", selfHosted, "", ""))
 	}
 	for _, r := range s.of(kinds.DNSClaim) {
-		a := kinds.DNSClaim.Attrs(r)
+		a := kinds.DNSClaim.Attrs(r) // a claim no longer current keeps its key but not its source
 		if i, ok := at[r.Key]; ok {
-			rows[i].Cells[3] += ";" + a.Source
-			continue
+			switch {
+			case r.Current && rows[i].Current:
+				rows[i].Cells[3] += ";" + a.Source
+				continue
+			case !r.Current:
+				// A gone claim adds nothing to nyx's own answer, and its source is lost.
+				continue
+			}
+			// A current claim of an answer nyx no longer sees gets its own current row.
 		}
 		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, a.Source, "", "", ""))
 	}
