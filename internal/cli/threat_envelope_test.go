@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // The update's --json envelope is a stable interface: every key is present on exit 0 and exit 7,

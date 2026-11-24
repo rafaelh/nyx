@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/palette"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Missing DROP metadata leaves no stray punctuation or spacing.

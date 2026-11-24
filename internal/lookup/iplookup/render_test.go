@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")

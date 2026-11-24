@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/dnsname"
@@ -22,7 +21,8 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/provider"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // The hosts of the sources that have one request per address.

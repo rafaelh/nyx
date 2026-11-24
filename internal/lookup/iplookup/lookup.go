@@ -8,12 +8,12 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/lookup/batch"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Config supplies lookup dependencies and selected output fields.

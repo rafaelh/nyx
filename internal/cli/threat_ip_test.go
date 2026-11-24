@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/abusive"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // DROP fields match active local lists without requests, using fixed embedded/downloaded

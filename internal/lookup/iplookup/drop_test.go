@@ -9,7 +9,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // The dates of the test DROP lists: each list has its own, as Spamhaus's do.

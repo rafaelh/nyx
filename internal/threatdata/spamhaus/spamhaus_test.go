@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/sanitize"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // The dates of the test lists: each list has its own, as Spamhaus's do.

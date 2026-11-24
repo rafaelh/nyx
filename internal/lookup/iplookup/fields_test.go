@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 const defaultKeys = "address,hostnames,kind,asn,as_name,as_prefix,rdap_netblock,rdap_org,rdap_registry,ptr,provider,provider_class," +

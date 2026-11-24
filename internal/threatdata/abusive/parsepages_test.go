@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 )
 
 // pagesNow is the clock of the page tests: 2026-11-21 12:00 UTC. The pages in testdata are dated

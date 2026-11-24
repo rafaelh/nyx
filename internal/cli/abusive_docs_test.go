@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/lookup/cve"
 	"github.com/rafaelh/nyx/internal/lookup/iplookup"
 	"github.com/rafaelh/nyx/internal/setup/keycheck"
-	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Pin documentation to all five embedded list dates so refreshes cannot silently leave the
@@ -131,8 +131,8 @@ func TestAbusiveDocs_MakefileTarget(t *testing.T) {
 		"https://www.spamhaus.org/drop/drop_v4.json", "https://www.spamhaus.org/drop/drop_v6.json",
 		"https://www.spamhaus.org/drop/asndrop.json",
 		"https://ipapi.is/most-abusive-networks.html", "https://ipapi.is/most-abusive-asn.html",
-		"go run ./internal/threatdata/refresh", "-spamhaus internal/spamhaus/builtin.jsonl",
-		"-ipapi internal/abusive/snapshot.json", "-allow-shrink"} {
+		"go run ./internal/threatdata/refresh", "-spamhaus internal/threatdata/spamhaus/builtin.jsonl",
+		"-ipapi internal/threatdata/abusive/snapshot.json", "-allow-shrink"} {
 		if !strings.Contains(recipe, want) {
 			t.Errorf("the recipe lacks %q:\n%s", want, recipe)
 		}

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 )
 
 // Fix time at 2026-11-21 noon UTC to match HTML fixtures and keep tests independent of real
@@ -121,7 +121,7 @@ func withRow(rows []string, i int, row string) []string {
 // page reads one of the ipapi.is test pages, which the abusive package's tests share.
 func page(t *testing.T, name string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "abusive", "testdata", name))
+	b, err := os.ReadFile(filepath.Join("..", "abusive", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}

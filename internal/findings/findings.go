@@ -12,15 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/scope"
-	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/store"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Input supplies derivation dependencies. Records is called only for needed kinds; derivation

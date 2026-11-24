@@ -249,7 +249,8 @@ Refreshing the built-in copies is a maintainer's task, done when a build is made
 `make threat-data` fetches the five lists with `curl` (three requests to `www.spamhaus.org` and two
 to `ipapi.is`), and a tool (`internal/threatdata/refresh`) applies the same checks as an update. It
 prints what was added, removed and changed (a rank that alone moved is left out), and replaces each
-source's copy, `internal/spamhaus/builtin.jsonl` and `internal/abusive/snapshot.json`, as a whole or
+source's copy, `internal/threatdata/spamhaus/builtin.jsonl` and
+`internal/threatdata/abusive/snapshot.json`, as a whole or
 not at all. A list dated no later than the built-in copy is left as it is, and a source that fails
 leaves its file as it was while the other is still written. A maintainer who has reviewed a list that
 shrank to under half its entries can let it through with `make threat-data ALLOW_SHRINK=1`, which

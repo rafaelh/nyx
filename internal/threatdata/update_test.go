@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 var (

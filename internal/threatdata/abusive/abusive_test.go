@@ -13,8 +13,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 )
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }

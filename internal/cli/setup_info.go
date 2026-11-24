@@ -10,8 +10,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/setup"
 	"github.com/rafaelh/nyx/internal/setup/keycheck"
-	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // nvdTurnsOn describes the NVD key's use by nyx cve.

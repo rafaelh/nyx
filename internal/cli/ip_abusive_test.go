@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 )
 
 // Abuse-field tests supply fixed local snapshots because real lists do not contain fixture

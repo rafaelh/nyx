@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 )
 
 // Render writes selected record sections, separating addresses with blank lines. Empty values

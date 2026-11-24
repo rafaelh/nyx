@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Staleness tests fix old built-ins against the harness clock and check both human hints and

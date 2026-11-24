@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Reject controls throughout JSON, including unknown nested values and keys, even when

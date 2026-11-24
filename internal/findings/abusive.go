@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/abusive"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // abusiveNetworks matches eligible addresses against local DROP and abuse lists without

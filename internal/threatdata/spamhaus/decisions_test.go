@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/spamhaus"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // Cover missing values, control rejection and ignored text beyond the main parsing cases.

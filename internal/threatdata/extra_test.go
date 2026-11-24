@@ -12,8 +12,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
+	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 
 // An update that syncs its files (NoFsync unset) puts the same files in place.
