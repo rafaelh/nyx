@@ -171,7 +171,7 @@ func TestCrawl_RecordedURLsAreCappedAt20TimesPages(t *testing.T) {
 
 func TestCrawl_Errors(t *testing.T) {
 	t.Parallel()
-	t.Run("a failing non-root page is skipped and the check completes", func(t *testing.T) {
+	t.Run("a failing non-root page is skipped and the job completes", func(t *testing.T) {
 		t.Parallel()
 		x := newWeb(t)
 		x.names("a.example.com")
@@ -188,7 +188,7 @@ func TestCrawl_Errors(t *testing.T) {
 		}))
 		x.mustRun()
 		if got := x.completedKeys("crawl"); !slices.Equal(got, []string{"http://a.example.com|depth=2|pages=100"}) {
-			t.Errorf("crawl checks = %v", got)
+			t.Errorf("crawl jobs = %v", got)
 		}
 		if s.count("/ok") == 0 {
 			t.Error("pages after the failing one were not crawled")
@@ -197,7 +197,7 @@ func TestCrawl_Errors(t *testing.T) {
 			t.Errorf("the link to the slow page is still recorded: %v", x.urlSet())
 		}
 	})
-	t.Run("a failing root page fails the check and is retried next run", func(t *testing.T) {
+	t.Run("a failing root page fails the job and is retried next run", func(t *testing.T) {
 		t.Parallel()
 		x := newWeb(t)
 		x.names("a.example.com")
@@ -217,7 +217,7 @@ func TestCrawl_Errors(t *testing.T) {
 		})
 		x.partialRun("crawl", 1)
 		if got := x.completedKeys("crawl"); len(got) != 0 {
-			t.Errorf("a failed root must not complete the check: %v", got)
+			t.Errorf("a failed root must not complete the job: %v", got)
 		}
 		if st, _ := stateOf(x.world, "crawl"); st != "failed" {
 			t.Errorf("crawl = %s, want failed", st)
@@ -225,7 +225,7 @@ func TestCrawl_Errors(t *testing.T) {
 		fail.Store(false)
 		x.mustRun()
 		if got := x.completedKeys("crawl"); !slices.Equal(got, []string{"http://a.example.com|depth=2|pages=100"}) {
-			t.Errorf("retry: crawl checks = %v", got)
+			t.Errorf("retry: crawl jobs = %v", got)
 		}
 	})
 }
@@ -360,7 +360,7 @@ func TestCrawl_DisabledAndSettingsAreInTheJobKey(t *testing.T) {
 		t.Errorf("crawl = %s (%s), want not-configured (disabled)", st, reason)
 	}
 	if s.hits() != 2 || len(x.completedKeys("crawl")) != 0 { // the probe's GET / and its favicon
-		t.Errorf("a disabled crawl sent requests or completed checks: hits=%d keys=%v", s.hits(), x.completedKeys("crawl"))
+		t.Errorf("a disabled crawl sent requests or completed jobs: hits=%d keys=%v", s.hits(), x.completedKeys("crawl"))
 	}
 	x.mustRun()
 	key := func(d, p int) string { return fmt.Sprintf("http://a.example.com|depth=%d|pages=%d", d, p) }
@@ -372,6 +372,6 @@ func TestCrawl_DisabledAndSettingsAreInTheJobKey(t *testing.T) {
 	want := []string{key(1, 100), key(2, 100), key(2, 50)}
 	slices.Sort(want)
 	if got := x.completedKeys("crawl"); !slices.Equal(got, want) {
-		t.Errorf("crawl keys = %v, want %v: changing depth or pages must create new checks", got, want)
+		t.Errorf("crawl keys = %v, want %v: changing depth or pages must create new jobs", got, want)
 	}
 }

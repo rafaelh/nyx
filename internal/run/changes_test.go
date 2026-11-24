@@ -219,7 +219,7 @@ func TestEntriesOf_FollowTheFiles(t *testing.T) {
 		t.Errorf("finding severity = %q", e.severity)
 	}
 	if e := entryOf(es, "web service", "https://www.a.com"); e != nil && !slices.Equal(e.procedures, []string{"httpprobe"}) {
-		t.Errorf("stages = %v", e.procedures)
+		t.Errorf("procedures = %v", e.procedures)
 	}
 	for _, e := range es {
 		if e.label == "" || e.key == "" {

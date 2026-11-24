@@ -517,7 +517,7 @@ func (s *Store) commitOps(batch []op) []Obs {
 	if !wrote {
 		return nil
 	}
-	fault.Point("in-check-tx")
+	fault.Point("in-job-tx")
 	if err := tx.Commit(); err != nil {
 		s.setErr(err)
 		return nil

@@ -143,7 +143,7 @@ func TestRedirect_LoopAndHopCapTerminate(t *testing.T) {
 	}
 	for _, k := range []string{"loop.example.com:80", "deep.example.com:80"} {
 		if !slices.Contains(x.completedKeys("httpprobe"), k) {
-			t.Errorf("check %s did not complete", k)
+			t.Errorf("job %s did not complete", k)
 		}
 	}
 }

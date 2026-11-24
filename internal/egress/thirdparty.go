@@ -144,7 +144,7 @@ func (t *thirdParty) sourceURL(r ThirdPartyRequest) (*url.URL, string, error) {
 	host := dnsname.Normalise(u.Hostname())
 	i := slices.IndexFunc(t.sources, func(s string) bool { return matchSource(s, host) })
 	if i < 0 {
-		return nil, "", fmt.Errorf("host %s is not one of this stage's sources", host)
+		return nil, "", fmt.Errorf("host %s is not one of this procedure's sources", host)
 	}
 	pattern := t.sources[i]
 	if err := t.policyRefusal(host); err != nil {

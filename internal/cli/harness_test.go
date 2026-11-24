@@ -598,7 +598,7 @@ type jobFailure struct{ procedure, key, err string }
 func (h *harness) failedJobs(procedure string) []jobFailure {
 	var out []jobFailure
 	for _, m := range h.messages("debug", " failed: ") {
-		st, rest, ok := strings.Cut(m, " check ")
+		st, rest, ok := strings.Cut(m, " job ")
 		key, err, ok2 := strings.Cut(rest, " failed: ")
 		if ok && ok2 && (procedure == "" || st == procedure) {
 			out = append(out, jobFailure{st, key, err})
@@ -665,7 +665,7 @@ func ofType(evs []event, typ string) []event {
 
 func procedureEvents(evs []event, name string) []event {
 	var out []event
-	for _, e := range ofType(evs, "stage") {
+	for _, e := range ofType(evs, "procedure") {
 		if e.str("name") == name {
 			out = append(out, e)
 		}

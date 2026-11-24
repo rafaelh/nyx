@@ -176,10 +176,10 @@ func TestNSReverse_AddressLookupsAreBestEffort(t *testing.T) {
 		t.Errorf("an unknown name server's A and AAAA were not both asked")
 	}
 	if st, _ := stateOf(x.world, "dnsroot"); st != "done" {
-		t.Errorf("dnsroot = %s, want done: a failed address lookup is not a failed check", st)
+		t.Errorf("dnsroot = %s, want done: a failed address lookup is not a failed job", st)
 	}
 	if st, _ := stateOf(x.world, "email"); st != "done" {
-		t.Errorf("email = %s, want done: a failed MX address lookup is not a failed check", st)
+		t.Errorf("email = %s, want done: a failed MX address lookup is not a failed job", st)
 	}
 	if r := x.resolutionRows("NS")["ns.nbhosted.test"]; r == nil || r["self_hosted"] != "no" {
 		t.Errorf("a server whose address could not be looked up is not self-hosted: %v", r)
@@ -207,7 +207,7 @@ func TestNSReverse_AsksOnlySelfHostedServers(t *testing.T) {
 	wantKeys := []string{"mx|mail.example.com|max=1000", "mx|mail.nbhosted.test|max=1000", "ns|ns-eligible.other.test|max=1000",
 		"ns|ns.nbhosted.test|max=1000", "ns|ns1.example.com|max=1000"}
 	if !slices.Equal(done, wantKeys) {
-		t.Errorf("completed checks = %v, want %v", done, wantKeys)
+		t.Errorf("completed jobs = %v, want %v", done, wantKeys)
 	}
 	for _, wrong := range []string{"wrong-cloudflare.test", "wrong-shared.test", "wrong-unknown.test", "wrong-mx.test"} {
 		if x.candidate(wrong) != nil {
@@ -308,7 +308,7 @@ func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
 		t.Errorf("the over-cap server was asked %d times, want only its first page", n)
 	}
 	if s, _ := stateOf(x.world, "nsreverse"); s != "done" {
-		t.Errorf("nsreverse = %s, want done: a server over the cap is a completed check", s)
+		t.Errorf("nsreverse = %s, want done: a server over the cap is a completed job", s)
 	}
 
 	st.total["ns|ns-eligible.other.test"] = 2
@@ -360,7 +360,7 @@ func TestNSReverse_QuotaStopsTheProcedure(t *testing.T) {
 		t.Errorf("a spent quota was recorded as done: %v", done)
 	}
 	if n := len(x.stServers()); n != 1 {
-		t.Errorf("the stage should stop after the first answer, saw %d", n)
+		t.Errorf("the procedure should stop after the first answer, saw %d", n)
 	}
 	st.setStatus(0)
 	x.mustShared("--concurrency", "1")
@@ -368,7 +368,7 @@ func TestNSReverse_QuotaStopsTheProcedure(t *testing.T) {
 		t.Errorf("the next run completed %v, want all five", done)
 	}
 	if x.candidate("sister-org.test") == nil {
-		t.Error("the retried checks did not record their domains")
+		t.Error("the retried jobs did not record their domains")
 	}
 }
 
@@ -445,13 +445,13 @@ func TestNSReverse_ExistingEngagementLooksUpAddressesOnce(t *testing.T) {
 	}
 	rerun()
 	if asked() != 2 {
-		t.Errorf("the old checks did not look the addresses up: %d", asked())
+		t.Errorf("the old jobs did not look the addresses up: %d", asked())
 	}
 	if got := x.completedKeys("email"); len(got) < 1 || !strings.HasSuffix(got[len(got)-1], "|addrs") {
-		t.Errorf("email check keys = %v", got)
+		t.Errorf("email job keys = %v", got)
 	}
 	rerun()
 	if asked() != 2 {
-		t.Errorf("the checks ran a third time: %d", asked())
+		t.Errorf("the jobs ran a third time: %d", asked())
 	}
 }

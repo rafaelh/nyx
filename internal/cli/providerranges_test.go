@@ -190,8 +190,8 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 
 			w.handle("www.digitalocean.com", c.serve)
 			f := w.h.partial(w.run("--passive", "--json", "--debug", "--redo", "providerranges", "example.com"), true)
-			if f.msg != "1 checks failed: providerranges 1" || !f.transient {
-				t.Errorf("error = %+v, want one failed providerranges check, transient", f)
+			if f.msg != "1 jobs failed: providerranges 1" || !f.transient {
+				t.Errorf("error = %+v, want one failed providerranges job, transient", f)
 			}
 			checkFailedRangeList(t, w)
 			checkEarlierRangesApply(t, w, before)
@@ -213,7 +213,7 @@ func checkFailedRangeList(t *testing.T, w *world) {
 		t.Errorf("no --debug line names digitalocean: %q", w.h.debugLines())
 	}
 	if s := lastState(w.h.events(), "providerranges"); s.num("failed") != 1 {
-		t.Errorf("state = %v, want one failed check", s)
+		t.Errorf("state = %v, want one failed job", s)
 	}
 }
 
@@ -295,7 +295,7 @@ func TestProviderRanges_DigitalOceanWithoutItsListStaysShared(t *testing.T) {
 		t.Errorf("ips.csv: %v, want digitalocean by ASN and not port-eligible", r)
 	}
 	if st, _ := p.procedureState("providerranges"); st != "done" {
-		t.Errorf("providerranges = %s: a failed list must not stop the stage", st)
+		t.Errorf("providerranges = %s: a failed list must not stop the procedure", st)
 	}
 }
 

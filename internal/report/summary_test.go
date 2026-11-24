@@ -57,8 +57,8 @@ func TestWriteSummary_PlainText(t *testing.T) {
 		"  urls             340\n" +
 		"  3 risky ports reported by Shodan, unconfirmed\n" +
 		"  shodan: truncated\n" +
-		"  Stopped by the deadline: 7 checks completed, 2 cancelled\n" +
-		"Failed checks (retried on the next run; --debug shows each failure)\n" +
+		"  Stopped by the deadline: 7 jobs completed, 2 cancelled\n" +
+		"Failed jobs (retried on the next run; --debug shows each failure)\n" +
 		"  asn              2\n" +
 		"Deferred to the next run\n" +
 		"  shodan           4\n" +
@@ -130,8 +130,8 @@ func TestWriteSummary_DeadlineLine(t *testing.T) {
 	}
 	env := report.Envelope{Data: s, Meta: report.Meta{DeadlineExceeded: true, JobsCompleted: 12, JobsCancelled: 34}}
 	out := writeSummary(palette.None, env)
-	const line = "Stopped by the deadline: 12 checks completed, 34 cancelled"
-	if !strings.Contains(out, "  a note\n  "+line+"\nFailed checks") {
+	const line = "Stopped by the deadline: 12 jobs completed, 34 cancelled"
+	if !strings.Contains(out, "  a note\n  "+line+"\nFailed jobs") {
 		t.Errorf("the line is not straight after the notes:\n%s", out)
 	}
 	env.Meta.DeadlineExceeded = false
@@ -140,7 +140,7 @@ func TestWriteSummary_DeadlineLine(t *testing.T) {
 	}
 	// With no notes it follows the counts and the risky ports line.
 	env = report.Envelope{Data: report.Summary{Counts: s.Counts, UnconfirmedRiskyPorts: 1}, Meta: report.Meta{DeadlineExceeded: true}}
-	if out := writeSummary(palette.None, env); !strings.Contains(out, "unconfirmed\n  Stopped by the deadline: 0 checks completed, 0 cancelled\n") {
+	if out := writeSummary(palette.None, env); !strings.Contains(out, "unconfirmed\n  Stopped by the deadline: 0 jobs completed, 0 cancelled\n") {
 		t.Errorf("line placement:\n%s", out)
 	}
 }
@@ -197,7 +197,7 @@ func TestWriteSummary_Coloured(t *testing.T) {
 		out := writeSummary(d, env)
 		for _, w := range []string{
 			d.Bold("Summary") + "\n",
-			d.Bold("Failed checks (retried on the next run; --debug shows each failure)") + "\n",
+			d.Bold("Failed jobs (retried on the next run; --debug shows each failure)") + "\n",
 			d.Bold("Deferred to the next run") + "\n",
 			d.Bold("Findings (high and medium)") + "\n",
 			d.Bold("Candidates worth promoting (high confidence)") + "\n",

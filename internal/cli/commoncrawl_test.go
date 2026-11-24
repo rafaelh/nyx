@@ -90,7 +90,7 @@ func TestCommonCrawl_PagesAreReadUntilThePastTheLastAnswer(t *testing.T) {
 		}
 	}
 	if done := w.h.completed(eng, "commoncrawl"); len(done) != 1 {
-		t.Errorf("completed = %v, want the root's check", done)
+		t.Errorf("completed = %v, want the root's job", done)
 	}
 }
 
@@ -146,7 +146,7 @@ func TestCommonCrawl_GivesUpAfterThreeRetries(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if done := w.h.completed(eng, "commoncrawl"); len(done) != 1 {
-		t.Errorf("completed = %v, want the root's check", done)
+		t.Errorf("completed = %v, want the root's job", done)
 	}
 }
 

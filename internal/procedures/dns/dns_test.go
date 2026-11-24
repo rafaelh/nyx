@@ -65,7 +65,7 @@ func TestWildcardServFailIsAnError(t *testing.T) {
 	d := egresstest.NewDNS(t)
 	d.RcodeSuffix("example.com", 2) // SERVFAIL
 	if obs, err := dns.NewWildcard(nil).Run(context.Background(), run.Job{Key: "example.com"}, clients(t, d)); err == nil {
-		t.Errorf("a SERVFAIL probe must fail the check, got %+v", obs)
+		t.Errorf("a SERVFAIL probe must fail the job, got %+v", obs)
 	}
 }
 
@@ -173,6 +173,6 @@ func TestNetblockOwnerContract(t *testing.T) {
 		t.Errorf("%s contact %v sources %v", st.Name(), st.Contact(), st.Sources())
 	}
 	if ok, _ := st.Configured(run.Env{}); !ok {
-		t.Error("the stage is not always configured")
+		t.Error("the procedure is not always configured")
 	}
 }

@@ -95,7 +95,7 @@ func TestLog_StreamsOfACompletedRun(t *testing.T) {
 	}
 	summaryOnly(t, h)
 	err := h.stderr.String()
-	for _, want := range []string{"| INFO  | nyx a.com  ", "| INFO  | s              running", "| INFO  | s              done (1 checks, 0 failed)",
+	for _, want := range []string{"| INFO  | nyx a.com  ", "| INFO  | s              running", "| INFO  | s              done (1 jobs, 0 failed)",
 		"| INFO  | + host: www.a.com", "| INFO  |   hosts: 1"} {
 		if !strings.Contains(err, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, err)
@@ -222,7 +222,7 @@ func TestLog_Levels(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
 	if calls.Load() < 2 {
-		t.Fatalf("Checks ran %d times; the test needs a repeated pass", calls.Load())
+		t.Fatalf("Jobs ran %d times; the test needs a repeated pass", calls.Load())
 	}
 	warns := h.logMsgs("WARN")
 	count := func(sub string) (n int) {
@@ -239,7 +239,7 @@ func TestLog_Levels(t *testing.T) {
 	if got := count("seen "); got != int(calls.Load()) {
 		t.Errorf("a warning whose text changes is written again: %d lines for %d passes: %q", got, calls.Load(), warns)
 	}
-	if count("result for w000 was truncated") != 1 || count("quota: quota spent or key rejected; 2 checks will be retried next run") != 1 {
+	if count("result for w000 was truncated") != 1 || count("quota: quota spent or key rejected; 2 jobs will be retried next run") != 1 {
 		t.Errorf("Warnf and quota warnings: %q", warns)
 	}
 	// A completely failed procedure uses ERROR severity.
@@ -247,8 +247,8 @@ func TestLog_Levels(t *testing.T) {
 		t.Errorf("ERROR lines = %q", msgs)
 	}
 	for _, w := range warns {
-		if strings.Contains(w, "check") && strings.Contains(w, "failed:") {
-			t.Errorf("a check failure is a WARN line: %q", w)
+		if strings.Contains(w, " job ") && strings.Contains(w, "failed:") {
+			t.Errorf("a job failure is a WARN line: %q", w)
 		}
 	}
 	if len(h.debugLines()) != 0 {
@@ -272,20 +272,20 @@ func TestLog_FailedJobIsDebugOnly(t *testing.T) {
 	if strings.Contains(h.stderr.String(), "m001") || strings.Contains(h.stdout.String(), "m001") {
 		t.Errorf("the failure is shown without --debug:\n%s", h.stderr.String())
 	}
-	if !strings.Contains(h.stderr.String(), "| mixed          done (3 checks, 1 failed)") {
-		t.Errorf("stage line:\n%s", h.stderr.String())
+	if !strings.Contains(h.stderr.String(), "| mixed          done (3 jobs, 1 failed)") {
+		t.Errorf("procedure line:\n%s", h.stderr.String())
 	}
-	if !strings.Contains(h.stdout.String(), "Failed checks (retried on the next run; --debug shows each failure)\n  mixed            1") {
+	if !strings.Contains(h.stdout.String(), "Failed jobs (retried on the next run; --debug shows each failure)\n  mixed            1") {
 		t.Errorf("summary:\n%s", h.stdout.String())
 	}
 	if got := h.readOut("a.com", "subdomains.txt"); !strings.Contains(got, "m000.a.com") || !strings.Contains(got, "m002.a.com") {
-		t.Errorf("the other checks completed: %q", got)
+		t.Errorf("the other jobs completed: %q", got)
 	}
 
 	if code := h.exec("-e", "a.com", "--debug"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
-	if d := h.debugLines(); len(d) != 1 || d[0] != "mixed check m001 failed: boom" {
+	if d := h.debugLines(); len(d) != 1 || d[0] != "mixed job m001 failed: boom" {
 		t.Errorf("DEBUG lines = %q", d)
 	}
 	for _, w := range h.logMsgs("WARN") {
@@ -312,12 +312,12 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 		return []run.Procedure{finder("src"), targetProcedure("probe"), targetProcedure("crawl2")}
 	}
 
-	t.Run("names the stages, after the header and before any stage line", func(t *testing.T) {
+	t.Run("names the procedures, after the header and before any procedure line", func(t *testing.T) {
 		h := newHarness(t, mk()...)
 		if code := h.exec("a.com"); code != 0 {
 			t.Fatal(h.stderr.String())
 		}
-		if got := notAuthorisedWarnings(h); len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe, crawl2"+tail {
+		if got := notAuthorisedWarnings(h); len(got) != 1 || got[0] != "not authorised, so these procedures are left out: probe, crawl2"+tail {
 			t.Fatalf("warnings = %q", got)
 		}
 		lines := h.logLines()
@@ -325,14 +325,14 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 			t.Errorf("order: %v", lines[:3])
 		}
 	})
-	t.Run("a stage left out by --skip is not named", func(t *testing.T) {
+	t.Run("a procedure left out by --skip is not named", func(t *testing.T) {
 		h := newHarness(t, mk()...)
 		h.exec("a.com", "--skip", "crawl2")
-		if got := notAuthorisedWarnings(h); len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe"+tail {
+		if got := notAuthorisedWarnings(h); len(got) != 1 || got[0] != "not authorised, so these procedures are left out: probe"+tail {
 			t.Errorf("warnings = %q", got)
 		}
 		if !strings.Contains(h.stderr.String(), "crawl2         not-configured (skipped)") {
-			t.Errorf("the skipped stage's line:\n%s", h.stderr.String())
+			t.Errorf("the skipped procedure's line:\n%s", h.stderr.String())
 		}
 	})
 	t.Run("no line when nothing is left out for lack of authorisation", func(t *testing.T) {
@@ -365,7 +365,7 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 		h := newHarness(t, mk()...)
 		h.exec("a.com", "--json")
 		got := h.messages("warning", "")
-		if len(got) != 1 || got[0] != "not authorised, so these stages are left out: probe, crawl2"+tail {
+		if len(got) != 1 || got[0] != "not authorised, so these procedures are left out: probe, crawl2"+tail {
 			t.Errorf("warning events = %q", got)
 		}
 	})
@@ -400,17 +400,17 @@ func TestLog_AuthorisationWarningMatchesTheProcedureLines(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	var want []string
-	for _, e := range ofType(w.h.events(), "stage") {
+	for _, e := range ofType(w.h.events(), "procedure") {
 		if e.str("state") == "not-configured" && e.str("reason") == "no authorisation" && !slices.Contains(want, e.str("name")) {
 			want = append(want, e.str("name"))
 		}
 	}
 	if len(want) < 3 {
-		t.Fatalf("stages left out = %v", want)
+		t.Fatalf("procedures left out = %v", want)
 	}
 	msgs := w.h.messages("warning", "not authorised")
-	if len(msgs) != 1 || msgs[0] != "not authorised, so these stages are left out: "+strings.Join(want, ", ")+"; --authorised confirms authorisation" {
-		t.Errorf("warning = %q for stages %v", msgs, want)
+	if len(msgs) != 1 || msgs[0] != "not authorised, so these procedures are left out: "+strings.Join(want, ", ")+"; --authorised confirms authorisation" {
+		t.Errorf("warning = %q for procedures %v", msgs, want)
 	}
 }
 
@@ -554,10 +554,10 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 	d := palette.TrueColor
 	for _, want := range []string{
 		" " + d.Text(palette.Semantic, "info", "running"),
-		" " + d.Text(palette.Semantic, "success", "done") + " (1 checks, 0 failed)",
+		" " + d.Text(palette.Semantic, "success", "done") + " (1 jobs, 0 failed)",
 	} {
 		if !strings.Contains(h.stderr.String(), want) {
-			t.Errorf("stage line lacks %q:\n%q", want, h.stderr.String())
+			t.Errorf("procedure line lacks %q:\n%q", want, h.stderr.String())
 		}
 	}
 }
@@ -573,7 +573,7 @@ func TestLog_Summary(t *testing.T) {
 	summaryOnly(t, h)
 	out := h.stdout.String()
 	for _, want := range []string{"Findings (high and medium)\n  high     exposed https://a.com/h - dh\n  medium   exposed https://a.com/m - dm\n",
-		"Failed checks (retried on the next run; --debug shows each failure)\n"} {
+		"Failed jobs (retried on the next run; --debug shows each failure)\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary lacks %q:\n%s", want, out)
 		}
@@ -591,7 +591,7 @@ func TestLog_Summary(t *testing.T) {
 	h.exec("a.com")
 	out = h.stdout.String()
 	rule := d.Text(palette.Chrome, "SEPARATOR", strings.Repeat("─", 80))
-	for _, heading := range []string{"Summary", "Failed checks (retried on the next run; --debug shows each failure)", "Findings (high and medium)"} {
+	for _, heading := range []string{"Summary", "Failed jobs (retried on the next run; --debug shows each failure)", "Findings (high and medium)"} {
 		if !strings.Contains(out, d.BoldText(palette.Semantic, "info", heading)+"\n"+rule+"\n") {
 			t.Errorf("heading %q has no rule beneath it:\n%q", heading, out)
 		}
@@ -708,7 +708,7 @@ func TestLog_JSON(t *testing.T) {
 		h := newHarness(t, mk()...)
 		h.setKey("fake", key)
 		f := h.partial(h.exec(append([]string{"a.com", "--json"}, args...)...), true)
-		if f.msg != "1 checks failed: bad 1" {
+		if f.msg != "1 jobs failed: bad 1" {
 			t.Errorf("%v: error = %+v", args, f)
 		}
 		env := h.envelope()
@@ -722,7 +722,7 @@ func TestLog_JSON(t *testing.T) {
 			t.Errorf("%v: stdout differs from the default run:\n got %q\nwant %q", args, got, base)
 		}
 		if slices.Contains(args, "--debug") {
-			if d := h.debugLines(); len(d) != 1 || d[0] != "bad check b000 failed: GET /x?key=**** failed" {
+			if d := h.debugLines(); len(d) != 1 || d[0] != "bad job b000 failed: GET /x?key=**** failed" {
 				t.Errorf("DEBUG lines = %q", d)
 			}
 		} else if len(h.debugLines()) != 0 {
@@ -977,14 +977,14 @@ func TestLog_OTXAndAnubisAreRemoved(t *testing.T) {
 	for _, name := range []string{"otx", "anubis"} {
 		for _, flag := range []string{"--redo", "--skip"} {
 			h := newHarness(t, cli.DefaultDeps().Procedures...)
-			if code := h.exec("--passive", flag, name, "example.com"); code != 2 || !strings.Contains(h.stderr.String(), "unknown stage") {
+			if code := h.exec("--passive", flag, name, "example.com"); code != 2 || !strings.Contains(h.stderr.String(), fmt.Sprintf("unknown procedure %q for %s", name, flag)) {
 				t.Errorf("%s %s: exit %d, stderr %q", flag, name, code, h.stderr.String())
 			}
 		}
 	}
 	h := newHarness(t, cli.DefaultDeps().Procedures...)
 	if topic := h.proceduresHelp(); procedureRow(topic, "otx") != "" || procedureRow(topic, "anubis") != "" {
-		t.Errorf("help stages lists them:\n%s", topic)
+		t.Errorf("help procedures lists them:\n%s", topic)
 	}
 
 	w := newWorld(t)

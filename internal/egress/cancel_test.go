@@ -203,7 +203,7 @@ func TestTCPCancelEndsSilentBannerRead(t *testing.T) {
 	res, err := eg.Clients(true, nil).TCP.Connect(ctx, addr("127.0.0.1"), port)
 	assertPromptCancel(t, err, at)
 	if res != nil {
-		t.Errorf("result = %#v, want none for a cancelled check", res)
+		t.Errorf("result = %#v, want none for a cancelled connect", res)
 	}
 }
 

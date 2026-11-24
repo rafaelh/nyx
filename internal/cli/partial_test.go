@@ -55,7 +55,7 @@ func (h *harness) partialOf(code int, jsonMode bool, ids []string, records bool)
 func (h *harness) partialFailed(code int, procedure string, n int) failure {
 	h.t.Helper()
 	f := h.partial(code, true)
-	if want := fmt.Sprintf("%d checks failed: %s %d", n, procedure, n); f.msg != want || !f.transient {
+	if want := fmt.Sprintf("%d jobs failed: %s %d", n, procedure, n); f.msg != want || !f.transient {
 		h.t.Errorf("error = %+v, want %q, transient", f, want)
 	}
 	return f
@@ -82,7 +82,7 @@ func TestPartial_FailedJob(t *testing.T) {
 				args = append(args, "--json")
 			}
 			f := h.partial(h.exec(args...), jsonMode)
-			if f.msg != "2 checks failed: flaky 2" || !f.transient {
+			if f.msg != "2 jobs failed: flaky 2" || !f.transient {
 				t.Errorf("%+v", f)
 			}
 			if want := "nyx recon --output-dir " + h.out + " a.com" + map[bool]string{true: " --json"}[jsonMode]; f.hint != want {
@@ -93,11 +93,11 @@ func TestPartial_FailedJob(t *testing.T) {
 				if env.Meta.JobsCompleted != 3 || env.Meta.DeadlineExceeded || len(env.Data.FailedJobs) != 1 || env.Data.FailedJobs[0].N != 2 {
 					t.Errorf("envelope = %+v", env)
 				}
-			} else if !strings.Contains(h.stdout.String(), "Failed checks") {
+			} else if !strings.Contains(h.stdout.String(), "Failed jobs") {
 				t.Errorf("summary: %s", h.stdout.String())
 			}
 			if !slices.Contains(h.completed("a.com", "fine"), "c000") {
-				t.Error("the other stage did not complete its check")
+				t.Error("the other procedure did not complete its job")
 			}
 			bad.RunFn = nil
 			if code := h.exec(append([]string{"-e", "a.com"}, args[1:]...)...); code != 0 {
@@ -232,7 +232,7 @@ func TestPartial_ExitsZeroFor(t *testing.T) {
 			t.Errorf("warnings = %q", w)
 		}
 	})
-	t.Run("a failure recorded earlier for a skipped stage", func(t *testing.T) {
+	t.Run("a failure recorded earlier for a skipped procedure", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, erring("flaky", 1, errors.New("boom")), noop())
 		h.partial(h.exec("a.com"), false)
@@ -248,7 +248,7 @@ func TestPartial_AbortedJobsAreNotCompleted(t *testing.T) {
 	h := newHarness(t, erring("keyed", 4, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected)))
 	f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true)
 	env := h.envelope()
-	if f.msg != "4 checks failed: keyed 4" || env.Meta.JobsCompleted != 1 {
+	if f.msg != "4 jobs failed: keyed 4" || env.Meta.JobsCompleted != 1 {
 		t.Errorf("%+v completed %d, want 4 failed and 1 completed", f, env.Meta.JobsCompleted)
 	}
 }
@@ -265,7 +265,7 @@ func TestPartial_DeadlineMessageAndHint(t *testing.T) {
 				args = append(args, "--json")
 			}
 			f := h.partial(h.exec(args...), jsonMode)
-			want := "the deadline (--timeout 400ms) stopped the run: 3 checks completed, 3 cancelled (permutations 3); failed checks: flaky 1"
+			want := "the deadline (--timeout 400ms) stopped the run: 3 jobs completed, 3 cancelled (permutations 3); failed jobs: flaky 1"
 			if f.msg != want || !f.transient {
 				t.Errorf("message = %q, want %q (transient %v)", f.msg, want, f.transient)
 			}
@@ -274,7 +274,7 @@ func TestPartial_DeadlineMessageAndHint(t *testing.T) {
 				if !env.Meta.DeadlineExceeded || env.Meta.JobsCompleted != 3 || env.Meta.JobsCancelled != 3 {
 					t.Errorf("meta = %+v", env.Meta)
 				}
-			} else if !strings.Contains(h.stdout.String(), "Stopped by the deadline: 3 checks completed, 3 cancelled") {
+			} else if !strings.Contains(h.stdout.String(), "Stopped by the deadline: 3 jobs completed, 3 cancelled") {
 				t.Errorf("summary: %s", h.stdout.String())
 			}
 		})
@@ -388,15 +388,15 @@ func TestPartial_RaiseTimeoutWhenNothingSucceeded(t *testing.T) {
 		procedures []run.Procedure
 		timeout    string
 	}{
-		{"a timeout too small to start a check", []run.Procedure{blocking("slow", 3, 0)}, "1ms"},
-		{"every started check cancelled", []run.Procedure{blocking("slow", 0, 3)}, "400ms"},
-		{"one check that always fails and the rest cancelled", []run.Procedure{erring("flaky", 1, errors.New("boom")), blocking("slow", 0, 3)}, "400ms"},
+		{"a timeout too small to start a job", []run.Procedure{blocking("slow", 3, 0)}, "1ms"},
+		{"every started job cancelled", []run.Procedure{blocking("slow", 0, 3)}, "400ms"},
+		{"one job that always fails and the rest cancelled", []run.Procedure{erring("flaky", 1, errors.New("boom")), blocking("slow", 0, 3)}, "400ms"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t, c.procedures...)
 			f := h.partial(h.exec("a.com", "--timeout", c.timeout), false)
-			if want := "raise --timeout: no check succeeded within " + c.timeout; f.hint != want || f.transient {
+			if want := "raise --timeout: no job succeeded within " + c.timeout; f.hint != want || f.transient {
 				t.Errorf("hint %q transient %v, want %q and not transient", f.hint, f.transient, want)
 			}
 		})

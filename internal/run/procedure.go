@@ -52,7 +52,7 @@ type Observation = store.Obs
 
 // ErrAbortProcedure marks an error that fails the current job and abandons the procedure's remaining
 // jobs for this run.
-var ErrAbortProcedure = errors.New("abort stage")
+var ErrAbortProcedure = errors.New("abort procedure")
 
 // ErrQuota signals that a source's quota is exhausted. It wraps ErrAbortProcedure, so pending
 // jobs fail and can be retried next run.

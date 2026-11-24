@@ -257,7 +257,7 @@ func TestWarnings_KeepsWarningsInOrder(t *testing.T) {
 		{Type: "found", Fields: map[string]any{"message": "no"}},
 		{Type: "warning", Fields: map[string]any{"message": "second"}},
 		{Type: "warning", Fields: map[string]any{"message": "second"}},
-		{Type: "stage", Fields: map[string]any{"message": "no"}},
+		{Type: "procedure", Fields: map[string]any{"message": "no"}},
 	} {
 		w.Emit(e)
 	}

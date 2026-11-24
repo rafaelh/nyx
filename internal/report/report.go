@@ -175,7 +175,7 @@ func eventLevel(ev Event) (level Level, ok bool) {
 	switch ev.Type {
 	case "run_start", "found", "count":
 		return Info, true
-	case "stage":
+	case "procedure":
 		if str(ev.Fields, "state") == "failed" {
 			return Error, true
 		}
@@ -231,7 +231,7 @@ func procedureSpans(s layout.Stream, name, state, reason, jobs, failed string) [
 		rest += " (" + reason + ")"
 	}
 	if state == "done" {
-		rest += fmt.Sprintf(" (%s checks, %s failed)", jobs, failed)
+		rest += fmt.Sprintf(" (%s jobs, %s failed)", jobs, failed)
 	}
 	if rest != "" {
 		spans = append(spans, layout.Span{Text: rest})
@@ -268,8 +268,8 @@ func (c *Console) message(ev Event) (msg []layout.Span) {
 			m += "  [authorised]"
 		}
 		msg = layout.Plain(m)
-	case "stage":
-		msg = procedureSpans(s, str(f, "name"), str(f, "state"), str(f, "reason"), str(f, "checks"), str(f, "failed"))
+	case "procedure":
+		msg = procedureSpans(s, str(f, "name"), str(f, "state"), str(f, "reason"), str(f, "jobs"), str(f, "failed"))
 	case "found":
 		msg = foundSpans(s, str(f, "category"), str(f, "value"), str(f, "text"), str(f, "severity"))
 	case "count":

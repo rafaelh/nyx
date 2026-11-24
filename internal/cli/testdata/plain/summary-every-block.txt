@@ -13,7 +13,7 @@ Summary
   2 risky ports reported by Shodan, unconfirmed
   shodan: 3 hosts were not looked up (quota)
   permutations: the list was cut at 1000 names
-Failed checks (retried on the next run; --debug shows each failure)
+Failed jobs (retried on the next run; --debug shows each failure)
   flaky            2
 Deferred to the next run
   budgeted         1

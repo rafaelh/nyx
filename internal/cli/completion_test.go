@@ -92,7 +92,7 @@ func TestCompletion_OffersCommandsFlagsAndValues(t *testing.T) {
 		// ip's active-only fields come with --active.
 		{[]string{"ip", "--fields", ""}, []string{"asn", "all"}, []string{"tls", "web"}, ":6"},
 		{[]string{"ip", "--active", "--fields", ""}, []string{"asn", "tls", "web"}, nil, ":6"},
-		{[]string{"help", ""}, []string{"recon", "findings", "stages", "completion"}, []string{"help"}, ":4"},
+		{[]string{"help", ""}, []string{"recon", "findings", "procedures", "completion"}, []string{"help", "stages"}, ":4"},
 		{[]string{"help", "recon", ""}, []string{"export"}, nil, ":4"},
 		{[]string{"completion", ""}, []string{"bash", "zsh"}, []string{"fish", "powershell"}, ":4"},
 	} {

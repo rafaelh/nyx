@@ -373,7 +373,7 @@ func TestExport_MergeFollowsRegistryOrder(t *testing.T) {
 	w := newExportWorld(t)
 	l := exportLine(t, export(w.h, "-e", "a.com").lines(t), "web_service", "https://shared.a.com")
 	if l.attrs()["title"] != "from alpha" || l.attrs()["server"] != "zeta-server" {
-		t.Errorf("attrs = %v: the later stage in the registry wins a field, and an earlier one's other fields stay", l.attrs())
+		t.Errorf("attrs = %v: the later procedure in the registry wins a field, and an earlier one's other fields stay", l.attrs())
 	}
 	if !slices.Equal(l.procedures(), []string{"alpha", "zeta"}) {
 		t.Errorf("procedures = %v", l.procedures())

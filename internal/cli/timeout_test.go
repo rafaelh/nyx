@@ -106,10 +106,10 @@ func TestTimeout_CutJobsAreNeitherDoneNorFailed(t *testing.T) {
 		t.Errorf("meta = %+v", env.Meta)
 	}
 	if got := h.completed("a.com", "slow"); !slices.Equal(got, []string{"q000", "q001"}) {
-		t.Errorf("checks = %v, want only the two quick ones", got)
+		t.Errorf("jobs = %v, want only the two quick ones", got)
 	}
 	if got := h.failedJobs("slow"); len(got) != 0 {
-		t.Errorf("a cancelled check was recorded as failed: %v", got)
+		t.Errorf("a cancelled job was recorded as failed: %v", got)
 	}
 	if _, err := os.Stat(filepath.Join(h.eng("a.com"), "scope.csv")); err != nil {
 		t.Errorf("the files were not written: %v", err)
@@ -122,7 +122,7 @@ func TestTimeout_CutJobsAreNeitherDoneNorFailed(t *testing.T) {
 		t.Fatalf("second run: exit %d\n%s", code, h.stderr.String())
 	}
 	if got := st.Executed(); len(got) != 4 || got[0][0] != 'b' {
-		t.Errorf("the second run executed %v, want the four cancelled checks", got)
+		t.Errorf("the second run executed %v, want the four cancelled jobs", got)
 	}
 	if env := h.envelope(); env.Meta.DeadlineExceeded || env.Meta.JobsCancelled != 0 {
 		t.Errorf("second run meta = %+v", env.Meta)
@@ -158,10 +158,10 @@ func TestTimeout_JobWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
 	}
 	env := w.h.envelope()
 	if env.Meta.JobsCancelled == 0 {
-		t.Fatalf("no check was waiting when the timer fired: %+v", env.Meta)
+		t.Fatalf("no job was waiting when the timer fired: %+v", env.Meta)
 	}
 	if got := w.h.failedJobs(""); len(got) != 0 {
-		t.Errorf("checks waiting on the limiter were recorded as failed: %v", got)
+		t.Errorf("jobs waiting on the limiter were recorded as failed: %v", got)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 		t.Fatalf("second run: exit %d\n%s", code, h.stderr.String())
 	}
 	if got := h.lines("a.com", "subdomains.txt"); !slices.Contains(got, "c1.a.com") {
-		t.Errorf("evidence of an unlisted check was retired by a cut enumeration: %q", got)
+		t.Errorf("evidence of an unlisted job was retired by a cut enumeration: %q", got)
 	}
 
 	// Pending redo sweeps also wait for complete enumeration before removing evidence.
@@ -198,7 +198,7 @@ func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 		t.Fatalf("redo run: exit %d\n%s", code, h.stderr.String())
 	}
 	if got := h.lines("a.com", "subdomains.txt"); !slices.Contains(got, "c1.a.com") {
-		t.Errorf("evidence of an unlisted check was swept by a cut redo: %q", got)
+		t.Errorf("evidence of an unlisted job was swept by a cut redo: %q", got)
 	}
 }
 

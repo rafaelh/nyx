@@ -134,7 +134,7 @@ func TestArchive_CapIsRoundRobinDeterministicAndPartOfTheJobKey(t *testing.T) {
 		t.Errorf("raising the cap kept %v", got)
 	}
 	if got := x.completedKeys("wayback"); !slices.Equal(got, []string{"example.com|urls=4", "example.com|urls=6"}) {
-		t.Errorf("changing the cap must create a new check: %v", got)
+		t.Errorf("changing the cap must create a new job: %v", got)
 	}
 	if got := x.completedKeys("crtsh"); !slices.Equal(got, crtsh) || !slices.Equal(got, []string{"example.com"}) {
 		t.Errorf("crtsh keys changed: %v (was %v)", got, crtsh)
@@ -168,7 +168,7 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 	topic := h.proceduresHelp()
 	for _, s := range []string{"httpprobe", "crawl"} {
 		if procedureRow(topic, s) == "" {
-			t.Errorf("help stages does not list %s", s)
+			t.Errorf("help procedures does not list %s", s)
 		}
 	}
 }

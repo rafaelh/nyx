@@ -184,13 +184,13 @@ func TestConsoleStateWords(t *testing.T) {
 			style               func(string) string
 		}{
 			{"running", "", "", report.Info, func(x string) string { return d.Text(palette.Semantic, "info", x) }},
-			{"done", "", " (3 checks, 1 failed)", report.Info, func(x string) string { return d.Text(palette.Semantic, "success", x) }},
+			{"done", "", " (3 jobs, 1 failed)", report.Info, func(x string) string { return d.Text(palette.Semantic, "success", x) }},
 			{"done-previously", "", "", report.Info, func(x string) string { return d.Text(palette.Semantic, "success", x) }},
 			{"failed", "", "", report.Error, func(x string) string { return d.Text(palette.Semantic, "error", x) }},
 			{"not-configured", "passive-only", " (passive-only)", report.Info, func(x string) string { return d.Text(palette.Semantic, "muted", x) }},
 		} {
 			con := newCons(s, report.Info)
-			con.Emit(ev("stage", map[string]any{"name": "asn", "state": c.state, "reason": c.reason, "checks": 3, "failed": 1}))
+			con.Emit(ev("procedure", map[string]any{"name": "asn", "state": c.state, "reason": c.reason, "jobs": 3, "failed": 1}))
 			want := logPrefix(s, c.level) + "asn           " + " " + c.style(c.state) + c.tail
 			if got := strings.TrimSuffix(con.log.String(), "\n"); got != want {
 				t.Errorf("depth %d %s\n got %q\nwant %q", d, c.state, got, want)
@@ -202,7 +202,7 @@ func TestConsoleStateWords(t *testing.T) {
 		// Uncoloured, the same line has no escape; and not on a terminal the colour is off too.
 		for _, u := range []layout.Stream{termStream(palette.None, 100), plainStream()} {
 			con := newCons(u, report.Info)
-			con.Emit(ev("stage", map[string]any{"name": "asn", "state": "running"}))
+			con.Emit(ev("procedure", map[string]any{"name": "asn", "state": "running"}))
 			if strings.Contains(con.log.String(), "\x1b") {
 				t.Errorf("an escape in %q", con.log.String())
 			}
@@ -248,11 +248,11 @@ func TestConsoleWritesOnlyPaletteSequences(t *testing.T) {
 	long := strings.Repeat("word ", 50)
 	events := []report.Event{
 		ev("run_start", map[string]any{"engagement": "eng", "scope": evil, "passive": true, "authorised": true}),
-		ev("stage", map[string]any{"name": "asn", "state": "running"}),
-		ev("stage", map[string]any{"name": "asn", "state": "done", "checks": 3, "failed": 1}),
-		ev("stage", map[string]any{"name": "asn", "state": "done-previously"}),
-		ev("stage", map[string]any{"name": "asn", "state": "failed", "reason": evil}),
-		ev("stage", map[string]any{"name": "asn", "state": "not-configured", "reason": "no key"}),
+		ev("procedure", map[string]any{"name": "asn", "state": "running"}),
+		ev("procedure", map[string]any{"name": "asn", "state": "done", "jobs": 3, "failed": 1}),
+		ev("procedure", map[string]any{"name": "asn", "state": "done-previously"}),
+		ev("procedure", map[string]any{"name": "asn", "state": "failed", "reason": evil}),
+		ev("procedure", map[string]any{"name": "asn", "state": "not-configured", "reason": "no key"}),
 		ev("found", map[string]any{"category": "finding", "value": evil, "severity": "high"}),
 		ev("found", map[string]any{"category": "host", "value": "a.example.com"}),
 		ev("count", map[string]any{"category": "hosts", "n": 1}),
@@ -308,12 +308,12 @@ func TestConsoleRedactsAfterSanitising(t *testing.T) {
 	}
 	for _, s := range []layout.Stream{termStream(palette.None, 60), termStream(palette.TrueColor, 60), termStream(palette.None, 80), plainStream()} {
 		for _, m := range messages {
-			for _, typ := range []string{"warning", "debug", "found", "stage"} {
+			for _, typ := range []string{"warning", "debug", "found", "procedure"} {
 				f := map[string]any{"message": m}
 				switch typ {
 				case "found":
 					f = map[string]any{"category": "finding", "value": m, "severity": "high"}
-				case "stage":
+				case "procedure":
 					f = map[string]any{"name": "asn", "state": "failed", "reason": m}
 				}
 				var sb strings.Builder

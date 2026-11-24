@@ -242,14 +242,14 @@ func checkOnlyProcedureStopped(t *testing.T, w *world, s keyedSource) {
 		}
 	}
 	if n != 1 {
-		t.Errorf("the stage should stop after the rejection, saw %d requests", n)
+		t.Errorf("the procedure should stop after the rejection, saw %d requests", n)
 	}
 	for _, o := range keyedSources {
 		if o.host == s.host {
 			continue
 		}
 		if st, _ := stateOf(w, o.procedure); st != "done" {
-			t.Errorf("%s = %s: another stage must not stop", o.procedure, st)
+			t.Errorf("%s = %s: another procedure must not stop", o.procedure, st)
 		}
 	}
 }
@@ -382,7 +382,7 @@ func TestKeyed_PageCap(t *testing.T) {
 				t.Fatalf("exit %d", code)
 			}
 			if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
-				t.Errorf("completed = %v, want a new check for the new cap", done)
+				t.Errorf("completed = %v, want a new job for the new cap", done)
 			}
 			if !slices.Contains(w.lines(eng, "subdomains.txt"), "p3.example.com") {
 				t.Errorf("subdomains.txt = %v", w.lines(eng, "subdomains.txt"))
@@ -399,7 +399,7 @@ func TestKeyed_PageCap(t *testing.T) {
 func checkCappedRun(t *testing.T, w *world, s pagedSource) {
 	t.Helper()
 	if st, _ := stateOf(w, s.procedure); st != "done" {
-		t.Errorf("reaching the cap completes the check: state = %s", st)
+		t.Errorf("reaching the cap completes the job: state = %s", st)
 	}
 	if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{"example.com|pages=2"}) {
 		t.Errorf("completed = %v", done)
@@ -646,7 +646,7 @@ func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
 	}
 	for _, k := range p.checked() {
 		if strings.HasPrefix(k, ghost+":") {
-			t.Errorf("port check %s was made for the Shodan-only address", k)
+			t.Errorf("ports job %s was made for the Shodan-only address", k)
 		}
 	}
 	if !slices.Contains(p.lines(eng, "unresolved.txt"), "gone.example.com") {
@@ -677,7 +677,7 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 	inOrder := idx("certspotter") < idx("censys") && idx("censys") < idx("chaos") && idx("chaos") < idx("shodan") &&
 		idx("shodan") < idx("shodan-dns") && idx("shodan-dns") < idx("resolve")
 	if !inOrder || idx("censys") < 0 {
-		t.Errorf("stage order = %v", names)
+		t.Errorf("procedure order = %v", names)
 	}
 	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
@@ -692,7 +692,7 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 	topic := h.proceduresHelp()
 	for _, s := range []string{"shodan-dns", "censys", "chaos"} {
 		if procedureRow(topic, s) == "" {
-			t.Errorf("help stages does not list %s", s)
+			t.Errorf("help procedures does not list %s", s)
 		}
 	}
 }

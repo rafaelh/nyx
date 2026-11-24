@@ -190,7 +190,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 				t.Errorf("a rejected key must not be recorded as done: %v", done)
 			}
 			if n := len(w.requests("www.virustotal.com")); n != 1 {
-				t.Errorf("the stage should abort after the first rejection, saw %d requests", n)
+				t.Errorf("the procedure should abort after the first rejection, saw %d requests", n)
 			}
 			// Fix the key: the same jobs run and complete.
 			w.handle("www.virustotal.com", jsonBody(`{"data":[{"id":"fixed.example.com"}],"meta":{}}`))
@@ -236,7 +236,7 @@ func TestSources_NotFoundIsNoData(t *testing.T) {
 			t.Errorf("%s = %s, want done", s, st)
 		}
 		if done := w.h.completed(eng, s); len(done) != 1 {
-			t.Errorf("%s completed = %v, want the root's check", s, done)
+			t.Errorf("%s completed = %v, want the root's job", s, done)
 		}
 	}
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "cc.example.com") {
@@ -422,12 +422,12 @@ func TestPermutations_CapAndSettingsChangeJobs(t *testing.T) {
 	}
 	before := w.h.completed(eng, "permutations")
 	if len(before) == 0 {
-		t.Fatal("no permutation checks recorded")
+		t.Fatal("no permutation jobs recorded")
 	}
 	w.run("--passive", "--wordlist", wl, "--permutations-max", "6", "example.com")
 	afterCap := w.h.completed(eng, "permutations")
 	if len(afterCap) <= len(before) {
-		t.Errorf("changing the cap must create new seed checks: %d -> %d", len(before), len(afterCap))
+		t.Errorf("changing the cap must create new seed jobs: %d -> %d", len(before), len(afterCap))
 	}
 	if err := os.WriteFile(wl, []byte("dev\nboth\nstaging\nextra\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -435,7 +435,7 @@ func TestPermutations_CapAndSettingsChangeJobs(t *testing.T) {
 	w.run("--passive", "--wordlist", wl, "--permutations-max", "6", "example.com")
 	afterWL := w.h.completed(eng, "permutations")
 	if len(afterWL) <= len(afterCap) {
-		t.Errorf("changing the wordlist must create new checks: %d -> %d", len(afterCap), len(afterWL))
+		t.Errorf("changing the wordlist must create new jobs: %d -> %d", len(afterCap), len(afterWL))
 	}
 }
 
@@ -494,7 +494,7 @@ func TestResolution_TimeoutIsTransient(t *testing.T) {
 	w.dns.Drop("slow.example.com")
 	w.run("--passive", "example.com")
 	if slices.Contains(w.h.completed(eng, "resolve"), "slow.example.com") {
-		t.Error("a DNS timeout must not complete the check")
+		t.Error("a DNS timeout must not complete the job")
 	}
 	if len(w.obsAttrs(eng, "unresolved")) != 0 {
 		t.Error("a timeout is not an unresolved name (and not a takeover signal)")
@@ -502,7 +502,7 @@ func TestResolution_TimeoutIsTransient(t *testing.T) {
 	w.dns.Undrop("slow.example.com")
 	w.run("--passive", "example.com")
 	if !slices.Contains(w.h.completed(eng, "resolve"), "slow.example.com") {
-		t.Error("the failed check must be retried on the next run")
+		t.Error("the failed job must be retried on the next run")
 	}
 	if find(w.table(eng, "resolutions.csv"), "name", "slow.example.com") == nil {
 		t.Error("the retry should record the resolution")
@@ -885,7 +885,7 @@ func TestReverseDNS_IPv6OnlyChecksFoundAddresses(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if ptrs := w.dns.Queried("PTR"); len(ptrs) != 1 || !strings.HasPrefix(ptrs[0], "5.0.0.0.") {
-		t.Errorf("only addresses found by other stages are checked for IPv6: %v", ptrs)
+		t.Errorf("only addresses found by other procedures are checked for IPv6: %v", ptrs)
 	}
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "v6ptr.example.com") {
 		t.Errorf("subdomains.txt = %v", w.lines(eng, "subdomains.txt"))

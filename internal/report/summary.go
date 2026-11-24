@@ -111,13 +111,13 @@ func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
 		b.WriteString("\n  " + n)
 	}
 	if env.Meta.DeadlineExceeded {
-		fmt.Fprintf(&b, "\n  Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled)
+		fmt.Fprintf(&b, "\n  Stopped by the deadline: %d jobs completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled)
 	}
 	for _, blk := range []struct {
 		heading string
 		rows    []ProcedureCount
 	}{
-		{"Failed checks (retried on the next run; --debug shows each failure)", s.FailedJobs},
+		{"Failed jobs (retried on the next run; --debug shows each failure)", s.FailedJobs},
 		{"Deferred to the next run", s.Deferred},
 	} {
 		if len(blk.rows) == 0 {
@@ -220,13 +220,13 @@ func writeTerminalSummary(w io.Writer, st layout.Stream, env Envelope) {
 		text(n)
 	}
 	if env.Meta.DeadlineExceeded {
-		text(fmt.Sprintf("Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled))
+		text(fmt.Sprintf("Stopped by the deadline: %d jobs completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled))
 	}
 	for _, blk := range []struct {
 		heading string
 		rows    []ProcedureCount
 	}{
-		{"Failed checks (retried on the next run; --debug shows each failure)", sum.FailedJobs},
+		{"Failed jobs (retried on the next run; --debug shows each failure)", sum.FailedJobs},
 		{"Deferred to the next run", sum.Deferred},
 	} {
 		if len(blk.rows) == 0 {

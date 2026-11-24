@@ -541,14 +541,14 @@ func TestClientsForThirdPartyProcedureHaveNoTargetClients(t *testing.T) {
 	eg := egress.New(egress.Options{})
 	c := eg.Clients(false, []string{"stat.ripe.net"})
 	if c.HTTP != nil || c.TCP != nil {
-		t.Error("ThirdParty stage must not get Target clients")
+		t.Error("ThirdParty procedure must not get Target clients")
 	}
 	if c.ThirdParty == nil || c.DNS == nil {
 		t.Error("ThirdParty and DNS clients expected")
 	}
 	c = eg.Clients(true, nil)
 	if c.HTTP == nil || c.TCP == nil {
-		t.Error("Target stage gets Target clients")
+		t.Error("Target procedure gets Target clients")
 	}
 }
 

@@ -92,9 +92,9 @@ func screens(t *testing.T) map[string][]helpBlock {
 	inv := newInvocation(withDefaults(DefaultDeps()), nil)
 	root := newRoot(inv)
 	out := map[string][]helpBlock{
-		"root":     rootHelpBlocks(root),
-		"findings": findingsBlocks(),
-		"stages":   proceduresBlocks(inv.d.Procedures),
+		"root":       rootHelpBlocks(root),
+		"findings":   findingsBlocks(),
+		"procedures": proceduresBlocks(inv.d.Procedures),
 	}
 	for _, c := range runnable(root) {
 		out[c.CommandPath()] = commandHelpBlocks(c)

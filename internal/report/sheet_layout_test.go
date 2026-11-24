@@ -89,7 +89,7 @@ func checkSheetProcedureLines(t *testing.T, d palette.Depth, added string) {
 		{"not-configured", palette.Semantic, "muted"},
 	} {
 		if !strings.Contains(added, " "+d.Text(c.group, c.name, c.state)) {
-			t.Errorf("depth %d: no stage line for %s", d, c.state)
+			t.Errorf("depth %d: no procedure line for %s", d, c.state)
 		}
 	}
 }

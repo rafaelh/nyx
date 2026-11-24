@@ -28,8 +28,8 @@ func TestExtractEndpoints(t *testing.T) {
 		"an absolute http URL":  {`u='http://legacy.example.com/a'`, []string{"http://legacy.example.com/a"}},
 		"an absolute URL inside a longer string": {
 			`m="see https://docs.example.com/guide for details"`, []string{"https://docs.example.com/guide"}},
-		"a dot directory that is not just an extension": {`"/.well-known/openid-configuration"`, []string{"https://a.example.com/.well-known/openid-configuration"}},
-		"an out-of-scope host is the stage's to drop":   {`"https://cdn.example.net/lib.js"`, []string{"https://cdn.example.net/lib.js"}},
+		"a dot directory that is not just an extension":   {`"/.well-known/openid-configuration"`, []string{"https://a.example.com/.well-known/openid-configuration"}},
+		"an out-of-scope host is the procedure's to drop": {`"https://cdn.example.net/lib.js"`, []string{"https://cdn.example.net/lib.js"}},
 		"order of appearance, and each URL once": {
 			`a("/b/1");a("https://api.example.com/z");a("/a/1");a("/b/1");a("//api.example.com/y")`,
 			[]string{"https://a.example.com/b/1", "https://api.example.com/z", "https://a.example.com/a/1", "https://api.example.com/y"}},

@@ -22,7 +22,7 @@ func TestDefaultPortsCoverRiskyPorts(t *testing.T) {
 // Help distinguishes general concurrency from port-sweep workers.
 func TestConcurrencyHelpNamesPortConcurrency(t *testing.T) {
 	t.Parallel()
-	if c := newFlagSetForHelp().Lookup("concurrency"); c == nil || c.Usage != "Workers per stage (ports: --port-concurrency)" {
+	if c := newFlagSetForHelp().Lookup("concurrency"); c == nil || c.Usage != "Workers per procedure (ports: --port-concurrency)" {
 		t.Errorf("--concurrency usage = %+v", c)
 	}
 }

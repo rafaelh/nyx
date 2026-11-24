@@ -37,21 +37,21 @@ func partialError(args []string, timeout string, deadline bool, res run.Result) 
 	}
 	e := &clierr.Error{Code: clierr.Partial, Hint: invocationHint(args)}
 	if !deadline {
-		e.Message = fmt.Sprintf("%d checks failed: %s", failed, procedureCounts(res.Summary.FailedJobs))
+		e.Message = fmt.Sprintf("%d jobs failed: %s", failed, procedureCounts(res.Summary.FailedJobs))
 		e.Transient = failed > res.KeyRejected
 		return e
 	}
 	cancelled := sumCounts(res.Cancelled)
-	e.Message = fmt.Sprintf("the deadline (--timeout %s) stopped the run: %d checks completed, %d cancelled", timeout, res.Completed, cancelled)
+	e.Message = fmt.Sprintf("the deadline (--timeout %s) stopped the run: %d jobs completed, %d cancelled", timeout, res.Completed, cancelled)
 	if cancelled > 0 {
 		e.Message += " (" + procedureCounts(res.Cancelled) + ")"
 	}
 	if failed > 0 {
-		e.Message += "; failed checks: " + procedureCounts(res.Summary.FailedJobs)
+		e.Message += "; failed jobs: " + procedureCounts(res.Summary.FailedJobs)
 	}
 	e.Transient = res.Succeeded > 0
 	if !e.Transient {
-		e.Hint = fmt.Sprintf("raise --timeout: no check succeeded within %s", timeout)
+		e.Hint = fmt.Sprintf("raise --timeout: no job succeeded within %s", timeout)
 	}
 	return e
 }

@@ -107,7 +107,7 @@ func TestTwoProceduresAttrs(t *testing.T) {
 		t.Errorf("order must decide: %v", rs[0].Attrs)
 	}
 	if strings.Join(rs[0].Producers, ",") != "archive,ct" {
-		t.Errorf("stages = %v", rs[0].Producers)
+		t.Errorf("producers = %v", rs[0].Producers)
 	}
 
 	// Redo of ct (job re-performed, no longer observed) leaves archive's attrs and currency.
@@ -160,7 +160,7 @@ func TestRedoSweepsOrphans(t *testing.T) {
 		t.Fatalf("pending redo = %v", got)
 	}
 	if done, _ := s.Completed("st"); len(done) != 0 {
-		t.Fatalf("redo must clear checks: %v", done)
+		t.Fatalf("redo must clear jobs: %v", done)
 	}
 	// ip1 is re-performed; ip2 is no longer produced by the procedure.
 	s.Complete("st", "ip1", []store.Obs{{Kind: "x", Key: "a"}})
@@ -191,16 +191,16 @@ func TestRetireUnlistedJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rec(t, s, "x", "a").Current || !rec(t, s, "x", "b").Current {
-		t.Error("the retired check's observation must stop being current; the valid one stays")
+		t.Error("the retired job's observation must stop being current; the valid one stays")
 	}
 	if !rec(t, s, "x", "shared").Current {
-		t.Error("another stage's observation of the same record keeps it current")
+		t.Error("another procedure's observation of the same record keeps it current")
 	}
 	if done, _ := s.Completed("st"); len(done) != 1 {
-		t.Errorf("completed = %v, want only the valid check", done)
+		t.Errorf("completed = %v, want only the valid job", done)
 	}
 	if done, _ := s.Completed("other"); len(done) != 1 {
-		t.Errorf("another stage's checks were retired: %v", done)
+		t.Errorf("another procedure's jobs were retired: %v", done)
 	}
 	if s.KindVersion("x") == before {
 		t.Error("retiring must bump the version of the kinds it changed")
@@ -222,7 +222,7 @@ func TestRedoFailedJobKeepsObservations(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !rec(t, s, "x", "a").Current {
-		t.Error("a failed check keeps its old observations")
+		t.Error("a failed job keeps its old observations")
 	}
 }
 
@@ -288,7 +288,7 @@ func TestRedactedJobKeyMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := done[s.JobKey("AS4123")]; !ok || len(done) != 1 {
-		t.Errorf("completed = %v, CheckKey = %q", done, s.JobKey("AS4123"))
+		t.Errorf("completed = %v, JobKey = %q", done, s.JobKey("AS4123"))
 	}
 }
 
@@ -433,10 +433,10 @@ func TestRedoBumpsTheKindsTheProcedureObserves(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s.KindVersion("x") == x {
-		t.Error("the redone stage's kind must change version")
+		t.Error("the redone procedure's kind must change version")
 	}
 	if s.KindVersion("y") != y {
-		t.Error("another stage's kind must not")
+		t.Error("another procedure's kind must not")
 	}
 }
 
@@ -489,7 +489,7 @@ func TestObservers(t *testing.T) {
 	}
 	got, _ = s.Observers("root")
 	if len(got) != 0 {
-		t.Errorf("after a redo, before the checks run again: %v", got)
+		t.Errorf("after a redo, before the jobs run again: %v", got)
 	}
 	s.Complete("whoisxml", "Acme", obs("root", "x.org")) // y.org is no longer found
 	mustFlush(t, s)

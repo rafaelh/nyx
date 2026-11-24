@@ -11,6 +11,6 @@ import (
 func TestProcedureIsHistorical(t *testing.T) {
 	t.Parallel()
 	if _, ok := any(dnshistory.New()).(run.Historical); !ok {
-		t.Error("the dnshistory stage is not a run.Historical")
+		t.Error("the dnshistory procedure is not a run.Historical")
 	}
 }

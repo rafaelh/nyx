@@ -75,7 +75,7 @@ func TestSRV_AnswersAreRows(t *testing.T) {
 		}
 	}
 	if k := srvJobs(w); len(k) != 1 || !strings.HasPrefix(k[0], "example.com|SRV|") {
-		t.Errorf("SRV checks = %v, want one for the root", k)
+		t.Errorf("SRV jobs = %v, want one for the root", k)
 	}
 }
 
@@ -140,34 +140,34 @@ func TestSRV_FailureFailsOnlyTheSRVJob(t *testing.T) {
 			w.dns.NS("example.com", "ns1.dns-host.test")
 			w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 			fail(w)
-			if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 checks failed: dnsroot 1" {
-				t.Errorf("a failed lookup is transient and fails one check: %+v", f)
+			if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 jobs failed: dnsroot 1" {
+				t.Errorf("a failed lookup is transient and fails one job: %+v", f)
 			}
 
 			if k := srvJobs(w); len(k) != 0 {
-				t.Errorf("a failed lookup completed the SRV check: %v", k)
+				t.Errorf("a failed lookup completed the SRV job: %v", k)
 			}
 			done := w.h.completed(eng, "dnsroot")
 			for _, k := range []string{"example.com|NS|addrs", "example.com|SOA", "example.com|TXT", "example.com|CAA"} {
 				if !slices.Contains(done, k) {
-					t.Errorf("check %s did not complete: %v", k, done)
+					t.Errorf("job %s did not complete: %v", k, done)
 				}
 			}
 			if e := lastState(w.h.events(), "dnsroot"); e.num("failed") != 1 {
-				t.Errorf("dnsroot state = %v, want exactly the SRV check failed", e)
+				t.Errorf("dnsroot state = %v, want exactly the SRV job failed", e)
 			}
 
 			w.dns.ClearRcodeType("_matrix._tcp.example.com", "SRV")
 			w.dns.Undrop("_matrix._tcp.example.com")
 			runRoot(t, w, "-e", eng)
 			if k := srvJobs(w); len(k) != 1 {
-				t.Errorf("the failed SRV check was not retried: %v", k)
+				t.Errorf("the failed SRV job was not retried: %v", k)
 			}
 			if resolutionRow(w, "_sip._tls.example.com", "SRV") == nil {
-				t.Errorf("the retried check recorded nothing:\n%s", w.file(eng, "resolutions.csv"))
+				t.Errorf("the retried job recorded nothing:\n%s", w.file(eng, "resolutions.csv"))
 			}
 			if n := w.dns.Count("example.com", "NS"); n != 1 {
-				t.Errorf("NS queried %d times; completed checks must not repeat", n)
+				t.Errorf("NS queried %d times; completed jobs must not repeat", n)
 			}
 		})
 	}
@@ -191,14 +191,14 @@ func TestSRV_ExistingEngagementRunsOnlyTheNewJob(t *testing.T) {
 	runRoot(t, w, "-e", eng)
 
 	if k := srvJobs(w); len(k) != 1 {
-		t.Errorf("SRV checks = %v, want the new one", k)
+		t.Errorf("SRV jobs = %v, want the new one", k)
 	}
 	if resolutionRow(w, "_sip._tls.example.com", "SRV") == nil {
-		t.Errorf("the new check recorded nothing:\n%s", w.file(eng, "resolutions.csv"))
+		t.Errorf("the new job recorded nothing:\n%s", w.file(eng, "resolutions.csv"))
 	}
 	for _, ty := range []string{"NS", "SOA", "TXT", "CAA"} {
 		if n := w.dns.Count("example.com", ty); n != 1 {
-			t.Errorf("%s queried %d times, want once: the check was already done", ty, n)
+			t.Errorf("%s queried %d times, want once: the job was already done", ty, n)
 		}
 	}
 	for _, s := range srvServices {
@@ -208,7 +208,7 @@ func TestSRV_ExistingEngagementRunsOnlyTheNewJob(t *testing.T) {
 	}
 	runRoot(t, w, "-e", eng)
 	if n := w.dns.Count("_sip._tls.example.com", "SRV"); n != 2 {
-		t.Errorf("a further run repeated the SRV check: %d queries", n)
+		t.Errorf("a further run repeated the SRV job: %d queries", n)
 	}
 }
 
@@ -301,7 +301,7 @@ func TestSRV_NoWildcardJobForServiceNames(t *testing.T) {
 	}
 	for _, k := range done {
 		if strings.Contains(k, "_") && k != "_ctl.example.com" {
-			t.Errorf("a wildcard check was made for a service name: %s (all: %v)", k, done)
+			t.Errorf("a wildcard job was made for a service name: %s (all: %v)", k, done)
 		}
 	}
 	for _, n := range []string{"_sip._tls.example.com", "_imaps._tcp.example.com", "_tls.example.com", "_tcp.example.com"} {
@@ -403,7 +403,7 @@ func TestSRV_WellKnownLabelsAreCosted(t *testing.T) {
 			t.Errorf("%s.corp.net queried %d times, want once", l, n)
 		}
 		if n := w.dns.Count(l+".example.com", "A"); n != 0 {
-			t.Errorf("%s.example.com queried %d times; its check does not fit the cap", l, n)
+			t.Errorf("%s.example.com queried %d times; its job does not fit the cap", l, n)
 		}
 	}
 	if n := deferredOf(t, w.h, "permutations"); n != 9 {
@@ -424,7 +424,7 @@ func TestSRV_WellKnownLabelsRepeatRootJobsOnce(t *testing.T) {
 		} else if strings.Contains(k, "|wk=") {
 			// Seed keys stay compatible because only root jobs gained well-known
 			// labels.
-			t.Errorf("a seed check key carries the labels, so an upgrade would repeat it: %s", k)
+			t.Errorf("a seed job key carries the labels, so an upgrade would repeat it: %s", k)
 		}
 	}
 	// The engagement as an older release left it: its root key has no token of the labels.
@@ -440,7 +440,7 @@ func TestSRV_WellKnownLabelsRepeatRootJobsOnce(t *testing.T) {
 
 	permRun(w, wl, "--permutations-max", "5")
 	if got := w.h.completed(eng, "permutations"); len(got) != 4 || !slices.Contains(got, legacy) || !slices.Contains(got, rootKey) {
-		t.Errorf("checks after the upgrade = %v, want the old three and the new root key %s", got, rootKey)
+		t.Errorf("jobs after the upgrade = %v, want the old three and the new root key %s", got, rootKey)
 	}
 	for _, name := range []string{"dev.example.com", "mta-sts.example.com"} {
 		if n := w.dns.Count(name, "A"); n != 2 {
@@ -448,10 +448,10 @@ func TestSRV_WellKnownLabelsRepeatRootJobsOnce(t *testing.T) {
 		}
 	}
 	if n := w.dns.Count(seedName, "A"); n != before {
-		t.Errorf("seed name %s queried %d times, was %d: no seed check may repeat", seedName, n, before)
+		t.Errorf("seed name %s queried %d times, was %d: no seed job may repeat", seedName, n, before)
 	}
 	permRun(w, wl, "--permutations-max", "5")
 	if n := w.dns.Count("dev.example.com", "A"); n != 2 {
-		t.Errorf("a further run repeated the root check: %d queries", n)
+		t.Errorf("a further run repeated the root job: %d queries", n)
 	}
 }

@@ -210,7 +210,10 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 		// Where the rest of recon's flags are.
 		"nyx recon --help",
 		// The help topics.
-		"nyx help stages", "nyx help findings",
+		"nyx help procedures", "The procedures, in run order, and what each one contacts and does", "nyx help findings",
+	}
+	if strings.Contains(help, "nyx help stages") {
+		t.Error("the root help still lists the old topic name")
 	}
 	for _, s := range h.procedures {
 		wants = append(wants, s.Name())
@@ -225,7 +228,7 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 	}
 	// Help identifies procedures that cannot be skipped.
 	if !strings.Contains(help, "resolve, wildcard, ipowner, providerranges") {
-		t.Error("the root help does not name the stages --skip refuses")
+		t.Error("the root help does not name the procedures --skip refuses")
 	}
 	if got := lastLine(help); got != exitCodesLine {
 		t.Errorf("the root help ends with %q, want the exit codes", got)
@@ -379,7 +382,7 @@ func TestTree_QuietWithDebugIsAUsageError(t *testing.T) { //nolint:paralleltest 
 		{"recon", "--help", "-q", "--debug"},
 		{"recon", "export", "-h", "--quiet", "--debug"},
 		{"findings", "-q", "--debug"},
-		{"help", "stages", "--debug", "--quiet"},
+		{"help", "procedures", "--debug", "--quiet"},
 	} {
 		h := newHarness(t, noop())
 		cwd := emptyDir(t)

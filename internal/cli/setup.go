@@ -31,7 +31,7 @@ func newSetupCommand(inv *invocation) *cobra.Command {
 		Use:   "setup [flags]",
 		Short: "Store API keys and common settings in the config file, and test the keys",
 		Long: "setup opens a full-screen editor for the config file: your API keys (each can be tested without being\n" +
-			"saved), the output directory and the common settings, the stages to skip, and a tab for the threat data nyx\n" +
+			"saved), the output directory and the common settings, the procedures to skip, and a tab for the threat data nyx\n" +
 			"checks addresses against. Edits to the config file are held until you save. It needs a terminal and takes no\n" +
 			"arguments. The config file is where every setting and key nyx uses is kept.\n" +
 			"\n" +

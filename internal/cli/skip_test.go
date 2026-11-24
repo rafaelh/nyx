@@ -22,19 +22,19 @@ func TestSkip_StateAndNoJobs(t *testing.T) {
 		}
 	}
 	if st, reason := stateOf(w, "securitytrails"); reason != "no key" {
-		t.Errorf("an unskipped stage keeps its own reason: securitytrails = %s (%s)", st, reason)
+		t.Errorf("an unskipped procedure keeps its own reason: securitytrails = %s (%s)", st, reason)
 	}
 	if st, reason := stateOf(w, "crawl"); reason != "passive-only" {
 		t.Errorf("crawl = %s (%s), want passive-only", st, reason)
 	}
 	if n := len(w.requests("crt.sh")); n != 0 {
-		t.Errorf("a skipped stage sent %d requests", n)
+		t.Errorf("a skipped procedure sent %d requests", n)
 	}
 	if done := w.h.completed(eng, "crtsh"); len(done) != 0 {
-		t.Errorf("a skipped stage completed checks: %v", done)
+		t.Errorf("a skipped procedure completed jobs: %v", done)
 	}
 	if st, _ := stateOf(w, "hackertarget"); st != "done" {
-		t.Errorf("other stages still run: hackertarget = %s", st)
+		t.Errorf("other procedures still run: hackertarget = %s", st)
 	}
 	// The console form.
 	if code := w.h.exec("--passive", "--rate-per-source", "1000", "--rate-dns", "100000", "--skip", "crtsh", "-e", eng); code != 0 {
@@ -68,7 +68,7 @@ func TestSkip_KeepsEarlierResults(t *testing.T) {
 		t.Errorf("crtsh = %s", st)
 	}
 	if done := w.h.completed(eng, "crtsh"); !slices.Equal(done, []string{"example.com"}) {
-		t.Errorf("completed checks changed: %v", done)
+		t.Errorf("completed jobs changed: %v", done)
 	}
 	if n := len(w.requests("crt.sh")); n != before {
 		t.Errorf("crt.sh was queried while skipped: %d, then %d", before, n)
@@ -85,7 +85,7 @@ func TestSkip_InvalidExits2(t *testing.T) {
 		listsProcedures bool   // the message names the procedures that can be skipped
 	}
 	cases := []tc{
-		{"unknown stage", []string{"--skip", "nonesuch"}, "nonesuch", true},
+		{"unknown procedure", []string{"--skip", "nonesuch"}, "nonesuch", true},
 		{"also redo", []string{"--skip", "crtsh", "--redo", "crtsh"}, "crtsh", true},
 		{"none with names", []string{"--skip", "none", "--skip", "crtsh"}, "none", false},
 	}
@@ -107,12 +107,12 @@ func TestSkip_InvalidExits2(t *testing.T) {
 			if c.listsProcedures {
 				for _, procedure := range []string{"crtsh", "hackertarget", "certspotter"} {
 					if !strings.Contains(msg, procedure) {
-						t.Errorf("message does not list the stage names (missing %s): %q", procedure, msg)
+						t.Errorf("message does not list the procedure names (missing %s): %q", procedure, msg)
 					}
 				}
 			}
 			if w.dns.Total() != 0 || len(w.requests("crt.sh")) != 0 || len(w.requests("api.hackertarget.com")) != 0 {
-				t.Error("an invalid --skip must exit before any stage runs")
+				t.Error("an invalid --skip must exit before any procedure runs")
 			}
 		})
 	}
@@ -159,7 +159,7 @@ func TestSkip_SettingAndFlagPrecedence(t *testing.T) {
 			t.Errorf("skipped = %v", got)
 		}
 	})
-	t.Run("none runs every stage", func(t *testing.T) {
+	t.Run("none runs every procedure", func(t *testing.T) {
 		t.Parallel()
 		w := newWorld(t)
 		w.h.set("skip", []string{"crtsh", "wayback"})

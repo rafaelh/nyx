@@ -50,7 +50,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	pf.SortFlags = false
 	pf.BoolVarP(&inv.sh.json, "json", "J", false, "Print the result as one JSON object on stdout, and any error as one JSON line on stderr")
 	pf.BoolVarP(&inv.sh.quiet, "quiet", "q", false, "Write only warnings and errors to stderr; recon's summary is still printed")
-	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure")
+	pf.BoolVar(&inv.sh.debug, "debug", false, "Also write diagnostics to stderr: each failed job (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure")
 	f := root.Flags()
 	f.SortFlags = false
 	f.Bool("version", false, "Print the version and exit") // long-only: -v is usually read as verbose
@@ -62,7 +62,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	stream := inv.helpStream()
 	root.AddCommand(recon, newCVECommand(inv), newIPCommand(inv), newSetupCommand(inv), newCompletionCommand(inv, root), help,
 		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp, stream),
-		newTopic(inv, "stages", "The stages, in run order, and what each one contacts and does",
+		newTopic(inv, "procedures", "The procedures, in run order, and what each one contacts and does",
 			func(s layout.Stream) string { return proceduresHelp(s, inv.d.Procedures) }, stream))
 	root.SetHelpCommand(help)
 	root.SetHelpFunc(func(c *cobra.Command, _ []string) { inv.printHelp(root, c) })

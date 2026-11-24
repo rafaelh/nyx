@@ -475,7 +475,7 @@ func (r *Runner) warnUnauthorised() {
 		}
 	}
 	if len(names) > 0 {
-		r.warn("not authorised, so these stages are left out: %s; --authorised confirms authorisation", strings.Join(names, ", "))
+		r.warn("not authorised, so these procedures are left out: %s; --authorised confirms authorisation", strings.Join(names, ", "))
 	}
 }
 
@@ -493,9 +493,9 @@ func (r *Runner) setState(name, state, reason string, jobs, failed int) {
 		f["reason"] = reason
 	}
 	if state == "done" || state == "failed" {
-		f["checks"], f["failed"] = jobs, failed
+		f["jobs"], f["failed"] = jobs, failed
 	}
-	r.emit("stage", f)
+	r.emit("procedure", f)
 }
 
 // runProcedure reports work when a job was attempted or a redo/retirement sweep changed records.
@@ -519,7 +519,7 @@ func (r *Runner) runProcedure(ctx context.Context, s Procedure, first bool) (boo
 		return sr.attempted.Load() > 0, nil //nolint:nilerr // pass sees the cancelled context and reports the interruption
 	}
 	if n := sr.aborted.Load(); n > 0 {
-		r.warn("%s: quota spent or key rejected; %d checks will be retried next run", name, n)
+		r.warn("%s: quota spent or key rejected; %d jobs will be retried next run", name, n)
 	}
 
 	n := int(sr.attempted.Load())
@@ -569,7 +569,7 @@ func (r *Runner) count(procedure string, f func(*procedureStats)) {
 // event.
 func (r *Runner) failJob(procedure, key string, err error) {
 	r.recordFailure(procedure, key, false)
-	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", procedure, key, err)})
+	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s job %s failed: %s", procedure, key, err)})
 	if p, ok := errors.AsType[*jobPanic](err); ok {
 		for line := range strings.SplitSeq(strings.TrimRight(string(p.stack), "\n"), "\n") {
 			r.emit("debug", map[string]any{"message": line})

@@ -55,8 +55,8 @@ func newReconCommand(inv *invocation) *cobra.Command {
 		Args: cobra.ArbitraryArgs,
 		Annotations: map[string]string{
 			annotationEveryday: strings.Join(reconEveryday, ","),
-			annotationValues: "Stages accepted by --redo and --skip: " + strings.Join(names, ", ") + "\n" +
-				"Stages --skip refuses: " + strings.Join(unskippable, ", "),
+			annotationValues: "Procedures accepted by --redo and --skip: " + strings.Join(names, ", ") + "\n" +
+				"Procedures --skip refuses: " + strings.Join(unskippable, ", "),
 			annotationNote:   "Tuning settings (rates, limits, ports, lists and the rest) are listed by nyx recon --help.",
 			annotationFooter: reconFooter,
 		},
@@ -76,7 +76,7 @@ func newReconCommand(inv *invocation) *cobra.Command {
 	f.BoolVar(&o.passive, "passive", false, "Use third-party sources only; never contact target-owned systems")
 	f.BoolVar(&o.authorised, "authorised", false, "Confirm you are authorised to test this scope, for this and later runs (alias --authorized)")
 	f.BoolVar(&o.allowLarge, "allow-large-netblocks", false, "Proceed even if in-scope IPv4 netblocks exceed --netblock-limit")
-	f.StringVar(&o.redo, "redo", "", "Re-perform every check of one stage (see nyx help stages)")
+	f.StringVar(&o.redo, "redo", "", "Re-perform every job of one procedure (see nyx help procedures)")
 	f.Var(timeoutFlag(&o.timeout), "timeout", "Stop by this deadline, e.g. 30m or 2h, and exit 7; run again to carry on (default: none)")
 	f.BoolVar(&o.palette, "palette", false, "Print the colour palette sheet and exit")
 	_ = f.MarkHidden("palette") // only fails for an unknown flag
@@ -131,7 +131,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	absent, probeErr := probeEngagement(probs, settings.OutputDir, name, given)
 	absent = absent && noInputs
 	if o.redo != "" && !slices.Contains(names, o.redo) {
-		probs.Add("redo", o.redo, fmt.Sprintf("unknown stage %q for --redo", o.redo), "valid stages: "+strings.Join(names, ", "))
+		probs.Add("redo", o.redo, fmt.Sprintf("unknown procedure %q for --redo", o.redo), "valid procedures: "+strings.Join(names, ", "))
 	}
 	validateSkip(probs, settings.Skip, o.redo, names)
 	if err := probs.Err(); err != nil {
@@ -305,18 +305,18 @@ func validateSkip(probs *clierr.Problems, skip []string, redo string, names []st
 func skipProblem(n, redo string, names []string) (msg, hint string) {
 	switch {
 	case !slices.Contains(names, n):
-		return fmt.Sprintf("unknown stage %q for --skip or the skip setting", n), "valid stages: " + strings.Join(names, ", ")
+		return fmt.Sprintf("unknown procedure %q for --skip or the skip setting", n), "valid procedures: " + strings.Join(names, ", ")
 	case n == redo:
-		return fmt.Sprintf("stage %q is named in both --redo and --skip", n), skippableHint(names)
+		return fmt.Sprintf("procedure %q is named in both --redo and --skip", n), skippableHint(names)
 	case slices.Contains(unskippable, n):
-		return fmt.Sprintf("stage %q cannot be skipped: other stages' safety depends on it", n), skippableHint(names)
+		return fmt.Sprintf("procedure %q cannot be skipped: other procedures' safety depends on it", n), skippableHint(names)
 	}
 	return "", ""
 }
 
 // skippableHint lists the procedures that can be skipped.
 func skippableHint(names []string) string {
-	return "stages that can be skipped: " + strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool {
+	return "procedures that can be skipped: " + strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool {
 		return slices.Contains(unskippable, s)
 	}), ", ")
 }

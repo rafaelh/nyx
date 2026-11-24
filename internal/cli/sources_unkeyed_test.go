@@ -133,7 +133,7 @@ func TestUnkeyed_NamesAreRecorded(t *testing.T) {
 			t.Errorf("%s state = %s, want done", s.procedure, st)
 		}
 		if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{s.jobKey}) {
-			t.Errorf("completed checks = %v, want the root's check %q", done, s.jobKey)
+			t.Errorf("completed jobs = %v, want the root's job %q", done, s.jobKey)
 		}
 		if reqs := w.requests(s.host); len(reqs) == 0 || reqs[0].Method != http.MethodGet || !strings.Contains(reqs[0].URI, "example.com") {
 			t.Errorf("requests = %+v, want a GET naming the root", reqs)
@@ -269,8 +269,8 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatProcedure(t *testing.T) {
 				w.dns.A("c.example.com", "203.0.113.5")
 				// reverseip also asks HackerTarget, and has its own quota test.
 				f := w.h.partial(w.run("--passive", "--concurrency", "1", "--skip", "reverseip", "example.com", "example.org"), true)
-				if !f.transient || f.msg != "2 checks failed: "+s.procedure+" 2" {
-					t.Errorf("a spent quota is transient and fails both checks: %+v", f)
+				if !f.transient || f.msg != "2 jobs failed: "+s.procedure+" 2" {
+					t.Errorf("a spent quota is transient and fails both jobs: %+v", f)
 				}
 				checkQuotaSpentProcedure(t, w, s)
 
@@ -314,14 +314,14 @@ func checkQuotaSpentProcedure(t *testing.T, w *world, s unkeyedSource) {
 		t.Errorf("a spent quota must not be recorded as done: %v", done)
 	}
 	if n := len(w.requests(s.host)); n != 1 {
-		t.Errorf("the stage should stop after the first answer, saw %d requests", n)
+		t.Errorf("the procedure should stop after the first answer, saw %d requests", n)
 	}
 	warns := w.h.messages("warning", s.procedure)
 	if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
 		t.Errorf("want one quota warning naming %s, got %q", s.procedure, warns)
 	}
 	if st, _ := stateOf(w, "crtsh"); st != "done" {
-		t.Errorf("other stages must be unaffected: crtsh = %s", st)
+		t.Errorf("other procedures must be unaffected: crtsh = %s", st)
 	}
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "c.example.com") {
 		t.Errorf("other sources' names must still be recorded: %v", w.lines(eng, "subdomains.txt"))
@@ -332,7 +332,7 @@ func checkQuotaSpentProcedure(t *testing.T, w *world, s unkeyedSource) {
 func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 	t.Parallel()
 	if !errors.Is(run.ErrQuota, run.ErrAbortProcedure) {
-		t.Error("ErrQuota must be an abort of the stage")
+		t.Error("ErrQuota must be an abort of the procedure")
 	}
 	run.Warnf(context.Background(), "with no warner this does nothing %d", 1)
 
@@ -343,7 +343,7 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 			return nil, fmt.Errorf("HTTP 429: %w", run.ErrQuota)
 		}}
 	h := newHarness(t, st)
-	if f := h.partial(h.exec("a.com", "--json", "--concurrency", "1"), true); !f.transient || f.msg != "4 checks failed: quota 4" {
+	if f := h.partial(h.exec("a.com", "--json", "--concurrency", "1"), true); !f.transient || f.msg != "4 jobs failed: quota 4" {
 		t.Errorf("%+v", f)
 	}
 	var inside, abort []string
@@ -359,7 +359,7 @@ func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 	if len(inside) != 1 {
 		t.Errorf("a Warnf inside Run is shown without any flag: %v", inside)
 	}
-	if want := "quota: quota spent or key rejected; 4 checks will be retried next run"; len(abort) != 1 || abort[0] != want {
+	if want := "quota: quota spent or key rejected; 4 jobs will be retried next run"; len(abort) != 1 || abort[0] != want {
 		t.Errorf("abort warnings = %q, want one %q", abort, want)
 	}
 	if s := lastState(h.events(), "quota"); s.str("state") != "failed" || s.num("failed") != 4 {
@@ -385,7 +385,7 @@ func TestUnkeyed_NotFoundIsEmpty(t *testing.T) {
 			t.Errorf("state = %s, want done", st)
 		}
 		if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{s.jobKey}) {
-			t.Errorf("a 404 completes the check: %v", done)
+			t.Errorf("a 404 completes the job: %v", done)
 		}
 		s.serve(w, s.empty)
 		w.run("--passive", "--redo", s.procedure, "example.com")
@@ -421,7 +421,7 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 				for _, n := range s.names {
 					w.dns.A(n, "203.0.113.5")
 				}
-				if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 checks failed: "+s.procedure+" 1" {
+				if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 jobs failed: "+s.procedure+" 1" {
 					t.Errorf("%+v", f)
 				}
 				if st, _ := stateOf(w, s.procedure); st != "failed" {
@@ -451,7 +451,7 @@ func TestGet_RangePublisher429StaysAFailedJob(t *testing.T) {
 	w.handle("ip-ranges.amazonaws.com", status(429))
 	w.handle("www.gstatic.com", jsonBody(`{"prefixes":[{"ipv4Prefix":"100.64.0.0/16","service":"Google Cloud","scope":"europe-west1"}]}`))
 	serveNewRanges(w)
-	if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com"), true); !f.transient || f.msg != "1 checks failed: providerranges 1" {
+	if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com"), true); !f.transient || f.msg != "1 jobs failed: providerranges 1" {
 		t.Errorf("%+v", f)
 	}
 	if got, want := w.h.completed(eng, "providerranges"), allRangeJobsBut("aws"); !slices.Equal(got, want) {
@@ -489,20 +489,20 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 		t.Fatalf("first run did nothing: %d crt.sh requests, %d lookups", crtBefore, oldBefore)
 	}
 	if n := hostsearch(); n != 0 {
-		t.Fatalf("skipped stage made %d requests", n)
+		t.Fatalf("skipped procedure made %d requests", n)
 	}
 
 	if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if n := len(w.requests("crt.sh")); n != crtBefore {
-		t.Errorf("crtsh repeated its check: %d requests, then %d", crtBefore, n)
+		t.Errorf("crtsh repeated its job: %d requests, then %d", crtBefore, n)
 	}
 	if n := hostsearch(); n != 1 {
 		t.Errorf("hackertarget should run once: %d requests", n)
 	}
 	if w.dns.Count("new.example.com", "A") == 0 {
-		t.Error("the name the new stage added was not resolved")
+		t.Error("the name the new procedure added was not resolved")
 	}
 	if got := w.dns.Count("old.example.com", "A"); got != oldBefore {
 		t.Errorf("an existing name was resolved again: %d lookups, then %d", oldBefore, got)
@@ -523,7 +523,7 @@ func TestUnkeyed_HelpAndRedo(t *testing.T) {
 	topic := w.h.proceduresHelp()
 	for _, s := range unkeyedSources {
 		if procedureRow(topic, s.procedure) == "" {
-			t.Errorf("help stages does not list %s", s.procedure)
+			t.Errorf("help procedures does not list %s", s.procedure)
 		}
 	}
 	if !strings.Contains(help, "--skip") {
@@ -539,7 +539,7 @@ func TestUnkeyed_HelpAndRedo(t *testing.T) {
 		t.Fatalf("--redo hackertarget exited %d", code)
 	}
 	if n := len(w.requests("api.hackertarget.com")); n != hackertarget+1 {
-		t.Errorf("--redo hackertarget should repeat the check: %d requests, then %d", hackertarget, n)
+		t.Errorf("--redo hackertarget should repeat the job: %d requests, then %d", hackertarget, n)
 	}
 	if n := len(w.requests("crt.sh")); n != crt {
 		t.Errorf("--redo hackertarget repeated crtsh: %d requests, then %d", crt, n)
@@ -638,14 +638,14 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 			w := newWorld(t)
 			w.h.setKey("certspotter", certspotterKey)
 			w.handle("api.certspotter.com", status(code))
-			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.org"), true); f.transient || f.msg != "2 checks failed: certspotter 2" {
+			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.org"), true); f.transient || f.msg != "2 jobs failed: certspotter 2" {
 				t.Errorf("a refused key is not transient: %+v", f)
 			}
 			if st, _ := stateOf(w, "certspotter"); st != "failed" {
 				t.Errorf("state = %s, want failed", st)
 			}
 			if n := len(w.requests("api.certspotter.com")); n != 1 {
-				t.Errorf("the stage should stop after the rejection, saw %d requests", n)
+				t.Errorf("the procedure should stop after the rejection, saw %d requests", n)
 			}
 			if warns := w.h.messages("warning", "certspotter"); len(warns) != 1 {
 				t.Errorf("want one warning, got %q", warns)
@@ -675,7 +675,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingJobs(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=10"}) {
-		t.Errorf("completed = %v: the key must not change the check's key", done)
+		t.Errorf("completed = %v: the key must not change the job's key", done)
 	}
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "p1.example.com") {
 		t.Errorf("subdomains.txt = %v", w.lines(eng, "subdomains.txt"))
@@ -683,11 +683,11 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingJobs(t *testing.T) {
 	before := len(w.requests("api.certspotter.com"))
 	w.run("--passive", "example.com")
 	if n := len(w.requests("api.certspotter.com")); n != before {
-		t.Errorf("a finished check was repeated: %d requests, then %d", before, n)
+		t.Errorf("a finished job was repeated: %d requests, then %d", before, n)
 	}
 	w.run("--passive", "--redo", "certspotter", "-e", eng)
 	if n := len(w.requests("api.certspotter.com")); n <= before {
-		t.Errorf("--redo certspotter did not repeat the check: %d requests, then %d", before, n)
+		t.Errorf("--redo certspotter did not repeat the job: %d requests, then %d", before, n)
 	}
 	if hits := w.anywhere(eng, certspotterKey); len(hits) > 0 {
 		t.Errorf("key leaked into %v", hits)
@@ -705,7 +705,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if st, _ := stateOf(w, "certspotter"); st != "done" {
-		t.Errorf("reaching the cap completes the check: state = %s", st)
+		t.Errorf("reaching the cap completes the job: state = %s", st)
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=2"}) {
 		t.Errorf("completed = %v", done)
@@ -726,7 +726,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	if done := w.h.completed(eng, "certspotter"); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
-		t.Errorf("completed = %v, want a new check for the new cap", done)
+		t.Errorf("completed = %v, want a new job for the new cap", done)
 	}
 	if !slices.Contains(w.lines(eng, "subdomains.txt"), "p3.example.com") {
 		t.Errorf("subdomains.txt = %v", w.lines(eng, "subdomains.txt"))

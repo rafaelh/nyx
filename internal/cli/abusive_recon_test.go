@@ -249,8 +249,8 @@ func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 	x.dns.Rcode(dnsname.CymruOrigin(netip.MustParseAddr("198.51.102.0")), 2) // SERVFAIL
 	x.h.abusive = abSnapshot([]abusive.NetworkEntry{abNet(1, "198.51.100.0", "198.51.102.255", "High", 50, "Block Org", "isp")},
 		[]abusive.ASNEntry{abASN(2, 64999, "High", 90, "Bad AS", "hosting")})
-	if f := x.partialPassive("--cidr", "198.51.100.0/22"); f.msg != "1 checks failed: netblockowner 1" {
-		t.Errorf("error = %+v, want the one failed netblockowner check", f)
+	if f := x.partialPassive("--cidr", "198.51.100.0/22"); f.msg != "1 jobs failed: netblockowner 1" {
+		t.Errorf("error = %+v, want the one failed netblockowner job", f)
 	}
 	// The network matches come out whether the AS is unknown, known or failed; the AS adds only where known.
 	for addr, wantType := range map[string]string{"198.51.100.5": "network", "198.51.101.5": "network", "198.51.102.5": "network"} {
@@ -268,7 +268,7 @@ func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 		t.Errorf("198.51.102.5 (lookup failed) has an AS: %v", r)
 	}
 	if done := x.completedKeys("netblockowner"); !slices.Equal(done, []string{"198.51.100.0/24", "198.51.101.0/24"}) {
-		t.Errorf("completed checks = %v: a failed check is not completed, an unknown one is", done)
+		t.Errorf("completed jobs = %v: a failed job is not completed, an unknown one is", done)
 	}
 	// The next run retries only the failed job, now that the resolver answers.
 	x.dns.ClearRcode(dnsname.CymruOrigin(netip.MustParseAddr("198.51.102.0")))

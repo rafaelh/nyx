@@ -322,7 +322,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Var(portsFlag{&riskyRaw, &rt}, "risky-ports", "Ports whose being open is reported as a risk")
 	fs.String("sensitive-paths", "", "YAML file of sensitive paths to request (default: "+BuiltinSensitivePathsLabel()+")")
 	fs.String("wordlist", "", "Subdomain wordlist file (default: "+BuiltinWordlistLabel()+")")
-	intFlag(fs, "concurrency", d.Concurrency, "Workers per stage (ports: --port-concurrency)")
+	intFlag(fs, "concurrency", d.Concurrency, "Workers per procedure (ports: --port-concurrency)")
 	intFlag(fs, "port-concurrency", d.PortConcurrency, "Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout")
 	floatFlag(fs, "rate-per-host", d.Rate.PerHost, "Requests per second per dialled target IP (HTTP requests and TCP connects)")
 	floatFlag(fs, "rate-per-source", d.Rate.PerSource, "Requests per second per third-party source")
@@ -336,7 +336,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("no-permutations", false, "Do not resolve permutations of discovered subdomain labels (default: on, including with --passive)")
 	intFlag(fs, "permutations-max", d.Permutations.MaxPerSeed, "Maximum permutations generated per discovered subdomain label")
 	intFlag(fs, "netblock-limit", d.NetblockLimit, "IPv4 address count above which the run stops unless --allow-large-netblocks is given")
-	fs.StringArray("skip", nil, "Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)")
+	fs.StringArray("skip", nil, "Procedure to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help procedures)")
 	intFlag(fs, "certspotter-max-pages", d.Certspotter.MaxPages, "Result pages followed per root from Cert Spotter")
 	intFlag(fs, "shodan-dns-max-pages", d.ShodanDNS.MaxPages, "Result pages followed per root from Shodan's DNS data (one query credit each)")
 	intFlag(fs, "censys-max-pages", d.Censys.MaxPages, "Result pages followed per root from Censys")
@@ -687,7 +687,7 @@ func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 func parseSkip(items []string) ([]string, error) {
 	out, none := SkipNames(items)
 	if none && len(out) > 0 {
-		return nil, fmt.Errorf("%q cannot be combined with stage names", skipNone)
+		return nil, fmt.Errorf("%q cannot be combined with procedure names", skipNone)
 	}
 	return out, nil
 }

@@ -4,7 +4,7 @@ Examples:
   nyx setup --update-threat-data
 
 setup opens a full-screen editor for the config file: your API keys (each can be tested without being
-saved), the output directory and the common settings, the stages to skip, and a tab for the threat data nyx
+saved), the output directory and the common settings, the procedures to skip, and a tab for the threat data nyx
 checks addresses against. Edits to the config file are held until you save. It needs a terminal and takes no
 arguments. The config file is where every setting and key nyx uses is kept.
 
@@ -28,7 +28,7 @@ Flags:
   -h, --help                 Help for setup
 
 Shared flags:
-      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
+      --debug   Also write diagnostics to stderr: each failed job (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
   -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
   -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
 

@@ -234,7 +234,7 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 	}
 	got := x.completedKeys("storage")
 	if !slices.Equal(got, want) {
-		t.Errorf("storage checks:\n got %v\nwant %v", got, want)
+		t.Errorf("storage jobs:\n got %v\nwant %v", got, want)
 	}
 	if st := x.state("storage"); st.str("state") == "not-configured" {
 		t.Errorf("storage state = %v", st)
@@ -245,11 +245,11 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 	x.mustRun("--passive", "--storage-max-names", "5", "--org", "Acme Corp")
 	got2 := x.completedKeys("storage")
 	if len(got2) <= len(got) {
-		t.Fatalf("no new checks: %v", got2)
+		t.Fatalf("no new jobs: %v", got2)
 	}
 	for _, k := range got {
 		if !slices.Contains(got2, k) {
-			t.Errorf("lost check %s", k)
+			t.Errorf("lost job %s", k)
 		}
 	}
 	if added := len(x.src["s3.amazonaws.com"].requestLog()) - n; added != 2 { // one new S3 name per root and per org

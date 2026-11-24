@@ -91,7 +91,7 @@ func TestSensitivePaths_RequestedOnceAndMatched(t *testing.T) {
 	// A second run asks nothing again.
 	x.mustRun("--crawl-pages", "0", "--sensitive-paths", x.pathsFile(pathsYAML))
 	if www.count("/.env") != 1 || plain.count("/.env") != 1 {
-		t.Error("a second run repeated a completed check")
+		t.Error("a second run repeated a completed job")
 	}
 	// A redone procedure asks again.
 	x.mustRun("--crawl-pages", "0", "--sensitive-paths", x.pathsFile(pathsYAML), "--redo", "sensitive-paths")

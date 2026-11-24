@@ -65,7 +65,7 @@ func TestWildcardOnly(t *testing.T) {
 	// A name discovered after the zone check is still caught: same Data, new host.
 	resolve(&d, "later.example.com", "203.0.113.2")
 	if !inventory.New(d, provider.Default()).WildcardOnly()["later.example.com"] {
-		t.Error("a name found after the zone's check must be wildcard-only")
+		t.Error("a name found after the zone's wildcard probe must be wildcard-only")
 	}
 }
 

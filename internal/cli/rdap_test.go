@@ -503,7 +503,7 @@ func TestRDAP_RegistryWithoutSearchCompletesWithANote(t *testing.T) {
 	done := x.h.completed(eng, "rdap")
 	for _, r := range []string{"ripe", "lacnic", "afrinic", "arin", "apnic"} {
 		if !slices.Contains(done, "org|Acme Widgets Pty Ltd|"+r) {
-			t.Errorf("check for %s not completed: %v", r, done)
+			t.Errorf("job for %s not completed: %v", r, done)
 		}
 	}
 }
@@ -710,7 +710,7 @@ func TestRDAP_QuotaStopsTheProcedureAndTheJobsRunNextTime(t *testing.T) {
 		t.Errorf("error = %+v, want a transient failure naming rdap", f)
 	}
 	if got := len(x.h.completed(eng, "rdap")); got != 0 {
-		t.Errorf("completed checks = %v, want none", x.h.completed(eng, "rdap"))
+		t.Errorf("completed jobs = %v, want none", x.h.completed(eng, "rdap"))
 	}
 	if n := len(x.lookupsAt(hostARIN)); n != 1 {
 		t.Errorf("ARIN was asked %d times after a 429, want 1", n)
@@ -832,7 +832,7 @@ func TestRDAP_RunsUnderPassiveAndIsRegistered(t *testing.T) {
 		}
 	}
 	if rd == nil || rd.Contact() != run.ThirdParty {
-		t.Fatalf("rdap stage = %v", rd)
+		t.Fatalf("rdap procedure = %v", rd)
 	}
 	if i := slices.Index(names, "rdap"); i != slices.Index(names, "dnsroot")+1 {
 		t.Errorf("rdap is at %d, want right after dnsroot (%d)", i, slices.Index(names, "dnsroot"))

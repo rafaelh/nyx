@@ -106,7 +106,7 @@ func TestHelp_FlagDescriptionsWrap(t *testing.T) {
 		t.Errorf("only %d continuation lines: the descriptions are not wrapping", continued)
 	}
 	flags := hangFrom(t, lines, "      --skip stringArray", 47)
-	if want := "Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)"; !strings.HasSuffix(joinedWords(flags), want) || len(flags) < 2 {
+	if want := "Procedure to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help procedures)"; !strings.HasSuffix(joinedWords(flags), want) || len(flags) < 2 {
 		t.Errorf("the --skip row, wrapped, is %q", flags)
 	}
 	// The shared flags wrap too, on a command's own help and in the root's.
@@ -147,13 +147,13 @@ func TestHelp_ParagraphsReflow(t *testing.T) {
 		t.Errorf("the footer was not re-flowed into the width: %d lines", len(recon))
 	}
 
-	const proceduresFooter = "Third-party stages ask public sources and resolvers, and run under --passive. Target stages contact the target's own systems: " +
+	const proceduresFooter = "Third-party procedures ask public sources and resolvers, and run under --passive. Target procedures contact the target's own systems: " +
 		"they are skipped under --passive, and unless --authorised has confirmed, on this run or an earlier one, that you are authorised. " +
-		"A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in brackets is optional. " +
-		"--redo <stage> performs every check of one stage again, and --skip <stage> turns one off, except the stages marked *, which other stages' safety depends on."
-	procedures := blockFrom(t, textLines(helpOn(t, palette.None, 80, "help", "stages")), "Third-party stages")
+		"A procedure with a KEY needs keys.<KEY> and is not-configured without it; a key in brackets is optional. " +
+		"--redo <procedure> performs every job of one procedure again, and --skip <procedure> turns one off, except the procedures marked *, which other procedures' safety depends on."
+	procedures := blockFrom(t, textLines(helpOn(t, palette.None, 80, "help", "procedures")), "Third-party procedures")
 	if joinedWords(procedures) != proceduresFooter || widest(procedures) > 80 {
-		t.Errorf("stages footer: %q", procedures)
+		t.Errorf("procedures footer: %q", procedures)
 	}
 }
 
@@ -185,10 +185,10 @@ func TestHelp_ValueListsWrapAfterCommas(t *testing.T) {
 		}
 	}
 	root := textLines(helpOn(t, palette.None, 80, "--help"))
-	check(root, "Stages accepted by --redo and --skip:", strings.Join(names, ", "))
+	check(root, "Procedures accepted by --redo and --skip:", strings.Join(names, ", "))
 	check(root, "Exit codes:", "0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)")
-	if got := hangFrom(t, root, "Stages --skip refuses:", 1); len(got) != 1 || got[0] != "Stages --skip refuses: resolve, wildcard, ipowner, providerranges" {
-		t.Errorf("Stages --skip refuses: %q", got)
+	if got := hangFrom(t, root, "Procedures --skip refuses:", 1); len(got) != 1 || got[0] != "Procedures --skip refuses: resolve, wildcard, ipowner, providerranges" {
+		t.Errorf("Procedures --skip refuses: %q", got)
 	}
 	export := textLines(helpOn(t, palette.None, 80, "recon", "export", "--help"))
 	wide := hangFrom(t, textLines(helpOn(t, palette.None, 1000, "recon", "export", "--help")), "Kinds accepted by --kind:", 1)
@@ -236,7 +236,7 @@ func TestHelp_CommandRowsWrap(t *testing.T) {
 		t.Fatalf("the help commands do not fit:\n%s", strings.Join(rows, "\n"))
 	}
 	col := strings.Index(rows[0], "Finding types")
-	if col != len("  nyx help [command]   ") {
+	if col != len("  nyx help procedures   ") { // the widest command name sets the column
 		t.Errorf("the summary column is %d: %q", col, rows[0])
 	}
 	for _, l := range rows {
@@ -274,7 +274,7 @@ func TestHelp_HeadingsStyled(t *testing.T) {
 		{[]string{"--help"}, []string{"Examples:", "Flags:", "Help:", "cve flags:", "recon flags:", "recon export flags:"}},
 		{[]string{"recon", "--help"}, []string{"Examples:", "Usage:", "Commands:", "Flags:", "Shared flags:", "Configuration:"}},
 		{[]string{"cve", "--help"}, []string{"Examples:", "Usage:", "Flags:", "Shared flags:"}},
-		{[]string{"help", "stages"}, []string{"Stages, in the order each pass runs them:"}},
+		{[]string{"help", "procedures"}, []string{"Procedures, in the order each pass runs them:"}},
 	}
 	for _, s := range screens {
 		got := helpOn(t, d, 80, s.args...)
@@ -401,12 +401,12 @@ func TestHelp_FindingsTopicTable(t *testing.T) {
 func TestHelp_ProceduresTopicTable(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
-	got := helpOn(t, d, 80, "help", "stages")
+	got := helpOn(t, d, 80, "help", "procedures")
 	for _, want := range []string{"┌", "│", "└", d.Text(palette.Semantic, "warning", "target"), d.Text(palette.Semantic, "success", "third party"),
 		d.Text(palette.Semantic, "info", "resolve*"), d.Text(palette.Semantic, "info", "ports"), d.Text(palette.Semantic, "muted", "securitytrails"),
 		d.BoldText(palette.Semantic, "muted", "WHAT IT DOES")} {
 		if !strings.Contains(got, want) {
-			t.Errorf("the coloured stages topic lacks %q", want)
+			t.Errorf("the coloured procedures topic lacks %q", want)
 		}
 	}
 	for _, name := range []string{"resolve", "wildcard", "ipowner", "providerranges"} {
@@ -415,12 +415,12 @@ func TestHelp_ProceduresTopicTable(t *testing.T) {
 		}
 	}
 
-	plain := textLines(helpOn(t, palette.None, 80, "help", "stages"))
+	plain := textLines(helpOn(t, palette.None, 80, "help", "procedures"))
 	if widest(plain) > 80 {
 		t.Errorf("a line is %d cells wide", widest(plain))
 	}
 	table := tableOf(t, plain)
-	if c := tableCells(table[1]); !slices.Equal(c, []string{"STAGE", "CONTACT", "KEY", "WHAT IT DOES"}) {
+	if c := tableCells(table[1]); !slices.Equal(c, []string{"PROCEDURE", "CONTACT", "KEY", "WHAT IT DOES"}) {
 		t.Errorf("header %q", c)
 	}
 	rows := 0
@@ -437,7 +437,7 @@ func TestHelp_ProceduresTopicTable(t *testing.T) {
 		}
 	}
 	if rows != len(defaultProcedureList()) {
-		t.Errorf("%d stage rows, want %d", rows, len(defaultProcedureList()))
+		t.Errorf("%d procedure rows, want %d", rows, len(defaultProcedureList()))
 	}
 	if len(origin) < 2 || strings.Join(origin, " ") != "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site" {
 		t.Errorf("origincheck does not wrap within WHAT IT DOES: %q", origin)
@@ -467,7 +467,7 @@ func TestHelp_UncolouredTerminalsHaveNoEscapes(t *testing.T) {
 				if strings.Contains(out, "\x1b") || out == "" {
 					t.Errorf("an uncoloured terminal got %q", out)
 				}
-				if s.name == "findings" || s.name == "stages" {
+				if s.name == "findings" || s.name == "procedures" {
 					if !strings.Contains(out, "\n  +-") || !strings.Contains(out, "  | ") {
 						t.Errorf("the topic's table is not laid out with ASCII borders:\n%s", out)
 					}

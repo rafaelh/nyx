@@ -132,7 +132,7 @@ func TestEmail_Posture(t *testing.T) {
 				d.TXT("s1._domainkey.example.com", "k=rsa; p=MIGf")
 			}
 		}, nil, map[string]string{"dkim_selectors": "s1"}},
-		{"dkim selector SERVFAIL does not fail the check", func(m *mail) {
+		{"dkim selector SERVFAIL does not fail the job", func(m *mail) {
 			m.extra = func(d *egresstest.DNS) {
 				d.Rcode("google._domainkey.example.com", mdns.RcodeServerFailure)
 				d.TXT("k1._domainkey.example.com", "v=DKIM1; p=XYZ")
@@ -212,7 +212,7 @@ func TestEmail_DMARCServfailIsTransient(t *testing.T) {
 		t.Errorf("state = %v", st)
 	}
 	if len(x.rows("email-posture.csv")) != 0 || len(x.completedKeys("email")) != 0 {
-		t.Errorf("a failed check recorded a result: %v", x.completedKeys("email"))
+		t.Errorf("a failed job recorded a result: %v", x.completedKeys("email"))
 	}
 	x.dns.ClearRcode("_dmarc.example.com")
 	x.mustRun()
@@ -220,7 +220,7 @@ func TestEmail_DMARCServfailIsTransient(t *testing.T) {
 		t.Errorf("after the retry: %v", got)
 	}
 	if got := x.completedKeys("email"); len(got) != 1 || !strings.HasPrefix(got[0], "example.com|dkim=") {
-		t.Errorf("check keys = %v", got)
+		t.Errorf("job keys = %v", got)
 	}
 }
 
@@ -239,7 +239,7 @@ func TestEmail_IncludeServfailIsTransient(t *testing.T) {
 		t.Errorf("state = %v", st)
 	}
 	if len(x.rows("risk-email.csv")) != 0 || len(x.completedKeys("email")) != 0 {
-		t.Errorf("a failed check recorded a result: %v", x.rows("risk-email.csv"))
+		t.Errorf("a failed job recorded a result: %v", x.rows("risk-email.csv"))
 	}
 	x.dns.ClearRcode("broken.t.test")
 	x.dns.TXT("broken.t.test", "v=spf1 ip4:192.0.2.1 -all")
@@ -248,7 +248,7 @@ func TestEmail_IncludeServfailIsTransient(t *testing.T) {
 		t.Errorf("after the retry: %v", got)
 	}
 	if got := x.completedKeys("email"); len(got) != 1 {
-		t.Errorf("check keys = %v", got)
+		t.Errorf("job keys = %v", got)
 	}
 }
 
@@ -316,7 +316,7 @@ func TestEmail_OnlyInScopeRoots(t *testing.T) {
 	healthy().apply(x.dns, "example.com")
 	x.mustRun("--cidr", "198.51.100.0/24")
 	if got := x.completedKeys("email"); len(got) != 1 {
-		t.Errorf("checks = %v", got)
+		t.Errorf("jobs = %v", got)
 	}
 	x.mustRun("-x", "example.com")
 	if got := current(x.rows("email-posture.csv")); len(got) != 0 {

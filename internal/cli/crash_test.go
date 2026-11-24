@@ -252,10 +252,10 @@ func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 		t.Fatalf("recovery run exit %d", code)
 	}
 	if got := sorted(c2.executed()); strings.Join(got, ",") != strings.Join(wantRun2, ",") {
-		t.Errorf("recovery run executed %d checks, want %d\n got %v\nwant %v", len(got), len(wantRun2), got, wantRun2)
+		t.Errorf("recovery run executed %d jobs, want %d\n got %v\nwant %v", len(got), len(wantRun2), got, wantRun2)
 	}
 	if got := committed(t, out); len(got) != nJobs {
-		t.Errorf("after recovery %d checks recorded, want %d", len(got), nJobs)
+		t.Errorf("after recovery %d jobs recorded, want %d", len(got), nJobs)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".nyx", "tmp")); len(entries) != 0 {
 		t.Errorf("tmp not swept: %v", entries)
@@ -323,9 +323,9 @@ func testCrashRenderMidFile(t *testing.T) {
 	assertOutputsIntact(t, out)
 }
 
-// A kill -9 at in-check-tx, in-flight and after-commit.
+// A kill -9 at in-job-tx, in-flight and after-commit.
 func testCrashPoints(t *testing.T) {
-	for _, point := range []string{"in-check-tx", "in-flight", "after-commit"} {
+	for _, point := range []string{"in-job-tx", "in-flight", "after-commit"} {
 		t.Run(point, func(t *testing.T) {
 			t.Parallel()
 			out := t.TempDir()
@@ -345,11 +345,11 @@ func testCrashPoints(t *testing.T) {
 			if point == "in-flight" {
 				key := strings.Fields(detail)[len(strings.Fields(detail))-1]
 				if done[key] {
-					t.Errorf("in-flight check %s must not be recorded", key)
+					t.Errorf("in-flight job %s must not be recorded", key)
 				}
 			}
-			if point == "in-check-tx" && len(done) == nJobs {
-				t.Error("in-check-tx: the pending transaction must not have committed")
+			if point == "in-job-tx" && len(done) == nJobs {
+				t.Error("in-job-tx: the pending transaction must not have committed")
 			}
 			finishAndCheck(t, out, setDiff(allKeys(nJobs), done), childOpts{args: []string{"-e", "a.com"}})
 		})
@@ -376,7 +376,7 @@ func testCrashDuringRedo(t *testing.T) {
 	}
 	done := committed(t, out)
 	if len(done) == 0 || len(done) == nJobs {
-		t.Fatalf("want a partial redo at the crash point, got %d of %d checks recorded", len(done), nJobs)
+		t.Fatalf("want a partial redo at the crash point, got %d of %d jobs recorded", len(done), nJobs)
 	}
 	finishAndCheck(t, out, setDiff(allKeys(nJobs), done), childOpts{args: []string{"-e", "a.com"}}) // no --redo
 	db2 := openDB(t, filepath.Join(engDirOf(out), ".nyx", "state.db"))
@@ -397,7 +397,7 @@ func testSignals(t *testing.T) {
 				t.Parallel()
 				out := t.TempDir()
 				c1 := startChild(t, out, childOpts{n: nJobs, delay: 60 * time.Millisecond, args: []string{"a.com", "--concurrency", "2"}, human: human})
-				waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
+				waitFor(t, "some jobs", func() bool { return len(c1.executed()) >= 6 })
 				c1.kill(c.sig)
 				if code := c1.wait(); code != c.code {
 					t.Fatalf("exit %d, want %d\n%s", code, c.code, c1.stderr.String())
@@ -450,7 +450,7 @@ func testSignalsSecondExitsAtOnce(t *testing.T) {
 				// The jobs ignore the cancel and take a minute, so only the
 				// second signal can end the run soon.
 				c1 := startChild(t, out, childOpts{n: nJobs, delay: time.Minute, stubborn: true, human: human, args: []string{"a.com", "--concurrency", "2"}})
-				waitFor(t, "the checks to start", func() bool { return len(c1.executed()) >= 2 })
+				waitFor(t, "the jobs to start", func() bool { return len(c1.executed()) >= 2 })
 				c1.kill(c.first)
 				time.Sleep(200 * time.Millisecond)
 				start := time.Now()
@@ -507,7 +507,7 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 	}
 
 	c1 := startChild(t, out, childOpts{n: nJobs, hosts: true, delay: 60 * time.Millisecond, args: []string{"-e", "a.com", "--concurrency", "2"}})
-	waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
+	waitFor(t, "some jobs", func() bool { return len(c1.executed()) >= 6 })
 	c1.kill(syscall.SIGINT)
 	if code := c1.wait(); code != 130 {
 		t.Fatalf("exit %d, want 130\n%s", code, c1.stderr.String())
@@ -562,7 +562,7 @@ func testTimeoutInAChildProcess(t *testing.T) {
 	}
 	assertOutputsIntact(t, out)
 	if got := committed(t, out); len(got) != 0 {
-		t.Errorf("%d cancelled checks were recorded as done", len(got))
+		t.Errorf("%d cancelled jobs were recorded as done", len(got))
 	}
 	finishAndCheck(t, out, allKeys(nJobs), childOpts{args: []string{"-e", "a.com"}})
 }

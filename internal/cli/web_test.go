@@ -61,7 +61,7 @@ func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
 	keys := x.completedKeys("httpprobe")
 	for _, k := range []string{"a.example.com:80", "a.example.com:443", "c.example.com:80", "c.example.com:443", "b.example.com:80"} {
 		if !slices.Contains(keys, k) {
-			t.Errorf("check %s not completed: %v", k, keys)
+			t.Errorf("job %s not completed: %v", k, keys)
 		}
 	}
 	if st, _ := stateOf(x.world, "httpprobe"); st != "done" {
@@ -123,12 +123,12 @@ func TestProbe_NonStandardPortDetectedOnce(t *testing.T) {
 	}
 	keys := x.completedKeys("httpprobe")
 	if !slices.Contains(keys, "port|203.0.113.5:8080") {
-		t.Errorf("detection check missing: %v", keys)
+		t.Errorf("detection job missing: %v", keys)
 	}
 	// Ports 80 and 443 belong to the hostname jobs, never the detection job.
 	for _, k := range keys {
 		if strings.HasPrefix(k, "port|") && (strings.HasSuffix(k, ":80") || strings.HasSuffix(k, ":443")) {
-			t.Errorf("detection check %s on a standard port", k)
+			t.Errorf("detection job %s on a standard port", k)
 		}
 	}
 	x.wantRecordCount("http_port", 1)
@@ -152,7 +152,7 @@ func TestProbe_DetectionTestsItsOwnAddress(t *testing.T) {
 		t.Errorf("http_port = %v, want only 203.0.113.5:8080", got)
 	}
 	if s6.conns.Load() == 0 {
-		t.Error("the detection check of 203.0.113.6:8080 never reached that address")
+		t.Error("the detection job of 203.0.113.6:8080 never reached that address")
 	}
 	// a detects .5; b is .5's vhost; c, only on .6, is never probed.
 	x.wantServices("http://a.example.com:8080", "http://b.example.com:8080")
@@ -174,7 +174,7 @@ func TestProbe_NameOnTwoAddressesIsDetectedOnce(t *testing.T) {
 
 	keys := x.completedKeys("httpprobe")
 	if !slices.Contains(keys, "port|203.0.113.5:8080") || slices.Contains(keys, "port|203.0.113.6:8080") {
-		t.Errorf("detection checks = %v, want one, on the first address", keys)
+		t.Errorf("detection jobs = %v, want one, on the first address", keys)
 	}
 	if n := s5.pageHits() + s6.pageHits(); n != 1 {
 		t.Errorf("a.example.com:8080 was requested %d times, want 1", n)
@@ -231,7 +231,7 @@ func TestProbe_SchemeDetectionAndFallback(t *testing.T) {
 		x.mustRun()
 		x.wantServices()
 		if !slices.Contains(x.completedKeys("httpprobe"), "port|203.0.113.5:8080") {
-			t.Error("the detection check must complete")
+			t.Error("the detection job must complete")
 		}
 	})
 }
@@ -254,14 +254,14 @@ func TestProbe_BannerAndNonHTTPPortsGetNoVhostRequests(t *testing.T) {
 		t.Errorf("a port with a banner was probed %d times", withBanner.hits())
 	}
 	if slices.Contains(x.completedKeys("httpprobe"), "port|203.0.113.5:9999") {
-		t.Error("a port with a banner must not get a detection check")
+		t.Error("a port with a banner must not get a detection job")
 	}
 	if n := notHTTP.conns.Load(); n < 1 || n > 2 {
 		t.Errorf("non-HTTP port saw %d connections, want only the representative's https and http tries", n)
 	}
 	for _, k := range x.completedKeys("httpprobe") {
 		if k == "b.example.com:9100" || k == "c.example.com:9100" {
-			t.Errorf("vhost check %s on a port that does not speak HTTP", k)
+			t.Errorf("vhost job %s on a port that does not speak HTTP", k)
 		}
 	}
 	x.wantRecordCount("http_port", 0)
@@ -299,7 +299,7 @@ func TestProbeIP_IPLiteralService(t *testing.T) {
 	keys := x.completedKeys("httpprobe")
 	for _, k := range []string{"port|198.51.100.7:8080", "port|[2001:db8:1::5]:80"} {
 		if !slices.Contains(keys, k) {
-			t.Errorf("check %s missing: %v", k, keys)
+			t.Errorf("job %s missing: %v", k, keys)
 		}
 	}
 }

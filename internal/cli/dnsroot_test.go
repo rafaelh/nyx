@@ -327,7 +327,7 @@ func TestDNSRoot_JobsAndPassive(t *testing.T) {
 	}
 	want := []string{"example.com|CAA", "example.com|NS", "example.com|SOA", "example.com|SRV", "example.com|TXT"}
 	if !slices.Equal(got, want) {
-		t.Errorf("checks = %v, want %v", got, want)
+		t.Errorf("jobs = %v, want %v", got, want)
 	}
 	for _, ty := range []string{"NS", "SOA", "TXT", "CAA"} {
 		if n := w.dns.Count("example.com", ty); n != 1 {
@@ -388,21 +388,21 @@ func TestDNSRoot_Outcomes(t *testing.T) {
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test") // SOA, TXT and CAA are NODATA
 	w.dns.RcodeType("example.com", "TXT", egress.RCodeServFail)
-	if f := w.h.partial(w.run("--passive", "example.com", "gone.example.org"), true); f.msg != "1 checks failed: dnsroot 1" || !f.transient {
-		t.Errorf("error = %+v, want the one failed TXT check, transient", f)
+	if f := w.h.partial(w.run("--passive", "example.com", "gone.example.org"), true); f.msg != "1 jobs failed: dnsroot 1" || !f.transient {
+		t.Errorf("error = %+v, want the one failed TXT job, transient", f)
 	}
 	done := w.h.completed(eng, "dnsroot")
 	for _, k := range []string{"example.com|NS|addrs", "example.com|SOA", "example.com|CAA",
 		"gone.example.org|NS|addrs", "gone.example.org|SOA", "gone.example.org|TXT", "gone.example.org|CAA"} {
 		if !slices.Contains(done, k) {
-			t.Errorf("check %s did not complete (NODATA and NXDOMAIN are results): %v", k, done)
+			t.Errorf("job %s did not complete (NODATA and NXDOMAIN are results): %v", k, done)
 		}
 	}
 	if slices.Contains(done, "example.com|TXT") {
-		t.Errorf("a SERVFAIL completed its check: %v", done)
+		t.Errorf("a SERVFAIL completed its job: %v", done)
 	}
 	if e := lastState(w.h.events(), "dnsroot"); e.num("failed") != 1 {
-		t.Errorf("dnsroot state = %v, want exactly the TXT check failed", e)
+		t.Errorf("dnsroot state = %v, want exactly the TXT job failed", e)
 	}
 	if resolutionRow(w, "example.com", "NS") == nil {
 		t.Errorf("the other types still recorded their rows:\n%s", w.file(eng, "resolutions.csv"))
@@ -417,13 +417,13 @@ func TestDNSRoot_Outcomes(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if !slices.Contains(w.h.completed(eng, "dnsroot"), "example.com|TXT") {
-		t.Error("the failed TXT check was not retried")
+		t.Error("the failed TXT job was not retried")
 	}
 	if n := w.dns.Count("example.com", "NS"); n != 1 {
-		t.Errorf("completed checks were repeated: NS queried %d times", n)
+		t.Errorf("completed jobs were repeated: NS queried %d times", n)
 	}
 	if find(w.table(eng, "third-parties.csv"), "provider", "Microsoft 365") == nil {
-		t.Errorf("the retried check found nothing:\n%s", w.file(eng, "third-parties.csv"))
+		t.Errorf("the retried job found nothing:\n%s", w.file(eng, "third-parties.csv"))
 	}
 }
 
@@ -542,7 +542,7 @@ func TestDNSRoot_RowsCreateNoWildcardJobs(t *testing.T) {
 	}
 	for _, ty := range []string{"ns", "soa", "txt", "caa"} {
 		if slices.Contains(done, ty+".example.com") {
-			t.Errorf("a %s row created a wildcard check for %s.example.com: %v", ty, ty, done)
+			t.Errorf("a %s row created a wildcard job for %s.example.com: %v", ty, ty, done)
 		}
 	}
 }

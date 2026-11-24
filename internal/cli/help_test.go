@@ -12,8 +12,8 @@ import (
 // proceduresHelp is the output of nyx help procedures.
 func (h *harness) proceduresHelp() string {
 	h.t.Helper()
-	if code := h.execRoot("help", "stages"); code != 0 {
-		h.t.Fatalf("help stages: exit %d, stderr %q", code, h.stderr.String())
+	if code := h.execRoot("help", "procedures"); code != 0 {
+		h.t.Fatalf("help procedures: exit %d, stderr %q", code, h.stderr.String())
 	}
 	return h.stdout.String()
 }
@@ -157,7 +157,7 @@ func TestHelp_ProceduresTopic(t *testing.T) {
 	}
 	for _, want := range []string{"--passive", "--redo", "--skip", "keys.<KEY>"} {
 		if !strings.Contains(topic, want) {
-			t.Errorf("help stages lacks %q", want)
+			t.Errorf("help procedures lacks %q", want)
 		}
 	}
 
@@ -165,14 +165,14 @@ func TestHelp_ProceduresTopic(t *testing.T) {
 		t.Fatal(h.stderr.String())
 	}
 	help := h.stdout.String()
-	if strings.Contains(help, "Stages accepted by --redo") || strings.Contains(help, "sensitive-paths, ports") {
-		t.Error("--help still lists the stages")
+	if strings.Contains(help, "Procedures accepted by --redo") || strings.Contains(help, "sensitive-paths, ports") {
+		t.Error("--help still lists the procedures")
 	}
-	if !strings.Contains(help, "see nyx help stages") {
-		t.Error("recon --help does not point to nyx help stages")
+	if !strings.Contains(help, "see nyx help procedures") {
+		t.Error("recon --help does not point to nyx help procedures")
 	}
-	if code := h.execRoot("--help"); code != 0 || !strings.Contains(h.stdout.String(), "nyx help stages") {
-		t.Error("the root help does not list nyx help stages")
+	if code := h.execRoot("--help"); code != 0 || !strings.Contains(h.stdout.String(), "nyx help procedures") {
+		t.Error("the root help does not list nyx help procedures")
 	}
 
 	// Terminal procedures tables warn-colour target contact; detailed layout is tested

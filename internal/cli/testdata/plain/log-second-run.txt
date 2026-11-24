@@ -12,6 +12,6 @@
 09:00:00 | INFO  |   open ports (confirmed): 2
 09:00:00 | INFO  |   third parties: 1
 09:00:00 | INFO  |   web services: 2
-error: 2 checks failed: flaky 2 (PARTIAL)
+error: 2 jobs failed: flaky 2 (PARTIAL)
 hint: nyx recon --output-dir <OUTPUT-DIR> a.com --cidr 198.51.100.0/24 --concurrency 1
 retry: may succeed after a wait

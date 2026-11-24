@@ -264,7 +264,7 @@ func TestShodanHost_UnknownAddressCompletesWithNothing(t *testing.T) {
 		t.Errorf("open-ports.csv has rows: %s", p.file(eng, "open-ports.csv"))
 	}
 	if f := p.h.completed(eng, "shodan-host"); len(f) != 2 {
-		t.Errorf("a 404 must not leave a failed check: completed %v", f)
+		t.Errorf("a 404 must not leave a failed job: completed %v", f)
 	}
 }
 
@@ -276,7 +276,7 @@ func TestShodanHost_RejectedKeyAbortsTheProcedure(t *testing.T) {
 	p.app()
 	f.setStatus(401)
 	// Both jobs fail, and a refused key is not cured by waiting.
-	if e := p.partialPassive("--ports", "3389", "--concurrency", "1"); e.transient || e.msg != "2 checks failed: shodan-host 2" {
+	if e := p.partialPassive("--ports", "3389", "--concurrency", "1"); e.transient || e.msg != "2 jobs failed: shodan-host 2" {
 		t.Errorf("%+v", e)
 	}
 
@@ -284,7 +284,7 @@ func TestShodanHost_RejectedKeyAbortsTheProcedure(t *testing.T) {
 		t.Errorf("completed = %v, want nothing after a rejected key", got)
 	}
 	if n := len(p.lookups()); n != 1 {
-		t.Errorf("%d lookups after a 401, want the stage aborted after the first", n)
+		t.Errorf("%d lookups after a 401, want the procedure aborted after the first", n)
 	}
 	if st, _ := p.procedureState("shodan-host"); st != "failed" {
 		t.Errorf("shodan-host = %s, want failed", st)
@@ -312,7 +312,7 @@ func TestShodanHost_CapDefersInAddressOrder(t *testing.T) {
 		t.Errorf("summary deferred shodan-host = %d, want 2", n)
 	}
 	if st, _ := p.procedureState("shodan-host"); st != "done" {
-		t.Errorf("shodan-host = %s, want done (deferred checks are not failures)", st)
+		t.Errorf("shodan-host = %s, want done (deferred jobs are not failures)", st)
 	}
 	if ev := lastState(p.h.events(), "shodan-host"); ev.num("failed") != 0 {
 		t.Errorf("failed = %d, want 0", ev.num("failed"))
@@ -461,7 +461,7 @@ func TestShodanHost_ReportedPortsAreNeverDialledOrProbed(t *testing.T) {
 	}
 	for _, k := range p.completedKeys("ports") {
 		if strings.Contains(k, ":8080") || strings.Contains(k, ":3306") {
-			t.Errorf("a port check was made for a Shodan port: %s", k)
+			t.Errorf("a ports job was made for a Shodan port: %s", k)
 		}
 	}
 	for _, k := range p.completedKeys("httpprobe") {
@@ -515,7 +515,7 @@ func TestShodanHost_ActiveRunSettlesWhatShodanReported(t *testing.T) {
 		t.Errorf("handshakes to the open port = %d, want 1", n)
 	}
 	if got, want := p.checked(), portKeys([]string{appHost, rootIP}, ports); !slices.Equal(got, want) {
-		t.Errorf("port checks = %v\nwant       %v: one per address and port, and no extra for a reported one", got, want)
+		t.Errorf("ports jobs = %v\nwant       %v: one per address and port, and no extra for a reported one", got, want)
 	}
 
 	// Open: confirmed, nyx's banner, full severity, and a new + line at it.
@@ -593,7 +593,7 @@ func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
 	}
 	// The report came with the first job: no second handshake was made for it.
 	if got, want := p.checked(), portKeys([]string{appHost, rootIP}, []int{3306}); !slices.Equal(got, want) {
-		t.Errorf("port checks = %v, want %v", got, want)
+		t.Errorf("ports jobs = %v, want %v", got, want)
 	}
 }
 
@@ -609,7 +609,7 @@ func TestShodanHost_LateReportCostsOneExtraHandshake(t *testing.T) {
 	ports := []int{3389, 3306}
 	p.sweep(ports) // no key: nothing is reported
 	if got, want := p.checked(), portKeys([]string{appHost, rootIP}, ports); !slices.Equal(got, want) {
-		t.Fatalf("first checks = %v", got)
+		t.Fatalf("first jobs = %v", got)
 	}
 
 	f := p.shodan()
@@ -625,7 +625,7 @@ func TestShodanHost_LateReportCostsOneExtraHandshake(t *testing.T) {
 		return out
 	}
 	if got := extra(); !slices.Equal(got, []string{appHost + ":3306|reported"}) {
-		t.Errorf("extra checks = %v, want one, for the reported port with no open record", got)
+		t.Errorf("extra jobs = %v, want one, for the reported port with no open record", got)
 	}
 	if n := open.conns.Load(); n != 1 {
 		t.Errorf("the open port was handshaken %d times, want 1", n)
@@ -748,7 +748,7 @@ func TestShodanHost_CandidateRootFromBothIsOneFamily(t *testing.T) {
 		t.Fatalf("other.org is not a candidate: %s", p.file(eng, "candidates.csv"))
 	}
 	if c["type"] != "root" || c["sources"] != "shodan;shodan-host" || c["confidence"] != "low" {
-		t.Errorf("other.org = %v, want a root from both stages with low confidence", c)
+		t.Errorf("other.org = %v, want a root from both procedures with low confidence", c)
 	}
 }
 

@@ -279,7 +279,7 @@ func TestCheck_NeverPutsTheKeyInTheRequest(t *testing.T) {
 				t.Error("the request asks for no key placement")
 			}
 			if strings.Contains(req.URL, string(testKey)) || strings.Contains(string(req.Body), string(testKey)) {
-				t.Error("the key is in the URL or body the stage built")
+				t.Error("the key is in the URL or body the key test built")
 			}
 			if !strings.HasPrefix(req.URL, "https://"+src(s).host+"/") {
 				t.Errorf("URL %q is not on host %s", req.URL, src(s).host)

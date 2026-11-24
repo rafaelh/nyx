@@ -83,11 +83,11 @@ func TestAbusiveDocs_Help(t *testing.T) {
 		t.Errorf("nyx help findings lists %d of the two abusive-network rows:\n%s", found, h.stdout.String())
 	}
 	h2 := newHarness(t, cli.DefaultDeps().Procedures...)
-	if code := h2.execRoot("help", "stages"); code != 0 {
-		t.Fatalf("help stages: exit %d", code)
+	if code := h2.execRoot("help", "procedures"); code != 0 {
+		t.Fatalf("help procedures: exit %d", code)
 	}
 	if out := h2.stdout.String(); !strings.Contains(out, "netblockowner") || !strings.Contains(out, "Team Cymru") {
-		t.Errorf("nyx help stages lacks netblockowner:\n%s", out)
+		t.Errorf("nyx help procedures lacks netblockowner:\n%s", out)
 	}
 	h3 := newHarness(t)
 	if code := h3.execRoot("ip", "--help"); code != 0 {
@@ -172,7 +172,7 @@ func TestAbusiveDocs_NoCommandContactsTheThreatDataHosts(t *testing.T) { // muta
 	var asked [][2]string
 	for _, s := range cli.DefaultDeps().Procedures {
 		for _, src := range s.Sources() {
-			asked = append(asked, [2]string{"stage " + s.Name() + " declares", src})
+			asked = append(asked, [2]string{"procedure " + s.Name() + " declares", src})
 		}
 	}
 	for _, host := range iplookup.SourceHosts() {

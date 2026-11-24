@@ -27,7 +27,7 @@ func newCompletionCommand(inv *invocation, root *cobra.Command) *cobra.Command {
 		Use:   "completion bash|zsh",
 		Short: "Print the script that tab-completes nyx's commands, flags and their values in bash or zsh",
 		Long: "completion prints a script to stdout that makes the shell complete nyx's commands, flags, help topics\n" +
-			"and the values a flag takes from a fixed list: stages, fields and record kinds. Save it where the shell\n" +
+			"and the values a flag takes from a fixed list: procedures, fields and record kinds. Save it where the shell\n" +
 			"loads completions, or add source <(nyx completion bash) to ~/.bashrc, or source <(nyx completion zsh) to\n" +
 			"~/.zshrc after compinit. bash needs the bash-completion package. The script asks nyx for its\n" +
 			"completions, so it stays current when nyx is upgraded. To answer, nyx reads no file and contacts\n" +

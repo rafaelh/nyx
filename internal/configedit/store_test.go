@@ -32,9 +32,9 @@ func skipEntry(name string) string {
 	case "dns", "ports", "email", "web":
 		return ""
 	case "resolve":
-		return fmt.Sprintf("stage %q cannot be skipped: other stages' safety depends on it", name)
+		return fmt.Sprintf("procedure %q cannot be skipped: other procedures' safety depends on it", name)
 	}
-	return fmt.Sprintf("unknown stage %q for --skip or the skip setting", name)
+	return fmt.Sprintf("unknown procedure %q for --skip or the skip setting", name)
 }
 
 // world is a config file in a temp directory, and a store over it.

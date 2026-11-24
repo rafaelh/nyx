@@ -189,12 +189,12 @@ func TestProcedure_OneJobPerList(t *testing.T) {
 			t.Fatal(err)
 		}
 		if l, ok := c.Input.(list); !ok || l.key != c.Key {
-			t.Errorf("check %q has input %v; the key is the list's stable name", c.Key, c.Input)
+			t.Errorf("job %q has input %v; the key is the list's stable name", c.Key, c.Input)
 		}
 		keys = append(keys, c.Key)
 	}
 	if !slices.Equal(keys, wantKeys) {
-		t.Errorf("checks = %v, want %v", keys, wantKeys)
+		t.Errorf("jobs = %v, want %v", keys, wantKeys)
 	}
 }
 

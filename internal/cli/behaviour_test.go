@@ -160,7 +160,7 @@ func TestHelp(t *testing.T) {
 	topic := h.proceduresHelp()
 	for _, s := range []string{"alpha", "beta"} {
 		if procedureRow(topic, s) == "" {
-			t.Errorf("help stages does not list %s:\n%s", s, topic)
+			t.Errorf("help procedures does not list %s:\n%s", s, topic)
 		}
 	}
 }
@@ -261,7 +261,7 @@ func TestResumeOnlyNewJobs(t *testing.T) {
 	st.Reset()
 	h.exec("-e", "a.com", "--ports", "80,443")
 	if len(st.Executed()) != 0 {
-		t.Errorf("second run repeated checks: %v", st.Executed())
+		t.Errorf("second run repeated jobs: %v", st.Executed())
 	}
 	st.Reset()
 	h.exec("-e", "a.com", "--ports", "80,443,8080")
@@ -324,7 +324,7 @@ func TestTransientFailure(t *testing.T) {
 		}}
 	h := newHarness(t, flaky, later)
 	if code := h.exec("a.com", "--json"); code != 7 {
-		t.Fatalf("exit %d (a failed check makes the run partial): %s", code, h.stderr.String())
+		t.Fatalf("exit %d (a failed job makes the run partial): %s", code, h.stderr.String())
 	}
 	count := 0
 	for _, k := range flaky.Executed() {
@@ -346,7 +346,7 @@ func TestTransientFailure(t *testing.T) {
 	}
 	evs := h.events()
 	if st := lastState(evs, "flaky"); st.str("state") != "done" || st.num("failed") != 1 {
-		t.Errorf("stage state: %v", st)
+		t.Errorf("procedure state: %v", st)
 	}
 	sum := ofType(evs, "summary")[0]
 	if f, _ := sum["failed"].(map[string]any); f["flaky"] != float64(1) {
@@ -379,7 +379,7 @@ func TestErrAbortProcedure(t *testing.T) {
 		t.Errorf("state = %v", s)
 	}
 	if len(h.completed("a.com", "abort")) != 0 {
-		t.Error("aborted checks must not be recorded")
+		t.Error("aborted jobs must not be recorded")
 	}
 }
 
@@ -388,7 +388,7 @@ func TestEnumerationErrorTerminates(t *testing.T) {
 	t.Parallel()
 	st := &testkit.Procedure{ProcedureName: "enum", Kind: run.ThirdParty,
 		JobsFn:  func(v run.View) []run.Job { return testkit.Keys("c", 1) },
-		JobsErr: errors.New("cannot list checks"),
+		JobsErr: errors.New("cannot list jobs"),
 	}
 	h := newHarness(t, st)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -467,7 +467,7 @@ func TestRedo(t *testing.T) {
 	}
 	cur := currentOf(t, h, "web_service")
 	if cur["u0"] != "0" || cur["u1"] != "1" {
-		t.Errorf("currency = %v (u1 is still observed by another stage)", cur)
+		t.Errorf("currency = %v (u1 is still observed by another procedure)", cur)
 	}
 	if got := h.total("web services"); got != 1 {
 		t.Errorf("summary must count current records only: %v", got)
@@ -488,7 +488,7 @@ func TestRedoSweepsOrphanedJobs(t *testing.T) {
 		t.Fatal(h.stderr.String())
 	}
 	if cur := currentOf(t, h, "web_service"); cur["u0"] != "0" {
-		t.Errorf("orphaned check's observation must be swept: %v", cur)
+		t.Errorf("orphaned job's observation must be swept: %v", cur)
 	}
 }
 
@@ -506,7 +506,7 @@ func TestRedoKeepsUnlistedJobsOnEnumerationError(t *testing.T) {
 		t.Fatal(h.stderr.String())
 	}
 	if cur := currentOf(t, h, "web_service"); cur["u0"] != "1" {
-		t.Errorf("unlisted check's observation must survive: %v", cur)
+		t.Errorf("unlisted job's observation must survive: %v", cur)
 	}
 	if _, ok := h.meta("a.com", "redo:src"); !ok {
 		t.Error("redo must stay pending after an enumeration error")
@@ -529,7 +529,7 @@ func TestRedactedJobKeyCompletes(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
 	if got := st.Executed(); len(got) != 1 {
-		t.Errorf("executed %v; want the check once across both runs", got)
+		t.Errorf("executed %v; want the job once across both runs", got)
 	}
 }
 
@@ -595,7 +595,7 @@ func TestDiscoveryLoop(t *testing.T) {
 	for _, st := range []*testkit.Procedure{a, b, c} {
 		for _, k := range st.Executed() {
 			if strings.Contains(k, "other.net") {
-				t.Errorf("out-of-scope name given to stage %s: %s", st.ProcedureName, k)
+				t.Errorf("out-of-scope name given to procedure %s: %s", st.ProcedureName, k)
 			}
 		}
 	}
@@ -688,7 +688,7 @@ func TestNetblockGuard(t *testing.T) {
 		t.Errorf("total not shown: %q %q", h.stdout.String(), h.stderr.String())
 	}
 	if len(after.Executed()) != 0 || h.network() != 0 {
-		t.Errorf("later stages ran on unapproved netblocks: %v net=%d", after.Executed(), h.network())
+		t.Errorf("later procedures ran on unapproved netblocks: %v net=%d", after.Executed(), h.network())
 	}
 
 	if code = h.exec("-e", "as64500", "--netblock-limit", "1000", "--allow-large-netblocks"); code != 0 {
@@ -838,17 +838,17 @@ func checkProcedureStates(t *testing.T, evs []event) {
 			t.Errorf("%s: %v, want %v", name, s, w)
 		}
 	}
-	if s := lastState(evs, "partial"); s.num("checks") != 2 || s.num("failed") != 1 {
+	if s := lastState(evs, "partial"); s.num("jobs") != 2 || s.num("failed") != 1 {
 		t.Errorf("partial counts: %v", s)
 	}
-	if s := lastState(evs, "empty"); s.num("checks") != 0 {
+	if s := lastState(evs, "empty"); s.num("jobs") != 0 {
 		t.Errorf("empty: %v", s)
 	}
 	for _, name := range []string{"prev", "failing", "partial", "nokey", "empty", "probe"} {
 		se := procedureEvents(evs, name)
 		for i := 1; i < len(se); i++ {
-			if se[i].str("state") == se[i-1].str("state") && se[i].num("checks") == se[i-1].num("checks") {
-				t.Errorf("%s: repeated stage line %v", name, se)
+			if se[i].str("state") == se[i-1].str("state") && se[i].num("jobs") == se[i-1].num("jobs") {
+				t.Errorf("%s: repeated procedure line %v", name, se)
 			}
 		}
 	}
@@ -1025,7 +1025,7 @@ func TestInvalidInputsTouchNothing(t *testing.T) {
 				t.Errorf("stderr %q should name %q", h.stderr.String(), c.want)
 			}
 			if len(st.Executed()) != 0 {
-				t.Errorf("checks ran before validation: %v", st.Executed())
+				t.Errorf("jobs ran before validation: %v", st.Executed())
 			}
 			h.untouched()
 		})
@@ -1042,7 +1042,7 @@ func TestExitCodes(t *testing.T) {
 		}}
 	h := newHarness(t, st)
 	if code := h.exec("a.com"); code != 7 {
-		t.Errorf("a failed check makes the run partial: exit %d", code)
+		t.Errorf("a failed job makes the run partial: exit %d", code)
 	}
 
 	e, err := engagement.Open(h.eng("a.com"), engagement.Options{})
@@ -1055,7 +1055,7 @@ func TestExitCodes(t *testing.T) {
 		t.Errorf("held lock: exit %d, stderr %q", code, h.stderr.String())
 	}
 	if code = h.exec("-e", "a.com"); code != 7 {
-		t.Errorf("lock released: exit %d, want 7 (the failed checks are retried and fail again)", code)
+		t.Errorf("lock released: exit %d, want 7 (the failed jobs are retried and fail again)", code)
 	}
 
 	// A corrupt store is a fatal runtime error.
@@ -1133,7 +1133,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 			t.Fatalf("exit %d: %s", code, h.stderr.String())
 		}
 		if gotFake != fakeKey || gotOther != otherKey {
-			t.Fatalf("keys not delivered to stages: %q %q", gotFake, gotOther)
+			t.Fatalf("keys not delivered to procedures: %q %q", gotFake, gotOther)
 		}
 		scan := func(where string, data []byte) {
 			for _, k := range []string{fakeKey, otherKey} {

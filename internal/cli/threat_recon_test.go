@@ -240,7 +240,7 @@ func TestThreatRecon_ARunUsesTheDataItStartedWith(t *testing.T) { // mutation ta
 	x.h.procedures = append(x.h.procedures, rewrite)
 	x.mustPassive()
 	if b, err := os.ReadFile(filepath.Join(threatDir(x.h), "spamhaus.jsonl")); err != nil || !strings.Contains(string(b), "SBL8008") {
-		t.Fatalf("the stage did not rewrite the downloaded copy (%v)", err)
+		t.Fatalf("the procedure did not rewrite the downloaded copy (%v)", err)
 	}
 	if got, want := x.flagged(), []string{"203.0.113.7=high"}; !slices.Equal(got, want) {
 		t.Errorf("after the run that rewrote the copy: %v, want %v (the copy loaded at the start)", got, want)

@@ -215,8 +215,8 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 	}
 
 	// The owner source is down for one address, which fails the owner job and nothing else.
-	if f := x.h.partial(x.passive("--cidr", "198.51.100.0/30", "-x", "203.0.113.64/28"), true); f.msg != "1 checks failed: ipowner 1" {
-		t.Errorf("error = %+v, want the one failed ipowner check", f)
+	if f := x.h.partial(x.passive("--cidr", "198.51.100.0/30", "-x", "203.0.113.64/28"), true); f.msg != "1 jobs failed: ipowner 1" {
+		t.Errorf("error = %+v, want the one failed ipowner job", f)
 	}
 
 	// The netblock's other addresses, though in scope, were never recorded.
@@ -229,7 +229,7 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 	}
 	done := x.completedKeys("reverseip")
 	if !slices.Equal(done, []string{"198.51.100.1|max=100", "203.0.113.250|max=100", "203.0.113.7|max=100"}) {
-		t.Errorf("completed checks = %v", done)
+		t.Errorf("completed jobs = %v", done)
 	}
 }
 
@@ -245,7 +245,7 @@ func TestReverseIP_IPv6WaitsForTheKey(t *testing.T) {
 		t.Errorf("without a key, asked %v, want only the IPv4 address", got)
 	}
 	if done := x.completedKeys("reverseip"); slices.ContainsFunc(done, func(k string) bool { return strings.HasPrefix(k, "2001:") }) {
-		t.Errorf("an IPv6 address has a completed check without a key: %v", done)
+		t.Errorf("an IPv6 address has a completed job without a key: %v", done)
 	}
 	if st, _ := stateOf(x.world, "reverseip"); st != "done" {
 		t.Errorf("reverseip = %s, want done", st)
@@ -341,7 +341,7 @@ func TestReverseIP_UnreadableReplyIsAFailedJob(t *testing.T) {
 	x := newWeb(t)
 	ht := x.hackerTarget()
 	ht.answerAll(func(rw http.ResponseWriter) { _, _ = rw.Write([]byte("<html>Service unavailable, try later</html>")) })
-	if f := x.h.partial(x.passive(), true); f.msg != "1 checks failed: reverseip 1" || !f.transient {
+	if f := x.h.partial(x.passive(), true); f.msg != "1 jobs failed: reverseip 1" || !f.transient {
 		t.Errorf("error = %+v, want one transient reverseip failure", f)
 	}
 	if done := x.completedKeys("reverseip"); len(done) != 0 {
@@ -389,7 +389,7 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 		t.Errorf("an address within the cap was warned about: %q", got)
 	}
 	if st, _ := stateOf(x.world, "reverseip"); st != "done" {
-		t.Errorf("reverseip = %s, want done: an address over the cap is a completed check", st)
+		t.Errorf("reverseip = %s, want done: an address over the cap is a completed job", st)
 	}
 	if !slices.Contains(x.completedKeys("reverseip"), "203.0.113.8|max=100") {
 		t.Errorf("completed = %v", x.completedKeys("reverseip"))
@@ -441,14 +441,14 @@ func TestReverseIP_QuotaStopsTheProcedureAndIsRetried(t *testing.T) {
 				t.Errorf("a spent quota was recorded as done: %v", done)
 			}
 			if n := len(x.htAsked()); n != 1 {
-				t.Errorf("the stage should stop after the first answer, saw %d lookups", n)
+				t.Errorf("the procedure should stop after the first answer, saw %d lookups", n)
 			}
 			warns := x.h.messages("warning", "reverseip")
 			if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
 				t.Errorf("want one quota warning naming reverseip, got %q", warns)
 			}
 			if st, _ := stateOf(x.world, "crtsh"); st != "done" {
-				t.Errorf("other stages must be unaffected: crtsh = %s", st)
+				t.Errorf("other procedures must be unaffected: crtsh = %s", st)
 			}
 
 			ht.answerAll(nil)
@@ -458,7 +458,7 @@ func TestReverseIP_QuotaStopsTheProcedureAndIsRetried(t *testing.T) {
 				t.Errorf("the next run completed %v, want both addresses", done)
 			}
 			if x.candidate("other.org") == nil {
-				t.Error("the retried check did not record its name")
+				t.Error("the retried job did not record its name")
 			}
 		})
 	}
@@ -528,7 +528,7 @@ func TestReverseIP_RejectedSecurityTrailsKeyStopsTheProcedure(t *testing.T) {
 		t.Errorf("completed %v after a rejected key", done)
 	}
 	if n := len(x.htAsked()); n > 1 {
-		t.Errorf("%d HackerTarget lookups: the stage should stop after the first address", n)
+		t.Errorf("%d HackerTarget lookups: the procedure should stop after the first address", n)
 	}
 }
 
@@ -622,7 +622,7 @@ func TestReverseIP_HelpAndSetting(t *testing.T) {
 		t.Error("help missing --reverseip-max-domains")
 	}
 	if procedureRow(h.proceduresHelp(), "reverseip") == "" {
-		t.Error("help stages does not list reverseip")
+		t.Error("help procedures does not list reverseip")
 	}
 }
 
@@ -638,7 +638,7 @@ func TestReverseIP_DocsSayWhatItDoes(t *testing.T) {
 		}
 	}
 	// The sentence that lists the reserved names no longer names reverseip.
-	if i := strings.Index(docs, "are reserved for stages that are not built yet"); i >= 0 {
+	if i := strings.Index(docs, "are reserved for procedures that are not built yet"); i >= 0 {
 		if sentence := docs[strings.LastIndex(docs[:i], "The names"):i]; strings.Contains(sentence, "`reverseip`") {
 			t.Errorf("the docs still list reverseip among the reserved names: %q", sentence)
 		}

@@ -36,7 +36,7 @@ func TestTakeover_DNSTakeoverPassive(t *testing.T) {
 		}
 	}
 	if st := x.state("storage"); st.str("state") == "not-configured" {
-		t.Errorf("storage checks run in passive-only mode: %v", st)
+		t.Errorf("the storage procedure runs in passive-only mode: %v", st)
 	}
 }
 
@@ -69,18 +69,18 @@ func TestTakeover_HTTPTakeover(t *testing.T) {
 	// Each job is keyed by service and the matched entry's fingerprint.
 	keys := x.completedKeys("takeover")
 	if len(keys) != 2 {
-		t.Fatalf("takeover checks = %v", keys)
+		t.Fatalf("takeover jobs = %v", keys)
 	}
 	for _, k := range keys {
 		if !strings.Contains(k, "|fp=") || len(k[strings.Index(k, "|fp=")+4:]) != 8 {
-			t.Errorf("check key %q lacks an 8-character fingerprint hash", k)
+			t.Errorf("job key %q lacks an 8-character fingerprint hash", k)
 		}
 	}
 	// A second run asks nothing again.
 	before := unclaimed.count("/")
 	x.mustRun("--crawl-pages", "0")
 	if unclaimed.count("/") != before {
-		t.Error("a completed takeover check was repeated")
+		t.Error("a completed takeover job was repeated")
 	}
 	// A service not on a provider with a fingerprint is never requested by the procedure.
 	if st := x.state("takeover"); st.str("state") == "failed" {

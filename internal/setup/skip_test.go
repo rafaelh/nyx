@@ -53,7 +53,7 @@ func TestSkipTab_ProblemEntriesAreRemovedOneAtATime(t *testing.T) {
 	t.Parallel()
 	b := newFake()
 	b.snap.Skip = []string{"dns"}
-	b.snap.SkipProblems = []SkipProblem{{Entry: "foo", Message: `unknown stage "foo"`}, {Entry: "resolve", Message: `stage "resolve" cannot be skipped`}}
+	b.snap.SkipProblems = []SkipProblem{{Entry: "foo", Message: `unknown procedure "foo"`}, {Entry: "resolve", Message: `procedure "resolve" cannot be skipped`}}
 	h := newTH(t, b)
 	h.press("tab", "tab")
 	mustHave(t, h.view(), "Skip!", "foo", "resolve")
@@ -64,8 +64,8 @@ func TestSkipTab_ProblemEntriesAreRemovedOneAtATime(t *testing.T) {
 	h.goTo(2, 4) // unknown entry
 	h.press("x")
 	f := h.view()
-	mustNotHave(t, f, `unknown stage "foo"`)
-	mustHave(t, f, `stage "resolve" cannot be skipped`, "[ ] dns")
+	mustNotHave(t, f, `unknown procedure "foo"`)
+	mustHave(t, f, `procedure "resolve" cannot be skipped`, "[ ] dns")
 	h.press("ctrl+s") // retain unrelated invalid entry
 	if n, _, _ := b.counts(); n != 0 {
 		t.Fatal("saved with one problem entry left")
@@ -85,7 +85,7 @@ func TestSkipTab_AWholeListProblemIsClearedByXOrByEditing(t *testing.T) {
 			t.Parallel()
 			b := newFake()
 			b.snap.Skip = []string{"dns"}
-			b.snap.SkipListProblem = `skip: "none" cannot be combined with stage names`
+			b.snap.SkipListProblem = `skip: "none" cannot be combined with procedure names`
 			h := newTH(t, b)
 			h.press("tab", "tab")
 			mustHave(t, h.view(), `"none" cannot be combined`)
@@ -134,7 +134,7 @@ func TestSkipTab_ScrollsToKeepTheSelectionVisible(t *testing.T) {
 	b := newFake()
 	b.info.Procedures = nil
 	for i := range 37 {
-		b.info.Procedures = append(b.info.Procedures, Procedure{Name: fmt.Sprintf("stage%02d", i), Does: "does a thing"})
+		b.info.Procedures = append(b.info.Procedures, Procedure{Name: fmt.Sprintf("proc%02d", i), Does: "does a thing"})
 	}
 	h := newTH(t, b, atSize(60, 16))
 	h.press("tab", "tab")
@@ -143,13 +143,13 @@ func TestSkipTab_ScrollsToKeepTheSelectionVisible(t *testing.T) {
 		if lineCount(f) > 16 {
 			t.Fatalf("frame is %d lines", lineCount(f))
 		}
-		sel := fmt.Sprintf("> [x] stage%02d", i)
+		sel := fmt.Sprintf("> [x] proc%02d", i)
 		mustHave(t, f, sel)
 		h.press("down")
 	}
 	// Scroll back to the earlier row.
 	for i := 36; i >= 0; i-- {
-		mustHave(t, h.view(), fmt.Sprintf("stage%02d", i))
+		mustHave(t, h.view(), fmt.Sprintf("proc%02d", i))
 		h.press("up")
 	}
 }

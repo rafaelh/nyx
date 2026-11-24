@@ -425,11 +425,11 @@ func TestOrigin_UncontactableCandidateIsPossibleAndNeverContacted(t *testing.T) 
 		t.Error("nothing asked Shodan")
 	}
 	if got := x.completedKeys("origincheck"); len(got) != 0 {
-		t.Errorf("origincheck checks = %v, want none", got)
+		t.Errorf("origincheck jobs = %v, want none", got)
 	}
 	// The procedure yields no job for it: egress would refuse one, but that would be a failed job.
-	if ev := lastState(x.h.events(), "origincheck"); ev.num("checks") != 0 || ev.num("failed") != 0 {
-		t.Errorf("origincheck state = %v, want no checks and none failed", ev)
+	if ev := lastState(x.h.events(), "origincheck"); ev.num("jobs") != 0 || ev.num("failed") != 0 {
+		t.Errorf("origincheck state = %v, want no jobs and none failed", ev)
 	}
 }
 
@@ -472,7 +472,7 @@ func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 	x.mustRun()
 	x.wantRow(siblingAddr, "medium", "sibling-certificate", "title", "yes", "true")
 	if got := wwwGets(x.sibling, "https"); got != 1 {
-		t.Fatalf("first run: %d checks", got)
+		t.Fatalf("first run: %d jobs", got)
 	}
 	x.mustRun() // nothing changed: nothing is sent again
 	if got := wwwGets(x.sibling, "https"); got != 1 {
@@ -481,7 +481,7 @@ func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 	x.set(func() { x.cdnTitle = "Acme Corp (new)" })
 	x.mustRun("--redo", "httpprobe")
 	if got := wwwGets(x.sibling, "https"); got != 2 {
-		t.Errorf("a changed title was not checked again: %d checks", got)
+		t.Errorf("a changed title was not checked again: %d jobs", got)
 	}
 	x.wantRow(siblingAddr, "medium", "sibling-certificate", "status-body-certificate", "yes", "true")
 }
@@ -704,10 +704,10 @@ func TestOrigin_Help(t *testing.T) {
 	}
 	topic := h.proceduresHelp()
 	if row := procedureRow(topic, "dnshistory"); !strings.Contains(row, "securitytrails") || !strings.Contains(row, "third party") {
-		t.Errorf("help stages row for dnshistory = %q", row)
+		t.Errorf("help procedures row for dnshistory = %q", row)
 	}
 	if row := procedureRow(topic, "origincheck"); !strings.Contains(row, "target") {
-		t.Errorf("help stages row for origincheck = %q", row)
+		t.Errorf("help procedures row for origincheck = %q", row)
 	}
 	if code := h.execRoot("help", "findings"); code != 0 {
 		t.Fatalf("help findings: exit %d", code)
@@ -738,7 +738,7 @@ func TestOrigin_DocsStateTheBoundary(t *testing.T) {
 	}
 	passive := docs[j:min(len(docs), j+600)]
 	if !strings.Contains(passive, "`origincheck`") {
-		t.Errorf("the --passive stage list does not name origincheck: %q", passive)
+		t.Errorf("the --passive procedure list does not name origincheck: %q", passive)
 	}
 	for _, want := range []string{"risk-origin-exposure.csv", "dnshistory.max_hosts", "origincheck.max_candidates", "a-historical",
 		"historical_first_seen", "hostnames for `dnshistory`"} {

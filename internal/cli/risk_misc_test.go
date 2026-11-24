@@ -273,7 +273,7 @@ func TestRiskProcedureRegistry(t *testing.T) {
 	}
 	tail := names[slices.Index(names, "ipowner"):]
 	if want := []string{"ipowner", "netblockowner", "dnsroot", "rdap", "shodan-host", "reverseip", "dnshistory", "email", "nsreverse", "httpprobe", "crawl", "jsparse", "identifier-pivot", "storage", "takeover", "sensitive-paths", "origincheck", "ports"}; !slices.Equal(tail, want) {
-		t.Errorf("stage order tail = %v, want %v", tail, want)
+		t.Errorf("procedure order tail = %v, want %v", tail, want)
 	}
 	for name, want := range map[string]run.Contact{"jsparse": run.Target, "email": run.ThirdParty, "storage": run.ThirdParty, "takeover": run.Target, "sensitive-paths": run.Target,
 		"dnshistory": run.ThirdParty, "origincheck": run.Target, "netblockowner": run.ThirdParty} {
@@ -283,7 +283,7 @@ func TestRiskProcedureRegistry(t *testing.T) {
 	}
 	// A pseudo-procedure for findings is not a procedure: --redo does not accept it.
 	if slices.Contains(names, "findings") {
-		t.Error("findings must not be a registered stage")
+		t.Error("findings must not be a registered procedure")
 	}
 }
 
@@ -400,7 +400,7 @@ func TestFindingsDerivedAfterEachProcedure(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, h.stdout.String())
 	}
 	if n := seen.Load(); n != 1 {
-		t.Errorf("findings visible to the next stage in the same pass = %d, want 1", n)
+		t.Errorf("findings visible to the next procedure in the same pass = %d, want 1", n)
 	}
 }
 
@@ -412,9 +412,9 @@ func TestRiskPlumbing_FindingsPseudoProcedureHidden(t *testing.T) {
 	if code := h.exec("--json", "-e", "pseudo", "--cidr", "198.51.100.0/24"); code != 0 {
 		t.Fatal(code)
 	}
-	for _, e := range ofType(h.events(), "stage") {
+	for _, e := range ofType(h.events(), "procedure") {
 		if e.str("name") == "findings" {
-			t.Errorf("findings appears as a stage: %v", e)
+			t.Errorf("findings appears as a procedure: %v", e)
 		}
 	}
 	if code := h.exec("--json", "-e", "pseudo", "--redo", "findings"); code != 2 {

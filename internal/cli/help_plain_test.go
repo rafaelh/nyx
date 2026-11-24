@@ -34,7 +34,7 @@ var helpScreens = []struct {
 	{"completion", []string{"completion", "--help"}},
 	{"help", []string{"help", "--help"}},
 	{"findings", []string{"help", "findings"}},
-	{"stages", []string{"help", "stages"}},
+	{"procedures", []string{"help", "procedures"}},
 }
 
 // Plain help goldens preserve non-terminal text independently of colour environment variables.

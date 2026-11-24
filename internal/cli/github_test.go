@@ -198,7 +198,7 @@ func TestGitHub_RowsHostnamesAndNoFragmentText(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if st, _ := stateOf(w, "github"); st != "done" {
-		t.Errorf("github state = %s, want done: --passive runs the stage", st)
+		t.Errorf("github state = %s, want done: --passive runs the procedure", st)
 	}
 	rows := w.table(eng, "code-mentions.csv")
 	if len(rows) != 2 {
@@ -544,7 +544,7 @@ func TestGitHub_WaitsForAShortReset(t *testing.T) {
 				t.Fatalf("exit %d", code)
 			}
 			if took := time.Since(start); took < 900*time.Millisecond {
-				t.Errorf("run took %v: the stage did not wait for the reset", took)
+				t.Errorf("run took %v: the procedure did not wait for the reset", took)
 			}
 			// Page 2 is asked again; page 1 is not read again.
 			if got := ghAsked(w); !slices.Equal(got, []string{"example.com#1", "example.com#2", "example.com#2"}) {
@@ -632,17 +632,17 @@ func TestGitHub_StopsTheProcedure(t *testing.T) {
 			f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.net", "example.org"), true)
 			// Rejected keys are non-transient; exhausted waitable rate limits are
 			// transient.
-			if want := tc.status != 401; f.transient != want || f.msg != "2 checks failed: github 2" {
+			if want := tc.status != 401; f.transient != want || f.msg != "2 jobs failed: github 2" {
 				t.Errorf("transient = %v, want %v: %+v", f.transient, want, f)
 			}
 			if took := time.Since(start); took > 8*time.Second {
-				t.Errorf("run took %v: the stage must stop and not wait", took)
+				t.Errorf("run took %v: the procedure must stop and not wait", took)
 			}
 			if n := ghFailed(w); n != 2 {
-				t.Errorf("%d checks failed, want 2: the refused root and the one never asked", n)
+				t.Errorf("%d jobs failed, want 2: the refused root and the one never asked", n)
 			}
 			if got := ghAsked(w); !slices.Equal(got, []string{"example.com#1", "example.net#1"}) {
-				t.Errorf("asked = %v: the stage stops after the refusal", got)
+				t.Errorf("asked = %v: the procedure stops after the refusal", got)
 			}
 			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 500)}) {
 				t.Errorf("completed = %v, want the root completed before the stop", done)
@@ -680,11 +680,11 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 				return true
 			}
 			w := ghWorld(t, g)
-			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.net"), true); !f.transient || f.msg != "1 checks failed: github 1" {
+			if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.net"), true); !f.transient || f.msg != "1 jobs failed: github 1" {
 				t.Errorf("%+v", f)
 			}
 			if n := ghFailed(w); n != 1 {
-				t.Errorf("%d checks failed, want 1", n)
+				t.Errorf("%d jobs failed, want 1", n)
 			}
 			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.net", 500)}) {
 				t.Errorf("completed = %v: only the root that answered", done)
@@ -711,7 +711,7 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 	idx := func(n string) int { return slices.Index(names, n) }
 	inOrder := idx("chaos") >= 0 && idx("chaos") < idx("github") && idx("github") < idx("shodan")
 	if !inOrder {
-		t.Errorf("stage order = %v, want github after the subdomain sources and before shodan", names)
+		t.Errorf("procedure order = %v, want github after the subdomain sources and before shodan", names)
 	}
 	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
@@ -721,7 +721,7 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 		t.Error("help missing --github-max-results")
 	}
 	if row := procedureRow(h.proceduresHelp(), "github"); !strings.Contains(row, " github ") {
-		t.Errorf("help stages does not list github with its key: %q", row)
+		t.Errorf("help procedures does not list github with its key: %q", row)
 	}
 
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1)})

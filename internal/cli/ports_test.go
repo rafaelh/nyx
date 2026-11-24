@@ -54,12 +54,12 @@ func newPorts(t *testing.T) *pworld {
 		}
 	}
 	if ports == nil {
-		t.Fatal("the ports stage is not in the default registry")
+		t.Fatal("the ports procedure is not in the default registry")
 	}
 	procedures := slices.DeleteFunc(slices.Clone(x.h.procedures), func(s run.Procedure) bool { return s.Name() == "fakeports" })
 	i := slices.IndexFunc(procedures, func(s run.Procedure) bool { return s.Name() == "crawl" })
 	if i < 0 {
-		t.Fatal("no crawl stage")
+		t.Fatal("no crawl procedure")
 	}
 	x.h.procedures = slices.Insert(procedures, i+1, ports)
 	// Connect and banner timeouts are short in the harness; a banner that arrives
@@ -224,11 +224,11 @@ func TestPorts_RegisteredAfterCrawl(t *testing.T) {
 	}
 	n := len(names)
 	if n < 2 || names[n-1] != "ports" || slices.Index(names, "crawl") > n-2 || slices.Index(names, "crawl") < 0 {
-		t.Errorf("stage order ends %v, want ports last, after crawl", names[max(0, n-4):])
+		t.Errorf("procedure order ends %v, want ports last, after crawl", names[max(0, n-4):])
 	}
 	for _, s := range defaultProcedureList() {
 		if s.Name() == "ports" && s.Contact() != run.Target {
-			t.Error("ports must be a Target stage, so passive mode and the ack gate it")
+			t.Error("ports must be a Target procedure, so passive mode and the ack gate it")
 		}
 	}
 }
@@ -241,13 +241,13 @@ func TestPorts_Help(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	out := h.stdout.String()
-	for _, want := range []string{"--port-concurrency", "Workers per stage (ports: --port-concurrency)", "--ports", "ports"} {
+	for _, want := range []string{"--port-concurrency", "Workers per procedure (ports: --port-concurrency)", "--ports", "ports"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q", want)
 		}
 	}
 	if row := procedureRow(h.proceduresHelp(), "ports"); !strings.Contains(row, "target") {
-		t.Errorf("help stages does not list ports as a target stage: %q", row)
+		t.Errorf("help procedures does not list ports as a target procedure: %q", row)
 	}
 }
 
@@ -272,10 +272,10 @@ func TestPorts_WorkerCounter(t *testing.T) {
 		t.Fatal(h.stderr.String())
 	}
 	if got := counted.MaxActive(); got != 5 {
-		t.Errorf("a WorkerCounter stage ran %d at once, want 5", got)
+		t.Errorf("a WorkerCounter procedure ran %d at once, want 5", got)
 	}
 	if got := plain.MaxActive(); got != 2 {
-		t.Errorf("a stage without Workers ran %d at once, want --concurrency (2)", got)
+		t.Errorf("a procedure without Workers ran %d at once, want --concurrency (2)", got)
 	}
 }
 
@@ -372,7 +372,7 @@ func TestPorts_UnknownOwnerSkippedThenChecked(t *testing.T) {
 		return strings.HasPrefix(m, "ports: 1 address")
 	})
 	if s := lastState(p.h.events(), "ports"); s != nil && s.num("failed") != 0 {
-		t.Errorf("a held-back address is not a failed check: %v", s)
+		t.Errorf("a held-back address is not a failed job: %v", s)
 	}
 	if !warned {
 		t.Errorf("no warning that 1 address was skipped for its unknown owner: %v", ofType(p.h.events(), "warning"))
@@ -425,8 +425,8 @@ func TestPorts_AddedPortChecksOnlyTheNewPort(t *testing.T) {
 	if s8080.conns.Load() != 1 || s9999.conns.Load() != 1 {
 		t.Errorf("connections: 8080=%d 9999=%d, want 1 and 1", s8080.conns.Load(), s9999.conns.Load())
 	}
-	if s := lastState(p.h.events(), "ports"); s == nil || s.num("checks") != 1 {
-		t.Errorf("second run ports state = %v, want one new check", s)
+	if s := lastState(p.h.events(), "ports"); s == nil || s.num("jobs") != 1 {
+		t.Errorf("second run ports state = %v, want one new job", s)
 	}
 	if got, want := p.checked(), portKeys([]string{"203.0.113.250"}, []int{8080, 9999}); !slices.Equal(got, want) {
 		t.Errorf("checked = %v, want %v", got, want)
@@ -456,7 +456,7 @@ func TestPorts_WorkerBounds(t *testing.T) {
 		t.Errorf("connects in flight peaked at %d, want 4 (--port-concurrency) and never more", got)
 	}
 	if got := other.MaxActive(); got != 2 {
-		t.Errorf("another stage ran %d at once, want --concurrency (2)", got)
+		t.Errorf("another procedure ran %d at once, want --concurrency (2)", got)
 	}
 }
 
@@ -539,7 +539,7 @@ func TestPorts_CompletedJobsAreNotRetried(t *testing.T) {
 	p.ports[7005] = true // closed
 	p.filter("203.0.113.250", 7006)
 	p.sweep([]int{7001, 7005, 7006})
-	if s := lastState(p.h.events(), "ports"); s == nil || s.str("state") != "done" || s.num("checks") != 3 || s.num("failed") != 0 {
+	if s := lastState(p.h.events(), "ports"); s == nil || s.str("state") != "done" || s.num("jobs") != 3 || s.num("failed") != 0 {
 		t.Errorf("first run: %v", s)
 	}
 	if got := p.openPortKeys(); !slices.Equal(got, []string{"203.0.113.250:7001"}) {
@@ -547,7 +547,7 @@ func TestPorts_CompletedJobsAreNotRetried(t *testing.T) {
 	}
 	p.sweep([]int{7001, 7005, 7006})
 	if s := lastState(p.h.events(), "ports"); s == nil || s.str("state") != "done-previously" {
-		t.Errorf("second run: %v, want every check skipped (done-previously)", s)
+		t.Errorf("second run: %v, want every job skipped (done-previously)", s)
 	}
 	if open.conns.Load() != 1 {
 		t.Errorf("open port contacted %d times, want 1", open.conns.Load())
@@ -610,16 +610,16 @@ func TestPorts_RefusedIsAFailedJobRetried(t *testing.T) {
 		}
 	}
 	p.sweepPartial("ports", 1, []int{7001})
-	if s := lastState(p.h.events(), "ports"); s == nil || s.str("state") != "failed" || s.num("checks") != 1 || s.num("failed") != 1 {
-		t.Errorf("refused run: %v, want a failed check", s)
+	if s := lastState(p.h.events(), "ports"); s == nil || s.str("state") != "failed" || s.num("jobs") != 1 || s.num("failed") != 1 {
+		t.Errorf("refused run: %v, want a failed job", s)
 	}
 	if got := p.checked(); len(got) != 0 {
-		t.Errorf("a refused check must not be completed: %v", got)
+		t.Errorf("a refused job must not be completed: %v", got)
 	}
 	refuse.Store(false)
 	p.sweep([]int{7001})
 	if srv.conns.Load() != 1 || !slices.Equal(p.checked(), []string{"203.0.113.250:7001"}) {
-		t.Errorf("the failed check was not retried: conns=%d checked=%v", srv.conns.Load(), p.checked())
+		t.Errorf("the failed job was not retried: conns=%d checked=%v", srv.conns.Load(), p.checked())
 	}
 }
 
@@ -644,7 +644,7 @@ func TestPorts_HTTPOnANonStandardPortIsProbed(t *testing.T) {
 		t.Error("the HTTP server on the open port was never probed")
 	}
 	if ssh.conns.Load() != 1 || ssh.bytes.Load() != 0 {
-		t.Errorf("a port that sends a banner: %d connections, %d bytes sent to it; want the port check only", ssh.conns.Load(), ssh.bytes.Load())
+		t.Errorf("a port that sends a banner: %d connections, %d bytes sent to it; want the handshake only", ssh.conns.Load(), ssh.bytes.Load())
 	}
 }
 

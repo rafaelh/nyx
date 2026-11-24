@@ -60,8 +60,8 @@ func TestBudget_StopsAtFirstOverflow(t *testing.T) {
 		t.Errorf("executed = %v, want c0 c1 c2", got)
 	}
 	state := lastState(h.events(), "budgeted")
-	if state.str("state") != "done" || state.num("checks") != 3 || state.num("failed") != 0 {
-		t.Errorf("state = %v, want done with 3 checks and none failed", state)
+	if state.str("state") != "done" || state.num("jobs") != 3 || state.num("failed") != 0 {
+		t.Errorf("state = %v, want done with 3 jobs and none failed", state)
 	}
 	if got := h.completed("a.com", "budgeted"); !slices.Equal(got, []string{"c0", "c1", "c2"}) {
 		t.Errorf("completed = %v", got)
@@ -141,7 +141,7 @@ func TestBudget_RemainderRunsNextTime(t *testing.T) {
 	// Nothing left: the procedure has nothing to do and runs nothing.
 	h.exec("--json", "-e", "a.com")
 	if got := ran(st); len(got) != 5 {
-		t.Errorf("a finished stage ran again: %v", got)
+		t.Errorf("a finished procedure ran again: %v", got)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestBudget_LaterPassDoesNotTakeAnotherOverflowingJob(t *testing.T) {
 		t.Errorf("executed = %v, want only c0", got)
 	}
 	if passes < 2 {
-		t.Fatalf("the stage was enumerated in %d pass(es); the test needs a later pass", passes)
+		t.Fatalf("the procedure was enumerated in %d pass(es); the test needs a later pass", passes)
 	}
 	if n := deferredOf(t, h, "budgeted"); n != 10 {
 		t.Errorf("deferred = %d, want the last pass's 10", n)
@@ -198,8 +198,8 @@ func TestBudget_FailedJobSpendsBudgetDeferredAreNotFailures(t *testing.T) {
 	if got := ran(st); !slices.Equal(got, []string{"c0", "c1"}) {
 		t.Errorf("executed = %v, want c0 c1 (the failed c0 spent its budget; c2 waits)", got)
 	}
-	if state := lastState(h.events(), "budgeted"); state.num("checks") != 2 || state.num("failed") != 1 {
-		t.Errorf("state = %v, want 2 checks and 1 failed", state)
+	if state := lastState(h.events(), "budgeted"); state.num("jobs") != 2 || state.num("failed") != 1 {
+		t.Errorf("state = %v, want 2 jobs and 1 failed", state)
 	}
 }
 
@@ -211,7 +211,7 @@ func TestBudget_ConsoleBlock(t *testing.T) {
 	h := newHarness(t, st)
 	h.exec("a.com")
 	if block := deferredBlock(t, h.stdout.String()); !strings.Contains(block, "budgeted") || !strings.Contains(block, "2") {
-		t.Errorf("block does not give the stage and count:\n%s", block)
+		t.Errorf("block does not give the procedure and count:\n%s", block)
 	}
 	h.exec("-e", "a.com")
 	if strings.Contains(h.stdout.String(), "Deferred to the next run") {

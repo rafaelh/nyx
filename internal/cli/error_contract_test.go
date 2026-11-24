@@ -162,7 +162,7 @@ func TestContract_EveryProblemInOneError(t *testing.T) { //nolint:paralleltest /
 			}
 		}
 		if !strings.Contains(f.hint, "resolve") == strings.Contains(f.hint, "asn,") {
-			t.Errorf("json %v: the hint does not give the valid stages: %q", jsonMode, f.hint)
+			t.Errorf("json %v: the hint does not give the valid procedures: %q", jsonMode, f.hint)
 		}
 		if jsonMode {
 			for name, want := range map[string]string{"concurrency": "abc", "redo": "nope", "skip": "resolve", "domain": "bad_domain.com", "domains-file": missing} {
@@ -269,7 +269,7 @@ func TestContract_NetblockLimit(t *testing.T) {
 			t.Errorf("%v: the outputs were not rendered", args)
 		}
 		if len(later.Executed()) != 0 {
-			t.Errorf("%v: a later stage ran", args)
+			t.Errorf("%v: a later procedure ran", args)
 		}
 		if code := h.execRoot(shellSplit(t, f.hint)...); code != 0 || len(later.Executed()) != 1 {
 			t.Errorf("%v: running the hint: exit %d, stderr %q", args, code, h.stderr.String())
@@ -401,19 +401,19 @@ func TestContract_PanicInAJobFailsOnlyThatJob(t *testing.T) {
 	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 6) },
 		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			if armed && panics[c.Key] {
-				panic("check boom " + c.Key)
+				panic("job boom " + c.Key)
 			}
 			return []run.Observation{obs("hostname", c.Key+".a.com")}, nil
 		}}
 	h := newHarness(t, st)
 	if code := h.exec("a.com", "--concurrency", "1", "--debug"); code != 7 {
-		t.Fatalf("exit %d, want 7: a panicking check is a failed check\n%s", code, h.stderr.String())
+		t.Fatalf("exit %d, want 7: a panicking job is a failed job\n%s", code, h.stderr.String())
 	}
 	if got := h.completed("a.com", "s"); !slices.Equal(got, []string{"c000", "c002", "c004"}) {
 		t.Errorf("completed = %v", got)
 	}
 	debug := strings.Join(h.debugLines(), "\n")
-	if !strings.Contains(debug, "s check c001 failed: panic: check boom c001") || !strings.Contains(debug, "goroutine ") {
+	if !strings.Contains(debug, "s job c001 failed: panic: job boom c001") || !strings.Contains(debug, "goroutine ") {
 		t.Errorf("DEBUG lines lack the panic and its stack:\n%s", debug)
 	}
 	armed = false
@@ -434,7 +434,7 @@ func TestContract_PanicInAJobFailsOnlyThatJob(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
 	if len(after.Executed()) != 1 {
-		t.Error("the next stage did not run")
+		t.Error("the next procedure did not run")
 	}
 	if s := lastState(h.events(), "enum"); s.str("state") != "failed" {
 		t.Errorf("enum = %v", s)
@@ -457,7 +457,7 @@ func TestContract_NoPrompt(t *testing.T) {
 		t.Errorf("a prompt: %q", h.stderr.String())
 	}
 	if !slices.ContainsFunc(h.logLines(), func(l logLine) bool { return strings.Contains(l.msg, "not-configured (no authorisation)") }) {
-		t.Errorf("the stage is not not-configured (no authorisation):\n%s", h.stderr.String())
+		t.Errorf("the procedure is not not-configured (no authorisation):\n%s", h.stderr.String())
 	}
 	if w := h.logMsgs("WARN"); len(w) != 1 || !strings.Contains(w[0], "--authorised") {
 		t.Errorf("WARN lines %q", w)
@@ -466,7 +466,7 @@ func TestContract_NoPrompt(t *testing.T) {
 		t.Errorf("the warning did not wrap, so the folding of logLines was not needed:\n%s", h.stderr.String())
 	}
 	if len(st.Executed()) != 0 || h.network() != 0 {
-		t.Errorf("the target stage ran: %v", st.Executed())
+		t.Errorf("the target procedure ran: %v", st.Executed())
 	}
 	if code := h.exec("-e", "a.com", "--authorised"); code != 0 || len(st.Executed()) != 3 {
 		t.Fatalf("--authorised: exit %d, executed %v", code, st.Executed())

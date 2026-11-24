@@ -616,7 +616,7 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 		t.Errorf("error = %+v, want a failure of identifier-pivot that is not transient", e)
 	}
 	if got := x.queries(); len(got) != 1 {
-		t.Errorf("searches after a 403 = %v, want the stage aborted after the first", got)
+		t.Errorf("searches after a 403 = %v, want the procedure aborted after the first", got)
 	}
 	if st, _ := x.procedureState("identifier-pivot"); st != "failed" {
 		t.Errorf("identifier-pivot = %s, want failed", st)
@@ -646,11 +646,11 @@ func TestIdentifierPivot_NoCreditsStopsTheProcedure(t *testing.T) {
 		t.Errorf("error = %+v, want a transient failure of identifier-pivot", e)
 	}
 	if got := x.queries(); !slices.Equal(got, []string{qFavicon, qPixel}) {
-		t.Fatalf("searches = %v, want the stage stopped at the refused one", got)
+		t.Fatalf("searches = %v, want the procedure stopped at the refused one", got)
 	}
 	// One search finished, so the procedure is done with a failure, not failed.
 	if ev := lastState(x.h.events(), "identifier-pivot"); ev.num("failed") == 0 {
-		t.Errorf("identifier-pivot event = %v, want failed checks", ev)
+		t.Errorf("identifier-pivot event = %v, want failed jobs", ev)
 	}
 	if got := x.completedKeys("identifier-pivot"); !slices.Equal(got, []string{"favicon|" + hash100}) {
 		t.Errorf("completed = %v, want only the favicon search", got)

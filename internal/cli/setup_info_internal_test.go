@@ -46,7 +46,7 @@ func TestSetupProceduresLeaveOutTheUnskippable(t *testing.T) {
 	for _, s := range setupProcedures(defaultProcedures()) {
 		names = append(names, s.Name)
 		if s.Does == "" {
-			t.Errorf("stage %s has no description", s.Name)
+			t.Errorf("procedure %s has no description", s.Name)
 		}
 	}
 	for _, u := range unskippable {
@@ -55,9 +55,9 @@ func TestSetupProceduresLeaveOutTheUnskippable(t *testing.T) {
 		}
 	}
 	if !slices.Contains(names, "crtsh") {
-		t.Errorf("skippable stages are missing: %v", names)
+		t.Errorf("skippable procedures are missing: %v", names)
 	}
 	if want := len(defaultProcedures()) - len(unskippable); len(names) != want {
-		t.Errorf("%d stages offered, want %d", len(names), want)
+		t.Errorf("%d procedures offered, want %d", len(names), want)
 	}
 }

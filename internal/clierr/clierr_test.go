@@ -45,8 +45,8 @@ func TestProblemsUsage(t *testing.T) {
 		t.Fatal("no problems is no error")
 	}
 	p.Add("concurrency", "abc", `concurrency: invalid value "abc": not an integer`, "")
-	p.Add("redo", "nope", `unknown stage "nope" for --redo`, "valid stages: a, b")
-	p.Add("skip", "resolve", `stage "resolve" cannot be skipped`, "valid stages: a, b")
+	p.Add("redo", "nope", `unknown procedure "nope" for --redo`, "valid procedures: a, b")
+	p.Add("skip", "resolve", `procedure "resolve" cannot be skipped`, "valid procedures: a, b")
 	p.Add("domain", "x y", `invalid domain "x y"`, "")
 	p.Add("domain", "z_z", `invalid domain "z_z"`, "")
 	p.Add("engagement", "", "missing -e", "")
@@ -60,10 +60,10 @@ func TestProblemsUsage(t *testing.T) {
 	if e.Code != clierr.InvalidInput || clierr.ExitCode(e.Code) != 2 {
 		t.Errorf("code %s", e.Code)
 	}
-	if want := `concurrency: invalid value "abc": not an integer; unknown stage "nope" for --redo; stage "resolve" cannot be skipped; invalid domain "x y"; invalid domain "z_z"; missing -e; no inputs`; e.Message != want {
+	if want := `concurrency: invalid value "abc": not an integer; unknown procedure "nope" for --redo; procedure "resolve" cannot be skipped; invalid domain "x y"; invalid domain "z_z"; missing -e; no inputs`; e.Message != want {
 		t.Errorf("message = %q", e.Message)
 	}
-	if e.Hint != "valid stages: a, b" {
+	if e.Hint != "valid procedures: a, b" {
 		t.Errorf("hint = %q", e.Hint)
 	}
 	b, _ := json.Marshal(e.Input)

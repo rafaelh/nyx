@@ -118,7 +118,7 @@ func TestConsoleStreams(t *testing.T) {
 	t.Parallel()
 	c := plain(report.Info)
 	c.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots, 0 orgs, 0 asns, 0 cidrs, 0 exclusions"}))
-	c.Emit(ev("stage", map[string]any{"name": "asn", "state": "running"}))
+	c.Emit(ev("procedure", map[string]any{"name": "asn", "state": "running"}))
 	c.Emit(ev("found", map[string]any{"category": "host", "value": "a.example.com"}))
 	c.Emit(ev("count", map[string]any{"category": "hosts", "n": 1}))
 	c.Emit(ev("warning", map[string]any{"message": "careful"}))
@@ -135,8 +135,8 @@ func TestConsoleLevels(t *testing.T) {
 	t.Parallel()
 	events := []report.Event{
 		ev("run_start", map[string]any{"engagement": "eng"}),
-		ev("stage", map[string]any{"name": "asn", "state": "done", "checks": 2, "failed": 0}),
-		ev("stage", map[string]any{"name": "dns", "state": "failed", "checks": 2, "failed": 2}),
+		ev("procedure", map[string]any{"name": "asn", "state": "done", "jobs": 2, "failed": 0}),
+		ev("procedure", map[string]any{"name": "dns", "state": "failed", "jobs": 2, "failed": 2}),
 		ev("found", map[string]any{"category": "host", "value": "a"}),
 		ev("count", map[string]any{"category": "hosts", "n": 1}),
 		ev("warning", map[string]any{"message": "w"}),
@@ -169,9 +169,9 @@ func TestConsoleMessageText(t *testing.T) {
 	t.Parallel()
 	c := plain(report.Info)
 	c.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots", "passive": true, "authorised": true}))
-	c.Emit(ev("stage", map[string]any{"name": "ports", "state": "not-configured", "reason": "passive-only"}))
-	c.Emit(ev("stage", map[string]any{"name": "asn", "state": "done", "checks": 3, "failed": 1}))
-	c.Emit(ev("stage", map[string]any{"name": "dns", "state": "running"}))
+	c.Emit(ev("procedure", map[string]any{"name": "ports", "state": "not-configured", "reason": "passive-only"}))
+	c.Emit(ev("procedure", map[string]any{"name": "asn", "state": "done", "jobs": 3, "failed": 1}))
+	c.Emit(ev("procedure", map[string]any{"name": "dns", "state": "running"}))
 	c.Emit(ev("count", map[string]any{"category": "hosts", "n": 12}))
 	var got []string
 	for l := range strings.SplitSeq(strings.TrimSpace(c.log.String()), "\n") {
@@ -180,7 +180,7 @@ func TestConsoleMessageText(t *testing.T) {
 	want := []string{
 		"nyx eng  1 roots  [passive-only]  [authorised]",
 		"ports          not-configured (passive-only)",
-		"asn            done (3 checks, 1 failed)",
+		"asn            done (3 jobs, 1 failed)",
 		"dns            running",
 		"  hosts: 12",
 	}
@@ -252,7 +252,7 @@ func TestConsoleSanitises(t *testing.T) {
 		ev("found", map[string]any{"category": "finding", "value": evil, "severity": "high"}),
 		ev("warning", map[string]any{"message": evil}),
 		ev("debug", map[string]any{"message": evil}),
-		ev("stage", map[string]any{"name": evil, "state": "done", "reason": evil}),
+		ev("procedure", map[string]any{"name": evil, "state": "done", "reason": evil}),
 		ev("warning", map[string]any{"message": long}),
 	}
 	for _, s := range []layout.Stream{plainStream(), termStream(palette.None, 80), termStream(palette.TrueColor, 80)} {
@@ -310,11 +310,11 @@ func TestOnlyAndTee(t *testing.T) {
 	tee := report.WithRedactor(report.Tee(&w, report.Only("debug", console)), config.NewRedactor("SEKRET"))
 	tee.Emit(ev("found", map[string]any{"category": "host", "value": "a"}))
 	tee.Emit(ev("warning", map[string]any{"message": "w"}))
-	tee.Emit(ev("debug", map[string]any{"message": "asn check k failed: key=SEKRET"}))
+	tee.Emit(ev("debug", map[string]any{"message": "asn job k failed: key=SEKRET"}))
 	if got := w.List(); len(got) != 1 || got[0] != "w" {
 		t.Errorf("warnings = %q, want the one warning", got)
 	}
-	if want := "12:00:00 | DEBUG | asn check k failed: key=****\n"; logb.String() != want {
+	if want := "12:00:00 | DEBUG | asn job k failed: key=****\n"; logb.String() != want {
 		t.Errorf("stderr = %q, want only the redacted DEBUG line %q", logb.String(), want)
 	}
 }

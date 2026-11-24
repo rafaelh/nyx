@@ -69,7 +69,7 @@ func TestEmailThirdParties_IncludeWithoutSPFIsListed(t *testing.T) {
 		t.Errorf("rows:\n%s", w.file(eng, "third-parties.csv"))
 	}
 	if n := len(w.h.completed(eng, "email")); n != 1 {
-		t.Errorf("the check did not complete: %d", n)
+		t.Errorf("the job did not complete: %d", n)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestEmailThirdParties_IncludeServfailRecordsNothing(t *testing.T) {
 	w.dns.MX("example.com", 10, "mx.vendor4.test")
 	runRootPartial(t, w, "email", 1)
 	if got := w.file(eng, "third-parties.csv"); got != "" {
-		t.Errorf("a failed check recorded third parties:\n%s", got)
+		t.Errorf("a failed job recorded third parties:\n%s", got)
 	}
 	w.dns.ClearRcode("broken.vendor2.test")
 	w.dns.TXT("broken.vendor2.test", "v=spf1 -all")
@@ -480,7 +480,7 @@ func TestEmailMTASTS_ServfailFailsTheJob(t *testing.T) {
 		t.Errorf("state = %v", st)
 	}
 	if len(w.h.completed(eng, "email")) != 0 || w.file(eng, "email-posture.csv") != "" {
-		t.Errorf("a failed check recorded a result")
+		t.Errorf("a failed job recorded a result")
 	}
 	w.dns.ClearRcode("_mta-sts.example.com")
 	runRoot(t, w, "-e", eng)
@@ -497,7 +497,7 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	runRoot(t, w, "--no-permutations") // permutations legitimately try mta-sts.<root>
 	keys := w.h.completed(eng, "email")
 	if len(keys) != 1 || !strings.HasSuffix(keys[0], "|mta-sts|addrs") || !strings.HasPrefix(keys[0], "example.com|dkim=") {
-		t.Fatalf("check keys = %v", keys)
+		t.Fatalf("job keys = %v", keys)
 	}
 	runRoot(t, w, "-e", eng, "--no-permutations")
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 1 {
@@ -511,14 +511,14 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	}
 	runRoot(t, w, "-e", eng, "--no-permutations")
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 2 {
-		t.Errorf("the old check was not run again: %d lookups", n)
+		t.Errorf("the old job was not run again: %d lookups", n)
 	}
 	if got := w.h.completed(eng, "email"); len(got) < 1 || !strings.HasSuffix(got[len(got)-1], "|mta-sts|addrs") {
-		t.Errorf("check keys = %v", got)
+		t.Errorf("job keys = %v", got)
 	}
 	runRoot(t, w, "-e", eng, "--no-permutations")
 	if n := w.dns.Count("_mta-sts.example.com", "TXT"); n != 2 {
-		t.Errorf("the checks ran a third time: %d lookups", n)
+		t.Errorf("the jobs ran a third time: %d lookups", n)
 	}
 
 	// Nothing but DNS: no policy file request, and no name under mta-sts. is resolved.

@@ -77,7 +77,7 @@ func TestJSParse_FetchesSameHostScriptsOnce(t *testing.T) {
 	keys := x.completedKeys("jsparse")
 	slices.Sort(keys)
 	if len(keys) != 2 || !strings.HasPrefix(keys[0], "http://a.example.com/app.js|p=") {
-		t.Errorf("jsparse checks = %v, want one per script URL, keyed by URL and parser", keys)
+		t.Errorf("jsparse jobs = %v, want one per script URL, keyed by URL and parser", keys)
 	}
 }
 
@@ -111,7 +111,7 @@ func TestJSParse_NeverFetchesCDNOrSaaSScripts(t *testing.T) {
 	}
 	for _, k := range x.completedKeys("jsparse") {
 		if !strings.HasPrefix(k, "http://a.example.com/own.js|") && !strings.HasPrefix(k, "http://b.example.com/b.js|") {
-			t.Errorf("unexpected jsparse check %q", k)
+			t.Errorf("unexpected jsparse job %q", k)
 		}
 	}
 }
@@ -163,15 +163,15 @@ func TestJSParse_RedirectsAndFailures(t *testing.T) {
 	}
 	for _, p := range []string{"/gone.js", "/boom.js", "/away.js", "/old.js"} {
 		if a.count(p) != 1 {
-			t.Errorf("%s fetched %d times over two runs, want once (a completed check is not repeated)", p, a.count(p))
+			t.Errorf("%s fetched %d times over two runs, want once (a completed job is not repeated)", p, a.count(p))
 		}
 	}
 	if slow.Load() != 2 {
-		t.Errorf("a timed-out script was fetched %d times over two runs, want 2 (a failed check is retried)", slow.Load())
+		t.Errorf("a timed-out script was fetched %d times over two runs, want 2 (a failed job is retried)", slow.Load())
 	}
 	done := strings.Join(x.completedKeys("jsparse"), " ")
 	if strings.Contains(done, "/slow.js") {
-		t.Errorf("a timeout must not complete its check: %s", done)
+		t.Errorf("a timeout must not complete its job: %s", done)
 	}
 	if !strings.Contains(done, "/gone.js") || !strings.Contains(done, "/boom.js") || !strings.Contains(done, "/away.js") {
 		t.Errorf("a non-2xx answer or a refused redirect completes with nothing: %s", done)
@@ -474,7 +474,7 @@ func TestJSParse_NotUnderPassive(t *testing.T) {
 		t.Errorf("a passive run sent %d requests to the target", s.hits())
 	}
 	if got := x.completedKeys("jsparse"); len(got) != 0 {
-		t.Errorf("jsparse checks completed under --passive: %v", got)
+		t.Errorf("jsparse jobs completed under --passive: %v", got)
 	}
 	if st := lastState(x.h.events(), "jsparse"); st == nil || st.str("state") != "not-configured" || st.str("reason") != "passive-only" {
 		t.Errorf("jsparse state = %v, want not-configured (passive-only)", st)

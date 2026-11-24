@@ -113,7 +113,7 @@ func (s *Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run
 	case ipInput:
 		obs, err = lookup(ctx, e, in.addr)
 	default:
-		err = errors.New("unknown check")
+		err = errors.New("unknown job")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("rdap %s: %w", c.Key, err)

@@ -59,14 +59,14 @@ var procedureHelps = map[string]procedureHelp{
 }
 
 // proceduresHeading is the heading of the procedures topic.
-const proceduresHeading = "Stages, in the order each pass runs them:"
+const proceduresHeading = "Procedures, in the order each pass runs them:"
 
 // proceduresFooter explains procedure controls after the table.
-const proceduresFooter = `Third-party stages ask public sources and resolvers, and run under --passive. Target stages
+const proceduresFooter = `Third-party procedures ask public sources and resolvers, and run under --passive. Target procedures
 contact the target's own systems: they are skipped under --passive, and unless --authorised
-has confirmed, on this run or an earlier one, that you are authorised. A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in
-brackets is optional. --redo <stage> performs every check of one stage again, and --skip <stage>
-turns one off, except the stages marked *, which other stages' safety depends on.`
+has confirmed, on this run or an earlier one, that you are authorised. A procedure with a KEY needs keys.<KEY> and is not-configured without it; a key in
+brackets is optional. --redo <procedure> performs every job of one procedure again, and --skip <procedure>
+turns one off, except the procedures marked *, which other procedures' safety depends on.`
 
 // proceduresHelp lists procedures in registry order, their contacts, keys and purpose, followed by
 // --passive, --redo and --skip behaviour.
@@ -109,7 +109,7 @@ func proceduresBlocks(procedures []run.Procedure) []helpBlock {
 
 // plainProceduresTable pads columns to their widest cell for non-terminal output.
 func plainProceduresTable(rows []procedureRow) []string {
-	all := append([]procedureRow{{"STAGE", "CONTACT", "KEY", "WHAT IT DOES"}}, rows...)
+	all := append([]procedureRow{{"PROCEDURE", "CONTACT", "KEY", "WHAT IT DOES"}}, rows...)
 	var wName, wContact, wKey int
 	for _, r := range all {
 		wName, wContact, wKey = max(wName, len(r.name)), max(wContact, len(r.contact)), max(wKey, len(r.key))
@@ -131,7 +131,7 @@ func proceduresTable(s layout.Stream, rows []procedureRow) layout.Table {
 	t := layout.Table{
 		Indent:   2,
 		Bordered: true,
-		Columns: []layout.Column{{Header: "STAGE"}, {Header: "CONTACT"}, {Header: "KEY"},
+		Columns: []layout.Column{{Header: "PROCEDURE"}, {Header: "CONTACT"}, {Header: "KEY"},
 			{Header: "WHAT IT DOES", Wrap: layout.Spaces, Shrink: 1}},
 	}
 	for _, r := range rows {

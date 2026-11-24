@@ -67,7 +67,7 @@ func indexOfLine(lines []string, want string) int {
 // equivalents.
 func TestSummaryTerminalHeadings(t *testing.T) {
 	t.Parallel()
-	headings := []string{"Summary", "Failed checks (retried on the next run; --debug shows each failure)", "Deferred to the next run",
+	headings := []string{"Summary", "Failed jobs (retried on the next run; --debug shows each failure)", "Deferred to the next run",
 		"Findings (high and medium)", "Candidates worth promoting (high confidence)", "Since last run", "New findings (high and medium)"}
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor, palette.Color256, palette.Color16} {
 		lines := linesOf(termSummary(d, 80, richEnvelope()))
@@ -89,7 +89,7 @@ func TestSummaryTerminalHeadingWraps(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
 	lines := linesOf(termSummary(d, 60, richEnvelope()))
-	first := d.BoldText(palette.Semantic, "info", "Failed checks (retried on the next run; --debug shows each")
+	first := d.BoldText(palette.Semantic, "info", "Failed jobs (retried on the next run; --debug shows each")
 	if i := indexOfLine(lines, first); i < 0 {
 		t.Fatalf("the heading did not wrap at 60 columns:\n%s", strings.Join(lines, "\n"))
 	} else if lines[i+1] != d.BoldText(palette.Semantic, "info", "failure)") || lines[i+2] != d.Text(palette.Chrome, "SEPARATOR", strings.Repeat("─", 60)) {
@@ -373,11 +373,14 @@ func TestSummaryTerminalOtherLinesWrap(t *testing.T) {
 	if strings.Join(got, " ") != note {
 		t.Errorf("the note's words:\n got %q\nwant %q", strings.Join(got, " "), note)
 	}
-	if wide := termSummary(palette.None, 80, env); !strings.Contains(wide, "  Stopped by the deadline: 700 checks completed, 20 cancelled\n") {
+	if wide := termSummary(palette.None, 80, env); !strings.Contains(wide, "  Stopped by the deadline: 700 jobs completed, 20 cancelled\n") {
 		t.Errorf("deadline line missing:\n%s", wide)
 	}
-	if !strings.Contains(text, "  Stopped by the deadline: 700 checks completed, 20\n  cancelled\n") {
-		t.Errorf("the deadline line did not wrap with its continuation at 2:\n%s", text)
+	// "jobs" is shorter than the word it replaced, so the line wraps at 60 columns from 70000 jobs.
+	long := env
+	long.Meta.JobsCompleted = 70000
+	if wrapped := termSummary(palette.None, 60, long); !strings.Contains(wrapped, "  Stopped by the deadline: 70000 jobs completed, 20\n  cancelled\n") {
+		t.Errorf("the deadline line did not wrap with its continuation at 2:\n%s", wrapped)
 	}
 	// A deadline line wider than the space wraps too.
 	narrow := report.Envelope{Data: report.Summary{}, Meta: report.Meta{DeadlineExceeded: true, JobsCompleted: 700000000, JobsCancelled: 20000000000}}

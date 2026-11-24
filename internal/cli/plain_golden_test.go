@@ -176,7 +176,7 @@ func TestPlain_SummaryEveryBlock(t *testing.T) {
 		w.run(t, 7)
 		out := w.h.stdout.String()
 		for _, block := range []string{"Summary", "risky ports reported by Shodan, unconfirmed", "permutations: the list was cut",
-			"Failed checks", "Deferred to the next run", "Findings (high and medium)", "Candidates worth promoting",
+			"Failed jobs", "Deferred to the next run", "Findings (high and medium)", "Candidates worth promoting",
 			"and 14 more in candidates.csv", "Since last run", "New findings (high and medium)"} {
 			if !strings.Contains(out, block) {
 				t.Errorf("the summary lacks %q:\n%s", block, out)
@@ -196,7 +196,7 @@ func TestPlain_SummaryDeadline(t *testing.T) {
 			t.Fatalf("exit %d\n%s", code, h.stderr.String())
 		}
 		out := h.stdout.String()
-		if !strings.Contains(out, "Stopped by the deadline: 3 checks completed, 3 cancelled") {
+		if !strings.Contains(out, "Stopped by the deadline: 3 jobs completed, 3 cancelled") {
 			t.Errorf("the summary lacks the deadline line:\n%s", out)
 		}
 		return h, out

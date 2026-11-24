@@ -11,7 +11,7 @@ flags, and each command's own flags follow its name.
 Shared flags (every command takes them; they alone may also come before the command):
   -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
   -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
-      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
+      --debug   Also write diagnostics to stderr: each failed job (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
 
 nyx cve <CVE-ID>... [flags]
   Look up CVEs in the NVD by CVE ID
@@ -46,14 +46,14 @@ recon flags:
   -e, --engagement string       Engagement name (default: derived from the first input)
       --passive                 Use third-party sources only; never contact target-owned systems
       --authorised              Confirm you are authorised to test this scope, for this and later runs (alias --authorized)
-      --redo string             Re-perform every check of one stage (see nyx help stages)
-      --skip stringArray        Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)
+      --redo string             Re-perform every job of one procedure (see nyx help procedures)
+      --skip stringArray        Procedure to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help procedures)
       --allow-large-netblocks   Proceed even if in-scope IPv4 netblocks exceed --netblock-limit
       --timeout duration        Stop by this deadline, e.g. 30m or 2h, and exit 7; run again to carry on (default: none)
       --config string           Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
       --output-dir string       Directory in which engagement directories are created (default ".")
-Stages accepted by --redo and --skip: crtsh, shodan, providerranges, resolve, wildcard, httpprobe, ports
-Stages --skip refuses: resolve, wildcard, ipowner, providerranges
+Procedures accepted by --redo and --skip: crtsh, shodan, providerranges, resolve, wildcard, httpprobe, ports
+Procedures --skip refuses: resolve, wildcard, ipowner, providerranges
 Tuning settings (rates, limits, ports, lists and the rest) are listed by nyx recon --help.
 
 nyx recon export -e <engagement> [flags]
@@ -76,9 +76,9 @@ setup flags:
       --update-threat-data   Update the threat data (Spamhaus's DROP lists and ipapi.is's abuse lists) and exit, with no editor, no terminal and no config file
 
 Help:
-  nyx help findings    Finding types and their default severities
-  nyx help [command]   The help of nyx, or of one command or topic: the same as --help
-  nyx help stages      The stages, in run order, and what each one contacts and does
+  nyx help findings     Finding types and their default severities
+  nyx help [command]    The help of nyx, or of one command or topic: the same as --help
+  nyx help procedures   The procedures, in run order, and what each one contacts and does
 
 Flags:
       --version   Print the version and exit

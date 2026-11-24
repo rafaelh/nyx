@@ -72,7 +72,7 @@ func TestWrap_FirstAndRest(t *testing.T) {
 // which a line is broken is consumed.
 func TestWrap_KeepsSpaces(t *testing.T) {
 	t.Parallel()
-	checkLines(t, "padded stage line", layout.Wrap([]layout.Span{{Text: "dns           "}, {Text: "running"}}, 80, 0, 0, layout.Spaces),
+	checkLines(t, "padded procedure line", layout.Wrap([]layout.Span{{Text: "dns           "}, {Text: "running"}}, 80, 0, 0, layout.Spaces),
 		[]string{"dns           running"})
 	checkLines(t, "two-space count line", wrapPlain("  records     12", 80, 0, 0, layout.Spaces), []string{"  records     12"})
 	checkLines(t, "two-space header", wrapPlain("A  B  C", 80, 0, 0, layout.Spaces), []string{"A  B  C"})

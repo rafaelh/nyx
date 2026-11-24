@@ -104,7 +104,7 @@ func TestFamiliesNamedOverRetired(t *testing.T) {
 	t.Parallel()
 	f := candidates.NewFamilies(map[string]string{"otx": "otx"})
 	if got := f.Of("otx"); got != "otx" {
-		t.Errorf("Of(otx) = %q, want the family the stage names", got)
+		t.Errorf("Of(otx) = %q, want the family the procedure names", got)
 	}
 	if got := f.Of("anubis"); got != candidates.PassiveDNS {
 		t.Errorf("Of(anubis) = %q, want passive dns", got)

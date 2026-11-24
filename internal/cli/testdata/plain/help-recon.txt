@@ -25,14 +25,14 @@ Flags:
       --passive                                Use third-party sources only; never contact target-owned systems
       --authorised                             Confirm you are authorised to test this scope, for this and later runs (alias --authorized)
       --allow-large-netblocks                  Proceed even if in-scope IPv4 netblocks exceed --netblock-limit
-      --redo string                            Re-perform every check of one stage (see nyx help stages)
+      --redo string                            Re-perform every job of one procedure (see nyx help procedures)
       --timeout duration                       Stop by this deadline, e.g. 30m or 2h, and exit 7; run again to carry on (default: none)
       --config string                          Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
       --ports ports                            TCP ports to check, separated by commas (e.g.: 37,53,79-81,443)
       --risky-ports ports                      Ports whose being open is reported as a risk (default 21,23,445,1433,1521,3306,3389,5432,5900,6379,9200,11211,27017)
       --sensitive-paths string                 YAML file of sensitive paths to request (default: built-in (268 entries))
       --wordlist string                        Subdomain wordlist file (default: built-in (4860 entries))
-      --concurrency integer                    Workers per stage (ports: --port-concurrency) (default 10)
+      --concurrency integer                    Workers per procedure (ports: --port-concurrency) (default 10)
       --port-concurrency integer               Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout (default 100)
       --rate-per-host float                    Requests per second per dialled target IP (HTTP requests and TCP connects) (default 5)
       --rate-per-source float                  Requests per second per third-party source (default 1)
@@ -46,7 +46,7 @@ Flags:
       --no-permutations                        Do not resolve permutations of discovered subdomain labels (default: on, including with --passive)
       --permutations-max integer               Maximum permutations generated per discovered subdomain label (default 200)
       --netblock-limit integer                 IPv4 address count above which the run stops unless --allow-large-netblocks is given (default 4096)
-      --skip stringArray                       Stage to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help stages)
+      --skip stringArray                       Procedure to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help procedures)
       --certspotter-max-pages integer          Result pages followed per root from Cert Spotter (default 10)
       --shodan-dns-max-pages integer           Result pages followed per root from Shodan's DNS data (one query credit each) (default 10)
       --censys-max-pages integer               Result pages followed per root from Censys (default 10)
@@ -65,7 +65,7 @@ Flags:
   -h, --help                                   Help for recon
 
 Shared flags:
-      --debug   Also write diagnostics to stderr: each failed check (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
+      --debug   Also write diagnostics to stderr: each failed job (recon), each request to the NVD (cve), each address probed (ip --active), and the stack of an unexpected failure
   -J, --json    Print the result as one JSON object on stdout, and any error as one JSON line on stderr
   -q, --quiet   Write only warnings and errors to stderr; recon's summary is still printed
 

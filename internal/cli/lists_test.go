@@ -45,7 +45,7 @@ func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if st, _ := stateOf(w, "permutations"); st != "done" {
-		t.Errorf("a deferred stage must show done, got %s", st)
+		t.Errorf("a deferred procedure must show done, got %s", st)
 	}
 	for _, word := range []string{"dev", "test", "beta", "old"} {
 		if w.dns.Count(word+".example.com", "A") != 1 {
@@ -71,7 +71,7 @@ func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 		t.Errorf("after the second run ftp queried %d names, want %d", len(got), seedNames)
 	}
 	if w.dns.Count("dev.example.com", "A") != before {
-		t.Error("a completed root check was repeated")
+		t.Error("a completed root job was repeated")
 	}
 	if n := deferredOf(t, w.h, "permutations"); n != 0 {
 		t.Errorf("deferred after the last run = %d, want 0", n)
@@ -185,7 +185,7 @@ func TestListsPermutations_ConsoleAndJSONCounts(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	if block := deferredBlock(t, w.h.stdout.String()); !strings.Contains(block, "permutations") || !strings.Contains(block, "26") {
-		t.Errorf("block does not give the stage and the count of 26:\n%s", block)
+		t.Errorf("block does not give the procedure and the count of 26:\n%s", block)
 	}
 	// The second run does the rest, so nothing is deferred and the field says so.
 	permRun(w, wl, "--permutations-max-names", "35")
@@ -221,7 +221,7 @@ func TestListsPermutations_ChangedListRepeatsJobsOnce(t *testing.T) {
 	w.run("--passive", "--permutations-max", "5", "example.com")
 	upgraded := w.h.completed(eng, "permutations")
 	if len(upgraded) != 6 {
-		t.Fatalf("after the upgrade there are %d checks, want the 3 old and 3 new: %v", len(upgraded), upgraded)
+		t.Fatalf("after the upgrade there are %d jobs, want the 3 old and 3 new: %v", len(upgraded), upgraded)
 	}
 	root := w.dns.Count("www.example.com", "A")
 	if root != 1 {
@@ -229,10 +229,10 @@ func TestListsPermutations_ChangedListRepeatsJobsOnce(t *testing.T) {
 	}
 	w.run("--passive", "--permutations-max", "5", "example.com")
 	if again := w.h.completed(eng, "permutations"); len(again) != 6 {
-		t.Errorf("a further run changed the checks: %v", again)
+		t.Errorf("a further run changed the jobs: %v", again)
 	}
 	if w.dns.Count("www.example.com", "A") != root {
-		t.Error("a further run repeated a completed permutation check")
+		t.Error("a further run repeated a completed permutation job")
 	}
 }
 
@@ -372,7 +372,7 @@ func TestListsSensitive_ConsoleCount(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, x.h.stdout.String())
 	}
 	if block := deferredBlock(t, x.h.stdout.String()); !strings.Contains(block, "sensitive-paths") || !strings.Contains(block, "5") {
-		t.Errorf("block does not give the stage and the count of 5:\n%s", block)
+		t.Errorf("block does not give the procedure and the count of 5:\n%s", block)
 	}
 }
 

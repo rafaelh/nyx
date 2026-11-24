@@ -9,6 +9,6 @@ Summary
   unresolved names                  0
   urls                              0
   web services                      0
-  Stopped by the deadline: 3 checks completed, 3 cancelled
-Failed checks (retried on the next run; --debug shows each failure)
+  Stopped by the deadline: 3 jobs completed, 3 cancelled
+Failed jobs (retried on the next run; --debug shows each failure)
   flaky            1
