@@ -21,6 +21,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
@@ -81,31 +82,11 @@ type origin struct {
 }
 
 func (o *origin) base() *url.URL {
-	u := &url.URL{Scheme: o.scheme, Host: HostPort(o.scheme, o.host, strconv.Itoa(o.port)), Path: "/"}
+	u := &url.URL{Scheme: o.scheme, Host: weburl.HostPort(o.scheme, o.host, strconv.Itoa(o.port)), Path: "/"}
 	if ru, err := url.ParseRequestURI(o.uri); err == nil {
 		u.Path, u.RawPath, u.RawQuery = ru.Path, ru.RawPath, ru.RawQuery
 	}
 	return u
-}
-
-// HostPort is the authority of a URL: host[:port], with an IPv6 literal
-// bracketed and an empty or default port for the scheme dropped.
-func HostPort(scheme, host, port string) string {
-	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
-	}
-	if port == "" || port == strconv.Itoa(defaultPort(scheme)) {
-		return host
-	}
-	return host + ":" + port
-}
-
-// defaultPort is the port a URL with scheme and no port names: 443 for https, otherwise 80.
-func defaultPort(scheme string) int {
-	if scheme == "https" {
-		return 443
-	}
-	return 80
 }
 
 // URL is the absolute URL of the request that produced the response: the
@@ -147,7 +128,7 @@ func ParseService(origin string) (Service, bool) {
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return Service{}, false
 	}
-	port := defaultPort(u.Scheme)
+	port := weburl.DefaultPort(u.Scheme)
 	if p := u.Port(); p != "" {
 		if port, err = strconv.Atoi(p); err != nil {
 			return Service{}, false
@@ -198,7 +179,7 @@ func RootAt(host, scheme string, port int, addr netip.Addr) Request {
 // scope; addr must pass exclusions and port eligibility, but need not be a current DNS address
 // for host. Redirects are not followed.
 func OriginCheck(host, scheme string, addr netip.Addr) Request {
-	return req{target{scheme: scheme, host: host, port: defaultPort(scheme), requestURI: "/", pin: addr.Unmap(), origin: true}}
+	return req{target{scheme: scheme, host: host, port: weburl.DefaultPort(scheme), requestURI: "/", pin: addr.Unmap(), origin: true}}
 }
 
 // SensitivePath requests entry index of the configured sensitive-path list.
@@ -224,7 +205,7 @@ func targetOf(u *url.URL) (target, error) {
 	if u.User != nil {
 		return target{}, errors.New("userinfo is not permitted")
 	}
-	port := defaultPort(u.Scheme)
+	port := weburl.DefaultPort(u.Scheme)
 	if ps := u.Port(); ps != "" {
 		port, _ = strconv.Atoi(ps)
 	}
@@ -435,7 +416,7 @@ func (e *Egress) fetch(ctx context.Context, method string, tg target, pl httpPla
 		return time.AfterFunc(e.opts.HTTPTimeout, func() { cancel(errHTTPTimeout) })
 	})
 	defer func() { deadline().Stop() }()
-	reqURL := (&url.URL{Scheme: tg.scheme, Host: HostPort(tg.scheme, pl.host, strconv.Itoa(tg.port))}).String() + pl.uri
+	reqURL := (&url.URL{Scheme: tg.scheme, Host: weburl.HostPort(tg.scheme, pl.host, strconv.Itoa(tg.port))}).String() + pl.uri
 	hreq, err := http.NewRequestWithContext(ctx, method, reqURL, nil)
 	if err != nil {
 		return Refused{"bad request: " + err.Error()}, nil

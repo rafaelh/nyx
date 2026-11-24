@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
 )
 
@@ -36,7 +35,7 @@ func NormaliseURL(raw string) (string, bool) {
 		}
 		port = strconv.Itoa(n)
 	}
-	out := url.URL{Scheme: scheme, Host: egress.HostPort(scheme, host, port), Path: u.Path, RawPath: u.RawPath, RawQuery: u.RawQuery}
+	out := url.URL{Scheme: scheme, Host: HostPort(scheme, host, port), Path: u.Path, RawPath: u.RawPath, RawQuery: u.RawQuery}
 	if out.Path == "" {
 		out.Path = "/"
 	}
@@ -48,7 +47,27 @@ func NormaliseURL(raw string) (string, bool) {
 
 // Origin formats a canonical service key without default ports, including brackets for IPv6.
 func Origin(scheme, host string, port int) string {
-	return scheme + "://" + egress.HostPort(scheme, host, strconv.Itoa(port))
+	return scheme + "://" + HostPort(scheme, host, strconv.Itoa(port))
+}
+
+// HostPort is the authority of a URL: host[:port], with an IPv6 literal
+// bracketed and an empty or default port for the scheme dropped.
+func HostPort(scheme, host, port string) string {
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port == "" || port == strconv.Itoa(DefaultPort(scheme)) {
+		return host
+	}
+	return host + ":" + port
+}
+
+// DefaultPort is the port a URL with scheme and no port names: 443 for https, otherwise 80.
+func DefaultPort(scheme string) int {
+	if scheme == "https" {
+		return 443
+	}
+	return 80
 }
 
 // HostOfURL is the lower-case host (no brackets, no port) of a URL.

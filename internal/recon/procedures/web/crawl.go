@@ -343,7 +343,7 @@ func originOf(abs string) string {
 	if err != nil {
 		return ""
 	}
-	return u.Scheme + "://" + egress.HostPort(u.Scheme, strings.ToLower(u.Hostname()), u.Port())
+	return u.Scheme + "://" + weburl.HostPort(u.Scheme, strings.ToLower(u.Hostname()), u.Port())
 }
 
 // storageObservation keys a reference by its source page and destination URL.

@@ -190,7 +190,8 @@ S3/GCS/Azure), `provider` (shared infrastructure from CNAME suffixes, address ra
 in the embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.date data and
 `products.yaml`), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
 belong to an organisation input), `addrkind`, `dnsname`, `webpage` and `weburl` (canonical URLs,
-service origins and static assets, shared by the web and archive procedures). In
+service origins, URL authorities and static assets, shared by the web and archive procedures and
+by egress). In
 `internal/threatdata/`: `abusive` (ipapi.is's most-abusive network and ASN lists: the embedded
 snapshot, refreshed by `make threat-data`, and the parser of its pages; the matches are information
 only) and `spamhaus` (Spamhaus's DROP, DROPv6 and ASN-DROP lists: parsing, validation, matching and
