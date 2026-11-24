@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"database/sql"
 	"fmt"
 	"maps"
 	"os"
@@ -722,5 +723,228 @@ func TestWriterPanicSetsTheStickyError(t *testing.T) {
 	s.Complete("st", "c2", nil)
 	if err := s.Flush(); err == nil {
 		t.Error("the sticky error was cleared")
+	}
+}
+
+// jobRows lists the jobs table of the state database at p as "procedure|key".
+func jobRows(t *testing.T, p string) []string {
+	t.Helper()
+	return dbStrings(t, p, "SELECT procedure||'|'||key FROM jobs")
+}
+
+// dbStrings runs a one-column query on the state database at p, through a connection of its own,
+// and returns the sorted values.
+func dbStrings(t *testing.T, p, q string, args ...any) []string {
+	t.Helper()
+	db, err := sql.Open("sqlite", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Put stores an analysis's or the guard's observations without a jobs row; Complete still
+// writes one.
+func TestPut_LeavesNoJobsRow(t *testing.T) {
+	t.Parallel()
+	s, p := open(t, newClock(), nil)
+	s.Put("findings", "", []store.Obs{{Kind: "finding", Key: "f1", Attrs: map[string]any{"severity": "high"}}})
+	s.Put("guard", "192.0.2.9", []store.Obs{{Kind: "excluded", Key: "192.0.2.9", Attrs: map[string]any{"reason": "excluded"}}})
+	s.Complete("crtsh", "k1", []store.Obs{{Kind: "hostname", Key: "a.example.com"}})
+	mustFlush(t, s)
+
+	if got := dbStrings(t, p, "SELECT producer||'|'||job_key FROM observations"); !slices.Equal(got, []string{"crtsh|k1", "findings|", "guard|192.0.2.9"}) {
+		t.Errorf("observations = %q, want crtsh's, findings' and guard's", got)
+	}
+	if got := jobRows(t, p); !slices.Equal(got, []string{"crtsh|k1"}) {
+		t.Errorf("jobs = %q, want only the completed job crtsh|k1", got)
+	}
+
+	// A later Put for the same producer adds no jobs row either.
+	s.Put("findings", "", []store.Obs{{Kind: "finding", Key: "f2"}})
+	mustFlush(t, s)
+	if got := jobRows(t, p); !slices.Equal(got, []string{"crtsh|k1"}) {
+		t.Errorf("jobs after a second Put = %q", got)
+	}
+}
+
+// Put's records are current, are dated like Complete's, and merge with a procedure's
+// observations field by field.
+func TestPut_RecordsAreCurrentAndMerge(t *testing.T) {
+	t.Parallel()
+	c := newClock()
+	s, _ := open(t, c, nil)
+	s.Put("thirdparty-cname", "", []store.Obs{{Kind: "third_party", Key: "only-put"}})
+	mustFlush(t, s)
+	r := rec(t, s, "third_party", "only-put")
+	if !r.Current || r.FirstSeen != "2026-11-01" || r.LastSeen != "2026-11-01" ||
+		!slices.Equal(r.Producers, []string{"thirdparty-cname"}) {
+		t.Errorf("a record only Put writes = %+v, want current, dated today, produced by thirdparty-cname", r)
+	}
+
+	c.advance(48 * time.Hour)
+	s.Complete("spf", "a.com", []store.Obs{{Kind: "third_party", Key: "tp", Attrs: map[string]any{"src": "spf", "only_spf": "1"}}})
+	s.Put("thirdparty-cname", "", []store.Obs{
+		{Kind: "third_party", Key: "only-put"},
+		{Kind: "third_party", Key: "tp", Attrs: map[string]any{"src": "cname", "only_cname": "2"}},
+	})
+	mustFlush(t, s)
+	if r := rec(t, s, "third_party", "only-put"); !r.Current || r.FirstSeen != "2026-11-01" || r.LastSeen != "2026-11-03" {
+		t.Errorf("a record Put again = %+v, want first_seen kept and last_seen moved", r)
+	}
+
+	rs, err := s.Records("third_party", []string{"spf", "thirdparty-cname"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tp store.Record
+	for _, r := range rs {
+		if r.Key == "tp" {
+			tp = r
+		}
+	}
+	if !tp.Current || tp.Attrs["src"] != "cname" || tp.Attrs["only_spf"] != "1" || tp.Attrs["only_cname"] != "2" {
+		t.Errorf("merged with thirdparty-cname last = %+v", tp)
+	}
+	if !slices.Equal(tp.Producers, []string{"spf", "thirdparty-cname"}) {
+		t.Errorf("producers = %v, want spf and thirdparty-cname", tp.Producers)
+	}
+	rs, _ = s.Records("third_party", []string{"thirdparty-cname", "spf"})
+	for _, r := range rs {
+		if r.Key == "tp" && r.Attrs["src"] != "spf" {
+			t.Errorf("merged with spf last = %v, the order must decide", r.Attrs)
+		}
+	}
+}
+
+// A second Put for the same producer and key drops what it no longer produces: the dropped
+// records stop being current unless another producer still observes them. A Put under another
+// key of the same producer leaves the first key's observations alone.
+func TestPut_DropsWhatItNoLongerProduces(t *testing.T) {
+	t.Parallel()
+	s, _ := open(t, newClock(), nil)
+	s.Put("findings", "", []store.Obs{{Kind: "x", Key: "a"}, {Kind: "x", Key: "b"}, {Kind: "x", Key: "shared"}})
+	s.Complete("st", "k", []store.Obs{{Kind: "x", Key: "shared"}})
+	mustFlush(t, s)
+	for _, k := range []string{"a", "b", "shared"} {
+		if !rec(t, s, "x", k).Current {
+			t.Fatalf("x/%s should be current after the first Put", k)
+		}
+	}
+	before := s.KindVersion("x")
+
+	s.Put("findings", "", []store.Obs{{Kind: "x", Key: "a"}})
+	mustFlush(t, s)
+	if !rec(t, s, "x", "a").Current {
+		t.Error("a record still produced must stay current")
+	}
+	if rec(t, s, "x", "b").Current {
+		t.Error("a record the producer dropped must stop being current")
+	}
+	if !rec(t, s, "x", "shared").Current {
+		t.Error("a dropped record a procedure still observes must stay current")
+	}
+	obs, err := s.Observations("x", "findings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 1 || obs[0].Key != "a" {
+		t.Errorf("findings' observations = %v, want only a", obs)
+	}
+	if s.KindVersion("x") == before {
+		t.Error("a dropped observation must change the kind version")
+	}
+
+	// The guard keeps one key per address: a Put under another key keeps the first one's.
+	s.Put("guard", "192.0.2.9", []store.Obs{{Kind: "excluded", Key: "192.0.2.9"}})
+	s.Put("guard", "192.0.2.10", []store.Obs{{Kind: "excluded", Key: "192.0.2.10"}})
+	mustFlush(t, s)
+	for _, k := range []string{"192.0.2.9", "192.0.2.10"} {
+		if !rec(t, s, "excluded", k).Current {
+			t.Errorf("excluded %s should be current: one key's Put must not drop another's", k)
+		}
+	}
+	// Dropping everything leaves the record on file, not current.
+	s.Put("guard", "192.0.2.9", nil)
+	mustFlush(t, s)
+	if r := rec(t, s, "excluded", "192.0.2.9"); r.Current {
+		t.Errorf("an empty Put must leave its record not current: %+v", r)
+	}
+}
+
+// Observers lists only completed jobs, so it never returns an analysis or the guard, even for a
+// record they also produce.
+func TestPut_ObserversNeverReturnAnAnalysisOrTheGuard(t *testing.T) {
+	t.Parallel()
+	s, _ := open(t, newClock(), nil)
+	s.Put("findings", "", []store.Obs{{Kind: "root", Key: "x.org"}, {Kind: "root", Key: "y.org"}})
+	s.Put("candidate-rank", "", []store.Obs{{Kind: "root", Key: "x.org"}})
+	s.Put("guard", "192.0.2.9", []store.Obs{{Kind: "root", Key: "x.org"}})
+	s.Complete("crtsh", "k1", []store.Obs{{Kind: "root", Key: "x.org"}})
+	mustFlush(t, s)
+
+	// The Put observations are stored and keep their records current.
+	if !rec(t, s, "root", "y.org").Current {
+		t.Error("y.org, which only an analysis produces, should be current")
+	}
+	if r := rec(t, s, "root", "x.org"); !slices.Equal(r.Producers, []string{"candidate-rank", "crtsh", "findings", "guard"}) {
+		t.Errorf("x.org producers = %v", r.Producers)
+	}
+
+	got, err := s.Observers("root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got["x.org"]) != 1 || got["x.org"][0] != (store.Observer{Procedure: "crtsh", JobKey: "k1"}) {
+		t.Errorf("observers = %v, want only crtsh/k1 observing x.org", got)
+	}
+}
+
+// Put bumps the versions of the kinds it writes, and adds nothing to any completed list.
+func TestPut_BumpsKindVersionAndCompletesNothing(t *testing.T) {
+	t.Parallel()
+	s, _ := open(t, newClock(), nil)
+	v0 := s.KindVersion("finding")
+	s.Put("findings", "", []store.Obs{{Kind: "finding", Key: "f1"}})
+	mustFlush(t, s)
+	v1 := s.KindVersion("finding")
+	if v1 == v0 {
+		t.Error("a Put must change the version of the kind it writes")
+	}
+	if s.KindVersion("excluded") != 0 {
+		t.Error("a Put must not change another kind's version")
+	}
+	s.Put("guard", "192.0.2.9", []store.Obs{{Kind: "excluded", Key: "192.0.2.9"}})
+	mustFlush(t, s)
+	if s.KindVersion("excluded") == 0 {
+		t.Error("the guard's Put must change the excluded kind's version")
+	}
+
+	for _, name := range []string{"findings", "guard"} {
+		done, err := s.Completed(name)
+		if err != nil || len(done) != 0 {
+			t.Errorf("Completed(%q) = %v, %v; want nothing", name, done, err)
+		}
+	}
+	if obs, _ := s.Observations("finding", "findings"); len(obs) != 1 {
+		t.Errorf("findings' observations = %v, want f1", obs)
 	}
 }

@@ -412,7 +412,7 @@ func (r *Runner) guard(value, reason string) {
 	if _, seen := r.guarded.LoadOrStore(value+"\x00"+reason, struct{}{}); seen {
 		return
 	}
-	r.st.Complete("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
+	r.st.Put("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
 }
 
 func (r *Runner) hasFailed(procedure, key string) bool {
@@ -737,14 +737,14 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.
 	return snap, nil
 }
 
-// storeAnalysis writes observations under the synthetic procedure name and job "derived". It skips
+// storeAnalysis writes an analysis's observations under its own name, with no job. It skips
 // writes when both the date and records match *last, and reports whether it wrote anything.
 func (r *Runner) storeAnalysis(name string, obs []store.Obs, last *[sha256.Size]byte) (bool, error) {
 	sum := sha256.Sum256(fmt.Append(nil, r.today(), obs))
 	if sum == *last {
 		return false, nil
 	}
-	r.st.Complete(name, "derived", obs)
+	r.st.Put(name, "", obs)
 	if err := r.st.Flush(); err != nil {
 		return false, err
 	}

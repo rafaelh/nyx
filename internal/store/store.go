@@ -57,9 +57,9 @@ type Obs struct {
 type Record struct {
 	Kind, Key           string
 	FirstSeen, LastSeen string
-	Current             bool // true while a completed job still observes the record
+	Current             bool // true while any observation of the record exists
 	Attrs               map[string]any
-	Producers           []string // sorted procedures currently observing the record
+	Producers           []string // sorted procedures and analyses currently observing the record
 }
 
 // Str returns the string attribute k, or "" if it is absent or not a string.
@@ -75,6 +75,7 @@ type Input struct{ Kind, Value, AddedAt string }
 type op struct {
 	procedure, job string
 	obs            []Obs
+	noJob          bool // an analysis's or the guard's write: no row in jobs
 	done           chan error
 }
 
@@ -371,6 +372,12 @@ func (s *Store) Complete(procedure, job string, obs []Obs) {
 	s.send(op{procedure: procedure, job: s.JobKey(job), obs: obs})
 }
 
+// Put queues the observations an analysis or the guard produces under (producer, key), without
+// recording a completed job.
+func (s *Store) Put(producer, key string, obs []Obs) {
+	s.send(op{procedure: producer, job: s.JobKey(key), obs: obs, noJob: true})
+}
+
 // Flush waits until everything queued so far is committed and returns the first write error.
 func (s *Store) Flush() error {
 	done := make(chan error, 1)
@@ -583,6 +590,9 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 			return nil, err
 		}
 		kinds[k.kind] = true
+	}
+	if o.noJob {
+		return news, nil
 	}
 	_, err = st.complete.Exec(o.procedure, o.job, today)
 	return news, err
