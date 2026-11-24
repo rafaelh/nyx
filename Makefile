@@ -1,17 +1,21 @@
 # Disable cgo only for builds and vet; Linux race tests need it enabled.
 TARGETS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: build dist test lint clean eol-data threat-data
+.PHONY: build dist test lint vuln clean eol-data threat-data release-prep release
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o nyx ./cmd/nyx
 
+# Start from an empty dist/ so a release never uploads a stale binary.
 dist:
+	@rm -rf dist
 	@for t in $(TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; \
 		echo "dist/nyx-$$os-$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o dist/nyx-$$os-$$arch ./cmd/nyx || exit 1; \
 	done
+	@cd dist && shasum -a 256 nyx-* > SHA256SUMS
+	@echo "dist/SHA256SUMS"
 
 # Vet each target to catch platform-specific compile failures before running tests.
 test:
@@ -27,6 +31,21 @@ test:
 #   go get -tool -modfile=tools/go.mod github.com/golangci/golangci-lint/v2/cmd/golangci-lint@vX.Y.Z
 lint:
 	go tool -modfile=tools/go.mod golangci-lint run ./...
+
+# Report known vulnerabilities in dependencies and in the standard library of the local toolchain,
+# which a static binary carries. Contacts vuln.go.dev.
+vuln:
+	go tool -modfile=tools/go.mod govulncheck ./...
+
+# Release in two steps (docs/release-preparation.md): release-prep refreshes dependencies and
+# data and runs every check, leaving the changes to review and commit; release tags, builds and
+# publishes VERSION with gh.
+release-prep:
+	scripts/release.sh prepare
+
+release:
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=vX.Y.Z" >&2; exit 2; }
+	scripts/release.sh publish "$(VERSION)"
 
 clean:
 	rm -rf nyx dist

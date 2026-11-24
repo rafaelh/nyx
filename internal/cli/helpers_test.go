@@ -21,7 +21,8 @@ func (expander) ExpandsInputASNs() {}
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// docsText joins README and sorted guide pages, excluding todo, while retaining page titles.
+// docsText joins README and sorted guide pages, excluding the maintainer pages (todo and release
+// preparation), while retaining page titles.
 func docsText(t *testing.T) string {
 	t.Helper()
 	pages, err := filepath.Glob("../../docs/*.md")
@@ -30,7 +31,7 @@ func docsText(t *testing.T) string {
 	}
 	var b strings.Builder
 	for _, p := range append([]string{"../../README.md"}, pages...) {
-		if filepath.Base(p) == "todo.md" {
+		if base := filepath.Base(p); base == "todo.md" || base == "release-preparation.md" {
 			continue
 		}
 		text, err := os.ReadFile(p)
