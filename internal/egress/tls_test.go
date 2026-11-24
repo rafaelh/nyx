@@ -41,7 +41,7 @@ func tlsServer(t *testing.T, cfg *tls.Config) int {
 func getTLS(t *testing.T, host string, port int) egress.HTTPResult {
 	t.Helper()
 	rs := map[string][]netip.Addr{host: {addr("127.0.0.1")}}
-	eg := egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, Now: func() time.Time { return tlsNow }})
+	eg := egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, Now: func() time.Time { return tlsNow }, PublicRanges: testPublic})
 	eg.SetPolicy(&egress.Policy{
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: rs}),
 		Ack:   true, Ports: []int{port},

@@ -429,3 +429,12 @@ func (d *DNS) wildTarget(name string) (wildcard, bool) {
 	w, ok := d.wild[parent]
 	return w, ok
 }
+
+// DocumentationRanges are the documentation ranges (RFC 5737, RFC 3849) that test names resolve
+// to. A test passes them as egress.Options.PublicRanges so that egress dials them as if public.
+var DocumentationRanges = []netip.Prefix{
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("2001:db8::/32"),
+}

@@ -85,6 +85,36 @@ func TestRedirect_OutOfScopeRedirectIsACandidateAndNotRequested(t *testing.T) {
 	}
 }
 
+// A target can publish an in-scope name for loopback or the cloud metadata service and redirect to
+// it, choosing the port and path: recon never dials a non-public address that public DNS gave, even
+// after a public address of the same name refuses.
+func TestRedirect_NonPublicAddressFromDNSIsNotRequested(t *testing.T) {
+	t.Parallel()
+	x := newWeb(t)
+	x.names("a.example.com", "b.example.com", "lo.example.com", "meta.example.com", "mixed.example.com")
+	x.host("a.example.com", "203.0.113.5")
+	x.host("b.example.com", "203.0.113.6")
+	x.host("lo.example.com", "127.0.0.1")
+	x.host("meta.example.com", "169.254.169.254")
+	x.host("mixed.example.com", "203.0.113.7", "127.0.0.1") // 203.0.113.7 refuses every connection
+	x.plain("203.0.113.5", 80, redirectTo(302, "http://lo.example.com/admin?x=1"))
+	x.plain("203.0.113.6", 80, redirectTo(302, "http://meta.example.com/latest/meta-data/"))
+	canaries := map[string]*site{
+		"127.0.0.1:80":       x.plain("127.0.0.1", 80, page("loopback")),
+		"169.254.169.254:80": x.plain("169.254.169.254", 80, page("metadata")),
+	}
+	x.mustRun("--crawl-pages", "0")
+
+	for addr, s := range canaries {
+		if s.hits() != 0 {
+			t.Errorf("%s was requested %d times", addr, s.hits())
+		}
+	}
+	if r := x.service("http://a.example.com"); r["redirect"] != "http://lo.example.com/admin?x=1" {
+		t.Errorf("the redirect is still recorded: %v", r)
+	}
+}
+
 func TestRedirect_ExcludedRedirectTargetIsNotRequested(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)

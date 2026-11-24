@@ -269,7 +269,7 @@ func (t *targetHTTP) Head(ctx context.Context, r Request) (HTTPResult, error) {
 
 func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResult, error) {
 	tg := r.target()
-	pl, refusal, refused := t.e.policy().planHTTP(tg)
+	pl, refusal, refused := t.e.policy().planHTTP(tg, t.e.public)
 	if refused {
 		return refusal, nil
 	}
@@ -284,8 +284,8 @@ type httpPlan struct {
 }
 
 // planHTTP checks target permission, recorded scripts, URL shape, host scope, port, path and
-// dial addresses in order. Refusals include a reason.
-func (p *Policy) planHTTP(tg target) (httpPlan, Refused, bool) {
+// dial addresses in order; public says which addresses are public. Refusals include a reason.
+func (p *Policy) planHTTP(tg target, public func(netip.Addr) bool) (httpPlan, Refused, bool) {
 	if r, ok := p.targetRefusal(); ok {
 		return httpPlan{}, r, true
 	}
@@ -310,7 +310,7 @@ func (p *Policy) planHTTP(tg target) (httpPlan, Refused, bool) {
 	if refused {
 		return httpPlan{}, r, true
 	}
-	addrs, r, refused := p.dialAddrs(tg, host, lit, isIP)
+	addrs, r, refused := p.dialAddrs(tg, host, lit, isIP, public)
 	if refused {
 		return httpPlan{}, r, true
 	}
@@ -374,9 +374,11 @@ func (p *Policy) requestURI(tg target) (string, Refused, bool) {
 }
 
 // dialAddrs selects the literal, candidate-origin or vetted DNS addresses, applying any address
-// pin.
-func (p *Policy) dialAddrs(tg target, host string, lit netip.Addr, isIP bool) ([]netip.Addr, Refused, bool) {
+// pin. A DNS or candidate-origin address must be public or inside an in-scope netblock
+// (Policy.nonPublic); a literal is already inside one.
+func (p *Policy) dialAddrs(tg target, host string, lit netip.Addr, isIP bool, public func(netip.Addr) bool) ([]netip.Addr, Refused, bool) {
 	addrs := []netip.Addr{lit}
+	var nonPublic string // why the first non-public DNS address was dropped
 	switch {
 	case tg.origin:
 		// Candidate origins need not match current DNS. Their addresses still need port
@@ -385,14 +387,20 @@ func (p *Policy) dialAddrs(tg target, host string, lit netip.Addr, isIP bool) ([
 		if !tg.pin.IsValid() {
 			return nil, Refused{"no address"}, true
 		}
+		if why := p.nonPublic(tg.pin, public); why != "" {
+			return nil, Refused{why}, true
+		}
 		if r, refused := p.portIneligible(tg.pin); refused {
 			return nil, r, true
 		}
 		addrs = []netip.Addr{tg.pin}
 	case !isIP:
-		addrs = p.vetted(host)
+		addrs, nonPublic = p.vetted(host, public)
 	}
 	if len(addrs) == 0 {
+		if nonPublic != "" {
+			return nil, Refused{"no permitted address for " + host + ": " + nonPublic + " from public DNS"}, true
+		}
 		return nil, Refused{"no permitted address for " + host}, true
 	}
 	if tg.pin.IsValid() {
@@ -513,18 +521,24 @@ func readCapped(r io.Reader, n int) (body []byte, truncated bool, err error) {
 	return body, false, err
 }
 
-// vetted removes excluded CIDRs and addresses of name-excluded hosts. Known shared
+// vetted removes excluded CIDRs, addresses of name-excluded hosts and non-public addresses
+// (Policy.nonPublic), saying why it removed the first non-public one. Known shared
 // infrastructure is exempt only from name-based exclusions.
-func (p *Policy) vetted(host string) []netip.Addr {
-	var out []netip.Addr
+func (p *Policy) vetted(host string, public func(netip.Addr) bool) (out []netip.Addr, nonPublic string) {
 	for _, a := range p.Scope.Addrs(host) {
 		if ok, why := p.Scope.ExcludedFor(a, p.isShared(a)); ok {
 			p.reportExcluded(a.String(), why)
 			continue
 		}
+		if why := p.nonPublic(a, public); why != "" {
+			if nonPublic == "" {
+				nonPublic = why
+			}
+			continue
+		}
 		out = append(out, a)
 	}
-	return out
+	return out, nonPublic
 }
 
 func classify(err error) string {

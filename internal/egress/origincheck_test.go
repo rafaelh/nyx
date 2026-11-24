@@ -83,7 +83,7 @@ func newOriginFixture(t *testing.T) *originFixture {
 		Shared:       func(a netip.Addr) bool { return a == addr(sharedAddr) },
 		OwnerUnknown: func(a netip.Addr) bool { return a == addr(unknownAddr) },
 	}
-	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, DialMap: f.dial})
+	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, DialMap: f.dial, PublicRanges: testPublic})
 	f.eg.SetPolicy(f.pol)
 	return f
 }

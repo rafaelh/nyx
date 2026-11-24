@@ -71,7 +71,7 @@ func newIPFixture(t *testing.T, tlsServer bool, blocks []string, excl []string, 
 	for _, b := range blocks {
 		prefixes = append(prefixes, netip.MustParsePrefix(b))
 	}
-	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, DialMap: dm})
+	f.eg = egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, ConnectTimeout: time.Second, DialMap: dm, PublicRanges: testPublic})
 	f.eg.SetPolicy(&egress.Policy{
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Netblocks: prefixes, Exclusions: mustExcl(t, excl...)}),
 		Ack:   true, Ports: ports,

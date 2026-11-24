@@ -24,6 +24,11 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
+// testPublic is the PublicRanges of the fixtures that resolve names to loopback, where their
+// servers listen, or to the documentation ranges.
+var testPublic = append([]netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
+	egresstest.DocumentationRanges...)
+
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
 func mustExcl(t *testing.T, entries ...string) []input.Exclusion {
@@ -270,6 +275,9 @@ func newHTTPFixture(t *testing.T, opts egress.Options, h http.HandlerFunc) *http
 	opts.RatePerHost = cmp.Or(opts.RatePerHost, 1000)
 	opts.HTTPTimeout = cmp.Or(opts.HTTPTimeout, 2*time.Second)
 	opts.ConnectTimeout = cmp.Or(opts.ConnectTimeout, time.Second)
+	if opts.PublicRanges == nil {
+		opts.PublicRanges = testPublic
+	}
 	f.eg = egress.New(opts)
 	f.eg.SetPolicy(f.pol)
 	return f
@@ -462,6 +470,62 @@ func TestHTTPExclusionAndSharedInfra(t *testing.T) {
 	}
 	if r, _ := f.client().Get(context.Background(), egress.Root("admin.example.com", "http", f.port)); !isRefused(r) {
 		t.Error("the excluded hostname itself is never requested, even on shared infra")
+	}
+}
+
+// A target's names may resolve to any address, so a non-public one from DNS (loopback, link-local,
+// private) is never dialled unless an in-scope netblock holds it: otherwise a name or a redirect
+// could aim recon at the operator's own machine, cloud metadata service or network.
+func TestHTTPNonPublicDNSAddressesAreNotDialled(t *testing.T) {
+	t.Parallel()
+	dial := map[string]string{}
+	f := newHTTPFixture(t, egress.Options{DialMap: dial, PublicRanges: egresstest.DocumentationRanges},
+		func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	port := strconv.Itoa(f.port)
+	for _, a := range []string{"169.254.169.254", "10.0.0.1", "10.1.0.1"} {
+		dial[a+":"+port] = "127.0.0.1:" + port
+	}
+	dial["127.0.0.1:443"] = "127.0.0.1:" + port
+	dial["203.0.113.5:"+port] = closedAddr(t) // a public address that refuses, before loopback
+	res := map[string][]netip.Addr{
+		"lo.example.com":      {addr("127.0.0.1")},
+		"mapped.example.com":  {addr("::ffff:127.0.0.1")},
+		"meta.example.com":    {addr("169.254.169.254")},
+		"private.example.com": {addr("10.1.0.1")},
+		"mixed.example.com":   {addr("203.0.113.5"), addr("127.0.0.1")},
+		"inblock.example.com": {addr("10.0.0.1")},
+	}
+	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res,
+		Netblocks: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")}})
+	get := func(r egress.Request) egress.HTTPResult {
+		t.Helper()
+		res, err := f.client().Get(context.Background(), r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	for host, kind := range map[string]string{"lo": "loopback", "mapped": "loopback", "meta": "link-local", "private": "private"} {
+		r, ok := get(egress.Root(host+".example.com", "http", f.port)).(egress.Refused)
+		if want := "non-public address (" + kind + ") from public DNS"; !ok || !strings.Contains(r.Reason, want) {
+			t.Errorf("%s: %#v, want a refusal naming %q", host, r, want)
+		}
+	}
+	if r := get(egress.Root("mixed.example.com", "http", f.port)); isRefused(r) {
+		t.Errorf("mixed: %#v, want its public address tried", r)
+	}
+	if r := get(egress.RootAt("mixed.example.com", "http", f.port, addr("127.0.0.1"))); !isRefused(r) {
+		t.Errorf("a pin to the non-public address: %#v, want refused", r)
+	}
+	r, ok := get(egress.OriginCheck("lo.example.com", "https", addr("127.0.0.1"))).(egress.Refused)
+	if !ok || !strings.Contains(r.Reason, "non-public address (loopback)") {
+		t.Errorf("origin check: %#v, want a non-public refusal", r)
+	}
+	if n := f.hits.Load(); n != 0 {
+		t.Fatalf("%d requests reached a non-public address", n)
+	}
+	if resp, ok := get(egress.Root("inblock.example.com", "http", f.port)).(egress.Response); !ok || string(resp.Body) != "ok" {
+		t.Errorf("an address inside an in-scope netblock: %#v, want it dialled", resp)
 	}
 }
 

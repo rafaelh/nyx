@@ -17,6 +17,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
@@ -89,6 +90,9 @@ type Options struct {
 	// requests.
 	SourceBaseURLs map[string]string
 	DialMap        map[string]string // "ip:port" -> "host:port" actually dialled
+	// PublicRanges are non-public ranges a test treats as public, so that its in-scope names
+	// can resolve to the documentation ranges (see Egress.public). Left empty outside tests.
+	PublicRanges []netip.Prefix
 	// SourceRates overrides default pacing for declared source patterns.
 	SourceRates map[string]float64
 	// LocalResolverAddr redirects machine DNS to a test host:port.
@@ -177,6 +181,26 @@ func New(o Options) *Egress {
 func (e *Egress) SetPolicy(p *Policy) { e.pol.Store(p) }
 
 func (e *Egress) policy() *Policy { return e.pol.Load() }
+
+// public reports whether addrkind classifies a as public, or Options.PublicRanges holds it.
+func (e *Egress) public(a netip.Addr) bool {
+	a = a.Unmap()
+	if addrkind.Of(a) == addrkind.Public {
+		return true
+	}
+	return slices.ContainsFunc(e.opts.PublicRanges, func(p netip.Prefix) bool { return p.Contains(a) })
+}
+
+// nonPublic is why a DNS or origin-check address is not dialled, or "" when it may be: a target
+// can publish any address under its own names, so one that is not public (loopback, link-local,
+// private) would aim recon at the operator's own machine, cloud metadata service or network. An
+// address inside a netblock given as in scope is dialled whatever its kind.
+func (p *Policy) nonPublic(a netip.Addr, public func(netip.Addr) bool) string {
+	if public(a) || p.Scope.InScopeIP(a) {
+		return ""
+	}
+	return fmt.Sprintf("%s is a non-public address (%s)", a, addrkind.Of(a))
+}
 
 func (e *Egress) hostLimiter(a netip.Addr) *rate.Limiter {
 	return limiterFor(&e.mu, e.hostLim, a, e.opts.RatePerHost)

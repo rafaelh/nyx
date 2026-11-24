@@ -12,31 +12,6 @@
 
   - ThreatFox, a project between abuse.ch and SpamHaus, provides threat reports for ASNs. See ThreatFox. To search for an ASN, enter the ASN number in the URL: https://threatfox.abuse.ch/asn/[ASN #].
 
-# Security fixes
-
-- **Recon dials non-public addresses from public DNS (blind SSRF, medium).** A target can make
-  recon send GET/HEAD requests to the operator's own machine, cloud metadata service or internal
-  network. The target publishes an in-scope name such as `lo.target.com` with an address such as
-  127.0.0.1, 169.254.169.254 or 10.x. It can then redirect from one of its own pages to that name,
-  choosing the port (80, 443 or any configured port), path and query.
-  - Cause: the resolve procedure (`internal/recon/procedures/dns/resolve.go`) records every A/AAAA answer, and the
-    inventory passes them all into `Policy.Resolutions`. `Policy.vetted`
-    (`internal/egress/http.go`), called from `dialAddrs`, drops only addresses the user excluded.
-    `dialFirst` tries addresses in order, so a name that answers with `[attacker IP, 127.0.0.1]`
-    also reaches loopback once the attacker's address refuses connections. TCP port checks are
-    safe, because `PortEligible` refuses an address with no known owner. HTTP doesn't use that
-    check.
-  - Fix: mirror the `nyx ip --active` rule (`notContacted` in `internal/lookup/iplookup/active.go`). In
-    `vetted`, or in `dialAddrs` for hostname targets, refuse any address `addrkind` doesn't classify
-    as public, with "non-public address from public DNS". Keep allowing addresses inside a netblock
-    or literal the user gave as in scope. Apply the same rule to `origincheck` pins and `RootAt`,
-    and update `docs/passive-boundary.md`.
-  - Test: an `internal/cli` recon test where an in-scope name resolves to 127.0.0.1 and
-    169.254.169.254 (through `DialMap`), asserting that no request reaches the canary.
-  - Workaround until fixed: exclude the ranges with `-x`, for example `-x 127.0.0.0/8 -x
-    169.254.0.0/16 -x 10.0.0.0/8 -x 172.16.0.0/12 -x 192.168.0.0/16 -x ::1/128 -x fe80::/10 -x
-    fc00::/7`.
-
 # CI improvements/fixes
 
 - **Two tests fail every time on macOS** (seen on cd8a75e and later, 2026-11-23):

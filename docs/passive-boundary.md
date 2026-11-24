@@ -22,6 +22,14 @@ nyx limits what target-owned systems can receive. It sends only:
   serves for the hostname; it is never an address nyx would not already handshake. One GET goes over
   HTTPS on 443 and, only if nothing answers there, one over HTTP on 80; a redirect is not followed.
 
+A hostname is contacted only at its public addresses. A target can point one of its names at any
+address, and can redirect an in-scope page to that name, so an address the public resolvers gave
+that is not public (loopback such as 127.0.0.1, link-local such as a cloud metadata service at
+169.254.169.254, or a private range such as 10.0.0.0/8) is never dialled for a hostname, a redirect
+or an `origincheck` request: otherwise a hostile target could aim requests at your own machine, your
+cloud's metadata service or your internal network. An address inside a netblock that is in scope
+(given with `--cidr`, or one of an `--asn`'s netblocks) is contacted whatever its kind.
+
 It never sends credentials, submits forms, uses other HTTP methods, puts payloads in parameters or
 headers, or requests paths beyond those listed. UDP is not used. Candidate hosts (found but not in
 scope) and excluded hosts are never contacted, except that a candidate that is the host of one of

@@ -25,6 +25,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/recon/output"
 	"github.com/rafaelh/nyx/internal/recon/report"
 	"github.com/rafaelh/nyx/internal/recon/run"
@@ -122,6 +123,7 @@ func newHarness(t *testing.T, procedures ...run.Procedure) *harness {
 		ConnectTimeout: 300 * time.Millisecond,
 		BannerWait:     50 * time.Millisecond,
 		HTTPTimeout:    time.Second,
+		PublicRanges:   egresstest.DocumentationRanges,
 	}
 	return h
 }
