@@ -1,9 +1,6 @@
 package run
 
-// The names of the analyses: the producers of the records nyx makes itself rather than a
-// procedure observes. Each analysis writes a kind of its own (apart from third_party, which a
-// procedure may also observe), so a record has at most one analysis. Export names the analysis
-// of a record under its analysis key.
+// The names of the analyses (see the package doc).
 const (
 	AnalysisFindings        = "findings"
 	AnalysisCandidateRank   = "candidate-rank"
@@ -11,8 +8,12 @@ const (
 	AnalysisGuard           = "guard"
 )
 
-// AnalysisNames lists every analysis name: the three calculations in run order, then the guard,
-// which records the addresses egress refused to dial as the run goes.
+// AnalysisNames lists every analysis name: the calculations in run order, then the guard, which
+// records the addresses egress refused to dial as the run goes.
 func AnalysisNames() []string {
-	return []string{AnalysisFindings, AnalysisCandidateRank, AnalysisThirdPartyCNAME, AnalysisGuard}
+	var names []string
+	for _, a := range (&Runner{}).newAnalyses() {
+		names = append(names, a.name)
+	}
+	return append(names, AnalysisGuard)
 }

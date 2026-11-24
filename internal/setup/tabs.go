@@ -176,8 +176,8 @@ func (m *model) settingItems() []item {
 	return out
 }
 
-// skipItems marks running procedures [x], dims skipped procedures and follows them with invalid skip
-// entries.
+// skipItems marks running procedures [x], dims skipped procedures and follows them with invalid
+// skip entries.
 func (m *model) skipItems() []item {
 	var out []item
 	nameCol := 0

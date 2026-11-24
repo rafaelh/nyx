@@ -22,24 +22,12 @@ func TestAnalysisNames_Values(t *testing.T) {
 	}
 }
 
-// AnalysisNames lists each analysis once: the names the runner's analyses store under, and the
-// guard.
-func TestAnalysisNames_AreTheAnalysesAndTheGuard(t *testing.T) {
+// AnalysisNames lists each analysis once.
+func TestAnalysisNames_NoDuplicate(t *testing.T) {
 	t.Parallel()
 	names := AnalysisNames()
-	sorted := slices.Sorted(slices.Values(names))
-	if len(slices.Compact(slices.Clone(sorted))) != len(sorted) {
+	if sorted := slices.Sorted(slices.Values(names)); len(slices.Compact(sorted)) != len(names) {
 		t.Errorf("AnalysisNames() = %q has a duplicate", names)
-	}
-
-	r := &Runner{}
-	want := []string{AnalysisGuard}
-	for _, a := range r.newAnalyses() {
-		want = append(want, a.name)
-	}
-	slices.Sort(want)
-	if !slices.Equal(slices.Compact(sorted), want) {
-		t.Errorf("AnalysisNames() = %q, want the analyses and the guard %q", names, want)
 	}
 	for _, n := range []string{AnalysisFindings, AnalysisCandidateRank, AnalysisThirdPartyCNAME, AnalysisGuard} {
 		if !slices.Contains(names, n) {

@@ -123,8 +123,8 @@ func helpOff(t *testing.T, args ...string) string {
 	return h.stdout.String()
 }
 
-// The procedures topic follows registry order and marks required procedures; recon help omits the full
-// list.
+// The procedures topic follows registry order and marks required procedures; recon help omits the
+// full list.
 func TestHelp_ProceduresTopic(t *testing.T) {
 	t.Parallel()
 	procedures := defaultProcedureList()

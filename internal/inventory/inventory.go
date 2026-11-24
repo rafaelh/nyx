@@ -19,7 +19,7 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Host is a hostname record and the procedures currently observing it.
+// Host is a hostname record and the producers currently observing it.
 type Host struct {
 	Name      string
 	Producers []string

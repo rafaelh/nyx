@@ -376,7 +376,7 @@ func TestSummaryTerminalOtherLinesWrap(t *testing.T) {
 	if wide := termSummary(palette.None, 80, env); !strings.Contains(wide, "  Stopped by the deadline: 700 jobs completed, 20 cancelled\n") {
 		t.Errorf("deadline line missing:\n%s", wide)
 	}
-	// "jobs" is shorter than the word it replaced, so the line wraps at 60 columns from 70000 jobs.
+	// At 60 columns the line wraps from 70000 jobs.
 	long := env
 	long.Meta.JobsCompleted = 70000
 	if wrapped := termSummary(palette.None, 60, long); !strings.Contains(wrapped, "  Stopped by the deadline: 70000 jobs completed, 20\n  cancelled\n") {

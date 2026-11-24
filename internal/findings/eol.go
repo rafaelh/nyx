@@ -14,7 +14,7 @@ import (
 // security-support dates. Ended support is medium severity; approaching expiry is low.
 // Distribution builds and third-party-only versions are downgraded one level. Unmatched release
 // cycles produce no finding.
-func (d *analysis) eolSoftware() []Finding {
+func (d *calc) eolSoftware() []Finding {
 	// With a window of 0 the horizon is today, which the eol case already takes.
 	horizon, ok := d.horizon(d.in.Settings.EOLWarnDays)
 	if !ok {
@@ -28,7 +28,7 @@ func (d *analysis) eolSoftware() []Finding {
 
 // eolAssessor collects the end-of-life findings of one derivation.
 type eolAssessor struct {
-	d       *analysis
+	d       *calc
 	horizon string // the last end date that is eol-approaching
 	out     []Finding
 }

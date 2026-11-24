@@ -16,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/thirdparty"
 )
 
-// deriveInput provides the scope, inventory, visibility, inputs, date and record readers used
+// analysisInput provides the scope, inventory, visibility, inputs, date and record readers used
 // to calculate derived records.
 type analysisInput struct {
 	Scope     *scope.Scope
@@ -28,10 +28,10 @@ type analysisInput struct {
 	Observers func(kinds.Named) map[string][]store.Observer
 }
 
-// analysis calculates records and stores them under one synthetic procedure and job. Records it
-// stops producing become non-current. It runs after procedure work and before rendering when its
-// input versions or the date change. Each analysis writes one kind; other analyses do not read
-// that output.
+// analysis calculates records and stores them under its own name, with Store.Put and no job.
+// Records it stops producing become non-current. It runs after procedure work and before rendering
+// when its input versions or the date change. Each analysis writes one kind; other analyses do not
+// read that output.
 //
 // The optional hook runs after storage, with stored=false if the records were unchanged. Read
 // failures skip the hook and leave the derivation due for retry.

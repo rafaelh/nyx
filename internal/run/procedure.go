@@ -25,8 +25,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Contact identifies whether a procedure contacts third parties or targets. Procedures combining both
-// kinds of contact are split so egress can grant target clients only where needed.
+// Contact identifies whether a procedure contacts third parties or targets. Procedures combining
+// both kinds of contact are split so egress can grant target clients only where needed.
 type Contact int
 
 const (
@@ -50,8 +50,8 @@ type Job struct {
 // they are in scope, candidates or excluded.
 type Observation = store.Obs
 
-// ErrAbortProcedure marks an error that fails the current job and abandons the procedure's remaining
-// jobs for this run.
+// ErrAbortProcedure marks an error that fails the current job and abandons the procedure's
+// remaining jobs for this run.
 var ErrAbortProcedure = errors.New("abort procedure")
 
 // ErrQuota signals that a source's quota is exhausted. It wraps ErrAbortProcedure, so pending

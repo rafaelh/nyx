@@ -41,7 +41,7 @@ func (s evidenceSet) add(target, typ, detail string, attrs map[string]any) {
 
 // takeovers derives the takeover candidates: DNS evidence needs no query
 // of its own, so it is derived under --passive too.
-func (d *analysis) takeovers() []Finding {
+func (d *calc) takeovers() []Finding {
 	ev := evidenceSet{}
 	d.dnsTakeovers(ev)
 	d.httpTakeovers(ev)
@@ -56,7 +56,7 @@ func (d *analysis) takeovers() []Finding {
 
 // dnsTakeovers: a provider host that does not resolve (NXDOMAIN), matching a
 // cname entry marked claimable.
-func (d *analysis) dnsTakeovers(ev evidenceSet) {
+func (d *calc) dnsTakeovers(ev evidenceSet) {
 	nx := map[string]bool{}
 	for _, r := range d.current(kinds.Unresolved) {
 		if kinds.Unresolved.Attrs(r).RCode == "NXDOMAIN" {
@@ -74,7 +74,7 @@ func (d *analysis) dnsTakeovers(ev evidenceSet) {
 }
 
 // httpTakeovers: a provider-hosted service answering with its unclaimed-resource page.
-func (d *analysis) httpTakeovers(ev evidenceSet) {
+func (d *calc) httpTakeovers(ev evidenceSet) {
 	svcs := d.services()
 	for _, r := range d.current(kinds.TakeoverHTTP) {
 		a := kinds.TakeoverHTTP.Attrs(r)
@@ -90,7 +90,7 @@ func (d *analysis) httpTakeovers(ev evidenceSet) {
 // missingStorage finds absent attributed buckets/accounts. CNAME references produce findings
 // for their hostnames; URL-only references produce a bucket finding, downgraded to low when all
 // are plain links.
-func (d *analysis) missingStorage(ev evidenceSet) {
+func (d *calc) missingStorage(ev evidenceSet) {
 	refs := d.references()
 	missing := d.missingResources()
 	if len(missing) == 0 {
@@ -147,7 +147,7 @@ func refKey(ref cloudstorage.Reference) string {
 
 // missingResources are the storage keys known not to exist: a bucket, a
 // container, or an Azure account (cloudstorage.AccountKey).
-func (d *analysis) missingResources() map[string]bool {
+func (d *calc) missingResources() map[string]bool {
 	out := map[string]bool{}
 	for _, r := range d.current(kinds.Storage) {
 		if e := kinds.Storage.Attrs(r).Exists; e != nil && !*e { // known not to exist, not merely unknown

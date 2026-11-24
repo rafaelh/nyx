@@ -170,8 +170,8 @@ func withDefaults(d Deps) Deps {
 	return d
 }
 
-// defaultProcedures orders sources before DNS and procedures that consume their discoveries. Repeated
-// passes pick up results found late. The port sweep runs last because it can take hours;
+// defaultProcedures orders sources before DNS and procedures that consume their discoveries.
+// Repeated passes pick up results found late. The port sweep runs last because it can take hours;
 // hostname probing runs first, and the next pass probes newly found ports.
 //
 // Email follows DNS. RDAP and shodan-host follow ipowner so ownership can guide lookups;

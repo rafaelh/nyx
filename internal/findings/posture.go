@@ -11,7 +11,7 @@ import (
 // webPosture derives one low-severity finding per service and condition. IP-literal and SaaS
 // services are excluded. Missing HttpOnly remains evidence only; HSTS and Secure findings apply
 // only to HTTPS.
-func (d *analysis) webPosture() []Finding {
+func (d *calc) webPosture() []Finding {
 	var out []Finding
 	for _, r := range d.current(kinds.WebPosture) {
 		if !d.vis.Shown(kinds.WebPosture, r) {

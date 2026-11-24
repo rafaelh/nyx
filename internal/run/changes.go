@@ -17,7 +17,7 @@ import (
 // entry represents an output row and whether it is currently visible.
 type entry struct {
 	label, key, scope, severity string
-	procedures                  []string // sorted procedures contributing visible records
+	producers                   []string // sorted producers of the visible records
 	shown                       bool
 	first, last                 string // earliest first_seen and latest last_seen across contributing records
 }
@@ -63,15 +63,15 @@ func entriesOf(snap output.Snapshot) []entry {
 	}
 	out := make([]entry, 0, len(byKey))
 	for _, e := range byKey {
-		slices.Sort(e.procedures)
-		e.procedures = slices.Compact(e.procedures)
+		slices.Sort(e.producers)
+		e.producers = slices.Compact(e.producers)
 		out = append(out, *e)
 	}
 	slices.SortFunc(out, func(a, b entry) int { return cmp.Or(cmp.Compare(a.label, b.label), cmp.Compare(a.key, b.key)) })
 	return out
 }
 
-// add includes every record in the date range, but only visible records in procedures and severity.
+// add includes every record in the date range, but only visible records in producers and severity.
 func (e *entry) add(r store.Record, shown bool) {
 	if r.FirstSeen != "" && (e.first == "" || r.FirstSeen < e.first) {
 		e.first = r.FirstSeen
@@ -81,7 +81,7 @@ func (e *entry) add(r store.Record, shown bool) {
 		return
 	}
 	e.shown = true
-	e.procedures = append(e.procedures, r.Producers...)
+	e.producers = append(e.producers, r.Producers...)
 	if e.label == kinds.LabelFinding {
 		e.severity = r.Str("severity")
 	}
@@ -92,7 +92,7 @@ func shownRows(entries []entry) []store.ShownRow {
 	var rows []store.ShownRow
 	for _, e := range entries {
 		if e.shown {
-			rows = append(rows, store.ShownRow{Kind: e.label, Key: e.key, Producers: e.procedures, Scope: e.scope, Severity: e.severity})
+			rows = append(rows, store.ShownRow{Kind: e.label, Key: e.key, Producers: e.producers, Scope: e.scope, Severity: e.severity})
 		}
 	}
 	return rows

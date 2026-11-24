@@ -10,7 +10,7 @@
 // candidate ranks, third parties derived from CNAMEs, and the addresses egress refused to dial
 // (the guard). It runs no jobs and stores no completion, only the observations it produces.
 // AnalysisNames lists them; each writes a kind of its own, apart from third_party, which a
-// procedure may also observe.
+// procedure may also observe, so a record has at most one analysis.
 package run
 
 import (
@@ -153,8 +153,8 @@ type observersCache struct {
 	m   map[string][]store.Observer
 }
 
-// procedureStats tracks work and outcomes for one procedure. spent accumulates the cost sent this run;
-// deferred records the cost left pending in the last pass. Completed, succeeded, cancelled and
+// procedureStats tracks work and outcomes for one procedure. spent accumulates the cost sent this
+// run; deferred records the cost left pending in the last pass. Completed, succeeded, cancelled and
 // rejected counters feed Result.
 type procedureStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
 
@@ -274,7 +274,8 @@ func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	return r.result(), err
 }
 
-// passes repeats the procedure registry until no procedure does work, rendering output after each pass.
+// passes repeats the procedure registry until no procedure does work, rendering output after each
+// pass.
 func (r *Runner) passes(ctx context.Context) error {
 	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {

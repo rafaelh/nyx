@@ -176,7 +176,8 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 // cleaned attribute copies do not accumulate.
 func exportSnapshot(db *store.ReadOnly, procedures []run.Procedure, o *exportOptions, red *config.Redactor) ([]byte, error) {
 	var out, exclusions bytes.Buffer
-	x := &exporter{o: o, procedures: procedures, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
+	x := &exporter{o: o, procedures: procedures, names: procedureNames(procedures), analyses: run.AnalysisNames(),
+		red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
 	err := db.View(func(r store.Reader) error {
 		out.Reset() // View may call again, for a run that started while it read
 		exclusions.Reset()
@@ -197,6 +198,8 @@ func exportSnapshot(db *store.ReadOnly, procedures []run.Procedure, o *exportOpt
 type exporter struct {
 	o          *exportOptions
 	procedures []run.Procedure // the registry, in order
+	names      []string        // the registry's names, in order
+	analyses   []string        // run.AnalysisNames
 	red        *config.Redactor
 	enc, excl  *json.Encoder
 }
@@ -237,7 +240,7 @@ func (x *exporter) records(r store.Reader, rows []store.Input) error {
 	if len(wanted) == 0 {
 		return nil // only inputs and exclusions: no scope to build
 	}
-	src := &snapshotSource{r: r, order: procedureNames(x.procedures), all: map[string][]store.Record{}}
+	src := &snapshotSource{r: r, order: x.names, all: map[string][]store.Record{}}
 	built, err := run.BuildScope(engagement.ParseInputs(rows), x.procedures, src)
 	if err != nil {
 		return err
@@ -282,18 +285,15 @@ func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility
 }
 
 // splitProducers divides a record's producers into the registry's procedures and the analysis
-// that produces it. A record has at most one analysis, since each analysis writes a kind of its own
-// (a third_party record also has procedures). A producer that is neither, such as a procedure
-// since removed from the registry, is dropped.
+// that produces it (a record has at most one: see the internal/run package doc). A producer that
+// is neither, such as a procedure since removed from the registry, is dropped.
 func (x *exporter) splitProducers(producers []string) (procedures []string, analysis string) {
 	procedures = []string{}
-	registry := procedureNames(x.procedures)
-	analyses := run.AnalysisNames()
 	for _, p := range producers {
 		switch {
-		case slices.Contains(registry, p):
+		case slices.Contains(x.names, p):
 			procedures = append(procedures, p)
-		case slices.Contains(analyses, p):
+		case slices.Contains(x.analyses, p):
 			analysis = p
 		}
 	}

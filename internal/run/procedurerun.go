@@ -12,8 +12,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// procedureRun manages one procedure pass. The calling goroutine enumerates jobs and sends them to a
-// worker pool. Fields below the worker counters belong to the producer; runProcedure reads them
+// procedureRun manages one procedure pass. The calling goroutine enumerates jobs and sends them to
+// a worker pool. Fields below the worker counters belong to the producer; runProcedure reads them
 // after workers finish.
 type procedureRun struct {
 	r    *Runner
@@ -95,8 +95,8 @@ func (sr *procedureRun) execute() {
 	wg.Wait()
 }
 
-// abortFail counts a failure caused by a procedure abort. runProcedure emits one warning for the abort
-// rather than one per job.
+// abortFail counts a failure caused by a procedure abort. runProcedure emits one warning for the
+// abort rather than one per job.
 func (sr *procedureRun) abortFail(key string, cause error) {
 	sr.r.recordFailure(sr.name, key, errors.Is(cause, ErrKeyRejected))
 	sr.aborted.Add(1)

@@ -64,8 +64,8 @@ func TestAbusiveDocs_GiveTheSnapshotDates(t *testing.T) {
 	}
 }
 
-// nyx help findings lists both types, nyx help procedures the netblockowner procedure, and nyx ip --help
-// both keys among the --fields names.
+// nyx help findings lists both types, nyx help procedures the netblockowner procedure, and nyx ip
+// --help both keys among the --fields names.
 func TestAbusiveDocs_Help(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, cli.DefaultDeps().Procedures...)

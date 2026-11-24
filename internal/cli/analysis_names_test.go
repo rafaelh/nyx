@@ -18,11 +18,6 @@ import (
 func TestAnalysisNames_NoneIsAProcedure(t *testing.T) {
 	t.Parallel()
 	names := run.AnalysisNames()
-	for _, n := range []string{run.AnalysisFindings, run.AnalysisCandidateRank, run.AnalysisThirdPartyCNAME, run.AnalysisGuard} {
-		if !slices.Contains(names, n) {
-			t.Errorf("AnalysisNames() = %q lacks %q", names, n)
-		}
-	}
 	procedures := cli.DefaultDeps().Procedures
 	if len(procedures) == 0 {
 		t.Fatal("the registry is empty")

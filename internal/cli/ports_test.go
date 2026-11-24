@@ -166,7 +166,8 @@ func (p *pworld) sweep(ports []int, args ...string) {
 	p.mustRun(p.sweepArgs(ports, args)...)
 }
 
-// sweepPartial is sweep for a run in which n jobs of one procedure are meant to fail (see partialRun).
+// sweepPartial is sweep for a run in which n jobs of one procedure are meant to fail (see
+// partialRun).
 func (p *pworld) sweepPartial(procedure string, n int, ports []int, args ...string) failure {
 	p.t.Helper()
 	return p.partialRun(procedure, n, p.sweepArgs(ports, args)...)
@@ -215,7 +216,8 @@ const hello = "HELLO\r\n"
 
 // --- registration ---
 
-// The procedure runs after crawl (and after the Target procedures that follow it), so a long sweep does not delay probing of hostnames.
+// The procedure runs after crawl (and after the Target procedures that follow it), so a long sweep
+// does not delay probing of hostnames.
 func TestPorts_RegisteredAfterCrawl(t *testing.T) {
 	t.Parallel()
 	var names []string

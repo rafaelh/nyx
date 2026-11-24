@@ -179,8 +179,8 @@ func TestEnvelope_WarningsAreInMetaMaskedAndStripped(t *testing.T) {
 	}
 }
 
-// not_configured names each procedure that did not run, and why, in registry order; it is empty when all
-// ran.
+// not_configured names each procedure that did not run, and why, in registry order; it is empty
+// when all ran.
 func TestEnvelope_NotConfigured(t *testing.T) {
 	t.Parallel()
 	procedure := func(name string, kind run.Contact) *testkit.Procedure {
@@ -230,8 +230,8 @@ func TestEnvelope_DirectoryIsAbsolute(t *testing.T) {
 	}
 }
 
-// The summary lists the first 20 high-confidence candidates and their total, and a candidate's sources
-// are a list.
+// The summary lists the first 20 high-confidence candidates and their total, and a candidate's
+// sources are a list.
 func TestEnvelope_CandidatesAreCappedAndSourcesAreAList(t *testing.T) {
 	t.Parallel()
 	// Each root is found through three families, so it is a high-confidence candidate.

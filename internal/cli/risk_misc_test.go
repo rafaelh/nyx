@@ -404,8 +404,8 @@ func TestFindingsDerivedAfterEachProcedure(t *testing.T) {
 	}
 }
 
-// Interrupted findings remain current in files while the synthetic findings procedure stays out of
-// progress output.
+// Interrupted findings remain current in files while the findings analysis stays out of progress
+// output.
 func TestRiskPlumbing_FindingsPseudoProcedureHidden(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())

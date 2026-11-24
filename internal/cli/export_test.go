@@ -342,6 +342,19 @@ func checkExportNothingElse(t *testing.T, stdout string, lines []exLine) {
 	}
 }
 
+// missingInOrder returns the first of fields that raw lacks after the fields before it, or "" when
+// raw has them all in order.
+func missingInOrder(raw string, fields []string) string {
+	for _, f := range fields {
+		i := strings.Index(raw, f)
+		if i < 0 {
+			return f
+		}
+		raw = raw[i+1:]
+	}
+	return ""
+}
+
 // A line names its fields in the order the docs give them.
 func TestExport_FieldOrder(t *testing.T) {
 	t.Parallel()
@@ -352,12 +365,9 @@ func TestExport_FieldOrder(t *testing.T) {
 	}
 	for raw := range strings.SplitSeq(strings.TrimSpace(e.stdout), "\n") {
 		if strings.HasPrefix(raw, `{"kind":"hostname","key":`) {
-			for _, f := range []string{`,"attrs":`, `,"current":`, `,"first_seen":`, `,"last_seen":`, `,"procedures":`, `,"scope":`} {
-				i := strings.Index(raw, f)
-				if i < 0 {
-					t.Fatalf("%q lacks %s", raw, f)
-				}
-				raw = raw[i+1:]
+			fields := []string{`,"attrs":`, `,"current":`, `,"first_seen":`, `,"last_seen":`, `,"procedures":`, `,"scope":`}
+			if f := missingInOrder(raw, fields); f != "" {
+				t.Fatalf("%q lacks %s after the fields before it", raw, f)
 			}
 			continue
 		}
@@ -836,15 +846,7 @@ func newProducersWorld(t *testing.T) *producersWorld {
 			}
 			return out, nil
 		}}
-	dialler := &testkit.Procedure{ProcedureName: "dialler", Kind: run.Target,
-		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: producersRefused + ":22"}} },
-		RunFn: func(ctx context.Context, _ run.Job, e egress.Clients) ([]run.Observation, error) {
-			if e.TCP == nil {
-				return nil, errors.New("no TCP client")
-			}
-			_, err := e.TCP.Connect(ctx, netip.MustParseAddr(producersRefused), 22)
-			return nil, err
-		}}
+	dialler := diallerProcedure(producersRefused, nil)
 	w.gone = finder("gone", obs("hostname", "gone.a.com"))
 	h := newHarness(t, newASN(), seed, dialler, w.gone)
 	prefix := "198.51.100.0/24"
@@ -974,6 +976,28 @@ func procedureNameSet(procedures []run.Procedure) map[string]bool {
 	return out
 }
 
+// diallerProcedure is a target procedure, dialler, whose one job dials port 22 of addr. Excluding
+// addr makes egress refuse the dial, so the guard records the address; refused, if not nil, says
+// whether it did.
+func diallerProcedure(addr string, refused *atomic.Bool) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: "dialler", Kind: run.Target,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: addr + ":22"}} },
+		RunFn: func(ctx context.Context, _ run.Job, e egress.Clients) ([]run.Observation, error) {
+			if e.TCP == nil {
+				return nil, errors.New("no TCP client")
+			}
+			res, err := e.TCP.Connect(ctx, netip.MustParseAddr(addr), 22)
+			if err != nil {
+				return nil, err
+			}
+			if refused != nil {
+				_, ok := res.(egress.Refused)
+				refused.Store(ok)
+			}
+			return nil, nil
+		}}
+}
+
 // The procedures come before the analysis, and both before scope or shown.
 func TestExport_ProducerFieldOrder(t *testing.T) {
 	t.Parallel()
@@ -995,14 +1019,8 @@ func TestExport_ProducerFieldOrder(t *testing.T) {
 				continue
 			}
 			seen[start] = true
-			rest := raw
-			for _, f := range fields {
-				i := strings.Index(rest, f)
-				if i < 0 {
-					t.Errorf("%q lacks %s after the fields before it", raw, f)
-					break
-				}
-				rest = rest[i+1:]
+			if f := missingInOrder(raw, fields); f != "" {
+				t.Errorf("%q lacks %s after the fields before it", raw, f)
 			}
 			if !strings.Contains(start, "third_party") && !strings.Contains(start, "excluded") && strings.Contains(raw, `"analysis"`) {
 				t.Errorf("%q has an analysis key", raw)

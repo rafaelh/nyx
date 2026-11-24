@@ -292,6 +292,31 @@ func TestRedactedJobKeyMatches(t *testing.T) {
 	}
 }
 
+// A key the redactor knows never reaches the state database: the job key is stored redacted,
+// and a job completed with the unredacted key is found under the redacted one.
+func TestRedactedJobKeyHidesTheSecret(t *testing.T) {
+	t.Parallel()
+	s, _ := open(t, newClock(), config.NewRedactor("123"))
+	s.Complete("st", "AS4123", nil)
+	s.Put("analysis", "AS4123", nil)
+	mustFlush(t, s)
+	done, err := s.Completed("st")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(done) != 1 {
+		t.Fatalf("completed = %v, want one job", done)
+	}
+	for k := range done {
+		if strings.Contains(k, "123") {
+			t.Errorf("the stored job key %q holds the secret", k)
+		}
+	}
+	if got := s.JobKey("AS4123"); strings.Contains(got, "123") {
+		t.Errorf("JobKey = %q holds the secret", got)
+	}
+}
+
 // URI metacharacters in the directory are part of the filename.
 func TestOpenPathWithURIMetacharacters(t *testing.T) {
 	t.Parallel()

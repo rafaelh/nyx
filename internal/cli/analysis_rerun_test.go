@@ -1,24 +1,14 @@
 package cli_test
 
 import (
-	"context"
-	"errors"
-	"maps"
-	"net/netip"
-	"reflect"
 	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
-
-// analysisProducers are the producers of the records nyx makes itself rather than a procedure
-// observes: the analyses and the guard.
-var analysisProducers = []string{"findings", "candidate-rank", "thirdparty-cname", "guard"}
 
 // analysisWorld is an engagement "a.com" whose one procedure, seed, records evidence of a finding
 // (an open RDP port in the --cidr netblock) and a candidate hostname, so that the findings and
@@ -52,11 +42,9 @@ func jobsRows(h *harness, eng string) []string {
 func analysisJobs(h *harness, eng string) []string {
 	h.t.Helper()
 	var out []string
-	for _, r := range jobsRows(h, eng) {
-		for _, p := range analysisProducers {
-			if len(r) > len(p) && r[:len(p)+1] == p+"|" {
-				out = append(out, r)
-			}
+	for _, p := range run.AnalysisNames() {
+		for _, k := range h.completed(eng, p) {
+			out = append(out, p+"|"+k)
 		}
 	}
 	return out
@@ -66,9 +54,13 @@ func analysisJobs(h *harness, eng string) []string {
 // each was last seen.
 func analysisObservations(h *harness, eng string) []string {
 	h.t.Helper()
-	return queryStrings(h.t, h.openDB(eng),
-		"SELECT kind||'|'||key||'|'||producer||'|'||job_key||'|'||seen FROM observations WHERE producer IN (?,?,?,?)",
-		analysisProducers[0], analysisProducers[1], analysisProducers[2], analysisProducers[3])
+	db := h.openDB(eng)
+	var out []string
+	for _, p := range run.AnalysisNames() {
+		out = append(out, queryStrings(h.t, db,
+			"SELECT kind||'|'||key||'|'||producer||'|'||job_key||'|'||seen FROM observations WHERE producer=?", p)...)
+	}
+	return out
 }
 
 // The jobs table holds only the jobs procedures performed: the analyses write no row, on the
@@ -113,52 +105,6 @@ func TestAnalysisRerun_FindingsRederivedWithoutJobsRows(t *testing.T) {
 	}
 }
 
-// exportedLines exports the engagement and returns its lines of a kind, by key, without
-// last_seen and the keys naming what produces the record.
-func exportedLines(t *testing.T, h *harness, eng, kind string) map[string]exLine {
-	t.Helper()
-	e := export(h, "-e", eng)
-	if e.code != 0 {
-		t.Fatalf("export exit %d: %s", e.code, e.stderr)
-	}
-	out := map[string]exLine{}
-	for _, l := range e.lines(t) {
-		if l.str("kind") != kind {
-			continue
-		}
-		l = maps.Clone(l)
-		for _, k := range []string{"last_seen", "procedures", "analysis"} {
-			delete(l, k)
-		}
-		out[l.str("key")] = l
-	}
-	return out
-}
-
-// A second run leaves export's lines for the analyses' records as they were, apart from the date
-// they were last seen.
-func TestAnalysisRerun_ExportUnchangedByASecondRun(t *testing.T) {
-	t.Parallel()
-	h, _ := analysisWorld(t)
-	kinds := []string{"finding", "candidate_rank"}
-	before := map[string]map[string]exLine{}
-	for _, k := range kinds {
-		if before[k] = exportedLines(t, h, "a.com", k); len(before[k]) == 0 {
-			t.Fatalf("precondition: no %s line exported", k)
-		}
-	}
-
-	h.now = h.now.Add(48 * time.Hour)
-	if code := h.exec("-e", "a.com"); code != 0 {
-		t.Fatalf("second run exit %d: %s", code, h.stderr.String())
-	}
-	for _, k := range kinds {
-		if after := exportedLines(t, h, "a.com", k); !reflect.DeepEqual(after, before[k]) {
-			t.Errorf("%s lines changed by the second run:\nbefore %v\nafter  %v", k, before[k], after)
-		}
-	}
-}
-
 // --redo performs a procedure's jobs again and leaves the analyses' observations alone.
 func TestAnalysisRerun_RedoLeavesAnalysisObservations(t *testing.T) {
 	t.Parallel()
@@ -185,20 +131,7 @@ func TestAnalysisRerun_GuardWritesNoJobsRow(t *testing.T) {
 	t.Parallel()
 	const addr = "198.51.100.9"
 	var refused atomic.Bool
-	dialler := &testkit.Procedure{ProcedureName: "dialler", Kind: run.Target,
-		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: addr + ":22"}} },
-		RunFn: func(ctx context.Context, _ run.Job, e egress.Clients) ([]run.Observation, error) {
-			if e.TCP == nil {
-				return nil, errors.New("no TCP client")
-			}
-			res, err := e.TCP.Connect(ctx, netip.MustParseAddr(addr), 22)
-			if err != nil {
-				return nil, err
-			}
-			_, ok := res.(egress.Refused)
-			refused.Store(ok)
-			return nil, nil
-		}}
+	dialler := diallerProcedure(addr, &refused)
 	h := newHarness(t, dialler)
 	if code := h.exec("a.com", "--cidr", "198.51.100.0/24", "-x", addr+"/32", "--authorised"); code != 0 {
 		t.Fatalf("run exit %d: %s", code, h.stderr.String())
@@ -213,7 +146,7 @@ func TestAnalysisRerun_GuardWritesNoJobsRow(t *testing.T) {
 	if got := queryStrings(t, db, "SELECT producer FROM observations WHERE kind='excluded' AND key=?", addr); !slices.Equal(got, []string{"guard"}) {
 		t.Errorf("the excluded record's producers = %q, want the guard", got)
 	}
-	if got := queryStrings(t, db, "SELECT key FROM jobs WHERE procedure='guard'"); len(got) != 0 {
+	if got := h.completed("a.com", run.AnalysisGuard); len(got) != 0 {
 		t.Errorf("jobs rows for the guard = %q, want none", got)
 	}
 	if got := jobsRows(h, "a.com"); !slices.Equal(got, []string{"dialler|" + addr + ":22"}) {

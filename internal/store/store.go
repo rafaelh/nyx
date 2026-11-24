@@ -71,12 +71,13 @@ type ObsRow struct{ Key, JobKey string }
 // Input is a stored scope input or exclusion.
 type Input struct{ Kind, Value, AddedAt string }
 
-// op queues a job completion, or a flush barrier when done is set.
+// op queues a job completion (Complete), an analysis's or the guard's observations (Put), or a
+// flush barrier when done is set.
 type op struct {
-	procedure, job string
-	obs            []Obs
-	noJob          bool // an analysis's or the guard's write: no row in jobs
-	done           chan error
+	producer, job string
+	obs           []Obs
+	noJob         bool // a Put: no row in jobs
+	done          chan error
 }
 
 // Store serialises writes through one goroutine and commits them in batches. Its methods are
@@ -369,13 +370,13 @@ func (s *Store) JobKey(job string) string { return s.red.Redact(job) }
 
 // Complete queues the completion of a job with its observations.
 func (s *Store) Complete(procedure, job string, obs []Obs) {
-	s.send(op{procedure: procedure, job: s.JobKey(job), obs: obs})
+	s.send(op{producer: procedure, job: s.JobKey(job), obs: obs})
 }
 
 // Put queues the observations an analysis or the guard produces under (producer, key), without
 // recording a completed job.
 func (s *Store) Put(producer, key string, obs []Obs) {
-	s.send(op{procedure: producer, job: s.JobKey(key), obs: obs, noJob: true})
+	s.send(op{producer: producer, job: s.JobKey(key), obs: obs, noJob: true})
 }
 
 // Flush waits until everything queued so far is committed and returns the first write error.
@@ -506,7 +507,7 @@ func (s *Store) commitOps(batch []op) []Obs {
 		if o.done != nil {
 			continue
 		}
-		n, err := s.applyComplete(st, o, today, kinds)
+		n, err := s.apply(st, o, today, kinds)
 		if err != nil {
 			s.setErr(err)
 			return nil
@@ -527,8 +528,9 @@ func (s *Store) commitOps(batch []op) []Obs {
 	return news
 }
 
-// applyComplete records the kinds touched by a job completion for version updates.
-func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]bool) ([]Obs, error) {
+// apply writes one op's observations (and its job, unless noJob), recording the kinds touched
+// for version updates.
+func (s *Store) apply(st txStmts, o op, today string, kinds map[string]bool) ([]Obs, error) {
 	// For duplicate observations within a job, the last value wins.
 	type rk struct{ kind, key string }
 	seen := map[rk]Obs{}
@@ -564,14 +566,14 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		} else if _, err := st.touchRecord.Exec(today, k.kind, k.key); err != nil {
 			return nil, err
 		}
-		if _, err := st.upsertObs.Exec(k.kind, k.key, o.procedure, o.job, string(blob), today); err != nil {
+		if _, err := st.upsertObs.Exec(k.kind, k.key, o.producer, o.job, string(blob), today); err != nil {
 			return nil, err
 		}
 		kinds[k.kind] = true
 	}
 	// Remove observations this job no longer produces. Refresh affected records because
 	// other jobs may still support them.
-	rows, err := st.jobObs.Query(o.procedure, o.job)
+	rows, err := st.jobObs.Query(o.producer, o.job)
 	stored, err := scanAll(rows, err, func(r *sql.Rows) (k rk, err error) {
 		err = r.Scan(&k.kind, &k.key)
 		return k, err
@@ -583,7 +585,7 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		if _, ok := seen[k]; ok {
 			continue
 		}
-		if _, err := st.deleteObs.Exec(k.kind, k.key, o.procedure, o.job); err != nil {
+		if _, err := st.deleteObs.Exec(k.kind, k.key, o.producer, o.job); err != nil {
 			return nil, err
 		}
 		if _, err := st.refresh.Exec(k.kind, k.key); err != nil {
@@ -594,7 +596,7 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 	if o.noJob {
 		return news, nil
 	}
-	_, err = st.complete.Exec(o.procedure, o.job, today)
+	_, err = st.complete.Exec(o.producer, o.job, today)
 	return news, err
 }
 
@@ -681,12 +683,12 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 	}
 
 	type ob struct {
-		key, procedure, job string
-		attrs               map[string]any
+		key, producer, job string
+		attrs              map[string]any
 	}
 	obs, err := queryAll(rd.q, func(rows *sql.Rows) (o ob, err error) {
 		var blob string
-		if err = rows.Scan(&o.key, &o.procedure, &o.job, &blob); err == nil {
+		if err = rows.Scan(&o.key, &o.producer, &o.job, &blob); err == nil {
 			_ = json.Unmarshal([]byte(blob), &o.attrs)
 		}
 		return o, err
@@ -695,7 +697,7 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 		return nil, err
 	}
 	slices.SortFunc(obs, func(a, b ob) int {
-		return cmp.Or(cmp.Compare(rank[a.procedure], rank[b.procedure]), cmp.Compare(a.procedure, b.procedure), cmp.Compare(a.job, b.job))
+		return cmp.Or(cmp.Compare(rank[a.producer], rank[b.producer]), cmp.Compare(a.producer, b.producer), cmp.Compare(a.job, b.job))
 	})
 	for _, o := range obs {
 		i, ok := idx[o.key]
@@ -703,8 +705,8 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 			continue
 		}
 		maps.Copy(recs[i].Attrs, o.attrs)
-		if !slices.Contains(recs[i].Producers, o.procedure) {
-			recs[i].Producers = append(recs[i].Producers, o.procedure)
+		if !slices.Contains(recs[i].Producers, o.producer) {
+			recs[i].Producers = append(recs[i].Producers, o.producer)
 		}
 	}
 	for i := range recs {
@@ -926,7 +928,7 @@ const shownSchema = `CREATE TABLE IF NOT EXISTS shown(kind TEXT NOT NULL, key TE
 const shownMeta = "shown_saved"
 
 // ShownRow preserves one previously visible output entry. Kind and Key identify its changes.csv
-// row; procedures, scope and severity retain details that non-current records may lose.
+// row; producers, scope and severity retain details that non-current records may lose.
 type ShownRow struct {
 	Kind, Key       string
 	Producers       []string
@@ -1014,10 +1016,10 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 		return nil, false, err
 	}
 	rows, err = queryAll(s.db, func(q *sql.Rows) (r ShownRow, err error) {
-		var procedures string
-		err = q.Scan(&r.Kind, &r.Key, &procedures, &r.Scope, &r.Severity)
-		if procedures != "" {
-			r.Producers = strings.Split(procedures, ",")
+		var producers string
+		err = q.Scan(&r.Kind, &r.Key, &producers, &r.Scope, &r.Severity)
+		if producers != "" {
+			r.Producers = strings.Split(producers, ",")
 		}
 		return r, err
 	}, "SELECT kind,key,producers,scope,severity FROM shown ORDER BY kind,key")

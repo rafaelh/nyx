@@ -218,8 +218,8 @@ func TestEntriesOf_FollowTheFiles(t *testing.T) {
 	if e := entryOf(es, "finding", "certificates|expired|https://www.a.com"); e != nil && e.severity != "medium" {
 		t.Errorf("finding severity = %q", e.severity)
 	}
-	if e := entryOf(es, "web service", "https://www.a.com"); e != nil && !slices.Equal(e.procedures, []string{"httpprobe"}) {
-		t.Errorf("procedures = %v", e.procedures)
+	if e := entryOf(es, "web service", "https://www.a.com"); e != nil && !slices.Equal(e.producers, []string{"httpprobe"}) {
+		t.Errorf("producers = %v", e.producers)
 	}
 	for _, e := range es {
 		if e.label == "" || e.key == "" {
@@ -272,7 +272,7 @@ func TestEntriesOf_OneEntryPerFileRow(t *testing.T) {
 	for _, e := range es {
 		if e.label == "resolution" && e.key == "www.a.com|A|192.0.2.1" {
 			n++
-			if !slices.Equal(e.procedures, []string{"resolve", "shodan"}) {
+			if !slices.Equal(e.producers, []string{"resolve", "shodan"}) {
 				t.Errorf("resolution entry = %+v", e)
 			}
 		}
@@ -304,7 +304,7 @@ func TestEntriesOf_OpenPortFromBothSources(t *testing.T) {
 			found = append(found, &es[i])
 		}
 	}
-	if len(found) != 1 || !found[0].shown || !slices.Equal(found[0].procedures, []string{"portscan", "shodan"}) {
+	if len(found) != 1 || !found[0].shown || !slices.Equal(found[0].producers, []string{"portscan", "shodan"}) {
 		t.Errorf("open port entries = %+v", found)
 	}
 }

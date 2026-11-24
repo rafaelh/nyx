@@ -1,8 +1,8 @@
 package kinds
 
 // CandidateRank stores the runner's derived confidence in a candidate's completed-job
-// evidence. The synthetic candidate-rank procedure writes it for candidates.csv and the summary. It
-// has no console event or category count.
+// evidence. The candidate-rank analysis writes it for candidates.csv and the summary. It has no
+// console event or category count.
 var CandidateRank = defineJoined(Kind{Name: "candidate_rank"},
 	func(a *CandidateRankAttrs) []*string { return []*string{&a.Type, &a.Value} })
 

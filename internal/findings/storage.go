@@ -13,11 +13,11 @@ import (
 // References collects sorted, unique storage references from in-scope non-wildcard CNAME chains
 // and in-scope pages. A reference establishes bucket/container attribution.
 func References(in Input) []cloudstorage.Reference {
-	return newAnalysis(in).references()
+	return newCalc(in).references()
 }
 
-// references computes References once per analysis.
-func (d *analysis) references() []cloudstorage.Reference {
+// references computes References once per calc.
+func (d *calc) references() []cloudstorage.Reference {
 	if d.refs != nil {
 		return d.refs
 	}
@@ -66,7 +66,7 @@ type StorageAttr struct {
 }
 
 // attribution maps each storage record key, current or not, to its StorageAttr.
-func (d *analysis) attribution() map[string]StorageAttr {
+func (d *calc) attribution() map[string]StorageAttr {
 	attributed, guessed, public := attributedSet(d.references()), d.guessed(), d.publicStates()
 	out := map[string]StorageAttr{}
 	for _, r := range d.in.Records(kinds.Storage) {
@@ -94,7 +94,7 @@ func attributedSet(refs []cloudstorage.Reference) map[string]bool {
 }
 
 // guessed lists, per guessed bucketKey, the inputs that generate it.
-func (d *analysis) guessed() map[string][]string {
+func (d *calc) guessed() map[string][]string {
 	out := map[string][]string{}
 	for input, g := range cloudstorage.InputGuesses(d.in.Roots, d.in.Orgs, d.in.Settings.Storage.MaxNames) {
 		k := bucketKey(g.Provider, g.Name)
@@ -107,7 +107,7 @@ func (d *analysis) guessed() map[string][]string {
 
 // publicStates maps a storage record key to the results of the anonymous HEADs
 // of its known objects (the storage_object records), for cloudstorage.PublicState.
-func (d *analysis) publicStates() map[string][]bool {
+func (d *calc) publicStates() map[string][]bool {
 	if d.public != nil {
 		return d.public
 	}
@@ -135,7 +135,7 @@ func storageType(listable bool, public string, attributed bool) string {
 
 // storage derives the attributed and unattributed storage findings (the
 // takeovers of missing buckets are takeovers()).
-func (d *analysis) storage() []Finding {
+func (d *calc) storage() []Finding {
 	refs := d.references()
 	attributed := attributedSet(refs)
 	public := d.publicStates()
