@@ -89,7 +89,12 @@ func resolve(base, ref string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	t, err := b.Parse(ref)
+	return resolveURL(b, ref)
+}
+
+// resolveURL resolves ref against a parsed base and normalises the result.
+func resolveURL(base *url.URL, ref string) (string, bool) {
+	t, err := base.Parse(ref)
 	if err != nil {
 		return "", false
 	}

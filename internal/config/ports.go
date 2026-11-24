@@ -8,11 +8,7 @@ import (
 	"strings"
 )
 
-// ParsePorts accepts comma-separated ports/ranges and returns sorted unique ports.
-func ParsePorts(s string) ([]int, error) {
-	return parsePortItems(strings.Split(s, ","))
-}
-
+// parsePortItems accepts ports and ranges and returns sorted unique ports.
 func parsePortItems(items []string) ([]int, error) {
 	set := map[int]bool{}
 	for _, it := range items {

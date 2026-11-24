@@ -21,7 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
@@ -213,10 +213,9 @@ func TestTCPExclusions(t *testing.T) {
 			Exclusions:  mustExcl(t, "admin.example.com", "127.0.0.9/32"),
 			Resolutions: map[string][]netip.Addr{"admin.example.com": {addr("127.0.0.5")}, "www.example.com": {addr("127.0.0.5"), addr("127.0.0.6")}},
 		}),
-		Ack:         true,
-		Ports:       []int{8080},
-		Resolutions: map[string][]netip.Addr{"admin.example.com": {addr("127.0.0.5")}, "www.example.com": {addr("127.0.0.5"), addr("127.0.0.6")}},
-		Excluded:    func(v, why string) { reported = append(reported, v+"|"+why) },
+		Ack:      true,
+		Ports:    []int{8080},
+		Excluded: func(v, why string) { reported = append(reported, v+"|"+why) },
 	}
 	eg := egress.New(egress.Options{ConnectTimeout: 100 * time.Millisecond, RatePerHost: 1000})
 	eg.SetPolicy(p)
@@ -267,7 +266,6 @@ func newHTTPFixture(t *testing.T, opts egress.Options, h http.HandlerFunc) *http
 		Ack:            true,
 		Ports:          []int{f.port},
 		SensitivePaths: []string{"/.git/HEAD", "/server-status"},
-		Resolutions:    res,
 	}
 	opts.RatePerHost = cmp.Or(opts.RatePerHost, 1000)
 	opts.HTTPTimeout = cmp.Or(opts.HTTPTimeout, 2*time.Second)
@@ -442,7 +440,6 @@ func TestHTTPExclusionAndSharedInfra(t *testing.T) {
 	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(r.Host)) })
 	res := map[string][]netip.Addr{"www.example.com": {addr("127.0.0.1")}, "admin.example.com": {addr("127.0.0.1")}}
 	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "admin.example.com"), Resolutions: res})
-	f.pol.Resolutions = res
 	f.pol.Excluded = func(v, why string) { reported = append(reported, v) }
 
 	if r, _ := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port)); !isRefused(r) {
@@ -477,7 +474,6 @@ func TestHTTPDialMap(t *testing.T) {
 	f := newHTTPFixture(t, egress.Options{DialMap: dial}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	dial["203.0.113.5:"+strconv.Itoa(f.port)] = "127.0.0.1:" + strconv.Itoa(f.port)
 	res := map[string][]netip.Addr{"www.example.com": {addr("203.0.113.5")}}
-	f.pol.Resolutions = res
 	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res})
 	r, err := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port))
 	if resp, ok := r.(egress.Response); err != nil || !ok || string(resp.Body) != "ok" {

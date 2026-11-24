@@ -1451,22 +1451,22 @@ func checkErrorKeys(t *testing.T, envelope []byte) {
 
 // checkErrorEntries distinguishes invalid/unresolved inputs from failed addresses derived from
 // a CIDR.
-func checkErrorEntries(t *testing.T, errs []ipMetaError) {
+func checkErrorEntries(t *testing.T, errs []metaError) {
 	t.Helper()
-	byCode := map[string]ipMetaError{}
+	byCode := map[string]metaError{}
 	for _, e := range errs {
 		byCode[e.Code] = e
 	}
 	if len(errs) != 3 || len(byCode) != 3 {
 		t.Fatalf("meta.errors %+v", errs)
 	}
-	if e := byCode["INVALID_INPUT"]; !slices.Equal(e.inputs(), []string{"https://example.com/x"}) || e.address() != "" || e.Transient || len(e.Input) != 1 {
+	if e := byCode["INVALID_INPUT"]; !slices.Equal(e.inputs(), []string{"https://example.com/x"}) || e.address() != "" || e.Transient || len(e.inputMap()) != 1 {
 		t.Errorf("invalid input: %+v", e)
 	}
-	if e := byCode["NOT_FOUND"]; !slices.Equal(e.inputs(), []string{"nx.example.com"}) || e.address() != "" || e.Transient || len(e.Input) != 1 {
+	if e := byCode["NOT_FOUND"]; !slices.Equal(e.inputs(), []string{"nx.example.com"}) || e.address() != "" || e.Transient || len(e.inputMap()) != 1 {
 		t.Errorf("not found: %+v", e)
 	}
-	if e := byCode["UPSTREAM_ERROR"]; !slices.Equal(e.inputs(), []string{"8.8.4.4/31"}) || e.address() != "8.8.4.5" || !e.Transient || len(e.Input) != 2 {
+	if e := byCode["UPSTREAM_ERROR"]; !slices.Equal(e.inputs(), []string{"8.8.4.4/31"}) || e.address() != "8.8.4.5" || !e.Transient || len(e.inputMap()) != 2 {
 		t.Errorf("failed address: %+v", e)
 	}
 }

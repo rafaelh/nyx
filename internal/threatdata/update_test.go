@@ -17,6 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 var (
@@ -35,7 +36,7 @@ func gets(paths ...string) []string {
 
 // newerLists is a Spamhaus download dated d2, with the standard entries.
 func newerLists() lists {
-	return lists{dropFile(v4Row, d2, 0, 80), dropFile(v6Row, d2, 0, 20), dropFile(asnRow, d2, 0, 20)}
+	return lists{tdt.GenDropFile(tdt.GenV4Row, d2, 0, 80), tdt.GenDropFile(tdt.GenV6Row, d2, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d2, 0, 20)}
 }
 
 // serveNewer makes both fakes answer lists dated d2, newer than every copy in use.
@@ -47,8 +48,8 @@ func (w *world) serveNewer() {
 // previous writes a readable downloaded copy of both sources, dated d1, with the given mode.
 func (w *world) previous(mode os.FileMode) (fileSnap, fileSnap) {
 	w.t.Helper()
-	writeFile(w.t, w.dir, spamhausFile, bundle(dropFile(v4Row, d1, 0, 80), dropFile(v6Row, d1, 0, 20), dropFile(asnRow, d1, 0, 20)), mode)
-	writeFile(w.t, w.dir, ipapiData, ipapiFile(w.t, snapshot(day(d1), 0, 80, day(d1), 0, 20)), mode)
+	writeFile(w.t, w.dir, spamhausFile, bundle(tdt.GenDropFile(tdt.GenV4Row, d1, 0, 80), tdt.GenDropFile(tdt.GenV6Row, d1, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d1, 0, 20)), mode)
+	writeFile(w.t, w.dir, ipapiData, ipapiFile(w.t, tdt.GenSnapshot(day(d1), 0, 80, day(d1), 0, 20)), mode)
 	return snap(w.t, w.path(spamhausFile)), snap(w.t, w.path(ipapiData))
 }
 
@@ -109,8 +110,8 @@ func TestUpdate_ReportsEachList(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	const newCopyright = "(c) 2027 The Spamhaus Project SLU"
-	v4 := file(append(rows(v4Row, 3, 87), strings.Replace(metaLine(d2, 87), copyright, newCopyright, 1))...) // -0,1,2 +80..89
-	w.serveSpamhaus(lists{v4, dropFile(v6Row, d0, 0, 20), dropFile(asnRow, d0.Add(-time.Hour), 0, 20)})
+	v4 := file(append(tdt.GenRows(tdt.GenV4Row, 3, 87), strings.Replace(tdt.MetaLine(d2, 87), copyright, newCopyright, 1))...) // -0,1,2 +80..89
+	w.serveSpamhaus(lists{v4, tdt.GenDropFile(tdt.GenV6Row, d0, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d0.Add(-time.Hour), 0, 20)})
 	w.serveIpapi(day(d2), 90, 0, 90, day(d2), 18, 2, 18)
 	r := w.update()
 
@@ -161,8 +162,8 @@ func TestUpdate_ReportsEachList(t *testing.T) {
 // cooldown on any response.
 func TestUpdate_AFailureStopsItsSource(t *testing.T) {
 	t.Parallel()
-	malformed := file(append(append(rows(v4Row, 0, 79), `{"cidr":"10.250.0.0/24","sblid"`), metaLine(d2, 80))...)
-	big := bytes.Repeat([]byte(v4Row(1)+"\n"), 10<<20/len(v4Row(1))+100)
+	malformed := file(append(append(tdt.GenRows(tdt.GenV4Row, 0, 79), `{"cidr":"10.250.0.0/24","sblid"`), tdt.MetaLine(d2, 80))...)
+	big := bytes.Repeat([]byte(tdt.GenV4Row(1)+"\n"), 10<<20/len(tdt.GenV4Row(1))+100)
 	for _, c := range []struct {
 		name      string
 		src       string
@@ -537,7 +538,7 @@ func TestUpdate_SourcesRunConcurrently(t *testing.T) {
 	w.serveNewer()
 	gateS, gateI := make(chan struct{}), make(chan struct{})
 	w.spamhaus.set(pathV4, reply{status: 200, body: newerLists().v4, gate: gateS})
-	w.ipapi.set(pathNetworks, reply{status: 200, body: networksPage(day(d2), 80, 0, 80), gate: gateI})
+	w.ipapi.set(pathNetworks, reply{status: 200, body: tdt.NetworksPage(day(d2), 80, 0, 80), gate: gateI})
 	var both atomic.Bool
 	go func() {
 		defer close(gateS)
@@ -567,7 +568,7 @@ func TestUpdate_AlreadyCurrent(t *testing.T) {
 		t.Parallel()
 		w := newWorld(t)
 		// The same dates with other entries, and an older drop_v6.
-		w.serveSpamhaus(lists{dropFile(v4Row, d0, 50, 80), dropFile(v6Row, d0.Add(-time.Second), 50, 20), dropFile(asnRow, d0, 50, 20)})
+		w.serveSpamhaus(lists{tdt.GenDropFile(tdt.GenV4Row, d0, 50, 80), tdt.GenDropFile(tdt.GenV6Row, d0.Add(-time.Second), 50, 20), tdt.GenDropFile(tdt.GenASNRow, d0, 50, 20)})
 		w.serveIpapi(day(d0), 80, 50, 80, day(d0.AddDate(0, 0, -3)), 20, 50, 20)
 		r := w.update()
 		for _, name := range []string{threatdata.Spamhaus, threatdata.Ipapi} {
@@ -591,7 +592,7 @@ func TestUpdate_AlreadyCurrent(t *testing.T) {
 		t.Parallel()
 		w := newWorld(t)
 		sh, ip := w.previous(0o644)
-		w.serveSpamhaus(lists{dropFile(v4Row, d1, 50, 30), dropFile(v6Row, d0, 50, 20), dropFile(asnRow, d1, 50, 20)})
+		w.serveSpamhaus(lists{tdt.GenDropFile(tdt.GenV4Row, d1, 50, 30), tdt.GenDropFile(tdt.GenV6Row, d0, 50, 20), tdt.GenDropFile(tdt.GenASNRow, d1, 50, 20)})
 		w.serveIpapi(day(d1), 80, 50, 80, day(d0), 20, 50, 20)
 		r := w.update()
 		for _, name := range []string{threatdata.Spamhaus, threatdata.Ipapi} {
@@ -612,11 +613,11 @@ func TestUpdate_AlreadyCurrent(t *testing.T) {
 func TestUpdate_OneNewerList(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	prevV4, prevV6, prevASN := dropFile(v4Row, d1, 0, 80), dropFile(v6Row, d1, 0, 20), dropFile(asnRow, d1, 0, 20)
+	prevV4, prevV6, prevASN := tdt.GenDropFile(tdt.GenV4Row, d1, 0, 80), tdt.GenDropFile(tdt.GenV6Row, d1, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d1, 0, 20)
 	writeFile(t, w.dir, spamhausFile, bundle(prevV4, prevV6, prevASN), 0o600)
-	writeFile(t, w.dir, ipapiData, ipapiFile(t, snapshot(day(d1), 0, 80, day(d1), 0, 20)), 0o600)
-	newV4 := dropFile(v4Row, d2, 5, 80)
-	w.serveSpamhaus(lists{newV4, dropFile(v6Row, d1, 300, 20), dropFile(asnRow, d0, 300, 20)})
+	writeFile(t, w.dir, ipapiData, ipapiFile(t, tdt.GenSnapshot(day(d1), 0, 80, day(d1), 0, 20)), 0o600)
+	newV4 := tdt.GenDropFile(tdt.GenV4Row, d2, 5, 80)
+	w.serveSpamhaus(lists{newV4, tdt.GenDropFile(tdt.GenV6Row, d1, 300, 20), tdt.GenDropFile(tdt.GenASNRow, d0, 300, 20)})
 	w.serveIpapi(day(d2), 81, 0, 81, day(d1), 20, 300, 20)
 
 	r := w.update()
@@ -669,13 +670,13 @@ func TestUpdate_ReplacesAnUnreadableCopy(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			good := bundle(dropFile(v4Row, d1, 0, 80), dropFile(v6Row, d1, 0, 20), dropFile(asnRow, d1, 0, 20))
+			good := bundle(tdt.GenDropFile(tdt.GenV4Row, d1, 0, 80), tdt.GenDropFile(tdt.GenV6Row, d1, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d1, 0, 20))
 			writeFile(t, w.dir, spamhausFile, good[:len(good)/2], 0o600)
 			writeFile(t, w.dir, ipapiData, []byte(`{"networks":`), 0o600)
 			if s := w.load(now); len(s.Warnings) != 2 {
 				t.Fatalf("before the update: warnings %+v, want one for each source", s.Warnings)
 			}
-			w.serveSpamhaus(lists{dropFile(v4Row, c.date, 0, 80), dropFile(v6Row, c.date, 0, 20), dropFile(asnRow, c.date, 0, 20)})
+			w.serveSpamhaus(lists{tdt.GenDropFile(tdt.GenV4Row, c.date, 0, 80), tdt.GenDropFile(tdt.GenV6Row, c.date, 0, 20), tdt.GenDropFile(tdt.GenASNRow, c.date, 0, 20)})
 			w.serveIpapi(day(c.date), 80, 0, 80, day(c.date), 20, 0, 20)
 			r := w.update()
 			for _, name := range []string{threatdata.Spamhaus, threatdata.Ipapi} {
@@ -703,39 +704,39 @@ func TestUpdate_Refusals(t *testing.T) {
 	t.Parallel()
 	endOfTomorrow := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // now is 2026-11-01 12:00 UTC
 	v4With := func(extra ...string) []byte {
-		return file(append(append(rows(v4Row, 0, 79), extra...), metaLine(d2, 79+len(extra)))...)
+		return file(append(append(tdt.GenRows(tdt.GenV4Row, 0, 79), extra...), tdt.MetaLine(d2, 79+len(extra)))...)
 	}
 	cases := []refusal{
 		{name: "a malformed row", v4: v4With(`{"cidr":"10.250.0.0/24","sblid"`), at: pathV4},
 		{name: "a row that isn't JSON", v4: v4With(`cidr=10.250.0.0/24`), at: pathV4},
 		{name: "a missing cidr", v4: v4With(`{"sblid":"SBL9","rir":"arin"}`), at: pathV4},
 		{name: "a missing sblid", v4: v4With(`{"cidr":"10.250.0.0/24","rir":"arin"}`), at: pathV4},
-		{name: "a missing asn", asn: file(append(append(rows(asnRow, 0, 19), `{"rir":"arin","domain":"x.example","cc":"US","asname":"X"}`), metaLine(d2, 20))...), at: pathASN},
+		{name: "a missing asn", asn: file(append(append(tdt.GenRows(tdt.GenASNRow, 0, 19), `{"rir":"arin","domain":"x.example","cc":"US","asname":"X"}`), tdt.MetaLine(d2, 20))...), at: pathASN},
 		{name: "a non-canonical CIDR", v4: v4With(`{"cidr":"10.250.0.1/24","sblid":"SBL9","rir":"arin"}`), at: pathV4},
 		{name: "an IPv6 CIDR in drop_v4", v4: v4With(`{"cidr":"2001:db8:ffff::/48","sblid":"SBL9","rir":"arin"}`), at: pathV4},
-		{name: "an IPv4 CIDR in drop_v6", v6: file(append(append(rows(v6Row, 0, 19), `{"cidr":"10.250.0.0/24","sblid":"SBL9","rir":"arin"}`), metaLine(d2, 20))...), at: pathV6},
+		{name: "an IPv4 CIDR in drop_v6", v6: file(append(append(tdt.GenRows(tdt.GenV6Row, 0, 19), `{"cidr":"10.250.0.0/24","sblid":"SBL9","rir":"arin"}`), tdt.MetaLine(d2, 20))...), at: pathV6},
 		{name: "a control character in a row", v4: v4With(`{"cidr":"10.250.0.0/24","sblid":"SBL\u0007","rir":"arin"}`), at: pathV4},
-		{name: "a control character in the metadata", v4: file(append(rows(v4Row, 0, 80), strings.Replace(metaLine(d2, 80), copyright, `(c) \u0007`, 1))...), at: pathV4},
-		{name: "an identical pair twice", v4: v4With(v4Row(5)), at: pathV4},
-		{name: "no metadata line", v4: file(rows(v4Row, 0, 80)...), at: pathV4},
-		{name: "89% of the records it states", v4: file(append(rows(v4Row, 0, 89), metaLine(d2, 100))...), at: pathV4},
-		{name: "zero entries", v4: file(metaLine(d2, 0)), at: pathV4, compared: true},
-		{name: "under half the entries in use", v4: dropFile(v4Row, d2, 0, 39), at: pathV4, compared: true,
+		{name: "a control character in the metadata", v4: file(append(tdt.GenRows(tdt.GenV4Row, 0, 80), strings.Replace(tdt.MetaLine(d2, 80), copyright, `(c) \u0007`, 1))...), at: pathV4},
+		{name: "an identical pair twice", v4: v4With(tdt.GenV4Row(5)), at: pathV4},
+		{name: "no metadata line", v4: file(tdt.GenRows(tdt.GenV4Row, 0, 80)...), at: pathV4},
+		{name: "89% of the records it states", v4: file(append(tdt.GenRows(tdt.GenV4Row, 0, 89), tdt.MetaLine(d2, 100))...), at: pathV4},
+		{name: "zero entries", v4: file(tdt.MetaLine(d2, 0)), at: pathV4, compared: true},
+		{name: "under half the entries in use", v4: tdt.GenDropFile(tdt.GenV4Row, d2, 0, 39), at: pathV4, compared: true,
 			reason: []string{"half", "39", "80", "a newer build of nyx"}},
-		{name: "dated at the end of tomorrow", v4: dropFile(v4Row, endOfTomorrow, 0, 80), at: pathV4},
+		{name: "dated at the end of tomorrow", v4: tdt.GenDropFile(tdt.GenV4Row, endOfTomorrow, 0, 80), at: pathV4},
 		{name: "a networks page that doesn't parse", netPage: []byte(`<html><body><p>Down for maintenance</p></body></html>`), at: pathNetworks},
-		{name: "a networks page with 89% of the entries it states", netPage: networksPage(day(d2), 100, 0, 89), at: pathNetworks},
-		{name: "a networks page under half the entries in use", netPage: networksPage(day(d2), 39, 0, 39), at: pathNetworks, compared: true,
+		{name: "a networks page with 89% of the entries it states", netPage: tdt.NetworksPage(day(d2), 100, 0, 89), at: pathNetworks},
+		{name: "a networks page under half the entries in use", netPage: tdt.NetworksPage(day(d2), 39, 0, 39), at: pathNetworks, compared: true,
 			reason: []string{"half", "39", "80", "a newer build of nyx"}},
-		{name: "an ASNs page with no entries", asnPage: asnsPage(day(d2), 0, 0, 0), at: pathASNs},
-		{name: "a networks page dated after tomorrow", netPage: networksPage("2026-11-03", 80, 0, 80), at: pathNetworks},
+		{name: "an ASNs page with no entries", asnPage: tdt.ASNsPage(day(d2), 0, 0, 0), at: pathASNs},
+		{name: "a networks page dated after tomorrow", netPage: tdt.NetworksPage("2026-11-03", 80, 0, 80), at: pathNetworks},
 
 		{name: "an unknown field", v4: v4With(`{"cidr":"10.250.0.0/24","sblid":"SBL9","rir":"arin","listed":"2026-10-01"}`)},
 		{name: "one CIDR under two SBL IDs", v4: v4With(`{"cidr":"10.0.5.0/24","sblid":"SBL999999","rir":"ripencc"}`)},
-		{name: "90% of the records it states", v4: file(append(rows(v4Row, 0, 90), metaLine(d2, 100))...)},
-		{name: "exactly half the entries in use", v4: dropFile(v4Row, d2, 0, 40)},
-		{name: "dated just before the end of tomorrow", v4: dropFile(v4Row, endOfTomorrow.Add(-time.Second), 0, 80)},
-		{name: "a networks page dated tomorrow", netPage: networksPage("2026-11-02", 80, 0, 80)},
+		{name: "90% of the records it states", v4: file(append(tdt.GenRows(tdt.GenV4Row, 0, 90), tdt.MetaLine(d2, 100))...)},
+		{name: "exactly half the entries in use", v4: tdt.GenDropFile(tdt.GenV4Row, d2, 0, 40)},
+		{name: "dated just before the end of tomorrow", v4: tdt.GenDropFile(tdt.GenV4Row, endOfTomorrow.Add(-time.Second), 0, 80)},
+		{name: "a networks page dated tomorrow", netPage: tdt.NetworksPage("2026-11-02", 80, 0, 80)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -767,8 +768,8 @@ func checkRefusal(t *testing.T, c refusal) {
 	sh, ip := w.previous(0o644)
 	n := newerLists()
 	w.serveSpamhaus(lists{cmpOr(c.v4, n.v4), cmpOr(c.v6, n.v6), cmpOr(c.asn, n.asn)})
-	w.ipapi.set(pathNetworks, ok(cmpOr(c.netPage, networksPage(day(d2), 80, 0, 80))))
-	w.ipapi.set(pathASNs, ok(cmpOr(c.asnPage, asnsPage(day(d2), 20, 0, 20))))
+	w.ipapi.set(pathNetworks, ok(cmpOr(c.netPage, tdt.NetworksPage(day(d2), 80, 0, 80))))
+	w.ipapi.set(pathASNs, ok(cmpOr(c.asnPage, tdt.ASNsPage(day(d2), 20, 0, 20))))
 	r := w.update()
 
 	src, fk, paths, data, before := threatdata.Spamhaus, w.spamhaus, spamhausPaths, spamhausFile, sh
@@ -956,7 +957,7 @@ func TestUpdate_RemovesStaleTemporaryFiles(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
-			writeFile(t, w.dir, ".spamhaus-x.tmp", bundle(dropFile(v4Row, d1, 100, 80), dropFile(v6Row, d1, 100, 20), dropFile(asnRow, d1, 100, 20)), 0o600)
+			writeFile(t, w.dir, ".spamhaus-x.tmp", bundle(tdt.GenDropFile(tdt.GenV4Row, d1, 100, 80), tdt.GenDropFile(tdt.GenV6Row, d1, 100, 20), tdt.GenDropFile(tdt.GenASNRow, d1, 100, 20)), 0o600)
 			c.setup(w)
 			w.update()
 			if _, err := os.Stat(w.path(".spamhaus-x.tmp")); !errors.Is(err, os.ErrNotExist) {
@@ -991,8 +992,8 @@ func TestUpdate_LoadDuringUpdates(t *testing.T) {
 		}
 	})
 	for k := 1; k <= versions; k++ {
-		w.serveSpamhaus(lists{dropFile(v4Row, d0.Add(time.Duration(k)*time.Hour), 0, 80+k),
-			dropFile(v6Row, d0.Add(time.Duration(k)*time.Hour), 0, 20+k), dropFile(asnRow, d0.Add(time.Duration(k)*time.Hour), 0, 20+k)})
+		w.serveSpamhaus(lists{tdt.GenDropFile(tdt.GenV4Row, d0.Add(time.Duration(k)*time.Hour), 0, 80+k),
+			tdt.GenDropFile(tdt.GenV6Row, d0.Add(time.Duration(k)*time.Hour), 0, 20+k), tdt.GenDropFile(tdt.GenASNRow, d0.Add(time.Duration(k)*time.Hour), 0, 20+k)})
 		kd := day(d0.AddDate(0, 0, k))
 		w.serveIpapi(kd, 80+k, 0, 80+k, kd, 20+k, 0, 20+k)
 		w.now = now.Add(time.Duration(k) * 2 * time.Hour)

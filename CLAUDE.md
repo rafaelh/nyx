@@ -63,9 +63,10 @@ make release VERSION=vX.Y.Z     # tag, dist, verify the version stamp, push the 
 Package layout under `internal/`, grouped by who uses a package (Go package names are the last
 path element, so code says `run.Runner`, not `recon/run.Runner`):
 
-- `cli`, `clierr`, `config`, `input`, `egress`, `ipsource`, `fault`, `testkit`: the composition root
-  and packages every group uses. `ipsource` is shared by recon procedures and `nyx ip`.
-- `recon/`: the engine behind `nyx recon` (`run`, `store`, `engagement`, `kinds`, `scope`,
+- `cli`, `clierr`, `config`, `input`, `scope`, `egress`, `ipsource`, `fault`, `testkit`: the
+  composition root and packages every group uses. `ipsource` is shared by recon procedures and
+  `nyx ip`; `scope` by the recon engine and egress's `Policy` (which `nyx ip` builds too).
+- `recon/`: the engine behind `nyx recon` (`run`, `store`, `engagement`, `kinds`,
   `inventory`, `origin`, `output`, `report`), its analyses in `recon/analysis/` (`findings`,
   `candidates`, `thirdparty`) and its procedures in `recon/procedures/`, with their shared helpers
   `httpsrc` and `serveraddr`.
@@ -141,7 +142,8 @@ it performs and records.
   own), `ASNExpander` (its netblocks under an input ASN's job are in scope; the asn procedure), and
   `Budgeted` (a per-run cap on the summed `Job.Cost` of the jobs sent; the runner defers the
   first job that would pass it and all after it, without failing or retiring them, and the
-  summary reports the deferred cost). `Historical` marks a procedure whose addresses come from DNS history: an address that only such procedures
+  summary reports the deferred cost). `Required` marks a procedure others depend on, which
+  `--skip` refuses. `Historical` marks a procedure whose addresses come from DNS history: an address that only such procedures
   observe is left out of the abusive-network check. Code outside a procedure never names a procedure: it asks the
   procedures through these interfaces.
 - Procedures read state only through `run.View`, which offers scope, inventory and cached current

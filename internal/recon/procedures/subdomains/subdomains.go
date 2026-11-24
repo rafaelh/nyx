@@ -19,6 +19,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/analysis/candidates"
@@ -68,10 +69,10 @@ func New() []run.Procedure {
 	return []run.Procedure{
 		&Procedure{name: "crtsh", family: candidates.CertTransparency, sources: []string{"crt.sh"}, fetch: crtsh},
 		&Procedure{name: "wayback", family: candidates.WebArchive, sources: []string{"web.archive.org"}, archive: true, fetch: wayback},
-		&Procedure{name: "commoncrawl", family: candidates.WebArchive, sources: []string{"index.commoncrawl.org"}, archive: true, fetch: commoncrawl},
+		NewCommonCrawl(ccBackoff),
 		&Procedure{name: "virustotal", family: candidates.PassiveDNS, sources: []string{"www.virustotal.com"}, keyed: true, fetch: virustotal},
 		&Procedure{name: "securitytrails", family: candidates.PassiveDNS, sources: []string{"api.securitytrails.com"}, keyed: true, fetch: securitytrails},
-		&Procedure{name: "hackertarget", family: candidates.PassiveDNS, sources: []string{"api.hackertarget.com"}, fetch: hackertarget},
+		&Procedure{name: "hackertarget", family: candidates.PassiveDNS, sources: []string{ipsource.HackerTargetHost}, fetch: hackertarget},
 		&Procedure{name: "urlscan", family: candidates.PassiveDNS, sources: []string{"urlscan.io"}, fetch: urlscan},
 		&Procedure{name: "certspotter", family: candidates.CertTransparency, sources: []string{"api.certspotter.com"}, optionalKey: true,
 			pageCap: func(c config.Settings) int { return c.Certspotter.MaxPages }, fetch: certspotter},
@@ -80,6 +81,16 @@ func New() []run.Procedure {
 		&Procedure{name: "chaos", family: candidates.PassiveDNS, sources: []string{"dns.projectdiscovery.io"}, keyed: true,
 			pageCap: func(c config.Settings) int { return c.Chaos.MaxPages }, fetch: chaos},
 	}
+}
+
+// NewCommonCrawl returns the commoncrawl procedure, which waits backoff before its first retry of
+// an overloaded index response without Retry-After, doubling the wait for each later retry. New
+// uses ccBackoff; tests pass a shorter wait.
+func NewCommonCrawl(backoff time.Duration) *Procedure {
+	return &Procedure{name: "commoncrawl", family: candidates.WebArchive, sources: []string{"index.commoncrawl.org"}, archive: true,
+		fetch: func(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
+			return commoncrawl(ctx, in, c, backoff)
+		}}
 }
 
 func (s *Procedure) Name() string         { return s.name }
@@ -97,29 +108,26 @@ func (s *Procedure) Configured(e run.Env) (bool, string) {
 // Jobs emits in-scope, non-excluded roots. Archive and paged keys include their respective
 // caps so changing one limit reruns only affected sources.
 func (s *Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		set := v.Settings()
-		in := rootInput{maxURLs: set.Archive.MaxURLs}
-		if s.pageCap != nil {
-			in.pages = s.pageCap(set)
-		}
-		if s.optionalKey {
-			_, in.keyed = run.Env{Settings: set}.Key(s.name)
-		}
-		for _, r := range v.InScopeRoots() {
-			key := r
-			switch {
-			case s.archive:
-				key = fmt.Sprintf("%s|urls=%d", r, in.maxURLs)
-			case s.pageCap != nil:
-				key = fmt.Sprintf("%s|pages=%d", r, in.pages)
-			}
-			in.root = r
-			if !yield(run.Job{Key: key, Input: in}, nil) {
-				return
-			}
-		}
+	set := v.Settings()
+	base := rootInput{maxURLs: set.Archive.MaxURLs}
+	if s.pageCap != nil {
+		base.pages = s.pageCap(set)
 	}
+	if s.optionalKey {
+		_, base.keyed = set.Key(s.name)
+	}
+	return run.JobsOf(v.InScopeRoots(), func(r string) run.Job {
+		key := r
+		switch {
+		case s.archive:
+			key = fmt.Sprintf("%s|urls=%d", r, base.maxURLs)
+		case s.pageCap != nil:
+			key = fmt.Sprintf("%s|pages=%d", r, base.pages)
+		}
+		in := base
+		in.root = r
+		return run.Job{Key: key, Input: in}
+	})
 }
 
 // Run fetches the root's subdomains and records those under it.
@@ -265,7 +273,8 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 // --- Common Crawl ---
 
 // Common Crawl gateway failures can indicate a slow working index. Retry 502/503/504 responses
-// up to ccRetries, honouring bounded Retry-After values or using exponential ccBackoff.
+// up to ccRetries, honouring bounded Retry-After values or backing off exponentially from
+// ccBackoff (see NewCommonCrawl).
 const (
 	ccRetries = 3
 	ccBackoff = time.Second
@@ -285,10 +294,10 @@ type collection struct {
 
 type collectionKey struct{}
 
-func latestCollection(ctx context.Context, c egress.Clients) (string, error) {
+func latestCollection(ctx context.Context, c egress.Clients, backoff time.Duration) (string, error) {
 	col := run.PerRun(ctx, collectionKey{}, func() *collection { return &collection{} })
 	col.once.Do(func() {
-		body, err := ccGet(ctx, c, "https://index.commoncrawl.org/collinfo.json")
+		body, err := ccGet(ctx, c, "https://index.commoncrawl.org/collinfo.json", backoff)
 		if err != nil {
 			col.err = err
 			return
@@ -307,9 +316,9 @@ func latestCollection(ctx context.Context, c egress.Clients) (string, error) {
 
 // commoncrawl reads pages until the index rejects an out-of-range page or maxPages is reached.
 // It skips a separate page-count query because that adds another slow request that can fail.
-func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
+func commoncrawl(ctx context.Context, in rootInput, c egress.Clients, backoff time.Duration) (result, error) {
 	root := in.root
-	id, err := latestCollection(ctx, c)
+	id, err := latestCollection(ctx, c, backoff)
 	if err != nil {
 		return result{}, err
 	}
@@ -317,7 +326,7 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 	var names, urls []string
 	for p := range maxPages {
 		q := url.Values{"url": {"*." + root}, "output": {"json"}, "fl": {"url"}, "page": {strconv.Itoa(p)}}
-		body, err := ccGet(ctx, c, endpoint+q.Encode())
+		body, err := ccGet(ctx, c, endpoint+q.Encode(), backoff)
 		if errors.Is(err, errPastLastPage) {
 			break
 		}
@@ -344,10 +353,11 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 }
 
 // ccGet retries overloaded Common Crawl responses. A specific invalid-page 400 marks
-// exhaustion; other responses follow httpsrc.Get error rules.
-func ccGet(ctx context.Context, c egress.Clients, u string) ([]byte, error) {
+// exhaustion; other responses follow httpsrc.Get error rules. backoff is the first wait without
+// Retry-After.
+func ccGet(ctx context.Context, c egress.Clients, u string, backoff time.Duration) ([]byte, error) {
 	req := egress.ThirdPartyRequest{Method: "GET", URL: u}
-	wait := ccBackoff
+	wait := backoff
 	for retry := 0; ; retry++ {
 		resp, err := c.ThirdParty.Do(ctx, req)
 		if err != nil {

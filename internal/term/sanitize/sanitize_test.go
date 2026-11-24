@@ -7,6 +7,13 @@ import (
 	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
+func TestSquash(t *testing.T) {
+	t.Parallel()
+	if got := sanitize.Squash("  a\x1b[31m\r\n\tb   c \u202e "); got != "a b c" {
+		t.Errorf("Squash = %q, want %q", got, "a b c")
+	}
+}
+
 func TestText(t *testing.T) {
 	t.Parallel()
 	in := "ok\x1b[31m red\x1b]0;title\x07 \x00bell\x07 tab\there \u202e bidi"

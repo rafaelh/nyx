@@ -105,10 +105,6 @@ const ClassCDN = "cdn"
 // Shared conservatively, but they are not SharedInfrastructure.
 const ClassHyperscaler = "hyperscaler"
 
-// ClassSharedHosting marks an address of a host that serves many customers' sites from one
-// address.
-const ClassSharedHosting = "shared-hosting"
-
 // ClassWAF identifies fronting firewalls. ASN entries in this class are shared like CDN
 // entries.
 const ClassWAF = "waf"

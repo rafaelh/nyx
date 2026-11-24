@@ -402,18 +402,18 @@ func TestPlan_Addresses_Cap(t *testing.T) {
 
 func TestCapError(t *testing.T) {
 	t.Parallel()
-	e := CapError(300, false)
+	e := Plan{}.capError(300, false)
 	if e.Code != clierr.InvalidInput || !strings.Contains(e.Message, "300") || !strings.Contains(e.Message, "256") || e.Hint == "" {
 		t.Errorf("%+v", e)
 	}
-	r := CapError(257, true)
+	r := Plan{}.capError(257, true)
 	if !strings.Contains(r.Message, "257") || !strings.Contains(r.Message, "resolve") {
 		t.Errorf("resolved: %+v", r)
 	}
 	if strings.EqualFold(e.Message, r.Message) {
 		t.Error("the two causes read alike")
 	}
-	huge := CapError(1<<50, false)
+	huge := Plan{}.capError(1<<50, false)
 	if strings.Contains(huge.Message, fmt.Sprint(1<<50)) || !strings.Contains(huge.Message, "256") {
 		t.Errorf("a huge count is shown whole: %q", huge.Message)
 	}

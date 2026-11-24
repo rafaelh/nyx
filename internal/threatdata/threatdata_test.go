@@ -14,6 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // The update's two hosts, which tests elsewhere check nothing else contacts.
@@ -131,11 +132,11 @@ func TestLoad_Precedence(t *testing.T) {
 	dir := t.TempDir()
 	older := d0.AddDate(0, 0, -1)
 	writeFile(t, dir, spamhausFile, bundle(
-		dropFile(v4Row, d1, 100, 81),    // newer: downloaded
-		dropFile(v6Row, older, 100, 21), // older: built in
-		dropFile(asnRow, d0, 100, 22),   // the same date: downloaded
+		tdt.GenDropFile(tdt.GenV4Row, d1, 100, 81),    // newer: downloaded
+		tdt.GenDropFile(tdt.GenV6Row, older, 100, 21), // older: built in
+		tdt.GenDropFile(tdt.GenASNRow, d0, 100, 22),   // the same date: downloaded
 	), 0o600)
-	writeFile(t, dir, ipapiData, ipapiFile(t, snapshot(day(d1), 100, 83, day(older), 100, 24)), 0o600)
+	writeFile(t, dir, ipapiData, ipapiFile(t, tdt.GenSnapshot(day(d1), 100, 83, day(older), 100, 24)), 0o600)
 
 	s := b.Load(dir, now)
 	want := []threatdata.List{
@@ -182,8 +183,8 @@ func TestLoad_Precedence(t *testing.T) {
 
 	// A list of the same date as the built-in one is the downloaded one.
 	same := t.TempDir()
-	writeFile(t, same, spamhausFile, bundle(dropFile(v4Row, d0, 100, 81), dropFile(v6Row, d0, 100, 21), dropFile(asnRow, d0, 100, 22)), 0o600)
-	writeFile(t, same, ipapiData, ipapiFile(t, snapshot(day(d0), 100, 83, day(d0), 100, 24)), 0o600)
+	writeFile(t, same, spamhausFile, bundle(tdt.GenDropFile(tdt.GenV4Row, d0, 100, 81), tdt.GenDropFile(tdt.GenV6Row, d0, 100, 21), tdt.GenDropFile(tdt.GenASNRow, d0, 100, 22)), 0o600)
+	writeFile(t, same, ipapiData, ipapiFile(t, tdt.GenSnapshot(day(d0), 100, 83, day(d0), 100, 24)), 0o600)
 	s = b.Load(same, now)
 	for name, n := range map[string]int{spamhaus.ListV4: 81, spamhaus.ListV6: 21, spamhaus.ListASN: 22} {
 		if got := inUse(t, s, name); !got.Downloaded || got.Entries != n {
@@ -204,9 +205,9 @@ func TestLoad_Credit(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
 	rawCopyright := "(c) 2027 The Spamhaus Project SLU\u202e"
-	withCredit := file(append(rows(v4Row, 0, 80),
-		strings.Replace(strings.Replace(metaLine(d1, 80), copyright, rawCopyright, 1), terms, "https://www.spamhaus.org/drop/terms/v2", 1))...)
-	noCredit := file(append(rows(v4Row, 0, 80),
+	withCredit := file(append(tdt.GenRows(tdt.GenV4Row, 0, 80),
+		strings.Replace(strings.Replace(tdt.MetaLine(d1, 80), copyright, rawCopyright, 1), terms, "https://www.spamhaus.org/drop/terms/v2", 1))...)
+	noCredit := file(append(tdt.GenRows(tdt.GenV4Row, 0, 80),
 		`{"type":"metadata","timestamp":`+itoa(d1.Unix())+`,"size":1,"records":80}`)...)
 	for _, c := range []struct {
 		name            string
@@ -217,7 +218,7 @@ func TestLoad_Credit(t *testing.T) {
 		{"the built-in copy's when the downloaded drop_v4 has none", noCredit, copyright, terms},
 	} {
 		dir := t.TempDir()
-		writeFile(t, dir, spamhausFile, bundle(c.v4, dropFile(v6Row, d0, 0, 20), dropFile(asnRow, d0, 0, 20)), 0o600)
+		writeFile(t, dir, spamhausFile, bundle(c.v4, tdt.GenDropFile(tdt.GenV6Row, d0, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d0, 0, 20)), 0o600)
 		s := b.Load(dir, now)
 		if !inUse(t, s, spamhaus.ListV4).Downloaded {
 			t.Fatalf("%s: the downloaded drop_v4 is not in use", c.name)
@@ -229,7 +230,7 @@ func TestLoad_Credit(t *testing.T) {
 	// A downloaded drop_v4 that isn't in use gives no credit.
 	dir := t.TempDir()
 	older := bytes.Replace(withCredit, []byte(itoa(d1.Unix())), []byte(itoa(d0.AddDate(0, 0, -1).Unix())), 1)
-	writeFile(t, dir, spamhausFile, bundle(older, dropFile(v6Row, d0, 0, 20), dropFile(asnRow, d0, 0, 20)), 0o600)
+	writeFile(t, dir, spamhausFile, bundle(older, tdt.GenDropFile(tdt.GenV6Row, d0, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d0, 0, 20)), 0o600)
 	if s := b.Load(dir, now); s.Copyright != copyright || s.Terms != terms {
 		t.Errorf("with the built-in drop_v4 in use: credit %q, %q; want the built-in one", s.Copyright, s.Terms)
 	}
@@ -260,9 +261,9 @@ func checkWarning(t *testing.T, name string, s threatdata.Set, source, dir strin
 func TestLoad_UnreadableSpamhausCopy(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
-	v4 := dropFile(v4Row, d1, 100, 80)
-	v6 := dropFile(v6Row, d1, 100, 20)
-	asn := dropFile(asnRow, d1, 100, 20)
+	v4 := tdt.GenDropFile(tdt.GenV4Row, d1, 100, 80)
+	v6 := tdt.GenDropFile(tdt.GenV6Row, d1, 100, 20)
+	asn := tdt.GenDropFile(tdt.GenASNRow, d1, 100, 20)
 	good := bundle(v4, v6, asn)
 	withoutASN, _, found := bytes.Cut(good, []byte(`{"list":"asndrop"}`))
 	if !found {
@@ -272,13 +273,13 @@ func TestLoad_UnreadableSpamhausCopy(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{"a row that doesn't parse", bundle(v4, file(append(append(rows(v6Row, 100, 20), `{"cidr":"2001:db8:ffff::/48","sblid":`), metaLine(d1, 21))...), asn)},
-		{"a row without its CIDR", bundle(file(append(append(rows(v4Row, 100, 79), `{"sblid":"SBL1","rir":"arin"}`), metaLine(d1, 80))...), v6, asn)},
-		{"a control character in a row", bundle(v4, v6, file(append(append(rows(asnRow, 100, 19), `{"asn":1,"rir":"arin","domain":"x.example","cc":"US","asname":"BAD\u0007"}`), metaLine(d1, 20))...))},
-		{"a control character in the metadata", bundle(file(append(rows(v4Row, 100, 80), strings.Replace(metaLine(d1, 80), copyright, `(c) \u0007`, 1))...), v6, asn)},
-		{"an entry listed twice", bundle(file(append(append(rows(v4Row, 100, 80), v4Row(100)), metaLine(d1, 81))...), v6, asn)},
-		{"no final metadata row", bundle(v4, file(rows(v6Row, 100, 20)...), asn)},
-		{"fewer than 90% of the records it states", bundle(v4, v6, file(append(rows(asnRow, 100, 20), metaLine(d1, 23))...))},
+		{"a row that doesn't parse", bundle(v4, file(append(append(tdt.GenRows(tdt.GenV6Row, 100, 20), `{"cidr":"2001:db8:ffff::/48","sblid":`), tdt.MetaLine(d1, 21))...), asn)},
+		{"a row without its CIDR", bundle(file(append(append(tdt.GenRows(tdt.GenV4Row, 100, 79), `{"sblid":"SBL1","rir":"arin"}`), tdt.MetaLine(d1, 80))...), v6, asn)},
+		{"a control character in a row", bundle(v4, v6, file(append(append(tdt.GenRows(tdt.GenASNRow, 100, 19), `{"asn":1,"rir":"arin","domain":"x.example","cc":"US","asname":"BAD\u0007"}`), tdt.MetaLine(d1, 20))...))},
+		{"a control character in the metadata", bundle(file(append(tdt.GenRows(tdt.GenV4Row, 100, 80), strings.Replace(tdt.MetaLine(d1, 80), copyright, `(c) \u0007`, 1))...), v6, asn)},
+		{"an entry listed twice", bundle(file(append(append(tdt.GenRows(tdt.GenV4Row, 100, 80), tdt.GenV4Row(100)), tdt.MetaLine(d1, 81))...), v6, asn)},
+		{"no final metadata row", bundle(v4, file(tdt.GenRows(tdt.GenV6Row, 100, 20)...), asn)},
+		{"fewer than 90% of the records it states", bundle(v4, v6, file(append(tdt.GenRows(tdt.GenASNRow, 100, 20), tdt.MetaLine(d1, 23))...))},
 		{"a list missing from the bundle", withoutASN},
 		{"cut short", good[:len(good)/2]},
 		{"empty", []byte{}},
@@ -305,7 +306,7 @@ func TestLoad_UnreadableSpamhausCopy(t *testing.T) {
 
 	// An unknown field is ignored, and the copy is used.
 	dir := t.TempDir()
-	extra := file(append(append(rows(v4Row, 100, 79), `{"cidr":"10.250.0.0/24","sblid":"SBL9","rir":"arin","added":"2026-10-01"}`), metaLine(d1, 80))...)
+	extra := file(append(append(tdt.GenRows(tdt.GenV4Row, 100, 79), `{"cidr":"10.250.0.0/24","sblid":"SBL9","rir":"arin","added":"2026-10-01"}`), tdt.MetaLine(d1, 80))...)
 	writeFile(t, dir, spamhausFile, bundle(extra, v6, asn), 0o600)
 	s := b.Load(dir, now)
 	if l := inUse(t, s, spamhaus.ListV4); !l.Downloaded || len(s.Warnings) != 0 {
@@ -318,7 +319,7 @@ func TestLoad_UnreadableSpamhausCopy(t *testing.T) {
 func TestLoad_UnreadableIpapiCopy(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
-	good := func() abusive.Snapshot { return snapshot(day(d1), 100, 80, day(d1), 100, 20) }
+	good := func() abusive.Snapshot { return tdt.GenSnapshot(day(d1), 100, 80, day(d1), 100, 20) }
 	edit := func(f func(*abusive.Snapshot)) []byte {
 		s := good()
 		f(&s)
@@ -383,7 +384,7 @@ func TestLoad_IgnoresTemporaryFiles(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
 	dir := t.TempDir()
-	newer := bundle(dropFile(v4Row, d1, 100, 80), dropFile(v6Row, d1, 100, 20), dropFile(asnRow, d1, 100, 20))
+	newer := bundle(tdt.GenDropFile(tdt.GenV4Row, d1, 100, 80), tdt.GenDropFile(tdt.GenV6Row, d1, 100, 20), tdt.GenDropFile(tdt.GenASNRow, d1, 100, 20))
 	writeFile(t, dir, ".spamhaus-x.tmp", newer, 0o600)
 	writeFile(t, dir, ".spamhaus-123.tmp", newer[:len(newer)/2], 0o600)
 	s := b.Load(dir, now)
@@ -400,8 +401,8 @@ func TestLoad_IgnoresTemporaryFiles(t *testing.T) {
 // aged is a built-in copy with the given dates.
 func aged(t *testing.T, v4, v6, asn time.Time, nets, asns string) *threatdata.BuiltIn {
 	t.Helper()
-	return builtIn(t, lists{dropFile(v4Row, v4, 0, 80), dropFile(v6Row, v6, 0, 20), dropFile(asnRow, asn, 0, 20)},
-		snapshot(nets, 0, 80, asns, 0, 20))
+	return builtIn(t, lists{tdt.GenDropFile(tdt.GenV4Row, v4, 0, 80), tdt.GenDropFile(tdt.GenV6Row, v6, 0, 20), tdt.GenDropFile(tdt.GenASNRow, asn, 0, 20)},
+		tdt.GenSnapshot(nets, 0, 80, asns, 0, 20))
 }
 
 // Staleness requires both oldest active data and last successful check to exceed 30 days.
@@ -460,7 +461,7 @@ func TestLoad_Staleness(t *testing.T) {
 			writeState(t, dir, c.lastResponse, c.lastChecked)
 		}
 		if !c.downloadedV6.IsZero() {
-			writeFile(t, dir, spamhausFile, bundle(dropFile(v4Row, c.v4, 0, 80), dropFile(v6Row, c.downloadedV6, 0, 20), dropFile(asnRow, c.asn, 0, 20)), 0o600)
+			writeFile(t, dir, spamhausFile, bundle(tdt.GenDropFile(tdt.GenV4Row, c.v4, 0, 80), tdt.GenDropFile(tdt.GenV6Row, c.downloadedV6, 0, 20), tdt.GenDropFile(tdt.GenASNRow, c.asn, 0, 20)), 0o600)
 		}
 		s := aged(t, c.v4, c.v6, c.asn, c.nets, c.asns).Load(dir, c.at)
 		if !slices.Equal(s.Stale, c.stale) {
@@ -473,11 +474,11 @@ func TestLoad_Staleness(t *testing.T) {
 func TestLoad_StalenessAfterAnUpdate(t *testing.T) {
 	t.Parallel()
 	old := now.AddDate(0, 0, -60)
-	oldList := lists{dropFile(v4Row, old, 0, 80), dropFile(v6Row, old, 0, 20), dropFile(asnRow, old, 0, 20)}
+	oldList := lists{tdt.GenDropFile(tdt.GenV4Row, old, 0, 80), tdt.GenDropFile(tdt.GenV6Row, old, 0, 20), tdt.GenDropFile(tdt.GenASNRow, old, 0, 20)}
 	setup := func(t *testing.T) *world {
 		t.Helper()
 		w := newWorld(t)
-		w.builtIn = builtIn(t, oldList, snapshot(day(old), 0, 80, day(old), 0, 20))
+		w.builtIn = builtIn(t, oldList, tdt.GenSnapshot(day(old), 0, 80, day(old), 0, 20))
 		w.serveSpamhaus(oldList)
 		w.serveIpapi(day(old), 80, 0, 80, day(old), 20, 0, 20)
 		if s := w.load(now); len(s.Stale) != 2 {
@@ -501,7 +502,7 @@ func TestLoad_StalenessAfterAnUpdate(t *testing.T) {
 
 	// Updated: checked now too.
 	w = setup(t)
-	w.serveSpamhaus(lists{dropFile(v4Row, old.AddDate(0, 0, 1), 0, 80), dropFile(v6Row, old, 0, 20), dropFile(asnRow, old, 0, 20)})
+	w.serveSpamhaus(lists{tdt.GenDropFile(tdt.GenV4Row, old.AddDate(0, 0, 1), 0, 80), tdt.GenDropFile(tdt.GenV6Row, old, 0, 20), tdt.GenDropFile(tdt.GenASNRow, old, 0, 20)})
 	if got := source(t, w.update(), threatdata.Spamhaus).Outcome; got != threatdata.Updated {
 		t.Fatalf("the update: Spamhaus %s, want updated", got)
 	}

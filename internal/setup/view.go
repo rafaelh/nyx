@@ -77,7 +77,7 @@ func (m *model) tooSmall() string {
 func (m *model) header() string {
 	count, role := "no unsaved changes", roleHelp
 	if n := m.changes(); n > 0 {
-		count, role = plural(n, "unsaved change", "unsaved changes"), roleCaution
+		count, role = layout.Count(n, "unsaved change", "unsaved changes"), roleCaution
 	}
 	const title, gap = "nyx setup", "  "
 	room := m.width - layout.Measure(title+gap) - layout.Measure(gap+count)

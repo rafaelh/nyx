@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/recon/run"
@@ -85,7 +84,7 @@ func procedureRows(procedures []run.Procedure) []procedureRow {
 		if s.Contact() == run.Target {
 			r.contact = "target"
 		}
-		if slices.Contains(unskippable, r.name) {
+		if isRequired(s) {
 			r.name += "*"
 		}
 		h := procedureHelps[s.Name()]

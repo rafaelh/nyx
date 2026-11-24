@@ -2,7 +2,6 @@ package addrkind
 
 import (
 	"net/netip"
-	"slices"
 	"testing"
 )
 
@@ -261,7 +260,6 @@ func TestOf_BroadcastIsOneAddress(t *testing.T) {
 func TestRegistry_Wellformed(t *testing.T) {
 	t.Parallel()
 	seen := map[netip.Prefix]bool{}
-	names := Names()
 	for _, r := range registry {
 		if r.prefix != r.prefix.Masked() || !r.prefix.IsValid() {
 			t.Errorf("%s is not a masked prefix", r.prefix)
@@ -270,49 +268,23 @@ func TestRegistry_Wellformed(t *testing.T) {
 			t.Errorf("%s is listed twice", r.prefix)
 		}
 		seen[r.prefix] = true
-		if r.kind != Public && !slices.Contains(names, string(r.kind)) {
-			t.Errorf("%s has kind %q, which Names does not list", r.prefix, r.kind)
-		}
 	}
 }
 
-func TestNames(t *testing.T) {
+// Every kind the registry names is one some address has. The one exception is the IPv4-mapped
+// range, whose addresses are unmapped before the lookup.
+func TestRegistry_EachKindIsProduced(t *testing.T) {
 	t.Parallel()
-	names := Names()
-	want := []string{
-		"private", "ula", "loopback", "link-local", "cgnat", "multicast", "unspecified", "this-network",
-		"broadcast", "documentation", "benchmarking", "reserved", "ietf-protocol", "6to4", "teredo",
-		"nat64-local", "discard", "dummy", "srv6", "nat64-discovery", "6a44-relay", "ipv4-mapped",
-	}
-	if !slices.Equal(names, want) {
-		t.Errorf("Names() = %v, want %v", names, want)
-	}
-	if slices.Contains(names, string(Public)) {
-		t.Error("Names lists public")
-	}
-	// A caller's changes do not reach the next call.
-	names[0] = "changed"
-	if Names()[0] != "private" {
-		t.Error("Names shares its slice")
-	}
-}
-
-// Every kind Names lists is one some address has. The one exception is the IPv4-mapped range,
-// whose addresses are unmapped before the lookup.
-func TestNames_EachKindIsProduced(t *testing.T) {
-	t.Parallel()
-	got := map[string]bool{}
+	got := map[Kind]bool{}
 	for _, r := range registry {
-		if r.kind != Public {
-			got[string(Of(r.prefix.Addr()))] = true
-		}
+		got[Of(r.prefix.Addr())] = true
 	}
 	for _, s := range []string{"224.0.0.1", "ff02::1", "255.255.255.255", "0.0.0.0", "0.1.2.3", "240.0.0.1", "1::"} {
-		got[string(Of(addr(s)))] = true
+		got[Of(addr(s))] = true
 	}
-	for _, n := range Names() {
-		if n != "ipv4-mapped" && !got[n] {
-			t.Errorf("no address has kind %q", n)
+	for _, r := range registry {
+		if r.kind != "ipv4-mapped" && !got[r.kind] {
+			t.Errorf("no address has kind %q", r.kind)
 		}
 	}
 }

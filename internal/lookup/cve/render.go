@@ -470,12 +470,10 @@ func (r termRenderer) record(p Projected) string {
 	return strings.Join(lines, "\n")
 }
 
-// squash normalises whitespace so terminal wrapping sees the same words as plain layout.
-func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-// hang wraps plain text under its prefix.
+// hang wraps text under its prefix. The text is already cleaned, so Squash only normalises its
+// whitespace, letting terminal wrapping see the same words as plain layout.
 func (r termRenderer) hang(prefix, text string) []string {
-	return layout.Hang(prefix, layout.Plain(squash(text)), r.s.Cols(), layout.Spaces)
+	return layout.Hang(prefix, layout.Plain(sanitize.Squash(text)), r.s.Cols(), layout.Spaces)
 }
 
 // text is a paragraph indented two spaces.
@@ -484,17 +482,11 @@ func (r termRenderer) text(s string) []string { return r.hang(strings.Repeat(" "
 // fields aligns values after the longest label, indents two spaces and wraps continuation lines
 // beneath each value. Coloured labels are bold and omit colons.
 func (r termRenderer) fields(kvs []kv) []string {
-	longest := 0
-	for _, f := range kvs {
-		longest = max(longest, layout.Measure(f.label))
+	fs := make([]layout.Field, len(kvs))
+	for i, f := range kvs {
+		fs[i] = layout.Field{Label: f.label, Value: sanitize.Squash(f.value)}
 	}
-	col := indent + longest + 2
-	var out []string
-	for _, f := range kvs {
-		head := strings.Repeat(" ", indent) + r.s.Depth.Bold(f.label) + strings.Repeat(" ", col-indent-layout.Measure(f.label))
-		out = append(out, r.hang(head, f.value)...)
-	}
-	return out
+	return layout.Fields(r.s, indent, fs)
 }
 
 // bullets aligns wrapped entries beneath their text, or uses an indented fallback for empty
@@ -518,11 +510,11 @@ func (r termRenderer) references(refs []Reference) []string {
 	info := func(x string) string { return d.Text(palette.Semantic, "info", x) }
 	var out []string
 	for _, ref := range refs {
-		spans := []layout.Span{{Text: squash(sanitize.Line(ref.URL)), Style: info}}
+		spans := []layout.Span{{Text: sanitize.Squash(ref.URL), Style: info}}
 		if len(ref.Tags) > 0 {
 			tags := make([]string, len(ref.Tags))
 			for i, t := range ref.Tags {
-				tags[i] = squash(sanitize.Line(t))
+				tags[i] = sanitize.Squash(t)
 			}
 			spans = append(spans, layout.Span{Text: " "}, layout.Span{Text: "[" + strings.Join(tags, ", ") + "]", Style: muted(d)})
 		}

@@ -74,8 +74,17 @@ func fixtures(t *testing.T) *pages {
 	return &pages{networks: page(t, "networks.html"), asns: page(t, "asns.html")}
 }
 
+// parse reads both pages, as the refresh tool does.
 func (p *pages) parse(now time.Time) (abusive.Snapshot, error) {
-	return abusive.ParsePages([]byte(p.networks), []byte(p.asns), now)
+	nets, err := abusive.ParseNetworksPage([]byte(p.networks), now)
+	if err != nil {
+		return abusive.Snapshot{}, fmt.Errorf("networks page: %w", err)
+	}
+	asns, err := abusive.ParseASNsPage([]byte(p.asns), now)
+	if err != nil {
+		return abusive.Snapshot{}, fmt.Errorf("ASNs page: %w", err)
+	}
+	return abusive.Snapshot{Nets: nets, ASNs: asns}, nil
 }
 
 // ParsePages turns the two pages into a snapshot: every row, sorted, both dates and stated counts,

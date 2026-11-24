@@ -14,11 +14,19 @@ func helpProcedures() []run.Procedure {
 	st := func(name string, kind run.Contact) run.Procedure {
 		return &testkit.Procedure{ProcedureName: name, Kind: kind}
 	}
+	req := func(name string) run.Procedure {
+		return requiredProcedure{&testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty}}
+	}
 	return []run.Procedure{
-		st("crtsh", run.ThirdParty), st("shodan", run.ThirdParty), st("providerranges", run.ThirdParty),
-		st("resolve", run.ThirdParty), st("wildcard", run.ThirdParty), st("httpprobe", run.Target), st("ports", run.Target),
+		st("crtsh", run.ThirdParty), st("shodan", run.ThirdParty), req("providerranges"),
+		req("resolve"), req("wildcard"), st("httpprobe", run.Target), st("ports", run.Target),
 	}
 }
+
+// requiredProcedure is a fake procedure that --skip refuses.
+type requiredProcedure struct{ *testkit.Procedure }
+
+func (requiredProcedure) Required() {}
 
 // helpScreens are every help screen: the root help, each command's own help, help's own and the
 // two topics.

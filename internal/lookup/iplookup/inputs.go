@@ -237,7 +237,7 @@ type Resolution struct {
 // accumulate hostnames and discovery flags. resolved is keyed by Input.Hostname; missing
 // entries contribute nothing.
 //
-// CapError returns no list if literal/CIDR counts exceed MaxAddresses before expansion, or
+// It returns no list, and a cap error, if literal/CIDR counts exceed MaxAddresses before expansion, or
 // resolved results exceed it afterwards.
 func (p Plan) Addresses(resolved map[string]Resolution) ([]Address, error) {
 	if n := p.LiteralCount(); n > MaxAddresses {
@@ -308,9 +308,4 @@ func CapProblem(count int, resolved bool) clierr.Problem {
 		msg = fmt.Sprintf("the inputs give %s once the hostnames resolve, and a call holds at most %d", shown, MaxAddresses)
 	}
 	return clierr.Problem{Name: "input", Message: msg, Hint: "split the inputs into calls of at most 256 addresses, or use a smaller CIDR"}
-}
-
-// CapError carries cap-validation problems for a usage failure.
-func CapError(count int, resolved bool) *clierr.Error {
-	return clierr.Problems{CapProblem(count, resolved)}.Usage("")
 }

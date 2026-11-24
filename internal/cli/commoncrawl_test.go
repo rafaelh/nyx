@@ -10,6 +10,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rafaelh/nyx/internal/recon/procedures/subdomains"
+	"github.com/rafaelh/nyx/internal/recon/run"
 )
 
 // ccAsked lists what the Common Crawl fake was asked, in order: "collinfo" or
@@ -108,6 +111,10 @@ func TestCommonCrawl_AnOverloadedAnswerIsSentAgain(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
+			if tc.retryAfter == "" { // skip the real backoff's waits of a second
+				i := slices.IndexFunc(w.h.procedures, func(p run.Procedure) bool { return p.Name() == "commoncrawl" })
+				w.h.procedures[i] = subdomains.NewCommonCrawl(time.Millisecond)
+			}
 			w.handle("index.commoncrawl.org", ccOverloaded(1, tc.status, tc.retryAfter, ccIndex([]string{"https://cc.example.com/"})))
 			w.dns.A("cc.example.com", "203.0.113.5")
 			if code := w.run("--passive", "example.com"); code != 0 {

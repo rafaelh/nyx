@@ -14,6 +14,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // CLI update tests focus on output/outcomes; threatdata tests cover individual acceptance
@@ -207,11 +208,11 @@ func TestThreatUpdate_ARefusedListLeavesTheFile(t *testing.T) {
 		inReason []string // words the source's reason holds
 	}{
 		{"a row that does not parse", func(w *threatWorld) []byte {
-			f := tdDropFile(tdV4Row, w.d2, 5, 80)
+			f := tdt.GenDropFile(tdt.GenV4Row, w.d2, 5, 80)
 			return append([]byte("{not json\n"), f...)
 		}, true, nil},
 		{"a list under half the copy in use", func(w *threatWorld) []byte {
-			return tdDropFile(tdV4Row, w.d2, 5, 30)
+			return tdt.GenDropFile(tdt.GenV4Row, w.d2, 5, 30)
 		}, false, []string{"half", "30", "80", "a newer build of nyx"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -275,7 +276,7 @@ func TestThreatUpdate_AlreadyCurrent(t *testing.T) {
 		t.Parallel()
 		w := newThreatWorld(t)
 		f := tdSpamhausAt(w.d0, 0)
-		f.v4 = tdDropFile(tdV4Row, w.d2, 5, 80)
+		f.v4 = tdt.GenDropFile(tdt.GenV4Row, w.d2, 5, 80)
 		w.serveSpamhaus(f)
 		if code := w.update(); code != 0 {
 			t.Fatalf("exit %d, want 0\nstderr %s", code, w.h.stderr.String())
@@ -469,7 +470,7 @@ func TestPlain_ThreatUpdate(t *testing.T) {
 		w := newThreatWorld(t)
 		tune(w.h)
 		f := tdSpamhausAt(w.d0, 0)
-		f.v4 = tdDropFile(tdV4Row, w.d2, 5, 80)
+		f.v4 = tdt.GenDropFile(tdt.GenV4Row, w.d2, 5, 80)
 		w.serveSpamhaus(f)
 		w.skipped(threatdata.Ipapi)
 		if code := w.update(); code != 0 {

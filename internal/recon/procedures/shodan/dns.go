@@ -16,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // DNS collects Shodan subdomains and DNS claims for in-scope roots. In-scope CNAME/MX/NS
@@ -43,14 +43,10 @@ type dnsInput struct {
 
 // Jobs versions each root by shodan_dns.max_pages so raised caps rerun it.
 func (*DNS) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		pages := v.Settings().ShodanDNS.MaxPages
-		for _, r := range v.InScopeRoots() {
-			if !yield(run.Job{Key: fmt.Sprintf("%s|pages=%d", r, pages), Input: dnsInput{root: r, pages: pages, sc: v.Scope()}}, nil) {
-				return
-			}
-		}
-	}
+	pages := v.Settings().ShodanDNS.MaxPages
+	return run.JobsOf(v.InScopeRoots(), func(r string) run.Job {
+		return run.Job{Key: fmt.Sprintf("%s|pages=%d", r, pages), Input: dnsInput{root: r, pages: pages, sc: v.Scope()}}
+	})
 }
 
 type dnsAnswer struct {

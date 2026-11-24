@@ -1,15 +1,14 @@
 package iplookup
 
 import (
-	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // The dates of the test DROP lists: each list has its own, as Spamhaus's do.
@@ -25,41 +24,21 @@ const (
 	dropASNDate = "2026-10-02T00:00:01Z"
 )
 
-// dropFile writes source rows followed by metadata.
-func dropFile(at time.Time, rows []string) []byte {
-	var b strings.Builder
-	for _, r := range rows {
-		b.WriteString(r + "\n")
-	}
-	fmt.Fprintf(&b, `{"type":"metadata","timestamp":%d,"size":1,"records":%d,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`+"\n",
-		at.Unix(), len(rows))
-	return []byte(b.String())
-}
-
 // testDrop covers nested IPv4 ranges, IPv6, missing RIR and a listed populated ASN.
 func testDrop(t *testing.T) *spamhaus.Lists {
 	t.Helper()
-	l4, err := spamhaus.ParseDrop(dropFile(dropV4Time, []string{
-		`{"cidr":"8.8.0.0/16","sblid":"SBL6","rir":null}`,
-		`{"cidr":"8.8.4.0/24","sblid":"SBL5","rir":"arin"}`,
-		`{"cidr":"9.9.9.0/24","sblid":"SBL7","rir":"ripencc"}`,
-		`{"cidr":"10.0.0.0/8","sblid":"SBL8","rir":"arin"}`,
-	}), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l6, err := spamhaus.ParseDrop(dropFile(dropV6Time, []string{`{"cidr":"2001:4860::/32","sblid":"SBL10","rir":"apnic"}`}), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	la, err := spamhaus.ParseASNDrop(dropFile(dropASNTime, []string{
-		`{"asn":15169,"rir":"arin","domain":"google.example","cc":"US","asname":"GOOGLE-BAD"}`,
-		`{"asn":64999,"rir":"ripencc","domain":"","cc":"RU","asname":"OTHER"}`,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &spamhaus.Lists{V4: l4, V6: l6, ASNs: la}
+	return tdt.Lists(t,
+		tdt.DropFile(dropV4Time,
+			`{"cidr":"8.8.0.0/16","sblid":"SBL6","rir":null}`,
+			`{"cidr":"8.8.4.0/24","sblid":"SBL5","rir":"arin"}`,
+			`{"cidr":"9.9.9.0/24","sblid":"SBL7","rir":"ripencc"}`,
+			`{"cidr":"10.0.0.0/8","sblid":"SBL8","rir":"arin"}`,
+		),
+		tdt.DropFile(dropV6Time, `{"cidr":"2001:4860::/32","sblid":"SBL10","rir":"apnic"}`),
+		tdt.DropFile(dropASNTime,
+			`{"asn":15169,"rir":"arin","domain":"google.example","cc":"US","asname":"GOOGLE-BAD"}`,
+			`{"asn":64999,"rir":"ripencc","domain":"","cc":"RU","asname":"OTHER"}`,
+		))
 }
 
 var listedAS = []spamhaus.ASNMatch{{ASN: 15169, ASName: "GOOGLE-BAD", Country: "US", Domain: "google.example", RIR: "arin", Updated: dropASNDate}}

@@ -485,6 +485,24 @@ func procedureNames(procedures []run.Procedure) []string {
 	return names
 }
 
+// requiredProcedures names, in registry order, the procedures --skip and the skip setting refuse:
+// those other procedures' contact decisions depend on (run.Required).
+func requiredProcedures(procedures []run.Procedure) []string {
+	var names []string
+	for _, s := range procedures {
+		if isRequired(s) {
+			names = append(names, s.Name())
+		}
+	}
+	return names
+}
+
+// isRequired reports whether a procedure cannot be skipped.
+func isRequired(s run.Procedure) bool {
+	_, ok := s.(run.Required)
+	return ok
+}
+
 // newEmitter redacts API keys and optionally copies events to Deps.Events. Human logs go to
 // stderr. In JSON mode it collects warnings for the envelope; --debug additionally prints only
 // debug events to stderr. Recon writes its summary separately.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net/netip"
 	"os"
 	"slices"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/term/sanitize"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // The dates of the test lists: each list has its own, as Spamhaus's do.
@@ -30,12 +32,6 @@ const (
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// meta builds a source-format metadata line.
-func meta(at time.Time, records int) string {
-	return fmt.Sprintf(`{"type":"metadata","timestamp":%d,"size":1234,"records":%d,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`,
-		at.Unix(), records)
-}
-
 // file writes source lines with trailing newlines.
 func file(lines ...string) []byte {
 	var b strings.Builder
@@ -43,11 +39,6 @@ func file(lines ...string) []byte {
 		b.WriteString(l + "\n")
 	}
 	return []byte(b.String())
-}
-
-// withMeta is the rows followed by a metadata line whose records count is the number of rows.
-func withMeta(at time.Time, rows ...string) []byte {
-	return file(append(slices.Clone(rows), meta(at, len(rows)))...)
 }
 
 func mustDrop(t *testing.T, b []byte, v6 bool) spamhaus.NetworkList {
@@ -95,9 +86,9 @@ var (
 func testLists(t *testing.T) spamhaus.Lists {
 	t.Helper()
 	return spamhaus.Lists{
-		V4:   mustDrop(t, withMeta(v4Time, v4Rows...), false),
-		V6:   mustDrop(t, withMeta(v6Time, v6Rows...), true),
-		ASNs: mustASNDrop(t, withMeta(asnTime, asnRows...)),
+		V4:   mustDrop(t, tdt.DropFile(v4Time, v4Rows...), false),
+		V6:   mustDrop(t, tdt.DropFile(v6Time, v6Rows...), true),
+		ASNs: mustASNDrop(t, tdt.DropFile(asnTime, asnRows...)),
 	}
 }
 
@@ -163,13 +154,74 @@ func TestNetworks_ContainmentAndOrder(t *testing.T) {
 	}
 }
 
+// Matching through the parse's index gives what a scan of every entry gives: the containing
+// entries, longest prefix first, then in file order.
+func TestNetworks_SameAsAScan(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(1, 2))
+	// Prefixes inside 10.0.0.0/12 and 2001:db8::/44 nest and repeat often; a CIDR can repeat
+	// under another SBL ID.
+	var rows4, rows6 []string
+	var nets4, nets6 []netip.Prefix
+	for i := range 600 {
+		p4 := netip.PrefixFrom(netip.AddrFrom4([4]byte{10, byte(rng.IntN(16)), byte(rng.IntN(256)), byte(rng.IntN(256))}), 12+rng.IntN(21)).Masked()
+		nets4 = append(nets4, p4)
+		rows4 = append(rows4, tdt.NetRow(p4.String(), fmt.Sprintf("SBL%d", i), "arin"))
+		b := netip.MustParseAddr("2001:db8::").As16()
+		b[5] = byte(rng.IntN(16))
+		b[6], b[7] = byte(rng.IntN(256)), byte(rng.IntN(256))
+		p6 := netip.PrefixFrom(netip.AddrFrom16(b), 44+rng.IntN(21)).Masked()
+		nets6 = append(nets6, p6)
+		rows6 = append(rows6, tdt.NetRow(p6.String(), fmt.Sprintf("SBL%d", i), "ripencc"))
+	}
+	l := spamhaus.Lists{V4: mustDrop(t, tdt.DropFile(v4Time, rows4...), false), V6: mustDrop(t, tdt.DropFile(v6Time, rows6...), true)}
+	// scan is the contract: every containing entry, stably sorted by descending prefix length.
+	scan := func(nets []netip.Prefix, a netip.Addr) []string {
+		var hits []int
+		for i, p := range nets {
+			if p.Contains(a) {
+				hits = append(hits, i)
+			}
+		}
+		slices.SortStableFunc(hits, func(x, y int) int { return nets[y].Bits() - nets[x].Bits() })
+		var out []string
+		for _, i := range hits {
+			out = append(out, fmt.Sprintf("%s SBL%d", nets[i], i))
+		}
+		return out
+	}
+	var addrs []netip.Addr
+	for range 2000 {
+		addrs = append(addrs,
+			netip.AddrFrom4([4]byte{10, byte(rng.IntN(17)), byte(rng.IntN(256)), byte(rng.IntN(256))}),
+			nets6[rng.IntN(len(nets6))].Addr().Next())
+	}
+	for _, p := range slices.Concat(nets4, nets6) { // every entry's edges and their neighbours
+		b := p.Addr().AsSlice()
+		for i := p.Bits(); i < len(b)*8; i++ {
+			b[i/8] |= 0x80 >> (i % 8)
+		}
+		last, _ := netip.AddrFromSlice(b)
+		addrs = append(addrs, p.Addr(), p.Addr().Prev(), last, last.Next())
+	}
+	for _, a := range addrs {
+		nets := nets6
+		if a.Is4() {
+			nets = nets4
+		}
+		if got, want := matched(l.Networks(a)), scan(nets, a); !slices.Equal(got, want) {
+			t.Fatalf("Networks(%s) = %q, want %q", a, got, want)
+		}
+	}
+}
+
 // Unmap IPv4 before matching DROP; IPv6 matches DROPv6 only.
 func TestNetworks_EachFamilyItsOwnList(t *testing.T) {
 	t.Parallel()
 	l := spamhaus.Lists{
-		V4:   mustDrop(t, withMeta(v4Time, `{"cidr":"0.0.0.0/0","sblid":"SBL40","rir":"arin"}`), false),
-		V6:   mustDrop(t, withMeta(v6Time, `{"cidr":"::/0","sblid":"SBL60","rir":"arin"}`), true),
-		ASNs: mustASNDrop(t, withMeta(asnTime, asnRows...)),
+		V4:   mustDrop(t, tdt.DropFile(v4Time, `{"cidr":"0.0.0.0/0","sblid":"SBL40","rir":"arin"}`), false),
+		V6:   mustDrop(t, tdt.DropFile(v6Time, `{"cidr":"::/0","sblid":"SBL60","rir":"arin"}`), true),
+		ASNs: mustASNDrop(t, tdt.DropFile(asnTime, asnRows...)),
 	}
 	for _, tc := range []struct {
 		addr string
@@ -264,9 +316,9 @@ func TestMatches_SanitiseText(t *testing.T) {
 	sbl, rir := "SBL\u202e9", "ri\u2066pe\u2069ncc"
 	name, cc, domain := "Bad\u202aAS\u202c", "R\u200fU", "ex\u200eample.net"
 	l := spamhaus.Lists{
-		V4: mustDrop(t, withMeta(v4Time, `{"cidr":"203.0.113.0/24","sblid":"SBL\u202e9","rir":"ri\u2066pe\u2069ncc"}`), false),
-		V6: mustDrop(t, withMeta(v6Time, v6Rows...), true),
-		ASNs: mustASNDrop(t, withMeta(asnTime,
+		V4: mustDrop(t, tdt.DropFile(v4Time, `{"cidr":"203.0.113.0/24","sblid":"SBL\u202e9","rir":"ri\u2066pe\u2069ncc"}`), false),
+		V6: mustDrop(t, tdt.DropFile(v6Time, v6Rows...), true),
+		ASNs: mustASNDrop(t, tdt.DropFile(asnTime,
 			`{"asn":64999,"rir":"ri\u2066pe\u2069ncc","domain":"ex\u200eample.net","cc":"R\u200fU","asname":"Bad\u202aAS\u202c"}`)),
 	}
 	wantNet := []spamhaus.NetworkMatch{{CIDR: "203.0.113.0/24", SBLID: sanitize.Line(sbl), RIR: sanitize.Line(rir), Updated: v4Date}}
@@ -285,7 +337,7 @@ func TestMatches_SanitiseText(t *testing.T) {
 // Source timestamps always format in UTC, regardless of their original location.
 func TestMeta_Updated(t *testing.T) {
 	t.Parallel()
-	l := mustDrop(t, withMeta(v4Time, v4Rows...), false)
+	l := mustDrop(t, tdt.DropFile(v4Time, v4Rows...), false)
 	if !l.Meta.Timestamp.Equal(v4Time) {
 		t.Errorf("timestamp = %v, want %v", l.Meta.Timestamp, v4Time)
 	}
@@ -301,7 +353,7 @@ func TestMeta_Updated(t *testing.T) {
 // A parsed list holds its entries in file order, its metadata and the file's bytes as they were.
 func TestParseDrop_Contents(t *testing.T) {
 	t.Parallel()
-	b := withMeta(v4Time, v4Rows...)
+	b := tdt.DropFile(v4Time, v4Rows...)
 	l := mustDrop(t, b, false)
 	if !bytes.Equal(l.Raw, b) {
 		t.Errorf("Raw is not the file's bytes:\n%s", l.Raw)
@@ -322,7 +374,7 @@ func TestParseDrop_Contents(t *testing.T) {
 	if got := l.Entries[7].SBLID; got != "SBL0" {
 		t.Errorf("entry 8 is %q, want SBL0: entries are kept in file order", got)
 	}
-	a := mustASNDrop(t, withMeta(asnTime, asnRows...))
+	a := mustASNDrop(t, tdt.DropFile(asnTime, asnRows...))
 	if len(a.Entries) != len(asnRows) {
 		t.Fatalf("%d ASN entries, want %d", len(a.Entries), len(asnRows))
 	}
@@ -350,7 +402,7 @@ func TestParse_Rules(t *testing.T) {
 	r2 := `{"cidr":"198.51.100.0/24","sblid":"SBL2","rir":"ripencc"}`
 	r6 := `{"cidr":"2001:db8::/32","sblid":"SBL6","rir":"apnic"}`
 	a1 := `{"asn":64500,"rir":"ripencc","domain":"example.net","cc":"RU","asname":"BAD-AS"}`
-	m := func(records int) string { return meta(v4Time, records) }
+	m := func(records int) string { return tdt.MetaLine(v4Time, records) }
 	type list int
 	const (
 		v4 list = iota
@@ -475,7 +527,7 @@ func TestParse_Rules(t *testing.T) {
 // Normalise missing optional text and ignore unknown fields without changing entries.
 func TestParse_OptionalAndUnknownFields(t *testing.T) {
 	t.Parallel()
-	l := mustDrop(t, withMeta(v4Time,
+	l := mustDrop(t, tdt.DropFile(v4Time,
 		`{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":null}`,
 		`{"cidr":"198.51.100.0/24","sblid":"SBL2"}`,
 		`{"cidr":"203.0.113.0/24","sblid":"SBL3","rir":"arin","added":"2026-09-01"}`), false)
@@ -487,7 +539,7 @@ func TestParse_OptionalAndUnknownFields(t *testing.T) {
 	if !slices.Equal(l.Entries, want) {
 		t.Errorf("entries = %+v, want %+v", l.Entries, want)
 	}
-	a := mustASNDrop(t, withMeta(asnTime,
+	a := mustASNDrop(t, tdt.DropFile(asnTime,
 		`{"asn":64500,"rir":null,"domain":null,"cc":null,"asname":null}`,
 		`{"asn":64501}`,
 		`{"asn":64502,"rir":"arin","domain":"x.example","cc":"US","asname":"X","notes":["a"]}`))
@@ -519,7 +571,7 @@ func TestBundle_Format(t *testing.T) {
 // gives the same bundle.
 func TestParseBundle_RoundTrip(t *testing.T) {
 	t.Parallel()
-	v4, v6, asn := withMeta(v4Time, v4Rows...), withMeta(v6Time, v6Rows...), withMeta(asnTime, asnRows...)
+	v4, v6, asn := tdt.DropFile(v4Time, v4Rows...), tdt.DropFile(v6Time, v6Rows...), tdt.DropFile(asnTime, asnRows...)
 	b := spamhaus.Bundle(v4, v6, asn)
 	l, err := spamhaus.ParseBundle(b)
 	if err != nil {
@@ -553,12 +605,12 @@ func TestParseBundle_RoundTrip(t *testing.T) {
 // Any invalid list or marker ordering rejects the entire bundle.
 func TestParseBundle_Refuses(t *testing.T) {
 	t.Parallel()
-	v4, v6, asn := withMeta(v4Time, v4Rows...), withMeta(v6Time, v6Rows...), withMeta(asnTime, asnRows...)
+	v4, v6, asn := tdt.DropFile(v4Time, v4Rows...), tdt.DropFile(v6Time, v6Rows...), tdt.DropFile(asnTime, asnRows...)
 	marker := func(name string) []byte { return []byte(`{"list":"` + name + `"}` + "\n") }
 	cat := func(parts ...[]byte) []byte { return bytes.Join(parts, nil) }
-	badV4 := withMeta(v4Time, append(slices.Clone(v4Rows), `{"cidr":"198.51.100.5/24","sblid":"SBL99"}`)...)
-	badV6 := withMeta(v6Time, append(slices.Clone(v6Rows), `{"sblid":"SBL99"}`)...)
-	badASN := withMeta(asnTime, append(slices.Clone(asnRows), `{"asn":0}`)...)
+	badV4 := tdt.DropFile(v4Time, append(slices.Clone(v4Rows), `{"cidr":"198.51.100.5/24","sblid":"SBL99"}`)...)
+	badV6 := tdt.DropFile(v6Time, append(slices.Clone(v6Rows), `{"sblid":"SBL99"}`)...)
+	badASN := tdt.DropFile(asnTime, append(slices.Clone(asnRows), `{"asn":0}`)...)
 	if _, err := spamhaus.ParseBundle(spamhaus.Bundle(v4, v6, asn)); err != nil {
 		t.Fatalf("the good bundle: %v", err)
 	}

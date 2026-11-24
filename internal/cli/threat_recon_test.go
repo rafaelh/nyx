@@ -15,6 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Recon DROP tests cover matching, origin-AS lookup, active-copy selection and fallback
@@ -294,14 +295,14 @@ func anyString(v any) string { s, _ := v.(string); return s }
 // unreadableDrop supplies newer corrupt downloads with an address absent from built-ins.
 var unreadableDrop = []struct{ name, body string }{
 	{"not a bundle", "this is not a bundle\n"},
-	{"drop_v6 without its metadata row", dropBundleText(
-		dropFileText(downloadedAt, dropRows([]spamhaus.NetworkEntry{dropFillerV4, dropNet("203.0.113.6/32", "SBL6006", "arin")})),
-		strings.Join(dropRows([]spamhaus.NetworkEntry{dropFillerV6}), "\n")+"\n",
-		dropFileText(downloadedAt, asnDropRows([]spamhaus.ASNEntry{dropFillerASN})))},
-	{"an entry listed twice", dropBundleText(
-		dropFileText(downloadedAt, dropRows([]spamhaus.NetworkEntry{dropFillerV4, dropNet("203.0.113.6/32", "SBL6006", "arin"), dropNet("203.0.113.6/32", "SBL6006", "arin")})),
-		dropFileText(downloadedAt, dropRows([]spamhaus.NetworkEntry{dropFillerV6})),
-		dropFileText(downloadedAt, asnDropRows([]spamhaus.ASNEntry{dropFillerASN})))},
+	{"drop_v6 without its metadata row", string(spamhaus.Bundle(
+		tdt.DropFile(downloadedAt, dropRows([]spamhaus.NetworkEntry{dropFillerV4, dropNet("203.0.113.6/32", "SBL6006", "arin")})...),
+		[]byte(strings.Join(dropRows([]spamhaus.NetworkEntry{dropFillerV6}), "\n")+"\n"),
+		tdt.DropFile(downloadedAt, asnDropRows([]spamhaus.ASNEntry{dropFillerASN})...)))},
+	{"an entry listed twice", string(spamhaus.Bundle(
+		tdt.DropFile(downloadedAt, dropRows([]spamhaus.NetworkEntry{dropFillerV4, dropNet("203.0.113.6/32", "SBL6006", "arin"), dropNet("203.0.113.6/32", "SBL6006", "arin")})...),
+		tdt.DropFile(downloadedAt, dropRows([]spamhaus.NetworkEntry{dropFillerV6})...),
+		tdt.DropFile(downloadedAt, asnDropRows([]spamhaus.ASNEntry{dropFillerASN})...)))},
 }
 
 // unreadableIpapi supplies newer corrupt downloads with an address absent from built-ins.

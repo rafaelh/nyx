@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Cover missing values, control rejection and ignored text beyond the main parsing cases.
@@ -13,7 +14,7 @@ func TestParse_Decisions(t *testing.T) {
 	r1 := `{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":"arin"}`
 	r6 := `{"cidr":"2001:db8::/32","sblid":"SBL6","rir":"apnic"}`
 	a1 := `{"asn":64500,"rir":"ripencc","domain":"example.net","cc":"RU","asname":"BAD-AS"}`
-	m := func(n int) string { return meta(v4Time, n) }
+	m := func(n int) string { return tdt.MetaLine(v4Time, n) }
 	for _, tc := range []struct {
 		name string
 		v6   bool
@@ -74,7 +75,7 @@ func TestASN_ListMadeByHand(t *testing.T) {
 // final newline reads.
 func TestParseBundle_Layout(t *testing.T) {
 	t.Parallel()
-	v4, v6, asn := withMeta(v4Time, v4Rows...), withMeta(v6Time, v6Rows...), withMeta(asnTime, asnRows...)
+	v4, v6, asn := tdt.DropFile(v4Time, v4Rows...), tdt.DropFile(v6Time, v6Rows...), tdt.DropFile(asnTime, asnRows...)
 	b := append([]byte("\n"), spamhaus.Bundle(v4, v6, asn)...)
 	b = b[:len(b)-1] // no final newline
 	l, err := spamhaus.ParseBundle(b)

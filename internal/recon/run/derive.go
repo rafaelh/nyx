@@ -12,8 +12,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/analysis/thirdparty"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // analysisInput provides the scope, inventory, visibility, inputs, date and record readers used

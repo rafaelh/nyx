@@ -40,8 +40,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/output"
 	"github.com/rafaelh/nyx/internal/recon/report"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
@@ -376,7 +376,6 @@ func (r *Runner) buildScope() error {
 	p := &egress.Policy{
 		Scope: sc, Ack: r.acked, Passive: r.cfg.Passive,
 		Ports: r.cfg.Settings.Ports, SensitivePaths: sensitivePaths,
-		Resolutions:  inv.Addrs(),
 		Shared:       inv.Shared,
 		OwnerUnknown: func(a netip.Addr) bool { return !inv.OwnerKnown(a, sc) },
 		Excluded:     r.guard,

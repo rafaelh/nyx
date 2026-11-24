@@ -13,8 +13,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/dns"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func clients(t *testing.T, d *egresstest.DNS) egress.Clients {

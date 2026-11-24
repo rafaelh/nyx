@@ -18,7 +18,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // maxSecurityTrailsPages bounds credits per reverse-IP lookup; larger result sets already imply
@@ -39,7 +39,7 @@ func New() *Procedure { return &Procedure{} }
 func (*Procedure) Name() string         { return "reverseip" }
 func (*Procedure) Contact() run.Contact { return run.ThirdParty }
 func (*Procedure) Sources() []string {
-	return []string{"api.hackertarget.com", "api.securitytrails.com"}
+	return []string{ipsource.HackerTargetHost, "api.securitytrails.com"}
 }
 
 // Configured: HackerTarget needs no key, so the procedure always runs; a SecurityTrails
@@ -57,17 +57,14 @@ type input struct {
 // Jobs lists eligible recorded addresses in order. IPv6 requires a SecurityTrails key and
 // becomes eligible for a job when one is added.
 func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		set := v.Settings()
-		_, keyed := run.Env{Settings: set}.Key("securitytrails")
-		sc := v.Scope()
-		for _, a := range v.IPs(func(a netip.Addr) bool { return (a.Is4() || keyed) && v.PortEligible(a) }) {
-			key := fmt.Sprintf("%s|max=%d", a, set.ReverseIP.MaxDomains)
-			if !yield(run.Job{Key: key, Input: input{a, sc, set.ReverseIP.MaxDomains, keyed}}, nil) {
-				return
-			}
-		}
-	}
+	set := v.Settings()
+	_, keyed := set.Key("securitytrails")
+	sc := v.Scope()
+	addrs := v.IPs(func(a netip.Addr) bool { return (a.Is4() || keyed) && v.PortEligible(a) })
+	return run.JobsOf(addrs, func(a netip.Addr) run.Job {
+		key := fmt.Sprintf("%s|max=%d", a, set.ReverseIP.MaxDomains)
+		return run.Job{Key: key, Input: input{a, sc, set.ReverseIP.MaxDomains, keyed}}
+	})
 }
 
 // CandidateSources: the procedure is the reverse IP family.
@@ -138,7 +135,7 @@ func (f *found) over(limit int) bool { return len(f.domains) > limit }
 // shared hosting skip the credit-consuming second source.
 func gather(ctx context.Context, e egress.Clients, in input, f *found) error {
 	if in.addr.Is4() {
-		names, err := httpsrc.GetNames(ctx, e, "https://api.hackertarget.com/reverseiplookup/?"+url.Values{"q": {in.addr.String()}}.Encode(), reverseLines)
+		names, err := httpsrc.GetNames(ctx, e, "https://"+ipsource.HackerTargetHost+"/reverseiplookup/?"+url.Values{"q": {in.addr.String()}}.Encode(), reverseLines)
 		if err != nil {
 			return err
 		}

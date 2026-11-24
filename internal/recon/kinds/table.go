@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/recon/inventory"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Record handles define attributes and visibility rules. Fields always supplied omit omitempty

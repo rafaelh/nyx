@@ -352,40 +352,49 @@ func TestIPTime_SourcesAreSlowedToTheirPaces(t *testing.T) {
 func TestIPTime_ASourceThatHangsPastTheTimeoutIsATimedOutFailure(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
-		w := newIPWorld(t)
-		w.h.eopts.HTTPTimeout = time.Minute // only the call's deadline may end the wait
-		for _, a := range []string{"8.8.4.1", "8.8.4.2", "8.8.4.3"} {
-			w.seed(a)
-		}
-		w.idb.set("8.8.4.2", ipHang())
-		start := time.Now()
-		code := ipoRun(w, jsonMode, "8.8.4.1", "8.8.4.2", "8.8.4.3", "--timeout", "2s")
-		elapsed := time.Since(start)
-		if code != 7 {
-			t.Fatalf("json=%v: exit %d\nstderr %s", jsonMode, code, w.h.stderr.String())
-		}
-		if elapsed < 1800*time.Millisecond || elapsed > 6*time.Second {
-			t.Errorf("json=%v: the call took %v, want about the 2s deadline", jsonMode, elapsed)
-		}
-		if !jsonMode {
+		t.Run(fmt.Sprint("json=", jsonMode), func(t *testing.T) {
+			t.Parallel()
+			w := newIPWorld(t)
+			w.h.eopts.HTTPTimeout = time.Minute // only the call's deadline may end the wait
+			for _, a := range []string{"8.8.4.1", "8.8.4.2", "8.8.4.3"} {
+				w.seed(a)
+			}
+			w.idb.set("8.8.4.2", ipHang())
+			start := time.Now()
+			code := ipoRun(w, jsonMode, "8.8.4.1", "8.8.4.2", "8.8.4.3", "--timeout", "2s")
+			elapsed := time.Since(start)
+			if code != 7 {
+				t.Fatalf("json=%v: exit %d\nstderr %s", jsonMode, code, w.h.stderr.String())
+			}
+			if elapsed < 1800*time.Millisecond || elapsed > 6*time.Second {
+				t.Errorf("json=%v: the call took %v, want about the 2s deadline", jsonMode, elapsed)
+			}
+			if jsonMode {
+				checkOnlyHungInternetDBTimedOut(t, w.h.ipEnvelope(), "8.8.4.2")
+			}
+		})
+	}
+}
+
+// checkOnlyHungInternetDBTimedOut checks that hung's InternetDB lookup is its one failure, a
+// transient timeout that leaves its other sources' values, and that the other records have no
+// failures.
+func checkOnlyHungInternetDBTimedOut(t *testing.T, env ipEnvelope, hung string) {
+	t.Helper()
+	for _, r := range env.Records {
+		fs := ipoFailuresOf(r, "internetdb")
+		if r.address() != hung {
+			if len(r.failures()) != 0 {
+				t.Errorf("%s: failures %+v", r.address(), r.failures())
+			}
 			continue
 		}
-		env := w.h.ipEnvelope()
-		for _, r := range env.Records {
-			fs := ipoFailuresOf(r, "internetdb")
-			if r.address() != "8.8.4.2" {
-				if len(r.failures()) != 0 {
-					t.Errorf("%s: failures %+v", r.address(), r.failures())
-				}
-				continue
-			}
-			if len(fs) != 1 || fs[0].Code != "TIMEOUT" || !fs[0].Transient || !r.isNull("internetdb_ports") || r.isNull("asn") {
-				t.Errorf("8.8.4.2: %s", r.raw)
-			}
+		if len(fs) != 1 || fs[0].Code != "TIMEOUT" || !fs[0].Transient || !r.isNull("internetdb_ports") || r.isNull("asn") {
+			t.Errorf("%s: %s", hung, r.raw)
 		}
-		if len(env.Records) != 3 {
-			t.Errorf("%d records, want 3", len(env.Records))
-		}
+	}
+	if len(env.Records) != 3 {
+		t.Errorf("%d records, want 3", len(env.Records))
 	}
 }
 

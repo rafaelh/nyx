@@ -20,6 +20,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Use fixed d0 built-ins rather than moving embedded dates for deterministic update
@@ -39,8 +40,8 @@ func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // The credit the generated Spamhaus files carry, as Spamhaus's own do.
 const (
-	copyright = "(c) 2026 The Spamhaus Project SLU"
-	terms     = "https://www.spamhaus.org/drop/terms/"
+	copyright = tdt.Copyright
+	terms     = tdt.Terms
 )
 
 // The paths of the five lists on their hosts, and their full URLs.
@@ -60,38 +61,10 @@ var fiveURLs = []string{
 	"https://ipapi.is/most-abusive-asn.html",
 }
 
-// v4Row, v6Row and asnRow are entry i of a generated list, in the format Spamhaus serves.
-func v4Row(i int) string {
-	return fmt.Sprintf(`{"cidr":"10.%d.%d.0/24","sblid":"SBL%d","rir":"ripencc"}`, i/256, i%256, 100000+i)
-}
-
-func v6Row(i int) string {
-	return fmt.Sprintf(`{"cidr":"2001:db8:%x::/48","sblid":"SBL%d","rir":"apnic"}`, i, 200000+i)
-}
-
-func asnRow(i int) string {
-	return fmt.Sprintf(`{"asn":%d,"rir":"arin","domain":"bad%d.example","cc":"US","asname":"BAD-AS-%d"}`, 64500+i, i, i)
-}
-
-// v4Addr, v6Addr and asnOf are an address entry i holds, and entry i's AS number.
+// v4Addr, v6Addr and asnOf are an address generated entry i holds, and entry i's AS number.
 func v4Addr(i int) netip.Addr { return netip.MustParseAddr(fmt.Sprintf("10.%d.%d.7", i/256, i%256)) }
 func v6Addr(i int) netip.Addr { return netip.MustParseAddr(fmt.Sprintf("2001:db8:%x::7", i)) }
 func asnOf(i int) int         { return 64500 + i }
-
-// rows is entries from to from+n-1 of a list.
-func rows(row func(int) string, from, n int) []string {
-	out := make([]string, 0, n)
-	for i := from; i < from+n; i++ {
-		out = append(out, row(i))
-	}
-	return out
-}
-
-// metaLine is a Spamhaus metadata line.
-func metaLine(date time.Time, records int) string {
-	return fmt.Sprintf(`{"type":"metadata","timestamp":%d,"size":1234,"records":%d,"copyright":%q,"terms":%q}`,
-		date.Unix(), records, copyright, terms)
-}
 
 // file is a Spamhaus file: the lines, each ending in a newline.
 func file(lines ...string) []byte {
@@ -101,43 +74,14 @@ func file(lines ...string) []byte {
 	return []byte(strings.Join(lines, "\n") + "\n")
 }
 
-// dropFile is a generated list of entries from to from+n-1, dated date, that states n records.
-func dropFile(row func(int) string, date time.Time, from, n int) []byte {
-	return file(append(rows(row, from, n), metaLine(date, n))...)
-}
-
 // bundle preserves downloaded list bytes and markers.
 func bundle(v4, v6, asn []byte) []byte { return spamhaus.Bundle(v4, v6, asn) }
 
-// netEntry and asEntry are entry i of a generated ipapi.is list, in the snapshot format.
-func netEntry(i int) abusive.NetworkEntry {
-	return abusive.NetworkEntry{Rank: i + 1, Start: netip.MustParseAddr(fmt.Sprintf("172.%d.%d.0", 16+i/200, i%200)),
-		End: netip.MustParseAddr(fmt.Sprintf("172.%d.%d.255", 16+i/200, i%200)), ScoreTag: "High", AbuseScore: 50, Org: fmt.Sprintf("Org %d", i), OrgType: "isp"}
-}
-
-func asEntry(i int) abusive.ASNEntry {
-	return abusive.ASNEntry{Rank: i + 1, ASN: 65000 + i, ScoreTag: "High", AbuseScore: 50, Org: fmt.Sprintf("AS Org %d", i), OrgType: "isp"}
-}
-
+// netAddr and ipapiASN are an address generated network i holds, and generated ASN i.
 func netAddr(i int) netip.Addr {
 	return netip.MustParseAddr(fmt.Sprintf("172.%d.%d.9", 16+i/200, i%200))
 }
 func ipapiASN(i int) int { return 65000 + i }
-
-// snapshot is an ipapi.is copy of networks from..from+nn-1 and ASNs from..from+an-1.
-func snapshot(netsDate string, nFrom, nn int, asnsDate string, aFrom, an int) abusive.Snapshot {
-	s := abusive.Snapshot{
-		Nets: abusive.List[abusive.NetworkEntry]{Updated: netsDate, Stated: nn, Entries: []abusive.NetworkEntry{}},
-		ASNs: abusive.List[abusive.ASNEntry]{Updated: asnsDate, Stated: an, Entries: []abusive.ASNEntry{}},
-	}
-	for i := nFrom; i < nFrom+nn; i++ {
-		s.Nets.Entries = append(s.Nets.Entries, netEntry(i))
-	}
-	for i := aFrom; i < aFrom+an; i++ {
-		s.ASNs.Entries = append(s.ASNs.Entries, asEntry(i))
-	}
-	return s
-}
 
 // ipapiFile builds downloaded snapshot JSON.
 func ipapiFile(t *testing.T, s abusive.Snapshot) []byte {
@@ -149,70 +93,21 @@ func ipapiFile(t *testing.T, s abusive.Snapshot) []byte {
 	return b
 }
 
-// headerOrg selects the source's organisation-column spelling.
-const headerOrg = "Organization" //nolint:misspell // the page's own spelling
-
-func pageDate(d string) string {
-	t, _ := time.Parse(time.DateOnly, d)
-	return t.Format("January 2, 2006")
-}
-
-// networksPage is ipapi.is's most-abusive networks page, dated d, stating stated entries and
-// listing networks from..from+n-1.
-func networksPage(d string, stated, from, n int) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, `<html><body><span>Data last updated on <strong>%s</strong></span><p>The table lists the <strong>%d</strong> most abusive networks on the Internet.</p>`, pageDate(d), stated)
-	b.WriteString(`<table><thead><tr><th>Rank</th><th>Network</th><th>Num Hosts</th><th>Score Tag</th><th>Abuse Score</th><th>` + headerOrg + `</th><th>Type</th></tr></thead><tbody>`)
-	for i := from; i < from+n; i++ {
-		e := netEntry(i)
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><a>%s - %s</a></td><td>256</td><td><span>High</span></td><td>50%%</td><td>%s</td><td><span>isp</span></td></tr>`,
-			e.Rank, e.Start, e.End, e.Org)
-	}
-	b.WriteString(`</tbody></table></body></html>`)
-	return []byte(b.String())
-}
-
-// asnsPage is ipapi.is's most-abusive ASNs page, dated d, stating stated entries and listing ASNs
-// from..from+n-1.
-func asnsPage(d string, stated, from, n int) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, `<html><body><span>Data last updated on <strong>%s</strong></span><p>The table lists the <strong>%d</strong> most abusive ASNs.</p>`, pageDate(d), stated)
-	b.WriteString(`<table><thead><tr><th>Rank</th><th>ASN</th><th>Num IPs and Routes</th><th>Score Tag</th><th>Abuse Score</th><th>` + headerOrg + `</th><th>Org Type</th></tr></thead><tbody>`)
-	for i := from; i < from+n; i++ {
-		e := asEntry(i)
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><a>as%d</a></td><td>1</td><td><span>High</span></td><td>50%%</td><td>%s</td><td><span>isp</span></td></tr>`, e.Rank, e.ASN, e.Org)
-	}
-	b.WriteString(`</tbody></table></body></html>`)
-	return []byte(b.String())
-}
-
 // lists is a built-in copy of the three Spamhaus lists, parsed from the generated files.
 type lists struct{ v4, v6, asn []byte }
 
 // stdSpamhaus is the standard built-in Spamhaus copy: 80, 20 and 20 entries, all dated d0.
 func stdSpamhaus() lists {
-	return lists{dropFile(v4Row, d0, 0, 80), dropFile(v6Row, d0, 0, 20), dropFile(asnRow, d0, 0, 20)}
+	return lists{tdt.GenDropFile(tdt.GenV4Row, d0, 0, 80), tdt.GenDropFile(tdt.GenV6Row, d0, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d0, 0, 20)}
 }
 
 // stdIpapi is the standard built-in ipapi.is copy: 80 networks and 20 ASNs, both dated d0.
-func stdIpapi() abusive.Snapshot { return snapshot(day(d0), 0, 80, day(d0), 0, 20) }
+func stdIpapi() abusive.Snapshot { return tdt.GenSnapshot(day(d0), 0, 80, day(d0), 0, 20) }
 
 // builtIn parses a built-in copy, failing the test if the parse does.
 func builtIn(t *testing.T, sh lists, ip abusive.Snapshot) *threatdata.BuiltIn {
 	t.Helper()
-	v4, err := spamhaus.ParseDrop(sh.v4, false)
-	if err != nil {
-		t.Fatalf("the built-in drop_v4: %v", err)
-	}
-	v6, err := spamhaus.ParseDrop(sh.v6, true)
-	if err != nil {
-		t.Fatalf("the built-in drop_v6: %v", err)
-	}
-	asn, err := spamhaus.ParseASNDrop(sh.asn)
-	if err != nil {
-		t.Fatalf("the built-in asndrop: %v", err)
-	}
-	return &threatdata.BuiltIn{Spamhaus: spamhaus.Lists{V4: v4, V6: v6, ASNs: asn}, Ipapi: ip}
+	return &threatdata.BuiltIn{Spamhaus: *tdt.Lists(t, sh.v4, sh.v6, sh.asn), Ipapi: ip}
 }
 
 // The files nyx keeps in the threat-data directory.
@@ -489,8 +384,8 @@ func (w *world) serveSpamhaus(l lists) {
 
 // serveIpapi makes the ipapi.is fake answer both pages.
 func (w *world) serveIpapi(netsDate string, nStated, nFrom, nn int, asnsDate string, aStated, aFrom, an int) {
-	w.ipapi.set(pathNetworks, ok(networksPage(netsDate, nStated, nFrom, nn)))
-	w.ipapi.set(pathASNs, ok(asnsPage(asnsDate, aStated, aFrom, an)))
+	w.ipapi.set(pathNetworks, ok(tdt.NetworksPage(netsDate, nStated, nFrom, nn)))
+	w.ipapi.set(pathASNs, ok(tdt.ASNsPage(asnsDate, aStated, aFrom, an)))
 }
 
 func (w *world) options() threatdata.Options {

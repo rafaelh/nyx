@@ -187,7 +187,7 @@ func TestHelp_ValueListsWrapAfterCommas(t *testing.T) {
 	root := textLines(helpOn(t, palette.None, 80, "--help"))
 	check(root, "Procedures accepted by --redo and --skip:", strings.Join(names, ", "))
 	check(root, "Exit codes:", "0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)")
-	if got := hangFrom(t, root, "Procedures --skip refuses:", 1); len(got) != 1 || got[0] != "Procedures --skip refuses: resolve, wildcard, ipowner, providerranges" {
+	if got := hangFrom(t, root, "Procedures --skip refuses:", 1); len(got) != 1 || got[0] != "Procedures --skip refuses: providerranges, resolve, wildcard, ipowner" {
 		t.Errorf("Procedures --skip refuses: %q", got)
 	}
 	export := textLines(helpOn(t, palette.None, 80, "recon", "export", "--help"))

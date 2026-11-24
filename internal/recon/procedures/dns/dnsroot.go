@@ -14,7 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/serveraddr"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // DNSRoot collects each in-scope input root's NS, SOA, TXT and CAA records for later pivots,

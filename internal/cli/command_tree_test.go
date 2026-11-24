@@ -227,7 +227,7 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 		}
 	}
 	// Help identifies procedures that cannot be skipped.
-	if !strings.Contains(help, "resolve, wildcard, ipowner, providerranges") {
+	if !strings.Contains(help, "providerranges, resolve, wildcard, ipowner") {
 		t.Error("the root help does not name the procedures --skip refuses")
 	}
 	if got := lastLine(help); got != exitCodesLine {

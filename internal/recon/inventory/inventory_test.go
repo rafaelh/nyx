@@ -13,7 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func ip(s string) netip.Addr { return netip.MustParseAddr(s) }
@@ -279,7 +279,7 @@ func TestIPRowsMatchEgress(t *testing.T) {
 	}
 	eg := egress.New(egress.Options{ConnectTimeout: 200 * time.Millisecond, BannerWait: 10 * time.Millisecond, RatePerHost: 1000, DialMap: dm})
 	eg.SetPolicy(&egress.Policy{
-		Scope: sc, Ack: true, Ports: []int{port}, Resolutions: res,
+		Scope: sc, Ack: true, Ports: []int{port},
 		Shared:       inv.Shared,
 		OwnerUnknown: func(a netip.Addr) bool { return !inv.OwnerKnown(a, sc) },
 	})

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
 	"github.com/rafaelh/nyx/internal/recon/run"
 )
@@ -24,7 +25,7 @@ func fetchNames(ctx context.Context, c egress.Clients, u string, parse func([]by
 // --- HackerTarget (hostsearch) ---
 
 func hackertarget(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
-	return fetchNames(ctx, c, "https://api.hackertarget.com/hostsearch/?"+url.Values{"q": {in.root}}.Encode(), hackertargetNames)
+	return fetchNames(ctx, c, "https://"+ipsource.HackerTargetHost+"/hostsearch/?"+url.Values{"q": {in.root}}.Encode(), hackertargetNames)
 }
 
 // hackertargetNames parses host/address lines with shared HackerTarget quota/no-data rules.

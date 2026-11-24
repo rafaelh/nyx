@@ -24,16 +24,15 @@ type IPOwner struct {
 // NewIPOwner returns the ipowner procedure.
 func NewIPOwner() *IPOwner { return &IPOwner{base: base{"ipowner"}, holders: map[int]string{}} }
 
+// Required: owners identify shared addresses that must not be port-checked, so it cannot be
+// skipped.
+func (*IPOwner) Required() {}
+
 // Jobs yields one job per ip record outside the in-scope netblocks.
 func (*IPOwner) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		sc := v.Scope()
-		for _, a := range v.IPs(func(a netip.Addr) bool { return !sc.InScopeIP(a) }) {
-			if !yield(run.Job{Key: a.String(), Input: a}, nil) {
-				return
-			}
-		}
-	}
+	sc := v.Scope()
+	addrs := v.IPs(func(a netip.Addr) bool { return !sc.InScopeIP(a) })
+	return run.JobsOf(addrs, func(a netip.Addr) run.Job { return run.Job{Key: a.String(), Input: a} })
 }
 
 // Run resolves the announcing AS and holder. Unknown Cymru addresses complete without

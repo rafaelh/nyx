@@ -38,9 +38,6 @@ func Render(w io.Writer, recs []Projected, s layout.Stream) error {
 	return err
 }
 
-// squash trims and collapses whitespace.
-func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
-
 // What a row of a section is.
 const (
 	rowField = iota // a label and its value
@@ -97,7 +94,7 @@ func (b body) str(key string, p *string) string {
 	if p == nil {
 		return b.empty(key)
 	}
-	if v := squash(sanitize.Line(*p)); v != "" {
+	if v := sanitize.Squash(*p); v != "" {
 		return v
 	}
 	return none
@@ -107,7 +104,7 @@ func (b body) str(key string, p *string) string {
 func (b body) list(key string, items []string) string {
 	var cleaned []string
 	for _, it := range items {
-		if v := squash(sanitize.Line(it)); v != "" {
+		if v := sanitize.Squash(it); v != "" {
 			cleaned = append(cleaned, v)
 		}
 	}
@@ -239,7 +236,7 @@ func (b body) items(key string, n int, nilList bool, line func(int) string) []ro
 	}
 	rows := make([]row, n)
 	for i := range rows {
-		rows[i] = row{rowItem, "", squash(line(i))}
+		rows[i] = row{rowItem, "", sanitize.Squash(line(i))}
 	}
 	return rows
 }
@@ -249,11 +246,8 @@ func text(p *string) string {
 	if p == nil {
 		return ""
 	}
-	return clean(*p)
+	return sanitize.Squash(*p)
 }
-
-// clean sanitises source text and normalises whitespace for display.
-func clean(s string) string { return squash(sanitize.Line(s)) }
 
 // join is the non-empty parts, separated by "; ".
 func join(parts ...string) string {
@@ -277,7 +271,7 @@ func tlsLine(e TLSEntry) string {
 	if len(e.Names) > 0 {
 		cleaned := make([]string, len(e.Names))
 		for i, n := range e.Names {
-			cleaned[i] = squash(sanitize.Line(n))
+			cleaned[i] = sanitize.Squash(n)
 		}
 		names = "names " + strings.Join(cleaned, ", ")
 	}
@@ -292,7 +286,7 @@ func tlsLine(e TLSEntry) string {
 }
 
 func webLine(e WebEntry) string {
-	host := squash(sanitize.Line(e.Host))
+	host := sanitize.Squash(e.Host)
 	if strings.Contains(host, ":") { // an IPv6 address
 		host = "[" + host + "]"
 	}
@@ -320,7 +314,7 @@ func failureLine(f Failure) string {
 	if f.Quota {
 		flags = append(flags, "quota")
 	}
-	return fmt.Sprintf("%s: %s (%s)", sanitize.Line(string(f.Source)), squash(sanitize.Line(f.Message)), strings.Join(flags, ", "))
+	return fmt.Sprintf("%s: %s (%s)", sanitize.Line(string(f.Source)), sanitize.Squash(f.Message), strings.Join(flags, ", "))
 }
 
 // header separates the address from its contributing hostnames and kind so the address can be
@@ -330,11 +324,11 @@ func header(rec *Record) (address, rest string) {
 	if len(rec.Hostnames) > 0 {
 		hosts := make([]string, len(rec.Hostnames))
 		for i, h := range rec.Hostnames {
-			hosts[i] = squash(sanitize.Line(h))
+			hosts[i] = sanitize.Squash(h)
 		}
 		rest = " (" + strings.Join(hosts, ", ") + ")"
 	}
-	return squash(sanitize.Line(rec.Address)), rest + " [" + squash(sanitize.Line(string(rec.Kind))) + "]"
+	return sanitize.Squash(rec.Address), rest + " [" + sanitize.Squash(string(rec.Kind)) + "]"
 }
 
 // plainRenderer lays records out for a stream that is not a terminal.
@@ -424,8 +418,7 @@ func (r termRenderer) rows(rows []row) []string {
 	for _, row := range rows {
 		switch row.kind {
 		case rowField:
-			head := strings.Repeat(" ", indent) + r.s.Depth.Bold(row.label) + strings.Repeat(" ", longest-layout.Measure(row.label)+2)
-			out = append(out, layout.Hang(head, layout.Plain(row.value), r.s.Cols(), layout.Spaces)...)
+			out = append(out, layout.Labelled(r.s, indent, longest, layout.Field{Label: row.label, Value: row.value})...)
 		case rowItem:
 			out = append(out, layout.Hang("  - ", layout.Plain(row.value), r.s.Cols(), layout.Spaces)...)
 		default:
@@ -438,8 +431,8 @@ func (r termRenderer) rows(rows []row) []string {
 // matchLine formats an abuse-list match and its date. Snapshot text is cleaned like any
 // external source text.
 func matchLine(entry, tag string, score float64, org, typ, updated string) string {
-	return fmt.Sprintf("%s: %s, %s%%, %s (%s), updated %s", clean(entry), clean(tag),
-		abusive.ScoreText(score), clean(org), clean(typ), clean(updated))
+	return fmt.Sprintf("%s: %s, %s%%, %s (%s), updated %s", sanitize.Squash(entry), sanitize.Squash(tag),
+		abusive.ScoreText(score), sanitize.Squash(org), sanitize.Squash(typ), sanitize.Squash(updated))
 }
 
 // dropLine formats a Spamhaus entry, available details and list date, cleaning all external
@@ -447,10 +440,10 @@ func matchLine(entry, tag string, score float64, org, typ, updated string) strin
 func dropLine(entry, updated string, details ...string) string {
 	parts := []string{}
 	for _, d := range details {
-		if d = clean(d); d != "" {
+		if d = sanitize.Squash(d); d != "" {
 			parts = append(parts, d)
 		}
 	}
-	parts = append(parts, "updated "+clean(updated))
-	return clean(entry) + ": " + strings.Join(parts, ", ")
+	parts = append(parts, "updated "+sanitize.Squash(updated))
+	return sanitize.Squash(entry) + ": " + strings.Join(parts, ", ")
 }

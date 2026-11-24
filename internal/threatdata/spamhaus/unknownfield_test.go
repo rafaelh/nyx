@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Reject controls throughout JSON, including unknown nested values and keys, even when
@@ -15,7 +16,7 @@ func TestParse_ControlCharacterInAnUnknownField(t *testing.T) {
 	r1 := `{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":"arin"}`
 	r6 := `{"cidr":"2001:db8::/32","sblid":"SBL6","rir":"apnic"}`
 	a1 := `{"asn":64500,"rir":"ripencc","domain":"example.net","cc":"RU","asname":"BAD-AS"}`
-	m := func(n int) string { return meta(v4Time, n) }
+	m := func(n int) string { return tdt.MetaLine(v4Time, n) }
 	type list int
 	const (
 		v4 list = iota
@@ -67,8 +68,8 @@ func TestParse_ControlCharacterInAnUnknownField(t *testing.T) {
 // A bundle fails as a whole when one of its lists holds a control character in an unknown field.
 func TestParseBundle_ControlCharacterInAnUnknownField(t *testing.T) {
 	t.Parallel()
-	v4, v6 := withMeta(v4Time, v4Rows...), withMeta(v6Time, v6Rows...)
-	asn := withMeta(asnTime, append(slices.Clone(asnRows), `{"asn":64999,"cc":"US","note":"a\u0085b"}`)...)
+	v4, v6 := tdt.DropFile(v4Time, v4Rows...), tdt.DropFile(v6Time, v6Rows...)
+	asn := tdt.DropFile(asnTime, append(slices.Clone(asnRows), `{"asn":64999,"cc":"US","note":"a\u0085b"}`)...)
 	if _, err := spamhaus.ParseBundle(spamhaus.Bundle(v4, v6, asn)); err == nil {
 		t.Error("ParseBundle accepted a bundle whose ASN-DROP holds a control character in an unknown field")
 	}
@@ -77,7 +78,7 @@ func TestParseBundle_ControlCharacterInAnUnknownField(t *testing.T) {
 // Ignore clean unknown fields regardless of type or nesting without changing recognised data.
 func TestParse_CleanUnknownFieldsPass(t *testing.T) {
 	t.Parallel()
-	l := mustDrop(t, withMeta(v4Time,
+	l := mustDrop(t, tdt.DropFile(v4Time,
 		`{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":"arin","note":"added 2026-09-01"}`,
 		`{"cidr":"198.51.100.0/24","sblid":"SBL2","size":256,"listed":true,"gone":null}`,
 		`{"cidr":"203.0.113.0/24","sblid":"SBL3","extra":{"a":"b","n":[1,"two",{"c":"Ünïcode – ok"}]},"kéy":"v"}`), false)
@@ -90,12 +91,12 @@ func TestParse_CleanUnknownFieldsPass(t *testing.T) {
 		t.Errorf("DROP entries = %+v, want %+v", l.Entries, want)
 	}
 
-	l6 := mustDrop(t, withMeta(v6Time, `{"cidr":"2001:db8::/32","sblid":"SBL6","tags":["a","b"]}`), true)
+	l6 := mustDrop(t, tdt.DropFile(v6Time, `{"cidr":"2001:db8::/32","sblid":"SBL6","tags":["a","b"]}`), true)
 	if len(l6.Entries) != 1 || l6.Entries[0].SBLID != "SBL6" {
 		t.Errorf("DROPv6 entries = %+v, want SBL6 alone", l6.Entries)
 	}
 
-	a := mustASNDrop(t, withMeta(asnTime,
+	a := mustASNDrop(t, tdt.DropFile(asnTime,
 		`{"asn":64500,"asname":"BAD-AS","cc":"RU","note":"Serviços Ltd"}`,
 		`{"asn":64501,"weight":1.5,"extra":{"since":"2026","flags":[false,null]}}`))
 	wantASN := []spamhaus.ASNEntry{{ASN: 64500, ASName: "BAD-AS", Country: "RU"}, {ASN: 64501}}

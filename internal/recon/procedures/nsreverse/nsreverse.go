@@ -59,38 +59,32 @@ type server struct {
 // Jobs emits sorted NS/MX server jobs only for self-hosted servers of in-scope roots. Keys
 // include host, mechanism and max-domain cap.
 func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		limit := v.Settings().NSReverse.MaxDomains
-		sc := v.Scope()
-		var servers []server
-		seen := map[string]bool{}
-		add := func(role, host string) {
-			host = dnsname.Normalise(host)
-			if k := role + "|" + host; host != "" && !seen[k] && v.SelfHosted(host) {
-				seen[k] = true
-				servers = append(servers, server{role, host, limit})
-			}
-		}
-		for _, rec := range v.Records(kinds.Resolution) {
-			if a := kinds.Resolution.Attrs(rec); a.Type == "NS" && sc.HostInScope(a.Name) {
-				add(roleNS, a.Value)
-			}
-		}
-		for _, rec := range v.Records(kinds.EmailPosture) {
-			if !sc.HostInScope(rec.Key) {
-				continue
-			}
-			for h := range strings.SplitSeq(kinds.EmailPosture.Attrs(rec).MX, ";") {
-				add(roleMX, h)
-			}
-		}
-		slices.SortFunc(servers, func(a, b server) int { return strings.Compare(a.key(), b.key()) })
-		for _, s := range servers {
-			if !yield(run.Job{Key: s.key(), Input: s}, nil) {
-				return
-			}
+	limit := v.Settings().NSReverse.MaxDomains
+	sc := v.Scope()
+	var servers []server
+	seen := map[string]bool{}
+	add := func(role, host string) {
+		host = dnsname.Normalise(host)
+		if k := role + "|" + host; host != "" && !seen[k] && v.SelfHosted(host) {
+			seen[k] = true
+			servers = append(servers, server{role, host, limit})
 		}
 	}
+	for _, rec := range v.Records(kinds.Resolution) {
+		if a := kinds.Resolution.Attrs(rec); a.Type == "NS" && sc.HostInScope(a.Name) {
+			add(roleNS, a.Value)
+		}
+	}
+	for _, rec := range v.Records(kinds.EmailPosture) {
+		if !sc.HostInScope(rec.Key) {
+			continue
+		}
+		for h := range strings.SplitSeq(kinds.EmailPosture.Attrs(rec).MX, ";") {
+			add(roleMX, h)
+		}
+	}
+	slices.SortFunc(servers, func(a, b server) int { return strings.Compare(a.key(), b.key()) })
+	return run.JobsOf(servers, func(s server) run.Job { return run.Job{Key: s.key(), Input: s} })
 }
 
 func (s server) key() string { return fmt.Sprintf("%s|%s|max=%d", s.role, s.host, s.max) }

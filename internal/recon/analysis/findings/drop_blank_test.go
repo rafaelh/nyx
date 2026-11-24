@@ -3,6 +3,8 @@ package findings_test
 import (
 	"slices"
 	"testing"
+
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Optional missing fields must not leave empty parentheses or doubled spaces in finding text.
@@ -43,7 +45,7 @@ func TestDrop_BlankFieldsLeaveNoGaps(t *testing.T) {
 func TestDrop_ASNFoundLine(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
-	w.drop = dropListsOf(t, nil, nil, []string{dropASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")})
+	w.drop = dropListsOf(t, nil, nil, []string{tdt.ASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")})
 	w.host("app.example.com", "203.0.113.17")
 	w.owner("203.0.113.17", 64500)
 	f := w.derive(t)["203.0.113.17"]

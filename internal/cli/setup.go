@@ -158,11 +158,11 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 			Input:   map[string][]string{"config": {abs}}}
 	}
 
-	names := procedureNames(d.Procedures)
+	names, required := procedureNames(d.Procedures), requiredProcedures(d.Procedures)
 	store := configedit.NewStore(configedit.StoreOptions{
 		Path: abs, Env: d.Env,
 		Sources: setupSources(d.Procedures), Procedures: setupProcedures(d.Procedures),
-		SkipEntry: func(name string) string { msg, _ := skipProblem(name, "", names); return msg },
+		SkipEntry: func(name string) string { msg, _ := skipProblem(name, "", names, required); return msg },
 		Getwd:     d.Getwd, NoFsync: d.NoFsync,
 	})
 	// Register all stored keys for redaction before any failure, including unknown sources

@@ -28,12 +28,12 @@ func mustSelect(t *testing.T, spec string, active bool) Fields {
 	return f
 }
 
-func TestFieldNames_AreTheKeysInOrder(t *testing.T) {
+func TestAllFields_AreTheKeysInOrder(t *testing.T) {
 	t.Parallel()
-	if got := strings.Join(FieldNames(false), ","); got != defaultKeys {
+	if got := strings.Join(AllFields(false).Names(), ","); got != defaultKeys {
 		t.Errorf("default keys\n got %s\nwant %s", got, defaultKeys)
 	}
-	if got := strings.Join(FieldNames(true), ","); got != activeKeys {
+	if got := strings.Join(AllFields(true).Names(), ","); got != activeKeys {
 		t.Errorf("active keys\n got %s\nwant %s", got, activeKeys)
 	}
 	if got := strings.Join(ActiveFieldNames(), ","); got != "not_contacted,ports,tls,web" {
@@ -325,7 +325,7 @@ func TestSelect_AbusiveKeysAndTheirSources(t *testing.T) {
 		t.Errorf("keys in table order = %s", got)
 	}
 	// Both come before the keys only --active has.
-	names := FieldNames(true)
+	names := AllFields(true).Names()
 	i, j := slices.Index(names, "abusive_asn"), slices.Index(names, "not_contacted")
 	if i < 0 || j < 0 || i >= j || slices.Index(names, "reverse_ip_count") >= slices.Index(names, "abusive_networks") {
 		t.Errorf("order of the keys: %v", names)

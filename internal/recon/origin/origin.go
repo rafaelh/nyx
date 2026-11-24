@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/recon/inventory"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // How a candidate was found, in the order a candidate lists them.

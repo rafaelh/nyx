@@ -52,6 +52,10 @@ func (*Procedure) Name() string                      { return "providerranges" }
 func (*Procedure) Contact() run.Contact              { return run.ThirdParty }
 func (*Procedure) Configured(run.Env) (bool, string) { return true, "" }
 
+// Required: provider ranges identify shared addresses that must not be port-checked, so it
+// cannot be skipped.
+func (*Procedure) Required() {}
+
 // Sources are the hosts the lists are fetched from.
 func (*Procedure) Sources() []string {
 	var hosts []string
@@ -64,13 +68,7 @@ func (*Procedure) Sources() []string {
 }
 
 func (*Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, l := range lists {
-			if !yield(run.Job{Key: l.key, Input: l}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(lists, func(l list) run.Job { return run.Job{Key: l.key, Input: l} })
 }
 
 // Run requires a readable, nonempty range list. Failures retry on later runs while the previous

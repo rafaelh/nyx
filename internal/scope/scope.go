@@ -128,6 +128,9 @@ func (s *Scope) cidrOf(a netip.Addr) (input.Exclusion, bool) {
 
 func (s *Scope) HostInScope(host string) bool { return s.ClassifyHost(host).Class == InScope }
 
+// Addrs returns the addresses a hostname resolves to, by its normalised name.
+func (s *Scope) Addrs(host string) []netip.Addr { return s.resolved[dnsname.Normalise(host)] }
+
 // ClassifyHost applies name exclusions and excluded resolved CIDRs before classifying a name as
 // in scope or a candidate.
 func (s *Scope) ClassifyHost(host string) Classification {
@@ -191,6 +194,15 @@ func (s *Scope) exclusion(a netip.Addr) (why string, cidr, ok bool) {
 	return why, false, ok
 }
 
+// excluded is exclusion without its reason.
+func (s *Scope) excluded(a netip.Addr) (cidr, ok bool) {
+	if _, ok := s.cidrOf(a); ok {
+		return true, true
+	}
+	_, ok = s.exclAddrs[a]
+	return false, ok
+}
+
 // ExcludedFor always blocks excluded CIDRs. An address belonging to a name-excluded host is
 // blocked unless it is known shared infrastructure. Unknown ownership does not count as shared.
 func (s *Scope) ExcludedFor(a netip.Addr, shared bool) (bool, string) {
@@ -208,24 +220,54 @@ type Owner func(netip.Addr) (shared, known bool)
 // distinguishes an exclusion from other refusals.
 func (s *Scope) PortEligible(a netip.Addr, owner Owner) (ok bool, why string, excluded bool) {
 	a = a.Unmap()
-	if why, cidr, ex := s.exclusion(a); ex {
+	switch s.portVerdict(a, owner) {
+	case portEligible:
+		return true, "", false
+	case portExcluded:
+		why, _, _ := s.exclusion(a)
+		return false, why, true
+	case portShared:
+		return false, "address " + a.String() + " is shared provider infrastructure or its owner is unknown", false
+	case portOutside: // refused below
+	}
+	return false, "address " + a.String() + " is not in scope", false
+}
+
+// PortAllowed is PortEligible's verdict alone, for callers that discard the reason it would
+// build.
+func (s *Scope) PortAllowed(a netip.Addr, owner Owner) bool {
+	return s.portVerdict(a.Unmap(), owner) == portEligible
+}
+
+// portVerdict is PortEligible's decision for an unmapped address.
+type portVerdict uint8
+
+const (
+	portEligible portVerdict = iota
+	portExcluded             // an exclusion applies
+	portShared               // shared provider infrastructure, or an unknown owner
+	portOutside              // not in scope
+)
+
+func (s *Scope) portVerdict(a netip.Addr, owner Owner) portVerdict {
+	if cidr, ex := s.excluded(a); ex {
 		if cidr {
-			return false, why, true
+			return portExcluded
 		}
 		if shared, _ := owner(a); !shared {
-			return false, why, true
+			return portExcluded
 		}
 	}
 	if s.InScopeIP(a) {
-		return true, "", false
+		return portEligible
 	}
 	if shared, known := owner(a); shared || !known {
-		return false, "address " + a.String() + " is shared provider infrastructure or its owner is unknown", false
+		return portShared
 	}
 	if s.hostAddrs[a] {
-		return true, "", false
+		return portEligible
 	}
-	return false, "address " + a.String() + " is not in scope", false
+	return portOutside
 }
 
 // Netblocks returns the in-scope netblocks.

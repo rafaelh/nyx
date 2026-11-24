@@ -14,6 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // An update that syncs its files (NoFsync unset) puts the same files in place.
@@ -45,7 +46,7 @@ func TestUpdate_AnUnreadableStateIsNoState(t *testing.T) {
 	if s := w.load(now); len(s.Stale) != 2 || len(s.Warnings) != 0 {
 		t.Errorf("with a damaged state file: stale %+v, warnings %+v; want both sources stale and no warning", s.Stale, s.Warnings)
 	}
-	w.serveSpamhaus(lists{dropFile(v4Row, old, 0, 80), dropFile(v6Row, old, 0, 20), dropFile(asnRow, old, 0, 20)})
+	w.serveSpamhaus(lists{tdt.GenDropFile(tdt.GenV4Row, old, 0, 80), tdt.GenDropFile(tdt.GenV6Row, old, 0, 20), tdt.GenDropFile(tdt.GenASNRow, old, 0, 20)})
 	if s := source(t, w.update(), threatdata.Spamhaus); s.Outcome != threatdata.Current {
 		t.Fatalf("%+v, want current", s)
 	}

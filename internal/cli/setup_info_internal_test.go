@@ -49,7 +49,11 @@ func TestSetupProceduresLeaveOutTheUnskippable(t *testing.T) {
 			t.Errorf("procedure %s has no description", s.Name)
 		}
 	}
-	for _, u := range unskippable {
+	required := []string{"providerranges", "resolve", "wildcard", "ipowner"}
+	if got := requiredProcedures(defaultProcedures()); !slices.Equal(got, required) {
+		t.Errorf("required procedures = %v, want %v", got, required)
+	}
+	for _, u := range required {
 		if slices.Contains(names, u) {
 			t.Errorf("%s is offered but cannot be skipped", u)
 		}
@@ -57,7 +61,7 @@ func TestSetupProceduresLeaveOutTheUnskippable(t *testing.T) {
 	if !slices.Contains(names, "crtsh") {
 		t.Errorf("skippable procedures are missing: %v", names)
 	}
-	if want := len(defaultProcedures()) - len(unskippable); len(names) != want {
+	if want := len(defaultProcedures()) - len(required); len(names) != want {
 		t.Errorf("%d procedures offered, want %d", len(names), want)
 	}
 }

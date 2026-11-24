@@ -22,7 +22,7 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/knowledge/weburl"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // DefaultUserAgent is the User-Agent of a build with no version.
@@ -471,7 +471,7 @@ func (e *Egress) dialFirst(addrs []netip.Addr, port int, deadline func() *time.T
 			if err == nil {
 				return c, nil
 			}
-			last = localRoute(err, a, e.routeLookup())
+			last = localRoute(err, a, udpRoute)
 		}
 		return nil, last
 	}
@@ -517,7 +517,7 @@ func readCapped(r io.Reader, n int) (body []byte, truncated bool, err error) {
 // infrastructure is exempt only from name-based exclusions.
 func (p *Policy) vetted(host string) []netip.Addr {
 	var out []netip.Addr
-	for _, a := range p.Resolutions[host] {
+	for _, a := range p.Scope.Addrs(host) {
 		if ok, why := p.Scope.ExcludedFor(a, p.isShared(a)); ok {
 			p.reportExcluded(a.String(), why)
 			continue

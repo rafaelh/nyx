@@ -18,6 +18,10 @@ var lineBreaks = strings.NewReplacer("\n", " ", "\r", " ")
 // Line also replaces line breaks with spaces for single-line display.
 func Line(s string) string { return Text(lineBreaks.Replace(s)) }
 
+// Squash is Line with each run of whitespace collapsed to one space and the ends trimmed, so
+// that terminal wrapping and plain layout see the same words.
+func Squash(s string) string { return strings.Join(strings.Fields(Line(s)), " ") }
+
 // Text removes terminal escapes, controls and bidi overrides, replacing tabs with spaces.
 func Text(s string) string {
 	if strings.IndexByte(s, 0x1b) >= 0 { // every escape sequence starts with ESC

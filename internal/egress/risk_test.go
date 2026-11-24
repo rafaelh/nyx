@@ -10,7 +10,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // recorder is an HTTP server that logs "METHOD host path" for each request.

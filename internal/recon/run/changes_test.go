@@ -9,8 +9,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/output"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 var targets = map[string]bool{"httpprobe": true, "portscan": true}

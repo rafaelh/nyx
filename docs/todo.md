@@ -118,6 +118,19 @@ Confirm each with `/code-review` before fixing.
   from text to numeric.
 
 
+
+Too big for a clean-up pass (redesigns):
+In the runner and store: caching completed jobs, writing only changed analysis rows, re-reading only changed keys, and not encoding each observation twice.
+A Describer interface to generate procedure help from the procedures.
+Splitting recon/report into a shared console package.
+Applying the "confirmed port supersedes reported port" rule in one place.
+One Listed rule shared by the output files and changes.csv.
+Moving storage attribution out of findings.
+Normalising addresses in one layer.
+One atomic file-writer helper for five call sites.
+Rendering the summary from one list of blocks.
+
+
 ## Architecture
 
 internal/cli has about 4.2k lines of code and about 40k lines of tests across 93 files. That's intentional (behaviour tests drive cli.Execute), but it means one package does most of the test work and Go can't split it across packages in parallel. If make test gets slow, the option is to move the harness into an exported internal/clitest and split the tests by command (ip, cve, setup, recon). It's not worth doing until the time hurts.

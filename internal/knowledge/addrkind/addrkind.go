@@ -119,14 +119,3 @@ func Of(a netip.Addr) Kind {
 	}
 	return Public
 }
-
-// names preserves documentation order for non-public kinds.
-var names = []string{
-	"private", "ula", "loopback", "link-local", "cgnat", "multicast", "unspecified", "this-network",
-	"broadcast", "documentation", "benchmarking", "reserved", "ietf-protocol", "6to4", "teredo",
-	"nat64-local", "discard", "dummy", "srv6", "nat64-discovery", "6a44-relay", "ipv4-mapped",
-}
-
-// Names lists non-public kinds in stable order. ipv4-mapped remains a registry label even
-// though mapped addresses use their IPv4 classification.
-func Names() []string { return append([]string(nil), names...) }

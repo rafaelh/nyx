@@ -2,7 +2,7 @@ package kinds
 
 import (
 	"github.com/rafaelh/nyx/internal/recon/inventory"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // ASN records an autonomous system found by an organisation search, keyed "AS<n>". It stays a

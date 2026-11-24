@@ -18,7 +18,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // CNAME links keep their owner names, in answer order, and survive
@@ -185,7 +185,7 @@ func newTCPEnv(t *testing.T, cfg scope.Config, mutate func(*egress.Policy), dial
 	if cfg.Resolutions == nil {
 		cfg.Resolutions = map[string][]netip.Addr{}
 	}
-	p := &egress.Policy{Scope: scope.New(cfg), Ack: true, Ports: []int{port}, Resolutions: cfg.Resolutions}
+	p := &egress.Policy{Scope: scope.New(cfg), Ack: true, Ports: []int{port}}
 	if mutate != nil {
 		mutate(p)
 	}
@@ -273,7 +273,6 @@ func TestHTTPUnknownOwnerIsNotShared(t *testing.T) {
 	f := newHTTPFixture(t, egress.Options{}, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	res := map[string][]netip.Addr{"www.example.com": {addr("127.0.0.1")}, "admin.example.com": {addr("127.0.0.1")}}
 	f.pol.Scope = scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "admin.example.com"), Resolutions: res})
-	f.pol.Resolutions = res
 	f.pol.OwnerUnknown = func(netip.Addr) bool { return true }
 	r, _ := f.client().Get(context.Background(), egress.Root("www.example.com", "http", f.port))
 	if !isRefused(r) {

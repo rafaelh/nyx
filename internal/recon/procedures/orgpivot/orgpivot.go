@@ -44,13 +44,7 @@ func (s orgProcedure) CandidateSources() map[string]string {
 }
 
 func (orgProcedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, o := range v.Inputs().Orgs {
-			if !yield(run.Job{Key: o, Input: o}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(v.Inputs().Orgs, func(o string) run.Job { return run.Job{Key: o, Input: o} })
 }
 
 func rootObs(names []string) []run.Observation {

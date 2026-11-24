@@ -16,10 +16,11 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/analysis/findings"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 func ip(s string) netip.Addr { return netip.MustParseAddr(s) }
@@ -238,7 +239,7 @@ func TestAbusive_NetblockOwnerAppliesToTheUnit(t *testing.T) {
 			w.snap = snapshotOf(nil, []abusive.ASNEntry{{Rank: 1, ASN: 64050, ScoreTag: "High", AbuseScore: 90, Org: "Bad AS", OrgType: "hosting"}})
 		}},
 		{"Spamhaus ASN-DROP", "drop-asn", func(t *testing.T, w *abusiveWorld) {
-			w.drop = dropListsOf(t, nil, nil, []string{dropASNRow(64050, "BAD-AS", "RU", "bad.example", "ripencc")})
+			w.drop = dropListsOf(t, nil, nil, []string{tdt.ASNRow(64050, "BAD-AS", "RU", "bad.example", "ripencc")})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -453,53 +454,20 @@ const (
 	dropASNDate = "2026-10-02T00:00:01Z"
 )
 
-// dropNetRow builds one source-format network row.
-func dropNetRow(cidr, sbl, rir string) string {
-	return fmt.Sprintf(`{"cidr":%q,"sblid":%q,"rir":%q}`, cidr, sbl, rir)
-}
-
-// dropASNRow builds one source-format ASN row.
-func dropASNRow(asn int, name, cc, domain, rir string) string {
-	return fmt.Sprintf(`{"asn":%d,"rir":%q,"domain":%q,"cc":%q,"asname":%q}`, asn, rir, domain, cc, name)
-}
-
-// dropFile writes source rows followed by metadata.
-func dropFile(at time.Time, rows []string) []byte {
-	var b strings.Builder
-	for _, r := range rows {
-		b.WriteString(r + "\n")
-	}
-	fmt.Fprintf(&b, `{"type":"metadata","timestamp":%d,"size":1,"records":%d,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`+"\n",
-		at.Unix(), len(rows))
-	return []byte(b.String())
-}
-
 // dropListsOf is the three lists of the rows, each with its own date.
 func dropListsOf(t *testing.T, v4, v6, asns []string) *spamhaus.Lists {
 	t.Helper()
-	l4, err := spamhaus.ParseDrop(dropFile(dropV4Time, v4), false)
-	if err != nil {
-		t.Fatalf("DROP: %v", err)
-	}
-	l6, err := spamhaus.ParseDrop(dropFile(dropV6Time, v6), true)
-	if err != nil {
-		t.Fatalf("DROPv6: %v", err)
-	}
-	la, err := spamhaus.ParseASNDrop(dropFile(dropASNTime, asns))
-	if err != nil {
-		t.Fatalf("ASN-DROP: %v", err)
-	}
-	return &spamhaus.Lists{V4: l4, V6: l6, ASNs: la}
+	return tdt.Lists(t, tdt.DropFile(dropV4Time, v4...), tdt.DropFile(dropV6Time, v6...), tdt.DropFile(dropASNTime, asns...))
 }
 
 // dropEverything lists in DROP every network the address tests use, as everything does in ipapi.is's list.
 func dropEverything(t *testing.T) *spamhaus.Lists {
 	t.Helper()
 	return dropListsOf(t, []string{
-		dropNetRow("203.0.113.0/24", "SBL1", "arin"),
-		dropNetRow("198.51.100.0/24", "SBL2", "arin"),
-		dropNetRow("104.16.0.0/16", "SBL3", "arin"),
-		dropNetRow("192.0.2.0/24", "SBL4", "arin"),
+		tdt.NetRow("203.0.113.0/24", "SBL1", "arin"),
+		tdt.NetRow("198.51.100.0/24", "SBL2", "arin"),
+		tdt.NetRow("104.16.0.0/16", "SBL3", "arin"),
+		tdt.NetRow("192.0.2.0/24", "SBL4", "arin"),
 	}, nil, nil)
 }
 
@@ -569,10 +537,10 @@ func comboWorld(t *testing.T) *abusiveWorld {
 		w.host(fmt.Sprintf("h%d.example.com", m), a)
 		w.owner(a, as)
 		if m&matchDropNet != 0 {
-			v4 = append(v4, dropNetRow(comboBlock(m), fmt.Sprintf("SBL%d", 100+m), "ripencc"))
+			v4 = append(v4, tdt.NetRow(comboBlock(m), fmt.Sprintf("SBL%d", 100+m), "ripencc"))
 		}
 		if m&matchDropASN != 0 {
-			asnDrop = append(asnDrop, dropASNRow(as, fmt.Sprintf("DROP-AS-%d", m), "RU", "bad.example", "ripencc"))
+			asnDrop = append(asnDrop, tdt.ASNRow(as, fmt.Sprintf("DROP-AS-%d", m), "RU", "bad.example", "ripencc"))
 		}
 		if m&matchIpapiNet != 0 {
 			nets = append(nets, netEntry(m+1, fmt.Sprintf("203.0.113.%d", 16*m), fmt.Sprintf("203.0.113.%d", 16*m+15), "High", 80, fmt.Sprintf("Net Org %d", m), "hosting"))
@@ -645,11 +613,11 @@ func TestDrop_FindingContent(t *testing.T) {
 		[]abusive.ASNEntry{{Rank: 2, ASN: 64500, ScoreTag: "Very High", AbuseScore: 100, Org: "Bad AS", OrgType: "isp"}})
 	w.drop = dropListsOf(t,
 		[]string{
-			dropNetRow("203.0.113.0/24", "SBL5", "lacnic"),
-			dropNetRow("203.0.113.16/28", "SBL6", "ripencc"),
-			dropNetRow("192.0.2.0/24", "SBL7", "arin"), // holds nothing of the engagement
+			tdt.NetRow("203.0.113.0/24", "SBL5", "lacnic"),
+			tdt.NetRow("203.0.113.16/28", "SBL6", "ripencc"),
+			tdt.NetRow("192.0.2.0/24", "SBL7", "arin"), // holds nothing of the engagement
 		}, nil,
-		[]string{dropASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc"), dropASNRow(64501, "OTHER-AS", "CN", "other.example", "apnic")})
+		[]string{tdt.ASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc"), tdt.ASNRow(64501, "OTHER-AS", "CN", "other.example", "apnic")})
 	w.host("app.example.com", "203.0.113.17")
 	w.owner("203.0.113.17", 64500)
 	f := w.derive(t)["203.0.113.17"]
@@ -687,7 +655,7 @@ func TestDrop_FindingContent(t *testing.T) {
 func TestDrop_ASNOnlyFinding(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
-	w.drop = dropListsOf(t, nil, nil, []string{dropASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")})
+	w.drop = dropListsOf(t, nil, nil, []string{tdt.ASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")})
 	w.host("app.example.com", "203.0.113.17")
 	w.owner("203.0.113.17", 64500)
 	f := w.derive(t)["203.0.113.17"]
@@ -715,8 +683,8 @@ func TestDrop_ASNOnlyFinding(t *testing.T) {
 func TestDrop_IPv6AddressAndItsListsDate(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
-	w.drop = dropListsOf(t, []string{dropNetRow("0.0.0.0/0", "SBL40", "arin")},
-		[]string{dropNetRow("2001:db8::/32", "SBL10", "apnic"), dropNetRow("2001:db8:12::/48", "SBL11", "arin")}, nil)
+	w.drop = dropListsOf(t, []string{tdt.NetRow("0.0.0.0/0", "SBL40", "arin")},
+		[]string{tdt.NetRow("2001:db8::/32", "SBL10", "apnic"), tdt.NetRow("2001:db8:12::/48", "SBL11", "arin")}, nil)
 	w.hosts = append(w.hosts, inventory.Host{Name: "v6.example.com", Producers: []string{"crtsh"}})
 	w.res = append(w.res, inventory.Resolution{Name: "v6.example.com", Type: "AAAA", Value: "2001:db8:12::5"})
 	f := w.derive(t)["2001:db8:12::5"]
@@ -744,11 +712,11 @@ func TestDrop_WithoutTheIpapiSnapshot(t *testing.T) {
 	if got := w.derive(t); len(got) != 0 {
 		t.Errorf("empty lists: %v", got)
 	}
-	w.drop = dropListsOf(t, []string{dropNetRow("192.0.2.0/24", "SBL1", "arin")}, nil, nil)
+	w.drop = dropListsOf(t, []string{tdt.NetRow("192.0.2.0/24", "SBL1", "arin")}, nil, nil)
 	if got := w.derive(t); len(got) != 0 {
 		t.Errorf("an unlisted address: %v", got)
 	}
-	w.drop = dropListsOf(t, []string{dropNetRow("203.0.113.0/24", "SBL1", "arin")}, nil, nil)
+	w.drop = dropListsOf(t, []string{tdt.NetRow("203.0.113.0/24", "SBL1", "arin")}, nil, nil)
 	if f := w.derive(t)["203.0.113.17"]; f.Type != "drop-network" || f.Severity != "high" {
 		t.Errorf("no snapshot, a DROP network: %+v", f)
 	}
@@ -772,8 +740,8 @@ func TestDrop_OnlyTheFindingChanges(t *testing.T) {
 		return derive(in)
 	}
 	without := world(nil)
-	with := world(dropListsOf(t, []string{dropNetRow("198.51.100.0/24", "SBL1", "arin")}, nil,
-		[]string{dropASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")}))
+	with := world(dropListsOf(t, []string{tdt.NetRow("198.51.100.0/24", "SBL1", "arin")}, nil,
+		[]string{tdt.ASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")}))
 	others := func(fs []findings.Finding) []findings.Finding {
 		return slices.DeleteFunc(slices.Clone(fs), func(f findings.Finding) bool { return f.Category == findings.AbusiveNetwork })
 	}
@@ -798,9 +766,9 @@ func TestDrop_OneFindingWhateverItsStrongestMatch(t *testing.T) {
 	w.host("app.example.com", "203.0.113.17")
 	w.owner("203.0.113.17", 64500)
 	w.snap = snapshotOf([]abusive.NetworkEntry{netEntry(1, "203.0.113.0", "203.0.113.255", "High", 80, "Net Org", "hosting")}, nil)
-	w.drop = dropListsOf(t, []string{dropNetRow("203.0.113.0/24", "SBL1", "arin")}, nil, []string{dropASNRow(64500, "BAD-AS", "RU", "", "")})
+	w.drop = dropListsOf(t, []string{tdt.NetRow("203.0.113.0/24", "SBL1", "arin")}, nil, []string{tdt.ASNRow(64500, "BAD-AS", "RU", "", "")})
 	high := w.derive(t)["203.0.113.17"]
-	w.drop = dropListsOf(t, nil, nil, []string{dropASNRow(64500, "BAD-AS", "RU", "", "")})
+	w.drop = dropListsOf(t, nil, nil, []string{tdt.ASNRow(64500, "BAD-AS", "RU", "", "")})
 	dropASN := w.derive(t)["203.0.113.17"]
 	w.drop = nil
 	medium := w.derive(t)["203.0.113.17"]
@@ -822,8 +790,8 @@ func TestDrop_OneFindingWhateverItsStrongestMatch(t *testing.T) {
 func TestDrop_TextIsSanitised(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
-	w.drop = dropListsOf(t, []string{dropNetRow("203.0.113.0/24", "SBL\u202e1", "ar\u2066in")}, nil,
-		[]string{dropASNRow(64500, "BAD\u202eAS", "R\u200fU", "exa\u2067mple.net", "ripe\u200encc")})
+	w.drop = dropListsOf(t, []string{tdt.NetRow("203.0.113.0/24", "SBL\u202e1", "ar\u2066in")}, nil,
+		[]string{tdt.ASNRow(64500, "BAD\u202eAS", "R\u200fU", "exa\u2067mple.net", "ripe\u200encc")})
 	w.host("app.example.com", "203.0.113.17")
 	w.owner("203.0.113.17", 64500)
 	f := w.derive(t)["203.0.113.17"]
@@ -845,8 +813,8 @@ func TestDrop_RiskFile(t *testing.T) {
 	w := newAbusiveWorld()
 	w.snap = everything()
 	w.drop = dropListsOf(t,
-		[]string{dropNetRow("203.0.113.0/24", "SBL5", "lacnic"), dropNetRow("203.0.113.16/28", "SBL6", "ripencc")}, nil,
-		[]string{dropASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")})
+		[]string{tdt.NetRow("203.0.113.0/24", "SBL5", "lacnic"), tdt.NetRow("203.0.113.16/28", "SBL6", "ripencc")}, nil,
+		[]string{tdt.ASNRow(64500, "BAD-AS", "RU", "example.net", "ripencc")})
 	w.host("app.example.com", "203.0.113.17")
 	w.owner("203.0.113.17", 64500)
 	f := w.derive(t)["203.0.113.17"]

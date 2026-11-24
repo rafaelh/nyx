@@ -21,8 +21,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/origin"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Contact identifies whether a procedure contacts third parties or targets. Procedures combining
@@ -114,11 +114,8 @@ type Env struct {
 	Authorised bool
 }
 
-// Key returns the configured API key for a source.
-func (e Env) Key(source string) (config.Secret, bool) {
-	k, ok := e.Settings.Keys[strings.ToLower(source)]
-	return k, ok && k.Reveal() != ""
-}
+// Key returns the configured API key for a source; see config.Settings.Key.
+func (e Env) Key(source string) (config.Secret, bool) { return e.Settings.Key(source) }
 
 // Procedure performs discovery as resumable jobs. Negative results such as closed ports, NXDOMAIN
 // or policy refusal complete a job with any observations found. Returning an error marks a
@@ -176,6 +173,12 @@ func CandidateFamilies(procedures []Procedure) candidates.Families {
 // netblocks observed under a job keyed by that ASN.
 type ASNExpander interface {
 	ExpandsInputASNs()
+}
+
+// Required marks procedures whose records other procedures' contact decisions depend on, such as
+// which names are real and which addresses are shared, so --skip and the skip setting refuse them.
+type Required interface {
+	Required()
 }
 
 // Retiring marks procedures whose completed jobs can become obsolete, such as jobs keyed by a

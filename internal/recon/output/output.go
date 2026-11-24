@@ -18,8 +18,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/analysis/findings"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 

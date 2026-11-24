@@ -70,6 +70,86 @@ type NetworkList struct {
 	Meta    Meta
 	Entries []NetworkEntry
 	Raw     []byte
+
+	idx *netIndex // built by the parse; nil on a list made by hand
+}
+
+// netIndex finds the entries containing an address without scanning them all.
+type netIndex struct {
+	order  []int        // indices in Entries, ordered by first address
+	maxEnd []netip.Addr // maxEnd[i] is the greatest last address of the entries order[:i+1]
+}
+
+// index builds the list's netIndex.
+func (l NetworkList) index() *netIndex {
+	ix := &netIndex{order: make([]int, len(l.Entries)), maxEnd: make([]netip.Addr, len(l.Entries))}
+	for i := range ix.order {
+		ix.order[i] = i
+	}
+	slices.SortFunc(ix.order, func(x, y int) int {
+		return l.Entries[x].CIDR.Masked().Addr().Compare(l.Entries[y].CIDR.Masked().Addr())
+	})
+	for i, e := range ix.order {
+		ix.maxEnd[i] = lastAddr(l.Entries[e].CIDR)
+		if i > 0 && ix.maxEnd[i-1].Compare(ix.maxEnd[i]) > 0 {
+			ix.maxEnd[i] = ix.maxEnd[i-1]
+		}
+	}
+	return ix
+}
+
+// lastAddr is the last address of a prefix.
+func lastAddr(p netip.Prefix) netip.Addr {
+	p = p.Masked()
+	setHost := func(b []byte) {
+		bits := p.Bits()
+		for i := range b {
+			switch {
+			case bits >= 8:
+				bits -= 8
+			case bits > 0:
+				b[i] |= 0xff >> bits
+				bits = 0
+			default:
+				b[i] = 0xff
+			}
+		}
+	}
+	if p.Addr().Is4() {
+		b := p.Addr().As4()
+		setHost(b[:])
+		return netip.AddrFrom4(b)
+	}
+	b := p.Addr().As16()
+	setHost(b[:])
+	return netip.AddrFrom16(b)
+}
+
+// containing returns the indices in Entries of the entries containing a, in no particular order.
+func (l NetworkList) containing(a netip.Addr) []int {
+	var hits []int
+	ix := l.idx
+	if ix == nil || len(ix.order) != len(l.Entries) {
+		for i, e := range l.Entries {
+			if e.CIDR.Contains(a) {
+				hits = append(hits, i)
+			}
+		}
+		return hits
+	}
+	// Skip entries starting after a; stop scanning backwards when no earlier entry can reach it.
+	n, _ := slices.BinarySearchFunc(ix.order, a, func(i int, a netip.Addr) int {
+		if l.Entries[i].CIDR.Masked().Addr().Compare(a) <= 0 {
+			return -1
+		}
+		return 1
+	})
+	for n--; n >= 0 && ix.maxEnd[n].Compare(a) >= 0; n-- {
+		if i := ix.order[n]; l.Entries[i].CIDR.Contains(a) {
+			hits = append(hits, i)
+		}
+	}
+	return hits
 }
 
 // ASNList preserves ASN-DROP entries, metadata and source bytes.
@@ -172,6 +252,7 @@ func ParseDrop(b []byte, v6 bool) (NetworkList, error) {
 	if err := checkCount(meta, len(l.Entries)); err != nil {
 		return NetworkList{}, err
 	}
+	l.idx = l.index()
 	return l, nil
 }
 
@@ -387,16 +468,17 @@ func (l Lists) Networks(a netip.Addr) []NetworkMatch {
 	if a.Is4() {
 		list = l.V4
 	}
-	var hits []NetworkEntry
-	for _, e := range list.Entries {
-		if e.CIDR.Contains(a) {
-			hits = append(hits, e)
+	hits := list.containing(a)
+	slices.SortFunc(hits, func(x, y int) int {
+		if c := list.Entries[y].CIDR.Bits() - list.Entries[x].CIDR.Bits(); c != 0 {
+			return c
 		}
-	}
-	slices.SortStableFunc(hits, func(x, y NetworkEntry) int { return y.CIDR.Bits() - x.CIDR.Bits() })
+		return x - y // file order
+	})
 	out := make([]NetworkMatch, 0, len(hits))
 	updated := list.Meta.Updated()
-	for _, e := range hits {
+	for _, i := range hits {
+		e := list.Entries[i]
 		out = append(out, NetworkMatch{CIDR: e.CIDR.String(), SBLID: sanitize.Line(e.SBLID), RIR: sanitize.Line(e.RIR), Updated: updated})
 	}
 	return out

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // originFixture routes logical candidate addresses to loopback HTTP/HTTPS without changing
@@ -79,7 +79,7 @@ func newOriginFixture(t *testing.T) *originFixture {
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: res,
 			Netblocks:  []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
 			Exclusions: mustExcl(t, "198.51.100.66", "admin.example.com")}),
-		Ack: true, Resolutions: res,
+		Ack:          true,
 		Shared:       func(a netip.Addr) bool { return a == addr(sharedAddr) },
 		OwnerUnknown: func(a netip.Addr) bool { return a == addr(unknownAddr) },
 	}

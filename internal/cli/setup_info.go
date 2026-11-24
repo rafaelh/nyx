@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/config"
@@ -63,7 +62,7 @@ func setupSources(procedures []run.Procedure) []setup.Source {
 func setupProcedures(procedures []run.Procedure) []setup.Procedure {
 	var out []setup.Procedure
 	for _, s := range procedures {
-		if slices.Contains(unskippable, s.Name()) {
+		if isRequired(s) {
 			continue
 		}
 		out = append(out, setup.Procedure{Name: s.Name(), Does: procedureHelps[s.Name()].does})

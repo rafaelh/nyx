@@ -202,12 +202,10 @@ func isRedirect(status int) bool {
 func redirectTarget(r egress.Response) (string, bool) { return resolve(r.URL(), r.Location) }
 
 // otherHost records only a different domain name. Recording self would incorrectly promote
-// permutation-only names to generator seeds; IP literals are not hostname candidates.
+// permutation-only names to generator seeds; IP literals are not hostname candidates, and
+// input.ParseDomain rejects them.
 func otherHost(host, self string) (string, bool) {
 	if host == strings.ToLower(self) {
-		return "", false
-	}
-	if _, err := netip.ParseAddr(host); err == nil {
 		return "", false
 	}
 	d, err := input.ParseDomain(host)

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func excl(t *testing.T, entries ...string) []input.Exclusion {
@@ -180,6 +180,9 @@ func TestPortEligible(t *testing.T) {
 		}
 		if !ok && why == "" {
 			t.Errorf("%s: a refusal needs a reason", c.name)
+		}
+		if allowed := s.PortAllowed(netip.MustParseAddr(c.addr), owner); allowed != ok {
+			t.Errorf("%s: PortAllowed = %v, PortEligible = %v", c.name, allowed, ok)
 		}
 	}
 }

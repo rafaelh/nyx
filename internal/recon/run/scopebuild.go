@@ -8,8 +8,8 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // scopeKinds lists BuildScope's record dependencies. Candidate ranking shares this list so a

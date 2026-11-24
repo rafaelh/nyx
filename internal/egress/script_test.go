@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func scriptURL(host string, port int, path string) string {
@@ -69,11 +69,10 @@ func TestScript_StillSubjectToHostPolicy(t *testing.T) {
 	}
 	build := func(passive bool) *egress.Policy {
 		return &egress.Policy{
-			Scope:       scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "bad.example.com"), Resolutions: res}),
-			Ack:         true,
-			Passive:     passive,
-			Ports:       []int{f.port},
-			Resolutions: res,
+			Scope:   scope.New(scope.Config{Roots: []string{"example.com"}, Exclusions: mustExcl(t, "bad.example.com"), Resolutions: res}),
+			Ack:     true,
+			Passive: passive,
+			Ports:   []int{f.port},
 			Scripts: map[string]bool{
 				scriptURL("www.example.com", f.port, "/a.js"):  true,
 				scriptURL("cand.example.org", f.port, "/a.js"): true,

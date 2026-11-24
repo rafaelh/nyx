@@ -5,8 +5,8 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // CNAME derives SaaS dependencies for in-scope, non-wildcard-only names. Each matched provider

@@ -25,18 +25,14 @@ func Tokens(org string) []string {
 	return out
 }
 
-// Matches requires every meaningful organisation word; empty/legal-suffix-only inputs never
-// match.
-func Matches(org, name string) bool { return New(org).Matches(name) }
-
 // Org caches tokenised input for repeated name comparisons.
 type Org struct{ words []string }
 
 // New returns org ready to match names against.
 func New(org string) Org { return Org{Tokens(org)} }
 
-// Matches reports whether name contains every word of the organisation (see
-// the package function Matches).
+// Matches reports whether name contains every meaningful word of the organisation. An
+// organisation that is empty or only a legal suffix never matches.
 func (o Org) Matches(name string) bool {
 	if len(o.words) == 0 {
 		return false

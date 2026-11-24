@@ -28,13 +28,7 @@ func (*Procedure) ExpandsInputASNs() {}
 
 // Jobs yields one job per input ASN, keyed "AS<n>".
 func (*Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, a := range v.Inputs().ASNs {
-			if !yield(run.Job{Key: a, Input: a}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(v.Inputs().ASNs, func(a string) run.Job { return run.Job{Key: a, Input: a} })
 }
 
 // Run fetches the prefixes announced by the ASN. Anything but a well-formed

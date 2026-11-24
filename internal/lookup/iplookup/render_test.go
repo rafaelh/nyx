@@ -239,7 +239,7 @@ func TestRender_SanitisesEveryString(t *testing.T) {
 				}
 			}
 			for _, want := range []string{"red line break here evil", "Evil Org Second line", "SSH-2.0-x", "link INJECTED", "<title>PWNED next", "a.example.com"} {
-				if !strings.Contains(squash(plain), want) {
+				if !strings.Contains(strings.Join(strings.Fields(plain), " "), want) {
 					t.Errorf("terminal=%v depth %d: lacks %q:\n%s", term, d, want, plain)
 				}
 			}

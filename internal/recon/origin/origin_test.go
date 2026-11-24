@@ -10,7 +10,7 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/origin"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func ip(s string) netip.Addr { return netip.MustParseAddr(s) }

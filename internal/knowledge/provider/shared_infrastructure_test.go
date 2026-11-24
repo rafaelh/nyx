@@ -18,7 +18,7 @@ func TestResult_SharedInfrastructure(t *testing.T) {
 		{"cdn", provider.Result{Known: true, Shared: true, Class: provider.ClassCDN}, true},
 		{"saas", provider.Result{Known: true, Shared: true, Class: provider.ClassSaaS}, true},
 		{"waf", provider.Result{Known: true, Shared: true, Class: provider.ClassWAF}, true},
-		{"shared hosting", provider.Result{Known: true, Shared: true, Class: provider.ClassSharedHosting}, true},
+		{"shared hosting", provider.Result{Known: true, Shared: true, Class: "shared-hosting"}, true},
 		{"a range with no class", provider.Result{Known: true, Shared: true, Evidence: "range"}, true},
 		{"hyperscaler", provider.Result{Known: true, Shared: true, Class: provider.ClassHyperscaler}, false},
 		{"hyperscaler, not shared", provider.Result{Known: true, Class: provider.ClassHyperscaler}, false},
@@ -31,8 +31,8 @@ func TestResult_SharedInfrastructure(t *testing.T) {
 
 func TestClassConstants(t *testing.T) {
 	t.Parallel()
-	if provider.ClassHyperscaler != "hyperscaler" || provider.ClassSharedHosting != "shared-hosting" {
-		t.Errorf("classes = %q, %q", provider.ClassHyperscaler, provider.ClassSharedHosting)
+	if provider.ClassHyperscaler != "hyperscaler" {
+		t.Errorf("ClassHyperscaler = %q, the class providers.yaml writes", provider.ClassHyperscaler)
 	}
 }
 

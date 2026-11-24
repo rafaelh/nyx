@@ -72,7 +72,7 @@ func (e *Egress) dialAndRead(ctx context.Context, addr netip.Addr, port int) (TC
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return classifyDial(err, addr, e.routeLookup())
+		return classifyDial(err, addr, udpRoute)
 	}
 	defer conn.Close()
 	buf := make([]byte, 1024)
@@ -121,14 +121,6 @@ func localRoute(err error, addr netip.Addr, route func(netip.Addr) error) error 
 		}
 	}
 	return err
-}
-
-// routeLookup is Options.RouteLookup, by default udpRoute.
-func (e *Egress) routeLookup() func(netip.Addr) error {
-	if e.opts.RouteLookup != nil {
-		return e.opts.RouteLookup
-	}
-	return udpRoute
 }
 
 // udpRoute queries kernel routing through a UDP connect without sending a datagram.

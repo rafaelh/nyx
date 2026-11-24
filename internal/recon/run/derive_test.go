@@ -1,7 +1,6 @@
 package run
 
 import (
-	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -14,10 +13,11 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/report"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // events records what a Runner emits.
@@ -53,33 +53,10 @@ const (
 
 var dropListTime = time.Date(2026, 10, 1, 8, 30, 5, 0, time.UTC)
 
-// dropFile writes source rows followed by metadata.
-func dropFile(rows ...string) []byte {
-	var b strings.Builder
-	for _, r := range rows {
-		b.WriteString(r + "\n")
-	}
-	fmt.Fprintf(&b, `{"type":"metadata","timestamp":%d,"size":1,"records":%d,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`+"\n",
-		dropListTime.Unix(), len(rows))
-	return []byte(b.String())
-}
-
 // dropLists are the lists of DROP rows and ASN-DROP rows, with an empty DROPv6.
 func dropLists(t *testing.T, v4, asns []string) *spamhaus.Lists {
 	t.Helper()
-	l4, err := spamhaus.ParseDrop(dropFile(v4...), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l6, err := spamhaus.ParseDrop(dropFile(), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	la, err := spamhaus.ParseASNDrop(dropFile(asns...))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &spamhaus.Lists{V4: l4, V6: l6, ASNs: la}
+	return tdt.Lists(t, tdt.DropFile(dropListTime, v4...), tdt.DropFile(dropListTime), tdt.DropFile(dropListTime, asns...))
 }
 
 // ipapiNetwork is an ipapi.is snapshot whose network list holds the address's /24.

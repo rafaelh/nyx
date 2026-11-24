@@ -11,6 +11,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // lockAfterRenames makes storage read-only after both replacements so following state-file
@@ -56,8 +57,8 @@ func TestUpdate_StateWriteFailsAfterTheDataIsStored(t *testing.T) {
 	w := newWorld(t)
 	w.previous(0o600) // dated d1: drop_v4 0..79, networks 0..79, asns 0..19
 	const newCopyright = "(c) 2027 The Spamhaus Project SLU"
-	v4 := file(append(rows(v4Row, 3, 87), strings.Replace(metaLine(d2, 87), copyright, newCopyright, 1))...) // -0,1,2 +80..89
-	w.serveSpamhaus(lists{v4, dropFile(v6Row, d2, 0, 20), dropFile(asnRow, d2, 0, 20)})
+	v4 := file(append(tdt.GenRows(tdt.GenV4Row, 3, 87), strings.Replace(tdt.MetaLine(d2, 87), copyright, newCopyright, 1))...) // -0,1,2 +80..89
+	w.serveSpamhaus(lists{v4, tdt.GenDropFile(tdt.GenV6Row, d2, 0, 20), tdt.GenDropFile(tdt.GenASNRow, d2, 0, 20)})
 	w.serveIpapi(day(d2), 90, 0, 90, day(d2), 18, 2, 18)
 	t.Cleanup(func() { _ = os.Chmod(w.dir, 0o700) })
 	w.rename = lockAfterRenames(t, w.dir)

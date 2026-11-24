@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // IP-literal HTTP needs an in-scope netblock and no exclusion, sends no SNI and brackets IPv6
@@ -174,8 +174,9 @@ func TestHostnameStillSendsSNI(t *testing.T) {
 	t.Parallel()
 	f := newIPFixture(t, true, nil, nil, []int{8443}, "203.0.113.5:8443")
 	f.eg.SetPolicy(&egress.Policy{
-		Scope: scope.New(scope.Config{Roots: []string{"example.com"}}), Ack: true, Ports: []int{8443},
-		Resolutions: map[string][]netip.Addr{"a.example.com": {addr("203.0.113.5")}},
+		Scope: scope.New(scope.Config{Roots: []string{"example.com"},
+			Resolutions: map[string][]netip.Addr{"a.example.com": {addr("203.0.113.5")}}}),
+		Ack: true, Ports: []int{8443},
 	})
 	if _, ok := f.get(t, egress.Root("a.example.com", "https", 8443)).(egress.Response); !ok {
 		t.Fatal("https to a hostname failed")

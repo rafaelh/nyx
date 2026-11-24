@@ -8,8 +8,8 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // world is example.com and 198.51.100.0/24, with www resolving to a dedicated

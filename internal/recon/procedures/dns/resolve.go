@@ -17,15 +17,12 @@ type Resolve struct{ base }
 // NewResolve returns the resolve procedure.
 func NewResolve() *Resolve { return &Resolve{base{"resolve"}} }
 
+// Required: resolution decides which names are real, so it cannot be skipped.
+func (*Resolve) Required() {}
+
 // Jobs yields one job per resolvable hostname.
 func (*Resolve) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, h := range v.ResolvableHostnames() {
-			if !yield(run.Job{Key: h, Input: h}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(v.ResolvableHostnames(), func(h string) run.Job { return run.Job{Key: h, Input: h} })
 }
 
 // Run resolves the name. NXDOMAIN, NODATA and SERVFAIL are results recorded as

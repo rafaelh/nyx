@@ -218,7 +218,7 @@ func unitText(t *testing.T, spec string, fixtures ...string) string {
 	return out.String()
 }
 
-// metaError is one meta.errors entry: the five keys of the error format.
+// metaError is one meta.errors entry of nyx cve or nyx ip: the five keys of the error format.
 type metaError struct {
 	Error     string  `json:"error"`
 	Code      string  `json:"code"`
@@ -227,38 +227,57 @@ type metaError struct {
 	Transient bool    `json:"transient"`
 }
 
-// cveEnvelope is the --json result of nyx cve.
-type cveEnvelope struct {
-	Data []json.RawMessage `json:"data"`
-	Meta struct {
-		Count    int         `json:"count"`
-		Errors   []metaError `json:"errors"`
-		Warnings []string    `json:"warnings"`
-		Hint     *string     `json:"hint"`
-	} `json:"meta"`
+// lookupMeta is the meta of the --json envelope of nyx cve or nyx ip.
+type lookupMeta struct {
+	Count    int         `json:"count"`
+	Errors   []metaError `json:"errors"`
+	Warnings []string    `json:"warnings"`
+	Hint     *string     `json:"hint"`
 }
 
-// cveEnvelope parses stdout as the one compact envelope of nyx cve, with
-// exactly its keys, in order, and errors and warnings never null.
-func (h *harness) cveEnvelope() cveEnvelope {
+// lookupEnvelope is the --json result of nyx cve or nyx ip, which share writeEnvelope.
+type lookupEnvelope struct {
+	Data []json.RawMessage `json:"data"`
+	Meta lookupMeta        `json:"meta"`
+}
+
+// lookupEnvelope parses stdout as the one-line envelope of nyx cve or nyx ip, with exactly
+// its keys, in order, data, meta.errors and meta.warnings never null, and meta.count the
+// number of records. It returns the line too.
+func (h *harness) lookupEnvelope() (lookupEnvelope, string) {
 	h.t.Helper()
 	out := h.stdout.String()
 	if !strings.HasSuffix(out, "\n") || strings.Count(out, "\n") != 1 {
 		h.t.Fatalf("stdout is not one line: %q", out)
 	}
 	line := strings.TrimSuffix(out, "\n")
-	var env cveEnvelope
+	var env lookupEnvelope
 	dec := json.NewDecoder(strings.NewReader(line))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&env); err != nil {
 		h.t.Fatalf("stdout is not the envelope: %v\n%s", err, line)
 	}
-	if !strings.Contains(line, `,"hint":`) {
-		h.t.Errorf("meta has no hint key: %s", line)
+	var top struct {
+		Meta json.RawMessage `json:"meta"`
+	}
+	_ = json.Unmarshal([]byte(line), &top) // it decoded above
+	if got := keysOf(h.t, json.RawMessage(line)); !slices.Equal(got, []string{"data", "meta"}) {
+		h.t.Fatalf("envelope keys = %v", got)
+	}
+	if got := keysOf(h.t, top.Meta); !slices.Equal(got, []string{"count", "errors", "warnings", "hint"}) {
+		h.t.Fatalf("meta keys = %v", got)
 	}
 	if env.Data == nil || env.Meta.Errors == nil || env.Meta.Warnings == nil || env.Meta.Count != len(env.Data) {
-		h.t.Errorf("data, meta.errors or meta.warnings is null, or count is wrong: %s", line)
+		h.t.Errorf("data, meta.errors or meta.warnings is null, or count is not the number of records: %s", line)
 	}
+	return env, line
+}
+
+// cveEnvelope parses stdout as the one compact envelope of nyx cve, with
+// exactly its keys, in order, and errors and warnings never null.
+func (h *harness) cveEnvelope() lookupEnvelope {
+	h.t.Helper()
+	env, line := h.lookupEnvelope()
 	var again bytes.Buffer
 	enc := json.NewEncoder(&again)
 	enc.SetEscapeHTML(false)
@@ -269,7 +288,7 @@ func (h *harness) cveEnvelope() cveEnvelope {
 }
 
 // ids are the "id" of each record in data.
-func (e cveEnvelope) ids() []string {
+func (e lookupEnvelope) ids() []string {
 	var out []string
 	for _, raw := range e.Data {
 		var r struct {
@@ -1683,7 +1702,7 @@ func TestCVE_MatchDoesNotChangeAPartialResult(t *testing.T) {
 		nvd.script("CVE-2024-0503", reply{status: 503, header: map[string]string{"Retry-After": "0"}})
 		args := []string{long, cveGone, "CVE-2024-0503", "--fields", "affected_products"}
 		without := h.partialOf(h.cveRun(jsonMode, args...), jsonMode, []string{cveGone, "CVE-2024-0503"}, true)
-		var envWithout cveEnvelope
+		var envWithout lookupEnvelope
 		if jsonMode {
 			envWithout = h.cveEnvelope()
 		}

@@ -15,8 +15,8 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/analysis/findings"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // fixture builds a findings.Input: a scope for example.com and 198.51.100.0/24.

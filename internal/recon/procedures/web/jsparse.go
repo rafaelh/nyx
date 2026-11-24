@@ -17,7 +17,8 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 const (
@@ -78,7 +79,7 @@ func (*JSParse) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] 
 			urls, skipped := capScripts(byOrigin[origin], parsed, limit)
 			if skipped > 0 {
 				v.Warn("jsparse: %d %s of %s not read: at most %d are read per origin (jsparse.max_scripts)",
-					skipped, plural(skipped, "script", "scripts"), origin, limit)
+					skipped, layout.Plural(skipped, "script", "scripts"), origin, limit)
 			}
 			for _, u := range urls {
 				if !yield(run.Job{Key: u + "|p=" + parserHash, Input: scriptInput{url: u, sc: v.Scope()}}, nil) {
@@ -126,13 +127,6 @@ func capScripts(urls []string, parsed map[string]bool, limit int) ([]string, int
 	urls = append(read, unread...)[:limit]
 	slices.Sort(urls)
 	return urls, skipped
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 // fetchableHost accepts probe hostnames or non-excluded in-scope IP literals.

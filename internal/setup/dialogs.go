@@ -11,13 +11,6 @@ func wrap(text string, w, rest int) []string {
 	return layout.Wrap(layout.Plain(text), max(w, 1), 0, rest, layout.Spaces)
 }
 
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, one)
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
-
 // plainLines applies one role to text lines; empty role leaves them plain.
 func (m *model) plainLines(role string, lines []string) []line {
 	out := make([]line, len(lines))
@@ -61,7 +54,7 @@ func (m *model) dialogLines(room int) []string {
 
 func (m *model) quitLines(w int) []line {
 	lines := []line{m.title("Unsaved changes"), nil}
-	lines = append(lines, m.plainLines("", wrap(fmt.Sprintf("You have %s to %s.", plural(m.changes(), "unsaved change", "unsaved changes"), m.info.Path), w, 0))...)
+	lines = append(lines, m.plainLines("", wrap(fmt.Sprintf("You have %s to %s.", layout.Count(m.changes(), "unsaved change", "unsaved changes"), m.info.Path), w, 0))...)
 	return append(lines, nil, line{plain("Save them before quitting?")}, nil,
 		m.choice("s", "Save and quit"),
 		m.choice("d", "Discard them and quit"),
@@ -69,7 +62,7 @@ func (m *model) quitLines(w int) []line {
 }
 
 func (m *model) conflictLines(w, room int) []line {
-	n := plural(m.changes(), "unsaved change", "unsaved changes")
+	n := layout.Count(m.changes(), "unsaved change", "unsaved changes")
 	if len(m.dlg.problems) == 0 {
 		lines := []line{m.title("The config file changed on disk"), nil}
 		lines = append(lines, m.plainLines("", wrap("It changed after setup read it or last saved it: "+m.info.Path, w, 0))...)
@@ -90,7 +83,7 @@ func (m *model) conflictLines(w, room int) []line {
 	}
 	if free := room - len(head) - len(tail); len(problems) > free {
 		shown := max(free-1, 0)
-		problems = append(problems[:shown], line{m.paint(roleHelp, fmt.Sprintf("… and more (%s in all)", plural(len(m.dlg.problems), "problem", "problems")))})
+		problems = append(problems[:shown], line{m.paint(roleHelp, fmt.Sprintf("… and more (%s in all)", layout.Count(len(m.dlg.problems), "problem", "problems")))})
 	}
 	return append(append(head, problems...), tail...)
 }

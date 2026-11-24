@@ -98,13 +98,9 @@ func isTCP(transport string) bool { return transport == "" || strings.EqualFold(
 
 // Jobs yields one job per in-scope netblock, keyed by its CIDR.
 func (*Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, p := range v.Scope().Netblocks() {
-			if !yield(run.Job{Key: p.Masked().String(), Input: p.Masked().String()}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(v.Scope().Netblocks(), func(p netip.Prefix) run.Job {
+		return run.Job{Key: p.Masked().String(), Input: p.Masked().String()}
+	})
 }
 
 type search struct {

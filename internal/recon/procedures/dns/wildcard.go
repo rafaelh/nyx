@@ -32,6 +32,9 @@ func NewWildcard(label func() string) *Wildcard {
 	return &Wildcard{base{"wildcard"}, label}
 }
 
+// Required: wildcard answers decide which names are real, so it cannot be skipped.
+func (*Wildcard) Required() {}
+
 func randomLabel() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -43,34 +46,28 @@ func randomLabel() string {
 // Jobs yields one job per zone: every input root and every parent of a
 // resolved in-scope name, down to its registrable domain.
 func (*Wildcard) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		zones := map[string]bool{}
-		for _, r := range v.Inputs().Roots {
-			zones[dnsname.Normalise(r)] = true
+	zones := map[string]bool{}
+	for _, r := range v.Inputs().Roots {
+		zones[dnsname.Normalise(r)] = true
+	}
+	for _, rec := range v.Records(kinds.Resolution) {
+		a := kinds.Resolution.Attrs(rec)
+		// Only host-resolution types introduce wildcard zones. Root records and
+		// SRV names already belong to known zones.
+		if a.Type != "A" && a.Type != "AAAA" && a.Type != "CNAME" {
+			continue
 		}
-		for _, rec := range v.Records(kinds.Resolution) {
-			a := kinds.Resolution.Attrs(rec)
-			// Only host-resolution types introduce wildcard zones. Root records and
-			// SRV names already belong to known zones.
-			if a.Type != "A" && a.Type != "AAAA" && a.Type != "CNAME" {
-				continue
-			}
-			name := dnsname.Normalise(a.Name)
-			if !v.Scope().HostInScope(name) {
-				continue
-			}
-			for _, p := range dnsname.Parents(name) {
-				zones[p] = true
-			}
+		name := dnsname.Normalise(a.Name)
+		if !v.Scope().HostInScope(name) {
+			continue
 		}
-		// A sub-root's parents are not ours to probe.
-		maps.DeleteFunc(zones, func(z string, _ bool) bool { return !v.Scope().HostInScope(z) })
-		for _, z := range slices.Sorted(maps.Keys(zones)) {
-			if !yield(run.Job{Key: z, Input: z}, nil) {
-				return
-			}
+		for _, p := range dnsname.Parents(name) {
+			zones[p] = true
 		}
 	}
+	// A sub-root's parents are not ours to probe.
+	maps.DeleteFunc(zones, func(z string, _ bool) bool { return !v.Scope().HostInScope(z) })
+	return run.JobsOf(slices.Sorted(maps.Keys(zones)), func(z string) run.Job { return run.Job{Key: z, Input: z} })
 }
 
 // Run probes random A/AAAA names and records any wildcard addresses plus the first CNAME

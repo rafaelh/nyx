@@ -1,12 +1,12 @@
 package kinds
 
 import (
-	"net/url"
 	"sync"
 
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
-	"github.com/rafaelh/nyx/internal/recon/scope"
 	"github.com/rafaelh/nyx/internal/recon/store"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Visibility applies current scope and inventory rules when records are read, so later
@@ -80,13 +80,10 @@ func (v *Visibility) webHostInScope(host string) bool {
 
 // webHost reads a record's host attribute, falling back to the host in its URL key.
 func webHost(hostAttr string, r store.Record) string {
-	host := r.Str(hostAttr)
-	if host == "" {
-		if u, err := url.Parse(r.Key); err == nil {
-			host = u.Hostname()
-		}
+	if host := r.Str(hostAttr); host != "" {
+		return host
 	}
-	return host
+	return weburl.HostOfURL(r.Key)
 }
 
 // Printed allows found events for printed kinds and, for entities, only in-scope records.

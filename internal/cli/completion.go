@@ -110,7 +110,7 @@ func registerCompletions(root *cobra.Command, inv *invocation) {
 		case "nyx recon":
 			c.ValidArgsFunction = noFiles // domains
 			flagValues(c, "redo", func(*cobra.Command) []string { return procedures })
-			flagValues(c, "skip", func(*cobra.Command) []string { return skippable(procedures) })
+			flagValues(c, "skip", func(*cobra.Command) []string { return skippable(procedures, requiredProcedures(inv.d.Procedures)) })
 			dirValues(c, "output-dir")
 		case "nyx recon export":
 			flagValues(c, "kind", func(*cobra.Command) []string { return exportKinds() })
@@ -130,9 +130,8 @@ func registerCompletions(root *cobra.Command, inv *invocation) {
 }
 
 // skippable are the procedures --skip accepts, and none.
-func skippable(procedures []string) []string {
-	out := slices.DeleteFunc(slices.Clone(procedures), func(s string) bool { return slices.Contains(unskippable, s) })
-	return append(out, "none")
+func skippable(procedures, required []string) []string {
+	return append(skippableNames(procedures, required), "none")
 }
 
 // ipFieldChoices are the --fields names ip accepts, with the active-only ones once --active is

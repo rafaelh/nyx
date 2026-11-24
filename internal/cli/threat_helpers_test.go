@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -18,16 +17,11 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Threat tests supply fixed built-ins older than their downloads. Embedded dates move after
 // refreshes and would make fixture selection/staleness unstable.
-
-// The credit a fixed Spamhaus list carries in its metadata.
-const (
-	dropCopyright = "(c) 2026 The Spamhaus Project SLU"
-	dropTerms     = "https://www.spamhaus.org/drop/terms/"
-)
 
 // Entries every fixed Spamhaus list holds besides a test's own, so that no list is empty. No test
 // address is inside them.
@@ -73,7 +67,7 @@ func dropBundleOf(v4At, v6At, asnAt time.Time, nets []spamhaus.NetworkEntry, asn
 		}
 	}
 	all := append([]spamhaus.ASNEntry{dropFillerASN}, asns...)
-	return dropBundleText(dropFileText(v4At, dropRows(v4)), dropFileText(v6At, dropRows(v6)), dropFileText(asnAt, asnDropRows(all)))
+	return string(spamhaus.Bundle(tdt.DropFile(v4At, dropRows(v4)...), tdt.DropFile(v6At, dropRows(v6)...), tdt.DropFile(asnAt, asnDropRows(all)...)))
 }
 
 // ---- downloaded copies ----
@@ -95,27 +89,11 @@ func writeThreatFile(t *testing.T, h *harness, name, body string) {
 	}
 }
 
-// dropFileText writes source-style JSON lines ending in metadata with an accurate count.
-func dropFileText(at time.Time, rows []string) string {
-	var b strings.Builder
-	for _, r := range rows {
-		b.WriteString(r + "\n")
-	}
-	size := b.Len()
-	fmt.Fprintf(&b, `{"type":"metadata","timestamp":%d,"size":%d,"records":%d,"copyright":%q,"terms":%q}`+"\n",
-		at.Unix(), size, len(rows), dropCopyright, dropTerms)
-	return b.String()
-}
-
 // dropRows are the rows of DROP or DROPv6 for the entries; an empty RIR is null.
 func dropRows(nets []spamhaus.NetworkEntry) []string {
 	var out []string
 	for _, n := range nets {
-		rir := "null"
-		if n.RIR != "" {
-			rir = fmt.Sprintf("%q", n.RIR)
-		}
-		out = append(out, fmt.Sprintf(`{"cidr":%q,"sblid":%q,"rir":%s}`, n.CIDR.String(), n.SBLID, rir))
+		out = append(out, tdt.NetRow(n.CIDR.String(), n.SBLID, n.RIR))
 	}
 	return out
 }
@@ -124,15 +102,9 @@ func dropRows(nets []spamhaus.NetworkEntry) []string {
 func asnDropRows(asns []spamhaus.ASNEntry) []string {
 	var out []string
 	for _, a := range asns {
-		out = append(out, fmt.Sprintf(`{"asn":%d,"rir":%q,"domain":%q,"cc":%q,"asname":%q}`, a.ASN, a.RIR, a.Domain, a.Country, a.ASName))
+		out = append(out, tdt.ASNRow(a.ASN, a.ASName, a.Country, a.Domain, a.RIR))
 	}
 	return out
-}
-
-// dropBundleText is a downloaded copy of Spamhaus's lists (spamhaus.jsonl): each file after its
-// marker line, in the order drop_v4, drop_v6, asndrop.
-func dropBundleText(v4, v6, asn string) string {
-	return `{"list":"drop_v4"}` + "\n" + v4 + `{"list":"drop_v6"}` + "\n" + v6 + `{"list":"asndrop"}` + "\n" + asn
 }
 
 // writeDownloadedDrop writes a downloaded copy of Spamhaus's three lists, all dated at, holding the

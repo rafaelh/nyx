@@ -56,7 +56,7 @@ func newReconCommand(inv *invocation) *cobra.Command {
 		Annotations: map[string]string{
 			annotationEveryday: strings.Join(reconEveryday, ","),
 			annotationValues: "Procedures accepted by --redo and --skip: " + strings.Join(names, ", ") + "\n" +
-				"Procedures --skip refuses: " + strings.Join(unskippable, ", "),
+				"Procedures --skip refuses: " + strings.Join(requiredProcedures(inv.d.Procedures), ", "),
 			annotationNote:   "Tuning settings (rates, limits, ports, lists and the rest) are listed by nyx recon --help.",
 			annotationFooter: reconFooter,
 		},
@@ -133,7 +133,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	if o.redo != "" && !slices.Contains(names, o.redo) {
 		probs.Add("redo", o.redo, fmt.Sprintf("unknown procedure %q for --redo", o.redo), "valid procedures: "+strings.Join(names, ", "))
 	}
-	validateSkip(probs, settings.Skip, o.redo, names)
+	validateSkip(probs, settings.Skip, o.redo, names, requiredProcedures(d.Procedures))
 	if err := probs.Err(); err != nil {
 		return err
 	}
@@ -286,15 +286,11 @@ func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run
 	return nil
 }
 
-// unskippable lists procedures supplying contact decisions: resolve/wildcard identify real names;
-// ipowner/providerranges identify shared addresses that must not be port-checked.
-var unskippable = []string{"resolve", "wildcard", "ipowner", "providerranges"}
-
 // validateSkip collects unknown procedures, redo conflicts and procedures required for contact
-// decisions.
-func validateSkip(probs *clierr.Problems, skip []string, redo string, names []string) {
+// decisions (see requiredProcedures).
+func validateSkip(probs *clierr.Problems, skip []string, redo string, names, required []string) {
 	for _, n := range skip {
-		if msg, hint := skipProblem(n, redo, names); msg != "" {
+		if msg, hint := skipProblem(n, redo, names, required); msg != "" {
 			probs.Add("skip", n, msg, hint)
 		}
 	}
@@ -302,21 +298,24 @@ func validateSkip(probs *clierr.Problems, skip []string, redo string, names []st
 
 // skipProblem returns a reason and hint for an unknown, redone or required procedure, otherwise
 // empty strings.
-func skipProblem(n, redo string, names []string) (msg, hint string) {
+func skipProblem(n, redo string, names, required []string) (msg, hint string) {
 	switch {
 	case !slices.Contains(names, n):
 		return fmt.Sprintf("unknown procedure %q for --skip or the skip setting", n), "valid procedures: " + strings.Join(names, ", ")
 	case n == redo:
-		return fmt.Sprintf("procedure %q is named in both --redo and --skip", n), skippableHint(names)
-	case slices.Contains(unskippable, n):
-		return fmt.Sprintf("procedure %q cannot be skipped: other procedures' safety depends on it", n), skippableHint(names)
+		return fmt.Sprintf("procedure %q is named in both --redo and --skip", n), skippableHint(names, required)
+	case slices.Contains(required, n):
+		return fmt.Sprintf("procedure %q cannot be skipped: other procedures' safety depends on it", n), skippableHint(names, required)
 	}
 	return "", ""
 }
 
 // skippableHint lists the procedures that can be skipped.
-func skippableHint(names []string) string {
-	return "procedures that can be skipped: " + strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool {
-		return slices.Contains(unskippable, s)
-	}), ", ")
+func skippableHint(names, required []string) string {
+	return "procedures that can be skipped: " + strings.Join(skippableNames(names, required), ", ")
+}
+
+// skippableNames are names without the required ones, in their given order.
+func skippableNames(names, required []string) []string {
+	return slices.DeleteFunc(slices.Clone(names), func(s string) bool { return slices.Contains(required, s) })
 }

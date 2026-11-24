@@ -37,7 +37,7 @@ func TestMatches(t *testing.T) {
 		{"Ltd", "Ltd", false},
 		{"", "anything", false},
 	} {
-		if got := orgname.Matches(c.org, c.name); got != c.want {
+		if got := orgname.New(c.org).Matches(c.name); got != c.want {
 			t.Errorf("Matches(%q, %q) = %v, want %v", c.org, c.name, got, c.want)
 		}
 	}

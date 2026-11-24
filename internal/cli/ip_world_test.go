@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -964,19 +963,13 @@ func (r ipRecord) failureOf(source string) ipFailure {
 	return got[0]
 }
 
-// ipMetaError is one entry of meta.errors: the five keys of an error.
-type ipMetaError struct {
-	Error     string         `json:"error"`
-	Code      string         `json:"code"`
-	Hint      *string        `json:"hint"`
-	Input     map[string]any `json:"input"`
-	Transient bool           `json:"transient"`
-}
+// inputMap is the entry's input as nyx ip writes it: an object, or nil for any other input.
+func (e metaError) inputMap() map[string]any { m, _ := e.Input.(map[string]any); return m }
 
 // inputs extracts original arguments from error metadata.
-func (e ipMetaError) inputs() []string {
+func (e metaError) inputs() []string {
 	var out []string
-	l, _ := e.Input["input"].([]any)
+	l, _ := e.inputMap()["input"].([]any)
 	for _, v := range l {
 		s, _ := v.(string)
 		out = append(out, s)
@@ -985,17 +978,12 @@ func (e ipMetaError) inputs() []string {
 }
 
 // address is the entry's input "address": the address that failed, "" for an input that failed.
-func (e ipMetaError) address() string { s, _ := e.Input["address"].(string); return s }
+func (e metaError) address() string { s, _ := e.inputMap()["address"].(string); return s }
 
 // ipEnvelope is the result of nyx ip --json.
 type ipEnvelope struct {
 	Records []ipRecord
-	Meta    struct {
-		Count    int           `json:"count"`
-		Errors   []ipMetaError `json:"errors"`
-		Warnings []string      `json:"warnings"`
-		Hint     *string       `json:"hint"`
-	}
+	Meta    lookupMeta
 }
 
 // addresses are the address of each record, in order.
@@ -1011,33 +999,8 @@ func (e ipEnvelope) addresses() []string {
 // matching count.
 func (h *harness) ipEnvelope() ipEnvelope {
 	h.t.Helper()
-	out := h.stdout.String()
-	if !strings.HasSuffix(out, "\n") || strings.Count(out, "\n") != 1 {
-		h.t.Fatalf("stdout is not one line: %q", out)
-	}
-	line := strings.TrimSuffix(out, "\n")
-	var top struct {
-		Data []json.RawMessage `json:"data"`
-		Meta json.RawMessage   `json:"meta"`
-	}
-	if err := json.Unmarshal([]byte(line), &top); err != nil || top.Data == nil {
-		h.t.Fatalf("stdout is not the envelope: %v\n%s", err, line)
-	}
-	if got := keysOf(h.t, json.RawMessage(line)); !slices.Equal(got, []string{"data", "meta"}) {
-		h.t.Fatalf("envelope keys = %v", got)
-	}
-	if got := keysOf(h.t, top.Meta); !slices.Equal(got, []string{"count", "errors", "warnings", "hint"}) {
-		h.t.Fatalf("meta keys = %v", got)
-	}
-	var env ipEnvelope
-	dec := json.NewDecoder(bytes.NewReader(top.Meta))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&env.Meta); err != nil {
-		h.t.Fatalf("meta: %v\n%s", err, line)
-	}
-	if env.Meta.Errors == nil || env.Meta.Warnings == nil || env.Meta.Count != len(top.Data) {
-		h.t.Errorf("meta.errors or meta.warnings is null, or count is not the number of records: %s", line)
-	}
+	top, _ := h.lookupEnvelope()
+	env := ipEnvelope{Meta: top.Meta}
 	for _, raw := range top.Data {
 		rec := ipRecord{t: h.t, raw: raw, keys: keysOf(h.t, raw)}
 		if err := json.Unmarshal(raw, &rec.m); err != nil {
@@ -1048,6 +1011,9 @@ func (h *harness) ipEnvelope() ipEnvelope {
 	for _, e := range env.Meta.Errors {
 		if e.Code == "" || e.Error == "" {
 			h.t.Errorf("meta.errors entry is not an error: %+v", e)
+		}
+		if e.Input != nil && e.inputMap() == nil {
+			h.t.Fatalf("meta.errors entry's input is not an object: %+v", e)
 		}
 	}
 	return env

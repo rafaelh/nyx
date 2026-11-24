@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // Update tests use fixed built-ins at d0, existing downloads at d1 and responses at d2,
@@ -31,14 +31,8 @@ func tdDay(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 // tdStamp formats second-precision UTC update timestamps.
 func tdStamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
-// The credit the generated Spamhaus files carry, as Spamhaus's own do.
-const (
-	tdCopyright = "(c) 2026 The Spamhaus Project SLU"
-	tdTerms     = "https://www.spamhaus.org/drop/terms/"
-)
-
 // tdCreditLine is the line the update's output ends with, for the credit the fixtures carry.
-const tdCreditLine = "Spamhaus DROP data " + tdCopyright + "; terms: " + tdTerms
+const tdCreditLine = "Spamhaus DROP data " + tdt.Copyright + "; terms: " + tdt.Terms
 
 // The paths of the five lists on their hosts.
 const (
@@ -66,63 +60,20 @@ var tdSourceOf = map[string]string{
 	threatdata.ListNetworks: threatdata.Ipapi, threatdata.ListASNs: threatdata.Ipapi,
 }
 
-func tdV4Row(i int) string {
-	return fmt.Sprintf(`{"cidr":"10.%d.%d.0/24","sblid":"SBL%d","rir":"ripencc"}`, i/256, i%256, 100000+i)
-}
-
-func tdV6Row(i int) string {
-	return fmt.Sprintf(`{"cidr":"2001:db8:%x::/48","sblid":"SBL%d","rir":"apnic"}`, i, 200000+i)
-}
-
-func tdASNRow(i int) string {
-	return fmt.Sprintf(`{"asn":%d,"rir":"arin","domain":"bad%d.example","cc":"US","asname":"BAD-AS-%d"}`, 64500+i, i, i)
-}
-
-// tdDropFile is a Spamhaus file of entries from to from+n-1, dated date, whose metadata states n
-// records, each line ending in a newline.
-func tdDropFile(row func(int) string, date time.Time, from, n int) []byte {
-	var b strings.Builder
-	for i := from; i < from+n; i++ {
-		b.WriteString(row(i) + "\n")
-	}
-	fmt.Fprintf(&b, `{"type":"metadata","timestamp":%d,"size":1234,"records":%d,"copyright":%q,"terms":%q}`+"\n",
-		date.Unix(), n, tdCopyright, tdTerms)
-	return []byte(b.String())
-}
-
 // tdSpamhausFiles are the three Spamhaus files.
 type tdSpamhausFiles struct{ v4, v6, asn []byte }
 
 // tdSpamhausAt is the three lists dated date: 80, 20 and 20 entries, from the given first entry.
 func tdSpamhausAt(date time.Time, from int) tdSpamhausFiles {
-	return tdSpamhausFiles{tdDropFile(tdV4Row, date, from, 80), tdDropFile(tdV6Row, date, from, 20), tdDropFile(tdASNRow, date, from, 20)}
+	return tdSpamhausFiles{tdt.GenDropFile(tdt.GenV4Row, date, from, 80), tdt.GenDropFile(tdt.GenV6Row, date, from, 20), tdt.GenDropFile(tdt.GenASNRow, date, from, 20)}
 }
 
 // tdBundle preserves list bytes after source markers in a downloaded bundle.
 func tdBundle(f tdSpamhausFiles) []byte { return spamhaus.Bundle(f.v4, f.v6, f.asn) }
 
-func tdNetEntry(i int) abusive.NetworkEntry {
-	return abusive.NetworkEntry{Rank: i + 1, Start: netip.MustParseAddr(fmt.Sprintf("172.%d.%d.0", 16+i/200, i%200)),
-		End: netip.MustParseAddr(fmt.Sprintf("172.%d.%d.255", 16+i/200, i%200)), ScoreTag: "High", AbuseScore: 50, Org: fmt.Sprintf("Org %d", i), OrgType: "isp"}
-}
-
-func tdASEntry(i int) abusive.ASNEntry {
-	return abusive.ASNEntry{Rank: i + 1, ASN: 65000 + i, ScoreTag: "High", AbuseScore: 50, Org: fmt.Sprintf("AS Org %d", i), OrgType: "isp"}
-}
-
 // tdIpapiAt is an ipapi.is copy dated date: 80 networks and 20 ASNs, from the given first entry.
 func tdIpapiAt(date time.Time, from int) abusive.Snapshot {
-	s := abusive.Snapshot{
-		Nets: abusive.List[abusive.NetworkEntry]{Updated: tdDay(date), Stated: 80, Entries: []abusive.NetworkEntry{}},
-		ASNs: abusive.List[abusive.ASNEntry]{Updated: tdDay(date), Stated: 20, Entries: []abusive.ASNEntry{}},
-	}
-	for i := from; i < from+80; i++ {
-		s.Nets.Entries = append(s.Nets.Entries, tdNetEntry(i))
-	}
-	for i := from; i < from+20; i++ {
-		s.ASNs.Entries = append(s.ASNs.Entries, tdASEntry(i))
-	}
-	return s
+	return tdt.GenSnapshot(tdDay(date), from, 80, tdDay(date), from, 20)
 }
 
 // tdIpapiFile constructs downloaded snapshot JSON.
@@ -134,56 +85,13 @@ func tdIpapiFile(s abusive.Snapshot) []byte {
 	return b
 }
 
-// tdHeaderOrg selects the source's organisation-column spelling.
-const tdHeaderOrg = "Organization" //nolint:misspell // the page's own spelling
-
-func tdPageDate(d time.Time) string { return d.UTC().Format("January 2, 2006") }
-
-// tdNetworksPage is ipapi.is's most-abusive networks page, dated d, listing networks from..from+n-1
-// and stating n.
-func tdNetworksPage(d time.Time, from, n int) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, `<html><body><span>Data last updated on <strong>%s</strong></span><p>The table lists the <strong>%d</strong> most abusive networks on the Internet.</p>`, tdPageDate(d), n)
-	b.WriteString(`<table><thead><tr><th>Rank</th><th>Network</th><th>Num Hosts</th><th>Score Tag</th><th>Abuse Score</th><th>` + tdHeaderOrg + `</th><th>Type</th></tr></thead><tbody>`)
-	for i := from; i < from+n; i++ {
-		e := tdNetEntry(i)
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><a>%s - %s</a></td><td>256</td><td><span>High</span></td><td>50%%</td><td>%s</td><td><span>isp</span></td></tr>`,
-			e.Rank, e.Start, e.End, e.Org)
-	}
-	b.WriteString(`</tbody></table></body></html>`)
-	return []byte(b.String())
-}
-
-// tdASNsPage is ipapi.is's most-abusive ASNs page, dated d, listing ASNs from..from+n-1 and
-// stating n.
-func tdASNsPage(d time.Time, from, n int) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, `<html><body><span>Data last updated on <strong>%s</strong></span><p>The table lists the <strong>%d</strong> most abusive ASNs.</p>`, tdPageDate(d), n)
-	b.WriteString(`<table><thead><tr><th>Rank</th><th>ASN</th><th>Num IPs and Routes</th><th>Score Tag</th><th>Abuse Score</th><th>` + tdHeaderOrg + `</th><th>Org Type</th></tr></thead><tbody>`)
-	for i := from; i < from+n; i++ {
-		e := tdASEntry(i)
-		fmt.Fprintf(&b, `<tr><td>%d</td><td><a>as%d</a></td><td>1</td><td><span>High</span></td><td>50%%</td><td>%s</td><td><span>isp</span></td></tr>`, e.Rank, e.ASN, e.Org)
-	}
-	b.WriteString(`</tbody></table></body></html>`)
-	return []byte(b.String())
-}
-
 // tdBuiltIn combines fixed Spamhaus/ipapi fixtures at d0 starting from entry zero.
 func tdBuiltIn(d0 time.Time) (*threatdata.BuiltIn, error) {
-	f := tdSpamhausAt(d0, 0)
-	v4, err := spamhaus.ParseDrop(f.v4, false)
+	l, err := spamhaus.ParseBundle(tdBundle(tdSpamhausAt(d0, 0)))
 	if err != nil {
-		return nil, fmt.Errorf("the built-in drop_v4: %w", err)
+		return nil, fmt.Errorf("the built-in Spamhaus lists: %w", err)
 	}
-	v6, err := spamhaus.ParseDrop(f.v6, true)
-	if err != nil {
-		return nil, fmt.Errorf("the built-in drop_v6: %w", err)
-	}
-	asn, err := spamhaus.ParseASNDrop(f.asn)
-	if err != nil {
-		return nil, fmt.Errorf("the built-in asndrop: %w", err)
-	}
-	return &threatdata.BuiltIn{Spamhaus: spamhaus.Lists{V4: v4, V6: v6, ASNs: asn}, Ipapi: tdIpapiAt(d0, 0)}, nil
+	return &threatdata.BuiltIn{Spamhaus: l, Ipapi: tdIpapiAt(d0, 0)}, nil
 }
 
 // tdReply can hold a fake response behind a gate until release or request cancellation.
@@ -349,8 +257,8 @@ func (w *threatWorld) serveSpamhaus(f tdSpamhausFiles) {
 
 // serveIpapi makes the ipapi.is fake answer both pages, dated date, from the given first entry.
 func (w *threatWorld) serveIpapi(date time.Time, from int) {
-	w.ip.set(tdPathNetworks, tdOK(tdNetworksPage(date, from, 80)))
-	w.ip.set(tdPathASNs, tdOK(tdASNsPage(date, from, 20)))
+	w.ip.set(tdPathNetworks, tdOK(tdt.NetworksPage(tdDay(date), 80, from, 80)))
+	w.ip.set(tdPathASNs, tdOK(tdt.ASNsPage(tdDay(date), 20, from, 20)))
 }
 
 // current makes both fakes answer the built-in copy itself, so that every list is already current.

@@ -17,7 +17,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Policy contains contact rules rebuilt by the runner when scope changes. Egress does not read
@@ -30,8 +30,6 @@ type Policy struct {
 	// Scripts lists normalised script URLs recorded by crawling. Script requests also pass
 	// the usual host, exclusion and port checks.
 	Scripts map[string]bool
-	// Resolutions maps in-scope and excluded hostnames to their addresses.
-	Resolutions map[string][]netip.Addr
 	// Shared reports whether an address is shared provider infrastructure.
 	Shared func(netip.Addr) bool
 	// OwnerUnknown prevents port checks when ownership is missing. It cannot relax HTTP
@@ -99,10 +97,6 @@ type Options struct {
 	DNSTimeout, ConnectTimeout, BannerWait, HTTPTimeout time.Duration
 
 	RateDNS, RatePerHost, RatePerSource float64
-
-	// RouteLookup distinguishes local routing failures after selected connect errors. The
-	// default UDP connect queries routing without sending a packet.
-	RouteLookup func(netip.Addr) error
 
 	// Now defaults to time.Now for certificate validity checks.
 	Now func() time.Time

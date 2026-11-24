@@ -27,26 +27,20 @@ func NewNetblockOwner() *NetblockOwner { return &NetblockOwner{base{"netblockown
 // Jobs lists occupied ownership units in address order, including history-only IPs because
 // the answer describes the entire unit.
 func (*NetblockOwner) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		sc := v.Scope()
-		set := map[netip.Prefix]bool{}
-		for _, a := range v.IPs(func(netip.Addr) bool { return true }) {
-			if unit, ok := sc.OwnerUnit(a); ok { // ok only inside an in-scope netblock
-				set[unit] = true
-			}
-		}
-		units := slices.SortedFunc(maps.Keys(set), func(a, b netip.Prefix) int {
-			if c := a.Addr().Compare(b.Addr()); c != 0 {
-				return c
-			}
-			return a.Bits() - b.Bits()
-		})
-		for _, u := range units {
-			if !yield(run.Job{Key: u.String(), Input: u}, nil) {
-				return
-			}
+	sc := v.Scope()
+	set := map[netip.Prefix]bool{}
+	for _, a := range v.IPs(func(netip.Addr) bool { return true }) {
+		if unit, ok := sc.OwnerUnit(a); ok { // ok only inside an in-scope netblock
+			set[unit] = true
 		}
 	}
+	units := slices.SortedFunc(maps.Keys(set), func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	return run.JobsOf(units, func(u netip.Prefix) run.Job { return run.Job{Key: u.String(), Input: u} })
 }
 
 // Run queries the unit's first address. NXDOMAIN and AS0 complete without a record; other

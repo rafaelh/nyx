@@ -259,11 +259,11 @@ func TestLoadWithoutHomeIgnoresWorkingDirectoryConfig(t *testing.T) {
 
 func TestPortsRoundTrip(t *testing.T) {
 	t.Parallel()
-	p, err := config.ParsePorts("443, 21-23,80,22")
+	s, err := load(t, nil, "", "--ports", "443, 21-23,80,22")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := config.FormatPorts(p); got != "21-23,80,443" {
+	if got := config.FormatPorts(s.Ports); got != "21-23,80,443" {
 		t.Errorf("got %s", got)
 	}
 }

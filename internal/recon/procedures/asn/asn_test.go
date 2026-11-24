@@ -11,7 +11,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/recon/procedures/asn"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 func clients(t *testing.T, h http.HandlerFunc) (egress.Clients, *string) {

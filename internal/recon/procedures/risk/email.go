@@ -17,7 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/serveraddr"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Email collects root mail posture and SPF/DMARC/MX dependencies through public DNS, including
@@ -47,13 +47,9 @@ type input struct {
 
 // Jobs versions each in-scope input root by the selector list.
 func (*Email) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, root := range v.InScopeRoots() {
-			if !yield(run.Job{Key: root + "|dkim=" + config.DKIMSelectorHash() + mtaSTSToken + serveraddr.KeyToken, Input: input{root, v.Scope()}}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(v.InScopeRoots(), func(root string) run.Job {
+		return run.Job{Key: root + "|dkim=" + config.DKIMSelectorHash() + mtaSTSToken + serveraddr.KeyToken, Input: input{root, v.Scope()}}
+	})
 }
 
 // txt treats NXDOMAIN/NODATA as empty and timeout/SERVFAIL as errors.

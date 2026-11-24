@@ -26,8 +26,8 @@ func TestProbePolicy(t *testing.T) {
 		t.Errorf("policy = %+v", p)
 	}
 	for _, h := range []string{"a.example.com", "b.example.com"} {
-		if !slices.Equal(p.Resolutions[h], []netip.Addr{a}) {
-			t.Errorf("resolutions[%s] = %v", h, p.Resolutions[h])
+		if !slices.Equal(p.Scope.Addrs(h), []netip.Addr{a}) {
+			t.Errorf("resolutions[%s] = %v", h, p.Scope.Addrs(h))
 		}
 	}
 	if !p.Scope.InScopeIP(a) || p.Scope.InScopeIP(netip.MustParseAddr("8.8.4.5")) {

@@ -2,7 +2,7 @@ package kinds
 
 import (
 	"github.com/rafaelh/nyx/internal/recon/inventory"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Organisation records a registry's registrant name. It is listed as a candidate only when

@@ -16,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Host is a hostname record and the producers currently observing it.
@@ -123,7 +123,10 @@ type Inventory struct {
 
 	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
 
-	hosts map[*scope.Scope]map[netip.Addr][]string // see HostnamesByIP; guarded by mu
+	// Views derived per scope, guarded by mu: see HostnamesByIP, ProbeHostnames and ProviderHosts.
+	hosts    map[*scope.Scope]map[netip.Addr][]string
+	probe    map[*scope.Scope][]string
+	provider map[*scope.Scope][]ProviderHost
 
 	servers map[string][]netip.Addr // name server or mail host -> looked-up addresses
 
@@ -142,7 +145,7 @@ func New(d Data, db *provider.DB) *Inventory {
 	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{}, srv: map[string][]uint16{},
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
 		class: map[netip.Addr]provider.Result{}, regOf: map[netip.Addr]int{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{},
-		hosts: map[*scope.Scope]map[netip.Addr][]string{}}
+		hosts: map[*scope.Scope]map[netip.Addr][]string{}, probe: map[*scope.Scope][]string{}, provider: map[*scope.Scope][]ProviderHost{}}
 	for _, s := range d.ServerAddresses {
 		host := dnsname.Normalise(s.Host)
 		i.servers[host] = append(i.servers[host], s.Addr.Unmap())
@@ -400,8 +403,7 @@ func (i *Inventory) OwnerKnown(a netip.Addr, sc *scope.Scope) bool {
 // PortEligible shares the port-checking decision used by the sweep, open-port visibility and
 // ips.csv. Egress applies the same scope.PortEligible rules from its policy.
 func (i *Inventory) PortEligible(a netip.Addr, sc *scope.Scope) bool {
-	ok, _, _ := sc.PortEligible(a, i.owner)
-	return ok
+	return sc.PortAllowed(a, i.owner)
 }
 
 // PortEligible checks netblocks itself; this callback only supplies provider ownership.
@@ -416,8 +418,13 @@ func (i *Inventory) PortClosed(ap netip.AddrPort) bool {
 }
 
 // ProbeHostnames returns resolved in-scope names after exclusions, with one representative per
-// wildcard zone instead of every wildcard-only name.
+// wildcard zone instead of every wildcard-only name. It is cached per scope; the caller gets its
+// own copy.
 func (i *Inventory) ProbeHostnames(sc *scope.Scope) []string {
+	return slices.Clone(perScope(i, i.probe, sc, i.probeHostnames))
+}
+
+func (i *Inventory) probeHostnames(sc *scope.Scope) []string {
 	set := map[string]bool{}
 	for name, addrs := range i.addr {
 		if len(addrs) > 0 && !i.wo[name] && sc.HostInScope(name) {
@@ -431,8 +438,13 @@ func (i *Inventory) ProbeHostnames(sc *scope.Scope) []string {
 }
 
 // ProviderHosts identifies in-scope names on shared infrastructure using CNAME suffixes,
-// address ranges or ASNs. CNAME evidence can identify dangling services too.
+// address ranges or ASNs. CNAME evidence can identify dangling services too. It is cached per
+// scope; the caller gets its own copy.
 func (i *Inventory) ProviderHosts(sc *scope.Scope) []ProviderHost {
+	return slices.Clone(perScope(i, i.provider, sc, i.providerHosts))
+}
+
+func (i *Inventory) providerHosts(sc *scope.Scope) []ProviderHost {
 	names := map[string]bool{}
 	for _, h := range i.d.Hosts {
 		names[h.Name] = true
@@ -524,20 +536,29 @@ func (i *Inventory) served(host string, byCNAME func(provider.Entry) bool, byAdd
 // HostnamesByIP maps known addresses to sorted, non-excluded DNS and rDNS names for ips.csv. It
 // is cached per scope; treat the map and slices as read-only.
 func (i *Inventory) HostnamesByIP(sc *scope.Scope) map[netip.Addr][]string {
+	return perScope(i, i.hosts, sc, func(sc *scope.Scope) map[netip.Addr][]string {
+		out := map[netip.Addr][]string{}
+		for a, names := range i.namesByIP(sc) {
+			out[a] = slices.Sorted(maps.Keys(names))
+		}
+		return out
+	})
+}
+
+// perScope returns the view cached in m for sc, deriving it on first use. The inventory and the
+// scope never change, so the view stays valid; two callers racing may both derive it.
+func perScope[T any](i *Inventory, m map[*scope.Scope]T, sc *scope.Scope, derive func(*scope.Scope) T) T {
 	i.mu.Lock()
-	out, ok := i.hosts[sc]
+	v, ok := m[sc]
 	i.mu.Unlock()
 	if ok {
-		return out
+		return v
 	}
-	out = map[netip.Addr][]string{}
-	for a, names := range i.namesByIP(sc) {
-		out[a] = slices.Sorted(maps.Keys(names))
-	}
+	v = derive(sc)
 	i.mu.Lock()
-	i.hosts[sc] = out
+	m[sc] = v
 	i.mu.Unlock()
-	return out
+	return v
 }
 
 // KnownAddrs returns the sorted addresses indexed by HostnamesByIP.

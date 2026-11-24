@@ -21,7 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
@@ -74,15 +74,11 @@ type input struct {
 
 // Jobs yields one job per in-scope input root, keyed "<root>|max=<n>".
 func (*Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		limit := v.Settings().GitHub.MaxResults
-		roots := v.InScopeRoots()
-		for _, r := range roots {
-			if !yield(run.Job{Key: fmt.Sprintf("%s|max=%d", r, limit), Input: input{root: r, max: limit, roots: roots, sc: v.Scope()}}, nil) {
-				return
-			}
-		}
-	}
+	limit := v.Settings().GitHub.MaxResults
+	roots := v.InScopeRoots()
+	return run.JobsOf(roots, func(r string) run.Job {
+		return run.Job{Key: fmt.Sprintf("%s|max=%d", r, limit), Input: input{root: r, max: limit, roots: roots, sc: v.Scope()}}
+	})
 }
 
 // searchResult is the part of a code search page that the procedure reads.

@@ -53,7 +53,7 @@ recon flags:
       --config string           Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
       --output-dir string       Directory in which engagement directories are created (default ".")
 Procedures accepted by --redo and --skip: crtsh, shodan, providerranges, resolve, wildcard, httpprobe, ports
-Procedures --skip refuses: resolve, wildcard, ipowner, providerranges
+Procedures --skip refuses: providerranges, resolve, wildcard
 Tuning settings (rates, limits, ports, lists and the rest) are listed by nyx recon --help.
 
 nyx recon export -e <engagement> [flags]

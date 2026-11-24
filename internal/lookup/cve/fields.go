@@ -1,12 +1,11 @@
 package cve
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/rafaelh/nyx/internal/lookup/batch"
 )
 
 // field pairs a stable record key with its value reader.
@@ -49,30 +48,19 @@ func ValidFields() string {
 }
 
 // Fields always includes id alongside selected record fields.
-type Fields struct{ has []bool } // by position in the table
+type Fields struct{ has batch.Selection }
 
 // Select parses comma-separated field names or "all", ignoring blanks. It always includes id
 // and the counts for selected lists, returning fields in table order. Unknown names are
 // returned unchanged and invalidate the selection.
 func Select(spec string) (Fields, []string) {
-	f := Fields{has: make([]bool, len(fields))}
+	f := Fields{has: make(batch.Selection, len(fields))}
 	f.has[0] = true // id
-	var unknown []string
-	for name := range strings.SplitSeq(spec, ",") {
-		name = strings.TrimSpace(name)
-		i := fieldIndex(name)
-		switch {
-		case name == "":
-		case name == "all":
-			for i := range f.has {
-				f.has[i] = true
-			}
-		case i < 0:
-			unknown = append(unknown, name)
-		default:
+	unknown := keys.Select(spec, func() {
+		for i := range f.has {
 			f.has[i] = true
 		}
-	}
+	}, func(i int) { f.has[i] = true })
 	if len(unknown) > 0 {
 		return Fields{}, unknown
 	}
@@ -99,33 +87,17 @@ var lists = [...]list{
 	referencesList: {"references", "references_count", "References", "references"},
 }
 
-func fieldIndex(name string) int {
-	if i, ok := fieldPos[name]; ok {
-		return i
-	}
-	return -1
-}
-
-// fieldPos indexes stable field names.
-var fieldPos = func() map[string]int {
-	m := make(map[string]int, len(fields))
-	for i, f := range fields {
-		m[f.name] = i
-	}
-	return m
-}()
+// keys indexes the stable field names.
+var keys = batch.NewKeys(FieldNames())
 
 func (f Fields) set(name string, on bool) {
-	if i := fieldIndex(name); i >= 0 {
+	if i := keys.Index(name); i >= 0 {
 		f.has[i] = on
 	}
 }
 
 // Has reports whether the field name is selected.
-func (f Fields) Has(name string) bool {
-	i := fieldIndex(name)
-	return i >= 0 && i < len(f.has) && f.has[i]
-}
+func (f Fields) Has(name string) bool { return f.has.Has(keys.Index(name)) }
 
 // ShowsList reports whether either list is selected.
 func (f Fields) ShowsList() bool {
@@ -264,23 +236,5 @@ func ListHint(ps []Projected) string {
 
 // MarshalJSON preserves complete-record value encoding for selected keys.
 func (p Projected) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	b.WriteByte('{')
-	for i, f := range fields {
-		if i >= len(p.f.has) || !p.f.has[i] {
-			continue
-		}
-		if b.Len() > 1 {
-			b.WriteByte(',')
-		}
-		fmt.Fprintf(&b, "%q:", f.name)
-		if err := enc.Encode(f.value(&p)); err != nil {
-			return nil, fmt.Errorf("encoding %s: %w", f.name, err)
-		}
-		b.Truncate(b.Len() - 1) // Encode's newline
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
+	return keys.Marshal(p.f.has, func(i int) any { return fields[i].value(&p) })
 }

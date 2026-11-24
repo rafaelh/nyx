@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 var tlsNow = time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
@@ -44,7 +44,7 @@ func getTLS(t *testing.T, host string, port int) egress.HTTPResult {
 	eg := egress.New(egress.Options{RatePerHost: 1000, HTTPTimeout: 2 * time.Second, Now: func() time.Time { return tlsNow }})
 	eg.SetPolicy(&egress.Policy{
 		Scope: scope.New(scope.Config{Roots: []string{"example.com"}, Resolutions: rs}),
-		Ack:   true, Ports: []int{port}, Resolutions: rs,
+		Ack:   true, Ports: []int{port},
 	})
 	r, err := eg.Clients(true, nil).HTTP.Get(context.Background(), egress.Root(host, "https", port))
 	if err != nil {

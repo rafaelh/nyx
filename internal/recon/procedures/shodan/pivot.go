@@ -17,7 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // maxPivotHosts rejects widely shared identifiers as likely template, plugin or framework
@@ -73,35 +73,31 @@ type pivotInput struct {
 // belong to the platform, so they cannot support organisation pivots. The hosting test matches
 // web-posture findings.
 func (*Pivot) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		pivotable := map[string]bool{} // the service keys
-		for _, ws := range v.WebServices() {
-			if !v.SaaSServed(ws.Svc.Host) {
-				pivotable[ws.Key] = true
-			}
+	pivotable := map[string]bool{} // the service keys
+	for _, ws := range v.WebServices() {
+		if !v.SaaSServed(ws.Svc.Host) {
+			pivotable[ws.Key] = true
 		}
-		sc := v.Scope()
-		keys := map[string]pivotInput{}
-		for _, rec := range v.Records(kinds.WebIdentifier) {
-			a := kinds.WebIdentifier.Attrs(rec)
-			if !pivotable[a.Service] || a.Value == "" {
-				continue
-			}
-			switch a.Type {
-			case kinds.IdentifierAnalytics, kinds.IdentifierPixel:
-				keys["html|"+a.Value] = pivotInput{id: a.Value, query: `http.html:"` + a.Value + `"`, sc: sc}
-			case kinds.IdentifierFavicon:
-				if _, isDefault := defaultFavicons[a.Value]; !isDefault {
-					keys["favicon|"+a.Value] = pivotInput{id: a.Value, query: "http.favicon.hash:" + a.Value, sc: sc}
-				}
-			}
+	}
+	sc := v.Scope()
+	keys := map[string]pivotInput{}
+	for _, rec := range v.Records(kinds.WebIdentifier) {
+		a := kinds.WebIdentifier.Attrs(rec)
+		if !pivotable[a.Service] || a.Value == "" {
+			continue
 		}
-		for _, key := range slices.Sorted(maps.Keys(keys)) {
-			if !yield(run.Job{Key: key, Input: keys[key], Cost: 1}, nil) {
-				return
+		switch a.Type {
+		case kinds.IdentifierAnalytics, kinds.IdentifierPixel:
+			keys["html|"+a.Value] = pivotInput{id: a.Value, query: `http.html:"` + a.Value + `"`, sc: sc}
+		case kinds.IdentifierFavicon:
+			if _, isDefault := defaultFavicons[a.Value]; !isDefault {
+				keys["favicon|"+a.Value] = pivotInput{id: a.Value, query: "http.favicon.hash:" + a.Value, sc: sc}
 			}
 		}
 	}
+	return run.JobsOf(slices.Sorted(maps.Keys(keys)), func(key string) run.Job {
+		return run.Job{Key: key, Input: keys[key], Cost: 1}
+	})
 }
 
 // Run checks the first search page, discarding oversized results with a warning. Key

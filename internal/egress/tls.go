@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Certificate trust values are stored as tls_trust. kinds mirrors them to avoid importing
@@ -147,7 +147,7 @@ func (e *Egress) handshake(ctx context.Context, addr netip.Addr, port int, serve
 	d := net.Dialer{Timeout: e.opts.ConnectTimeout}
 	raw, err := d.DialContext(hctx, "tcp", e.dialAddr(addr, port))
 	if err != nil {
-		return handshakeFailure(ctx, hctx, localRoute(err, addr, e.routeLookup()), classify)
+		return handshakeFailure(ctx, hctx, localRoute(err, addr, udpRoute), classify)
 	}
 	conn := tls.Client(raw, targetTLSConfig(serverName))
 	defer conn.Close()
@@ -218,9 +218,8 @@ func ProbePolicy(addr netip.Addr, hostnames []string, ports []int) *Policy {
 			Netblocks:   []netip.Prefix{netip.PrefixFrom(addr, addr.BitLen())},
 			Resolutions: res,
 		}),
-		Resolutions: res,
-		Ack:         true,
-		Ports:       ports,
+		Ack:   true,
+		Ports: ports,
 	}
 }
 

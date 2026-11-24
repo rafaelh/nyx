@@ -166,21 +166,9 @@ func validCount(list string, stated, held int) error {
 	return nil
 }
 
-// ParsePages validates both source pages and their counts. Dates later than tomorrow UTC are
-// rejected. Age comparisons with active data belong to the caller.
-func ParsePages(networks, asns []byte, now time.Time) (Snapshot, error) {
-	nets, err := ParseNetworksPage(networks, now)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("networks page: %w", err)
-	}
-	as, err := ParseASNsPage(asns, now)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("ASNs page: %w", err)
-	}
-	return Snapshot{Nets: nets, ASNs: as}, nil
-}
-
-// ParseNetworksPage parses and sorts network entries using ParsePages validation rules.
+// ParseNetworksPage parses, validates and sorts the networks page's entries and checks its
+// count. Dates later than tomorrow UTC are rejected. Age comparisons with active data belong to
+// the caller.
 func ParseNetworksPage(page []byte, now time.Time) (List[NetworkEntry], error) {
 	p, err := readPage(page, networkColumns, now)
 	if err != nil {
@@ -206,7 +194,8 @@ func ParseNetworksPage(page []byte, now time.Time) (List[NetworkEntry], error) {
 	return list, nil
 }
 
-// ParseASNsPage parses and sorts ASN entries using ParsePages validation rules.
+// ParseASNsPage parses, validates and sorts the ASNs page's entries under ParseNetworksPage's
+// rules.
 func ParseASNsPage(page []byte, now time.Time) (List[ASNEntry], error) {
 	p, err := readPage(page, asnColumns, now)
 	if err != nil {

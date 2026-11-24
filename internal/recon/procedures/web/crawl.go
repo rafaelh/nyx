@@ -14,7 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/run"
-	"github.com/rafaelh/nyx/internal/recon/scope"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // urlsPerPage bounds recorded URLs relative to page budget, preventing calendars/faceted search
@@ -61,18 +61,14 @@ type crawlInput struct {
 // Jobs versions each in-scope current service by crawl limits so changing limits creates new
 // work.
 func (*Crawl) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		set := v.Settings().Crawl
-		for _, ws := range v.WebServices() { // in key order
-			svc := ws.Svc
-			in := crawlInput{sc: v.Scope(), host: svc.Host, scheme: svc.Scheme, port: svc.Port, depth: set.MaxDepth, pages: set.MaxPages, origin: ws.Key}
-			in.start, _ = weburl.NormaliseURL(ws.Key + "/")
-			key := fmt.Sprintf("%s|depth=%d|pages=%d", ws.Key, set.MaxDepth, set.MaxPages)
-			if !yield(run.Job{Key: key, Input: in}, nil) {
-				return
-			}
-		}
-	}
+	set := v.Settings().Crawl
+	return run.JobsOf(v.WebServices(), func(ws run.WebService) run.Job { // in key order
+		svc := ws.Svc
+		in := crawlInput{sc: v.Scope(), host: svc.Host, scheme: svc.Scheme, port: svc.Port, depth: set.MaxDepth, pages: set.MaxPages, origin: ws.Key}
+		in.start, _ = weburl.NormaliseURL(ws.Key + "/")
+		key := fmt.Sprintf("%s|depth=%d|pages=%d", ws.Key, set.MaxDepth, set.MaxPages)
+		return run.Job{Key: key, Input: in}
+	})
 }
 
 type recordedURL struct {
@@ -214,15 +210,8 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 	}
 	l := pg.links()
 	base = withBase(base, l.base)
-	absolute := func(href string) (string, bool) {
-		t, err := base.Parse(href)
-		if err != nil {
-			return "", false
-		}
-		return weburl.NormaliseURL(t.String())
-	}
 	handle := func(href string, follow bool) {
-		abs, ok := absolute(href)
+		abs, ok := resolveURL(base, href)
 		if !ok {
 			return
 		}
@@ -239,7 +228,7 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 	}
 	pageURL, _ := weburl.NormaliseURL(resp.URL())
 	for _, r := range l.refs {
-		abs, ok := absolute(r.url)
+		abs, ok := resolveURL(base, r.url)
 		if !ok {
 			continue
 		}

@@ -50,13 +50,7 @@ func (*Procedure) Budget(s config.Settings) int { return s.DNSHistory.MaxHosts }
 
 // Jobs yields, in name order, each fronted in-scope hostname.
 func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] {
-	return func(yield func(run.Job, error) bool) {
-		for _, h := range v.FrontedHostnames() {
-			if !yield(run.Job{Key: h, Input: h, Cost: 1}, nil) {
-				return
-			}
-		}
-	}
+	return run.JobsOf(v.FrontedHostnames(), func(h string) run.Job { return run.Job{Key: h, Input: h, Cost: 1} })
 }
 
 // record is one period of a history: the addresses a name had, and when it was seen to.

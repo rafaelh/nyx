@@ -11,6 +11,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/threatdata"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
+	tdt "github.com/rafaelh/nyx/internal/threatdata/threatdatatest"
 )
 
 // The update's --json envelope is a stable interface: every key is present on exit 0 and exit 7,
@@ -144,8 +145,8 @@ func TestThreatEnvelope_KeysOnSuccess(t *testing.T) {
 	if sh.Outcome != "updated" || tdStr(sh.LastContacted) != now || sh.NextUpdate != nil || sh.Error != nil {
 		t.Errorf("spamhaus %+v: want updated, last contacted %s, no next_update, no error", sh, now)
 	}
-	if tdStr(sh.Copyright) != tdCopyright || tdStr(sh.Terms) != tdTerms {
-		t.Errorf("spamhaus's credit %s, %s; want %q, %q", tdStr(sh.Copyright), tdStr(sh.Terms), tdCopyright, tdTerms)
+	if tdStr(sh.Copyright) != tdt.Copyright || tdStr(sh.Terms) != tdt.Terms {
+		t.Errorf("spamhaus's credit %s, %s; want %q, %q", tdStr(sh.Copyright), tdStr(sh.Terms), tdt.Copyright, tdt.Terms)
 	}
 	ip := env.source(t, threatdata.Ipapi)
 	if ip.Outcome != "current" || tdStr(ip.LastContacted) != now || ip.NextUpdate != nil || ip.Error != nil {
@@ -201,7 +202,7 @@ func TestThreatEnvelope_KeysOnAPartialResult(t *testing.T) {
 	if sh.Error == nil || sh.Error.Code != "UPSTREAM_ERROR" || !strings.Contains(sh.Error.Error, "HTTP 500") || sh.Error.Transient {
 		t.Errorf("spamhaus's error %+v, want UPSTREAM_ERROR for HTTP 500, not transient", sh.Error)
 	}
-	if tdStr(sh.Copyright) != tdCopyright || tdStr(sh.Terms) != tdTerms {
+	if tdStr(sh.Copyright) != tdt.Copyright || tdStr(sh.Terms) != tdt.Terms {
 		t.Errorf("spamhaus's credit %s, %s; want the built-in copy's", tdStr(sh.Copyright), tdStr(sh.Terms))
 	}
 	ip := env.source(t, threatdata.Ipapi)

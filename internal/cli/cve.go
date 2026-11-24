@@ -158,7 +158,8 @@ func cveView(probs *clierr.Problems, o *cveOptions, fields cve.Fields, known boo
 
 // cveKey returns the trimmed configured NVD key and rejection guidance.
 func cveKey(env config.Env, settings config.Settings, configPath string) (key, authHint string) {
-	if k := strings.TrimSpace(settings.Keys["nvd"].Reveal()); k != "" {
+	secret, _ := settings.Key("nvd") // a blank key is checked after trimming
+	if k := strings.TrimSpace(secret.Reveal()); k != "" {
 		if configPath == "" {
 			configPath = config.DefaultConfigPath(env)
 		}

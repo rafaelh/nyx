@@ -165,6 +165,13 @@ type Settings struct {
 	NSReverse   NSReverse
 }
 
+// Key returns the configured API key for a source, matched case-insensitively. ok is false when
+// the key is absent or empty; the value is returned either way.
+func (s Settings) Key(source string) (k Secret, ok bool) {
+	k = s.Keys[strings.ToLower(source)]
+	return k, k.Reveal() != ""
+}
+
 // Defaults provides starting limits and rates. These values do not encode source fair-use terms
 // or engagement-specific limits.
 func Defaults() Settings {

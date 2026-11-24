@@ -1,11 +1,10 @@
 package iplookup
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/rafaelh/nyx/internal/lookup/batch"
 )
 
 // field describes a record key, its active-only status and all required sources. Dependencies
@@ -64,9 +63,6 @@ func nonNil[T any](s []T) []T {
 	return s
 }
 
-// FieldNames returns all mode-available keys, including mandatory fields, in record order.
-func FieldNames(active bool) []string { return AllFields(active).Names() }
-
 // ActiveFieldNames is the keys only --active has, in order.
 func ActiveFieldNames() []string {
 	var names []string
@@ -98,37 +94,36 @@ func ValidFields(active bool) string {
 // Fields binds a record-key selection to its lookup mode.
 type Fields struct {
 	active bool
-	has    []bool // by position in the table; nil for the zero selection
+	has    batch.Selection // nil for the zero selection
 }
 
+// keys indexes the table's names.
+var keys = func() batch.Keys {
+	names := make([]string, len(table))
+	for i, f := range table {
+		names[i] = f.name
+	}
+	return batch.NewKeys(names)
+}()
+
 // fieldIndex is the position of the key in the table, or -1.
-func fieldIndex(name string) int {
-	return slices.IndexFunc(table, func(f field) bool { return f.name == name })
-}
+func fieldIndex(name string) int { return keys.Index(name) }
 
 // Select parses comma-separated names or "all" into table order, ignoring blanks. Empty text
 // keeps only mandatory keys. Unknown names and active-only fields requested without --active
 // are returned separately; either invalidates the selection.
 func Select(spec string, active bool) (f Fields, unknown, activeOnly []string) {
-	sel := Fields{active: active, has: make([]bool, len(table))}
+	sel := Fields{active: active, has: make(batch.Selection, len(table))}
 	for i, t := range table {
 		sel.has[i] = t.always
 	}
-	for name := range strings.SplitSeq(spec, ",") {
-		name = strings.TrimSpace(name)
-		i := fieldIndex(name)
-		switch {
-		case name == "":
-		case name == "all":
-			sel = AllFields(active)
-		case i < 0:
-			unknown = append(unknown, name)
-		case table[i].active && !active:
-			activeOnly = append(activeOnly, name)
-		default:
-			sel.has[i] = true
+	unknown = keys.Select(spec, func() { sel = AllFields(active) }, func(i int) {
+		if table[i].active && !active {
+			activeOnly = append(activeOnly, table[i].name)
+			return
 		}
-	}
+		sel.has[i] = true
+	})
 	if unknown != nil || activeOnly != nil {
 		return Fields{}, unknown, activeOnly
 	}
@@ -137,7 +132,7 @@ func Select(spec string, active bool) (f Fields, unknown, activeOnly []string) {
 
 // AllFields returns every key permitted in the selected mode.
 func AllFields(active bool) Fields {
-	f := Fields{active: active, has: make([]bool, len(table))}
+	f := Fields{active: active, has: make(batch.Selection, len(table))}
 	for i, t := range table {
 		f.has[i] = t.always || !t.active || active
 	}
@@ -148,16 +143,13 @@ func AllFields(active bool) Fields {
 func (f Fields) Active() bool { return f.active }
 
 // Has reports whether the key is selected.
-func (f Fields) Has(name string) bool {
-	i := fieldIndex(name)
-	return i >= 0 && i < len(f.has) && f.has[i]
-}
+func (f Fields) Has(name string) bool { return f.has.Has(fieldIndex(name)) }
 
 // Names are the selected keys, in the record's order.
 func (f Fields) Names() []string {
 	var names []string
 	for i, t := range table {
-		if i < len(f.has) && f.has[i] {
+		if f.has.Has(i) {
 			names = append(names, t.name)
 		}
 	}
@@ -196,7 +188,7 @@ func (f Fields) Sources() []Source {
 // address, even when all requested sources fail.
 func (f Fields) Sourceless() bool {
 	for i, t := range table {
-		if i < len(f.has) && f.has[i] && !t.always && len(t.sources) == 0 {
+		if f.has.Has(i) && !t.always && len(t.sources) == 0 {
 			return true
 		}
 	}
@@ -232,23 +224,5 @@ func (p Projected) Fields() Fields { return p.f }
 
 // MarshalJSON encodes the selected keys, each as the whole record encodes it.
 func (p Projected) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	b.WriteByte('{')
-	for i, t := range table {
-		if i >= len(p.f.has) || !p.f.has[i] {
-			continue
-		}
-		if b.Len() > 1 {
-			b.WriteByte(',')
-		}
-		fmt.Fprintf(&b, "%q:", t.name)
-		if err := enc.Encode(t.value(&p.rec)); err != nil {
-			return nil, fmt.Errorf("encoding %s: %w", t.name, err)
-		}
-		b.Truncate(b.Len() - 1) // Encode's newline
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
+	return keys.Marshal(p.f.has, func(i int) any { return table[i].value(&p.rec) })
 }

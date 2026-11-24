@@ -21,6 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
@@ -121,10 +122,7 @@ func serialHost(host string) bool {
 
 // Do sends the request unless its host is latched. A 429 latches the host.
 func (g *guard) Do(ctx context.Context, r egress.ThirdPartyRequest) (egress.ThirdPartyResponse, error) {
-	host := ""
-	if u, err := url.Parse(r.URL); err == nil {
-		host = strings.ToLower(u.Hostname())
-	}
+	host := weburl.HostOfURL(r.URL)
 	st := g.state(host)
 	if st.latched.Load() {
 		return egress.ThirdPartyResponse{}, &latchedError{}
