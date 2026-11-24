@@ -19,7 +19,7 @@ func termSheet(s layout.Stream) string {
 	return buf.String()
 }
 
-// Terminal sheets exercise headings, tables, severity bars, stage states, found formats and
+// Terminal sheets exercise headings, tables, severity bars, procedure states, found formats and
 // over-width logs.
 func TestSheetLayoutPart(t *testing.T) {
 	t.Parallel()
@@ -38,7 +38,7 @@ func TestSheetLayoutPart(t *testing.T) {
 		added := strings.Join(lines[head:], "\n")
 		checkSheetTable(t, d, added)
 		checkSheetBars(t, s, added)
-		checkSheetStageLines(t, d, added)
+		checkSheetProcedureLines(t, d, added)
 		checkSheetFoundLines(t, d, added)
 		checkSheetWrapped(t, d, added)
 		for i, l := range lines[head:] {
@@ -76,8 +76,8 @@ func checkSheetBars(t *testing.T, s layout.Stream, added string) {
 	}
 }
 
-// checkSheetStageLines checks a stage line for each state, with the state's colour.
-func checkSheetStageLines(t *testing.T, d palette.Depth, added string) {
+// checkSheetProcedureLines checks a procedure line for each state, with the state's colour.
+func checkSheetProcedureLines(t *testing.T, d palette.Depth, added string) {
 	t.Helper()
 	for _, c := range []struct {
 		state string

@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// Origin tests use real stages with loopback history and target servers. www.example.com is
+// Origin tests use real procedures with loopback history and target servers. www.example.com is
 // Fastly-fronted; its dedicated sibling presents a matching certificate and serves the same
 // site when requested as www. This supplies both candidate and confirmation evidence.
 
@@ -427,7 +427,7 @@ func TestOrigin_UncontactableCandidateIsPossibleAndNeverContacted(t *testing.T) 
 	if got := x.completedKeys("origincheck"); len(got) != 0 {
 		t.Errorf("origincheck checks = %v, want none", got)
 	}
-	// The stage yields no check for it: egress would refuse one, but that would be a failed check.
+	// The procedure yields no job for it: egress would refuse one, but that would be a failed job.
 	if ev := lastState(x.h.events(), "origincheck"); ev.num("checks") != 0 || ev.num("failed") != 0 {
 		t.Errorf("origincheck state = %v, want no checks and none failed", ev)
 	}
@@ -446,9 +446,9 @@ func TestOrigin_ExcludedCandidateIsNeverContacted(t *testing.T) {
 	x.wantRow(histInNet, "low", "historical", "", "no", "true")
 }
 
-// No check is created until the probe has a 2xx result for the fronted host; once it does, the
+// No job is created until the probe has a 2xx result for the fronted host; once it does, the
 // pair is checked.
-func TestOrigin_NoCheckBeforeTheProbeHasA2xx(t *testing.T) {
+func TestOrigin_NoJobBeforeTheProbeHasA2xx(t *testing.T) {
 	t.Parallel()
 	x := newOriginWorld(t)
 	x.set(func() { x.cdnStatus = 403 }) // the CDN blocks the probe
@@ -465,7 +465,7 @@ func TestOrigin_NoCheckBeforeTheProbeHasA2xx(t *testing.T) {
 	}
 }
 
-// Baseline title changes version the check and replace confirmation evidence.
+// Baseline title changes version the job and replace confirmation evidence.
 func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 	t.Parallel()
 	x := newOriginWorld(t)
@@ -604,7 +604,7 @@ func TestOrigin_RedoThatFailsToConfirmLeavesAPossibleOrigin(t *testing.T) {
 	}
 }
 
-// --- the stages ---
+// --- the procedures ---
 
 // Without a SecurityTrails key dnshistory is not configured and nothing is asked of SecurityTrails,
 // and origincheck runs over sibling-derived candidates.
@@ -690,10 +690,10 @@ func TestOrigin_PassiveSkipsOriginCheckAndRunsDNSHistory(t *testing.T) {
 
 // --- help and docs ---
 
-// The flags and stages are documented, and the severity list names both finding types.
+// The flags and procedures are documented, and the severity list names both finding types.
 func TestOrigin_Help(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -702,11 +702,11 @@ func TestOrigin_Help(t *testing.T) {
 			t.Errorf("help missing %s", want)
 		}
 	}
-	topic := h.stagesHelp()
-	if row := stageRow(topic, "dnshistory"); !strings.Contains(row, "securitytrails") || !strings.Contains(row, "third party") {
+	topic := h.proceduresHelp()
+	if row := procedureRow(topic, "dnshistory"); !strings.Contains(row, "securitytrails") || !strings.Contains(row, "third party") {
 		t.Errorf("help stages row for dnshistory = %q", row)
 	}
-	if row := stageRow(topic, "origincheck"); !strings.Contains(row, "target") {
+	if row := procedureRow(topic, "origincheck"); !strings.Contains(row, "target") {
 		t.Errorf("help stages row for origincheck = %q", row)
 	}
 	if code := h.execRoot("help", "findings"); code != 0 {

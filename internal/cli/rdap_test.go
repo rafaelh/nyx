@@ -14,7 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// RDAP tests use real stages with loopback IANA/registry responses matching each registry's
+// RDAP tests use real procedures with loopback IANA/registry responses matching each registry's
 // formats.
 
 const (
@@ -166,7 +166,7 @@ func newRDAP(t *testing.T, hosts ...string) *rdapWorld {
 	x.bootstrap("203.0.0.0/8", hostARIN, "104.0.0.0/8", hostARIN, "198.0.0.0/8", hostRIPE, "100.0.0.0/8", hostAPNIC)
 	serveAWSElsewhere(w)
 	x.hosts(hosts...)
-	// RIPEstat is the asn stage's source; an input ASN has no prefixes here.
+	// RIPEstat is the asn procedure's source; an input ASN has no prefixes here.
 	w.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"prefixes":[]}}`))
 	return x
 }
@@ -649,9 +649,9 @@ func TestRDAP_RanksAndPromotionHints(t *testing.T) {
 	x := registrantWorld(t, "a=203.0.113.7", "b=203.0.114.7", "c=203.0.113.8")
 	x.entities(hostARIN, false, rdapEntity{handle: "ACME-1", name: "Acme Widgets", nets: []rdapNet{{"192.0.2.0", "192.0.2.255", "NET-A", ""}}, asns: []int{64501}})
 	// Two other families agree about the organisation and about the ASN.
-	for i, s := range x.h.stages {
+	for i, s := range x.h.procedures {
 		if n := s.Name(); n == "wayback" || n == "virustotal" {
-			x.h.stages[i] = newSrc(n, finds("k", list(obs("asn", "AS64501"), obs("organisation", "Globex Holdings Ltd"))))
+			x.h.procedures[i] = newSrc(n, finds("k", list(obs("asn", "AS64501"), obs("organisation", "Globex Holdings Ltd"))))
 		}
 	}
 	x.mustScan("--org", "Acme Widgets")
@@ -697,15 +697,15 @@ func TestRDAP_ASNInputRemovesItsCandidateRow(t *testing.T) {
 
 // --- limits and repeats ---
 
-// A 429 from a registry stops the stage; the checks run on the next run.
-func TestRDAP_QuotaStopsTheStageAndTheChecksRunNextTime(t *testing.T) {
+// A 429 from a registry stops the procedure; the jobs run on the next run.
+func TestRDAP_QuotaStopsTheProcedureAndTheJobsRunNextTime(t *testing.T) {
 	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=203.0.114.7")
 	r1, _, r3 := globexNets()
 	x.net(hostARIN, r1)
 	x.net(hostARIN, r3)
 	x.fake(hostARIN).status = http.StatusTooManyRequests
-	// A spent allowance fails the checks and clears with time: the error is transient.
+	// A spent allowance fails the jobs and clears with time: the error is transient.
 	if f := x.h.partial(x.scan(), true); !f.transient || !strings.Contains(f.msg, "rdap") {
 		t.Errorf("error = %+v, want a transient failure naming rdap", f)
 	}
@@ -784,7 +784,7 @@ func TestRDAP_OrganisationSearchOnceAndRefreshedByRedo(t *testing.T) {
 }
 
 // The bootstrap file is fetched once per run, and a failure to fetch it fails the
-// checks of that run only.
+// jobs of that run only.
 func TestRDAP_BootstrapOncePerRun(t *testing.T) {
 	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=198.51.100.7", "c=100.64.0.7")
@@ -824,8 +824,8 @@ func TestRDAP_BootstrapFailureRetriesNextRun(t *testing.T) {
 func TestRDAP_RunsUnderPassiveAndIsRegistered(t *testing.T) {
 	t.Parallel()
 	var names []string
-	var rd run.Stage
-	for _, s := range defaultStageList() {
+	var rd run.Procedure
+	for _, s := range defaultProcedureList() {
 		names = append(names, s.Name())
 		if s.Name() == "rdap" {
 			rd = s

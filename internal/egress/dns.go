@@ -11,7 +11,7 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// Expose query types without leaking the DNS library into stages.
+// Expose query types without leaking the DNS library into procedures.
 const (
 	TypeA     = dns.TypeA
 	TypeAAAA  = dns.TypeAAAA

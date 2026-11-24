@@ -21,7 +21,7 @@ func TestPermutationsEnabled(t *testing.T) {
 	}
 }
 
-// Custom list contents replace defaults and version checks through their hash.
+// Custom list contents replace defaults and version jobs through their hash.
 func TestWordlistContentAndHash(t *testing.T) {
 	t.Parallel()
 	sa, err := load(t, nil, "", "--wordlist", writeFile(t, "# comment\nalpha\nbeta\n"))

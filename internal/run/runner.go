@@ -1,5 +1,5 @@
-// Package run executes discovery stages until no new work remains. It manages worker pools,
-// stage eligibility, netblock limits, redo and console progress.
+// Package run executes discovery procedures until no new work remains. It manages worker pools,
+// procedure eligibility, netblock limits, redo and console progress.
 package run
 
 import (
@@ -53,7 +53,7 @@ func interrupted(ctx context.Context) error {
 type Config struct {
 	Engagement          *engagement.Engagement
 	Settings            config.Settings
-	Stages              []Stage
+	Procedures          []Procedure
 	Egress              *egress.Egress
 	Emitter             report.Emitter
 	Files               []output.File
@@ -70,7 +70,7 @@ type Config struct {
 	Drop *spamhaus.Lists
 }
 
-// Runner coordinates stage execution, stored state and output for an engagement.
+// Runner coordinates procedure execution, stored state and output for an engagement.
 type Runner struct {
 	cfg   Config
 	st    *store.Store
@@ -82,7 +82,7 @@ type Runner struct {
 	inv    atomic.Pointer[inventory.Inventory]
 	vis    atomic.Pointer[kinds.Visibility] // visibility for sc and inv, used by found events
 
-	// ranges caches the provider-range index at rangesVer. Rebuilding it after every stage
+	// ranges caches the provider-range index at rangesVer. Rebuilding it after every procedure
 	// would repeatedly index thousands of rows.
 	ranges    *provider.Ranges
 	rangesVer uint64
@@ -101,25 +101,25 @@ type Runner struct {
 	observing map[string]observersCache // cached record observers by kind; see observers
 
 	mu      sync.Mutex
-	failed  map[string]map[string]bool // stage -> check key, failed this run
-	stats   map[string]*stageStats
+	failed  map[string]map[string]bool // procedure -> job key, failed this run
+	stats   map[string]*procedureStats
 	last    map[string]string // last printed state signature
 	counts  map[string]int    // last emitted category counts
 	lastTot map[string]int    // category counts computed by the last emitCounts
-	aborted map[string]error  // stage -> the error that aborted it this run
+	aborted map[string]error  // procedure -> the error that aborted it this run
 
 	guarded sync.Map // deduplicates guard records by value and reason
 	warned  sync.Map // warning texts already emitted this run (see warn)
 
-	derivers    []*deriver                      // derivations in execution order, starting with findings
+	analyses    []*analysis                     // derivations in execution order, starting with findings
 	attribution map[string]findings.StorageAttr // storage attribution from the last findings calculation
-	evidencers  map[string]Evidencer            // stages that describe their candidate evidence
-	historical  map[string]bool                 // the stages whose addresses come from DNS history
-	families    candidates.Families             // candidate source families supplied by stages
+	evidencers  map[string]Evidencer            // procedures that describe their candidate evidence
+	historical  map[string]bool                 // the procedures whose addresses come from DNS history
+	families    candidates.Families             // candidate source families supplied by procedures
 
 	base       *baseline        // starting baseline; nil for a first run
 	changes    []output.Change  // changes from the starting baseline at the last render
-	target     map[string]bool  // the stages that make contact with the target
+	target     map[string]bool  // the procedures that make contact with the target
 	lastShown  []store.ShownRow // last saved baseline and whether a baseline exists
 	shownSaved bool
 	out        *output.Writer // renderer that skips unchanged files
@@ -134,23 +134,23 @@ type recordsCache struct {
 	all, curr []store.Record
 }
 
-// observersCache holds a kind's supporting checks at version ver. Completing, redoing or
-// retiring a check updates every affected kind's version, so record versions also invalidate
+// observersCache holds a kind's supporting jobs at version ver. Completing, redoing or
+// retiring a job updates every affected kind's version, so record versions also invalidate
 // this cache.
 type observersCache struct {
 	ver uint64
 	m   map[string][]store.Observer
 }
 
-// stageStats tracks work and outcomes for one stage. spent accumulates the cost sent this run;
+// procedureStats tracks work and outcomes for one procedure. spent accumulates the cost sent this run;
 // deferred records the cost left pending in the last pass. Completed, succeeded, cancelled and
 // rejected counters feed Result.
-type stageStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
+type procedureStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
 
 func New(cfg Config) *Runner {
 	r := &Runner{
 		cfg: cfg, st: cfg.Engagement.Store(),
-		failed: map[string]map[string]bool{}, stats: map[string]*stageStats{},
+		failed: map[string]map[string]bool{}, stats: map[string]*procedureStats{},
 		last: map[string]string{}, counts: map[string]int{}, aborted: map[string]error{},
 		recs: map[string]recordsCache{}, observing: map[string]observersCache{},
 	}
@@ -162,7 +162,7 @@ func New(cfg Config) *Runner {
 	if r.cfg.Drop == nil {
 		r.cfg.Drop = spamhaus.Default()
 	}
-	for _, s := range cfg.Stages {
+	for _, s := range cfg.Procedures {
 		r.order = append(r.order, s.Name())
 		if e, ok := s.(Evidencer); ok {
 			r.evidencers[s.Name()] = e
@@ -171,9 +171,9 @@ func New(cfg Config) *Runner {
 			r.historical[s.Name()] = true
 		}
 	}
-	r.families = CandidateFamilies(cfg.Stages)
-	r.derivers = r.newDerivers()
-	r.target = targetStages(cfg.Stages)
+	r.families = CandidateFamilies(cfg.Procedures)
+	r.analyses = r.newAnalyses()
+	r.target = targetProcedures(cfg.Procedures)
 	r.out = output.NewWriter(cfg.Engagement.Dir(), !cfg.NoFsync)
 	if cfg.Clock == nil {
 		r.cfg.Clock = time.Now
@@ -185,7 +185,7 @@ func (r *Runner) emit(typ string, fields map[string]any) {
 	r.cfg.Emitter.Emit(report.Event{Type: typ, Fields: fields})
 }
 
-// warn emits each distinct warning text once per run. Checks can report the same warning on
+// warn emits each distinct warning text once per run. Jobs can report the same warning on
 // successive passes without repeating console output.
 func (r *Runner) warn(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
@@ -241,7 +241,7 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 }
 
 // wrapUp saves and renders work after an error. For cancellation, it also rebuilds scope and
-// emits counts so partial results include the interrupted stage's work. A netblock-limit error
+// emits counts so partial results include the interrupted procedure's work. A netblock-limit error
 // found during that rebuild takes precedence.
 func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	cut := ctx.Err() != nil && errors.Is(err, context.Cause(ctx))
@@ -263,7 +263,7 @@ func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	return r.result(), err
 }
 
-// passes repeats the stage registry until no stage does work, rendering output after each pass.
+// passes repeats the procedure registry until no procedure does work, rendering output after each pass.
 func (r *Runner) passes(ctx context.Context) error {
 	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {
@@ -277,7 +277,7 @@ func (r *Runner) passes(ctx context.Context) error {
 		}
 		r.emitCounts(rendered)
 		// Once a pass finds no work, a signal or deadline during rendering does not
-		// interrupt any pending checks.
+		// interrupt any pending jobs.
 		if !worked {
 			return nil
 		}
@@ -292,11 +292,11 @@ func (r *Runner) pass(ctx context.Context, first bool) (bool, error) {
 		return false, err
 	}
 	worked := false
-	for _, s := range r.cfg.Stages {
+	for _, s := range r.cfg.Procedures {
 		if ctx.Err() != nil {
 			return false, interrupted(ctx)
 		}
-		did, err := r.runStage(ctx, s, first)
+		did, err := r.runProcedure(ctx, s, first)
 		if err != nil {
 			return false, err
 		}
@@ -348,7 +348,7 @@ func (r *Runner) buildScope() error {
 	r.baseBuilt = nil
 	if built == nil || sig != r.baseSig {
 		var err error
-		if built, err = BuildScope(r.inputs, r.cfg.Stages, runnerSource{r}); err != nil {
+		if built, err = BuildScope(r.inputs, r.cfg.Procedures, runnerSource{r}); err != nil {
 			return err
 		}
 	}
@@ -415,23 +415,23 @@ func (r *Runner) guard(value, reason string) {
 	r.st.Complete("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
 }
 
-func (r *Runner) hasFailed(stage, key string) bool {
+func (r *Runner) hasFailed(procedure, key string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.failed[stage][key]
+	return r.failed[procedure][key]
 }
 
-func (r *Runner) stat(stage string) *stageStats {
-	if r.stats[stage] == nil {
-		r.stats[stage] = &stageStats{}
+func (r *Runner) stat(procedure string) *procedureStats {
+	if r.stats[procedure] == nil {
+		r.stats[procedure] = &procedureStats{}
 	}
-	return r.stats[stage]
+	return r.stats[procedure]
 }
 
 const reasonNoAuthorisation = "no authorisation"
 
-// gateByRun checks --skip, --passive and authorisation without calling stage code.
-func (r *Runner) gateByRun(s Stage) (bool, string) {
+// gateByRun checks --skip, --passive and authorisation without calling procedure code.
+func (r *Runner) gateByRun(s Procedure) (bool, string) {
 	// An explicit --skip takes precedence over configuration and authorisation checks.
 	if slices.Contains(r.cfg.Settings.Skip, s.Name()) {
 		return false, "skipped"
@@ -447,7 +447,7 @@ func (r *Runner) gateByRun(s Stage) (bool, string) {
 	return true, ""
 }
 
-func (r *Runner) gate(s Stage) (bool, string) {
+func (r *Runner) gate(s Procedure) (bool, string) {
 	if ok, reason := r.gateByRun(s); !ok {
 		return false, reason
 	}
@@ -464,12 +464,12 @@ func (r *Runner) warnStaleEOLData() {
 	r.warn("the end-of-life software data in this build was taken on %s, over twelve months ago, so end-of-life findings may be missing or out of date; use a newer build", eol.DataDate())
 }
 
-// warnUnauthorised lists stages blocked by missing authorisation in registry order. It runs
-// just after the header so even an interrupted run shows the warning, without calling stage
+// warnUnauthorised lists procedures blocked by missing authorisation in registry order. It runs
+// just after the header so even an interrupted run shows the warning, without calling procedure
 // configuration checks.
 func (r *Runner) warnUnauthorised() {
 	var names []string
-	for _, s := range r.cfg.Stages {
+	for _, s := range r.cfg.Procedures {
 		if ok, reason := r.gateByRun(s); !ok && reason == reasonNoAuthorisation {
 			names = append(names, s.Name())
 		}
@@ -479,8 +479,8 @@ func (r *Runner) warnUnauthorised() {
 	}
 }
 
-func (r *Runner) setState(name, state, reason string, checks, failed int) {
-	sig := fmt.Sprintf("%s|%s|%d|%d", state, reason, checks, failed)
+func (r *Runner) setState(name, state, reason string, jobs, failed int) {
+	sig := fmt.Sprintf("%s|%s|%d|%d", state, reason, jobs, failed)
 	r.mu.Lock()
 	if r.last[name] == sig {
 		r.mu.Unlock()
@@ -493,24 +493,24 @@ func (r *Runner) setState(name, state, reason string, checks, failed int) {
 		f["reason"] = reason
 	}
 	if state == "done" || state == "failed" {
-		f["checks"], f["failed"] = checks, failed
+		f["checks"], f["failed"] = jobs, failed
 	}
 	r.emit("stage", f)
 }
 
-// runStage reports work when a check was attempted or a redo/retirement sweep changed records.
+// runProcedure reports work when a job was attempted or a redo/retirement sweep changed records.
 // Sweep changes can create work for later passes: removing an old RDAP registration, for
 // example, makes its addresses eligible for another lookup.
-func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error) {
+func (r *Runner) runProcedure(ctx context.Context, s Procedure, first bool) (bool, error) {
 	name := s.Name()
 	if ok, reason := r.gate(s); !ok {
 		r.setState(name, "not-configured", reason, 0, 0)
 		return false, nil
 	}
 	if r.abortErr(name) != nil {
-		return false, nil //nolint:nilerr // an aborted stage sits out the rest of the run; its checks are retried next run
+		return false, nil //nolint:nilerr // an aborted procedure sits out the rest of the run; its jobs are retried next run
 	}
-	sr, err := r.newStageRun(ctx, s)
+	sr, err := r.newProcedureRun(ctx, s)
 	if err != nil {
 		return false, err
 	}
@@ -531,7 +531,7 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	return n > 0 || swept, nil
 }
 
-// showOutcome updates attempt and budget counters, then displays the stage state. If the first
+// showOutcome updates attempt and budget counters, then displays the procedure state. If the first
 // pass attempts nothing, doneBefore distinguishes previously completed work.
 func (r *Runner) showOutcome(name string, n, spent, deferred int, first, doneBefore bool) {
 	r.mu.Lock()
@@ -552,64 +552,64 @@ func (r *Runner) showOutcome(name string, n, spent, deferred int, first, doneBef
 	}
 }
 
-func (r *Runner) abortErr(stage string) error {
+func (r *Runner) abortErr(procedure string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.aborted[stage]
+	return r.aborted[procedure]
 }
 
-func (r *Runner) count(stage string, f func(*stageStats)) {
+func (r *Runner) count(procedure string, f func(*procedureStats)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	f(r.stat(stage))
+	f(r.stat(procedure))
 }
 
-// failCheck counts a failure and logs details at debug level. Failed checks are retried next
-// run; the stage summary reports their count. Panics also log their stack, one line per debug
+// failJob counts a failure and logs details at debug level. Failed jobs are retried next
+// run; the procedure summary reports their count. Panics also log their stack, one line per debug
 // event.
-func (r *Runner) failCheck(stage, key string, err error) {
-	r.recordFailure(stage, key, false)
-	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, err)})
-	if p, ok := errors.AsType[*checkPanic](err); ok {
+func (r *Runner) failJob(procedure, key string, err error) {
+	r.recordFailure(procedure, key, false)
+	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", procedure, key, err)})
+	if p, ok := errors.AsType[*jobPanic](err); ok {
 		for line := range strings.SplitSeq(strings.TrimRight(string(p.stack), "\n"), "\n") {
 			r.emit("debug", map[string]any{"message": line})
 		}
 	}
 }
 
-// checkPanic carries a stage panic and stack as a retryable check or enumeration failure.
-type checkPanic struct {
+// jobPanic carries a procedure panic and stack as a retryable job or enumeration failure.
+type jobPanic struct {
 	value any
 	stack []byte
 }
 
-func (p *checkPanic) Error() string { return fmt.Sprintf("panic: %v", p.value) }
+func (p *jobPanic) Error() string { return fmt.Sprintf("panic: %v", p.value) }
 
 // RecoverInto converts a panic to an error with a stack for --debug. Defer it in each
-// stage-owned goroutine to keep that goroutine's panic from terminating the process.
+// procedure-owned goroutine to keep that goroutine's panic from terminating the process.
 func RecoverInto(err *error) {
 	if v := recover(); v != nil {
-		*err = &checkPanic{value: v, stack: debug.Stack()}
+		*err = &jobPanic{value: v, stack: debug.Stack()}
 	}
 }
 
-// runCheck turns a stage panic into a check failure.
-func runCheck(ctx context.Context, s Stage, c Check, clients egress.Clients) (_ []Observation, err error) {
+// runJob turns a procedure panic into a job failure.
+func runJob(ctx context.Context, s Procedure, c Job, clients egress.Clients) (_ []Observation, err error) {
 	defer RecoverInto(&err)
 	return s.Run(ctx, c, clients)
 }
 
-// recordFailure counts a check as failed for this run without marking it complete, allowing
+// recordFailure counts a job as failed for this run without marking it complete, allowing
 // retry next run. rejected identifies failures caused by an API-key rejection.
-func (r *Runner) recordFailure(stage, key string, rejected bool) {
+func (r *Runner) recordFailure(procedure, key string, rejected bool) {
 	r.mu.Lock()
-	if r.failed[stage] == nil {
-		r.failed[stage] = map[string]bool{}
+	if r.failed[procedure] == nil {
+		r.failed[procedure] = map[string]bool{}
 	}
-	r.failed[stage][key] = true
-	r.stat(stage).failed++
+	r.failed[procedure][key] = true
+	r.stat(procedure).failed++
 	if rejected {
-		r.stat(stage).rejected++
+		r.stat(procedure).rejected++
 	}
 	r.mu.Unlock()
 }
@@ -627,7 +627,7 @@ func (r *Runner) emitCounts(snap output.Snapshot) {
 	}
 }
 
-// notes collects summary notes in registry order from stages eligible to run.
+// notes collects summary notes in registry order from procedures eligible to run.
 func (r *Runner) notes() []string {
 	notes := []string{}
 	sc, inv := r.sc.Load(), r.inv.Load()
@@ -635,7 +635,7 @@ func (r *Runner) notes() []string {
 		return notes
 	}
 	view := View{r: r, sc: sc, inv: inv, vis: r.vis.Load(), cache: &recordCache{m: map[string][]store.Record{}}}
-	for _, s := range r.cfg.Stages {
+	for _, s := range r.cfg.Procedures {
 		if n, ok := s.(Noter); ok {
 			if ok, _ := r.gate(s); ok {
 				notes = append(notes, n.Notes(view)...)
@@ -731,15 +731,15 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.
 	if snap.Vis = vis; vis == nil {
 		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
 	}
-	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.cfg.Stages, r.inputs); err != nil {
+	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.cfg.Procedures, r.inputs); err != nil {
 		return output.Snapshot{}, err
 	}
 	return snap, nil
 }
 
-// storeDerived writes observations under the synthetic stage name and check "derived". It skips
+// storeAnalysis writes observations under the synthetic procedure name and job "derived". It skips
 // writes when both the date and records match *last, and reports whether it wrote anything.
-func (r *Runner) storeDerived(name string, obs []store.Obs, last *[sha256.Size]byte) (bool, error) {
+func (r *Runner) storeAnalysis(name string, obs []store.Obs, last *[sha256.Size]byte) (bool, error) {
 	sum := sha256.Sum256(fmt.Append(nil, r.today(), obs))
 	if sum == *last {
 		return false, nil
@@ -796,7 +796,7 @@ func (r *Runner) cached(kind string) (recordsCache, error) {
 	return c, nil
 }
 
-// observers caches completed checks supporting each record until the kind's version changes.
+// observers caches completed jobs supporting each record until the kind's version changes.
 // Treat the returned map as read-only.
 func (r *Runner) observers(kind string) (map[string][]store.Observer, error) {
 	ver := r.st.KindVersion(kind)

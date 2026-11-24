@@ -30,17 +30,17 @@ type Source struct {
 	Turns string // one-line explanation of key use, including optional credentials
 }
 
-// Stage describes a skippable stage on the Skip tab.
-type Stage struct {
+// Procedure describes a skippable procedure on the Skip tab.
+type Procedure struct {
 	Name string
-	Does string // its one-line description, as nyx help stages gives it
+	Does string // its one-line description, as nyx help procedures gives it
 }
 
 // Info supplies tab metadata fixed for an editor session.
 type Info struct {
-	Path    string   // the config file's absolute path, as the header shows it
-	Sources []Source // in display order
-	Stages  []Stage  // the skippable stages, in registry order
+	Path       string      // the config file's absolute path, as the header shows it
+	Sources    []Source    // in display order
+	Procedures []Procedure // the skippable procedures, in registry order
 	// ThreatUnavailable explains why updates have no storage directory. The Threat data tab
 	// displays it and refuses updates while it is nonempty.
 	ThreatUnavailable string
@@ -153,11 +153,11 @@ type Snapshot struct {
 	Keys map[string]KeyState
 	// Settings holds one entry for each of SettingKeys, by key.
 	Settings map[string]Value
-	// Skip preserves normalised toggleable stages in file order.
+	// Skip preserves normalised toggleable procedures in file order.
 	Skip []string
-	// SkipProblems lists individually removable unknown/required stage entries.
+	// SkipProblems lists individually removable unknown/required procedure entries.
 	SkipProblems []SkipProblem
-	// SkipListProblem flags invalid combinations such as none with stage names;
+	// SkipListProblem flags invalid combinations such as none with procedure names;
 	// editing/clearing resolves it.
 	SkipListProblem string
 }

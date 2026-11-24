@@ -262,12 +262,12 @@ func TestRiskPlumbing_FilesWrittenSortedAndSafe(t *testing.T) {
 	}
 }
 
-// The registry order and each stage's contact.
-func TestRiskStageRegistry(t *testing.T) {
+// The registry order and each procedure's contact.
+func TestRiskProcedureRegistry(t *testing.T) {
 	t.Parallel()
 	var names []string
 	contact := map[string]run.Contact{}
-	for _, s := range cli.DefaultDeps().Stages {
+	for _, s := range cli.DefaultDeps().Procedures {
 		names = append(names, s.Name())
 		contact[s.Name()] = s.Contact()
 	}
@@ -281,7 +281,7 @@ func TestRiskStageRegistry(t *testing.T) {
 			t.Errorf("%s contact = %v", name, contact[name])
 		}
 	}
-	// A pseudo-stage for findings is not a stage: --redo does not accept it.
+	// A pseudo-procedure for findings is not a procedure: --redo does not accept it.
 	if slices.Contains(names, "findings") {
 		t.Error("findings must not be a registered stage")
 	}
@@ -329,9 +329,9 @@ func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
 	var cancel context.CancelFunc
 	var armed atomic.Bool
 	armed.Store(true)
-	seed := &testkit.Stage{StageName: "seed", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "c1"}, {Key: "c2"}} },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	seed := &testkit.Procedure{ProcedureName: "seed", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: "c1"}, {Key: "c2"}} },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			if c.Key == "c1" {
 				return []run.Observation{obs("open_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389, "banner", "")}, nil
 			}
@@ -378,18 +378,18 @@ func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
 	}
 }
 
-// Derive after each working stage so a later long-running port sweep cannot delay findings.
-func TestFindingsDerivedAfterEachStage(t *testing.T) {
+// Derive after each working procedure so a later long-running port sweep cannot delay findings.
+func TestFindingsDerivedAfterEachProcedure(t *testing.T) {
 	t.Parallel()
-	seed := &testkit.Stage{StageName: "seed", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "c1"}} },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	seed := &testkit.Procedure{ProcedureName: "seed", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: "c1"}} },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("open_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389, "banner", "")}, nil
 		}}
 	var seen atomic.Int32
 	seen.Store(-1)
-	later := &testkit.Stage{StageName: "later", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+	later := &testkit.Procedure{ProcedureName: "later", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			if seen.Load() < 0 {
 				seen.Store(int32(len(v.Records(kinds.Finding))))
 			}
@@ -404,9 +404,9 @@ func TestFindingsDerivedAfterEachStage(t *testing.T) {
 	}
 }
 
-// Interrupted findings remain current in files while the synthetic findings stage stays out of
+// Interrupted findings remain current in files while the synthetic findings procedure stays out of
 // progress output.
-func TestRiskPlumbing_FindingsPseudoStageHidden(t *testing.T) {
+func TestRiskPlumbing_FindingsPseudoProcedureHidden(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("--json", "-e", "pseudo", "--cidr", "198.51.100.0/24"); code != 0 {

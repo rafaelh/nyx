@@ -16,8 +16,8 @@ type Envelope struct {
 type Meta struct {
 	Count            int      `json:"count"`
 	DeadlineExceeded bool     `json:"deadline_exceeded"`
-	ChecksCompleted  int      `json:"checks_completed"`
-	ChecksCancelled  int      `json:"checks_cancelled"`
+	JobsCompleted    int      `json:"checks_completed"`
+	JobsCancelled    int      `json:"checks_cancelled"`
 	Warnings         []string `json:"warnings"`
 }
 
@@ -38,15 +38,15 @@ func WriteEnvelope(w io.Writer, e Envelope) error {
 // clone maps strings in a deep copy and optionally converts nil lists to empty lists.
 func (e Envelope) clone(f func(string) string, nonNil bool) Envelope {
 	s := e.Data
-	stage := func(r StageCount) StageCount { return StageCount{f(r.Stage), r.N} }
+	procedure := func(r ProcedureCount) ProcedureCount { return ProcedureCount{f(r.Procedure), r.N} }
 	out := Envelope{Meta: e.Meta}
 	out.Data = Summary{
 		Engagement:            f(s.Engagement),
 		Directory:             f(s.Directory),
 		Counts:                mapRows(s.Counts, nonNil, func(r CountRow) CountRow { return CountRow{f(r.Category), r.N} }),
-		FailedChecks:          mapRows(s.FailedChecks, nonNil, stage),
-		Deferred:              mapRows(s.Deferred, nonNil, stage),
-		NotConfigured:         mapRows(s.NotConfigured, nonNil, func(r StageReason) StageReason { return StageReason{f(r.Stage), f(r.Reason)} }),
+		FailedJobs:            mapRows(s.FailedJobs, nonNil, procedure),
+		Deferred:              mapRows(s.Deferred, nonNil, procedure),
+		NotConfigured:         mapRows(s.NotConfigured, nonNil, func(r ProcedureReason) ProcedureReason { return ProcedureReason{f(r.Procedure), f(r.Reason)} }),
 		Findings:              mapFindings(s.Findings, nonNil, f),
 		Candidates:            mapRows(s.Candidates, nonNil, func(r CandidateRow) CandidateRow { return cloneCandidate(r, nonNil, f) }),
 		CandidatesTotal:       s.CandidatesTotal,

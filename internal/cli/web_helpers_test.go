@@ -311,14 +311,14 @@ type web struct {
 
 func hostPort(ip string, port int) string { return net.JoinHostPort(ip, strconv.Itoa(port)) }
 
-// insertBefore puts s ahead of the stage called name (or last if there is none).
-func insertBefore(stages []run.Stage, name string, s run.Stage) []run.Stage {
-	for i, st := range stages {
+// insertBefore puts s ahead of the procedure called name (or last if there is none).
+func insertBefore(procedures []run.Procedure, name string, s run.Procedure) []run.Procedure {
+	for i, st := range procedures {
 		if st.Name() == name {
-			return slices.Insert(slices.Clone(stages), i, s)
+			return slices.Insert(slices.Clone(procedures), i, s)
 		}
 	}
-	return append(slices.Clone(stages), s)
+	return append(slices.Clone(procedures), s)
 }
 
 func newWeb(t *testing.T) *web {
@@ -326,7 +326,7 @@ func newWeb(t *testing.T) *web {
 	return newWebWith(t)
 }
 
-// newWebWith is newWeb with the named risk stages in the stage list.
+// newWebWith is newWeb with the named risk procedures in the procedure list.
 func newWebWith(t *testing.T, keep ...string) *web {
 	t.Helper()
 	if err := checkRefused(); err != nil {
@@ -335,14 +335,14 @@ func newWebWith(t *testing.T, keep ...string) *web {
 	w := newWorldWith(t, keep...)
 	x := &web{world: w, ips: map[string]bool{"203.0.113.250": true}, ports: map[int]bool{}, mapped: map[string]bool{}}
 	w.h.eopts.DialMap = map[string]string{}
-	fake := &testkit.Stage{StageName: "fakeports", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check {
+	fake := &testkit.Procedure{ProcedureName: "fakeports", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job {
 			if len(x.opens) == 0 {
 				return nil
 			}
-			return []run.Check{{Key: fmt.Sprintf("ports-%d", len(x.opens))}}
+			return []run.Job{{Key: fmt.Sprintf("ports-%d", len(x.opens))}}
 		},
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			var out []run.Observation
 			for _, o := range x.opens {
 				ap := mustAddrPort(o.addr)
@@ -351,7 +351,7 @@ func newWebWith(t *testing.T, keep ...string) *web {
 			}
 			return out, nil
 		}}
-	w.h.stages = insertBefore(w.h.stages, "httpprobe", fake)
+	w.h.procedures = insertBefore(w.h.procedures, "httpprobe", fake)
 	return x
 }
 
@@ -368,7 +368,7 @@ func (x *web) names(names ...string) {
 	x.crtsh(map[string][]string{"example.com": names}, nil)
 }
 
-// open declares an open port (what the port stage emits).
+// open declares an open port (what the port procedure emits).
 func (x *web) open(addr, banner string) {
 	ap := mustAddrPort(addr)
 	x.ips[ap.Addr().String()] = true
@@ -527,10 +527,10 @@ func (x *web) serviceURLs() []string { return col(current(x.services()), "url") 
 
 func (x *web) urlSet() []string { return col(current(x.urls()), "url") }
 
-// observedBy returns the keys of kind observed by stage.
-func (x *web) observedBy(kind, stage string) []string {
+// observedBy returns the keys of kind observed by procedure.
+func (x *web) observedBy(kind, procedure string) []string {
 	x.t.Helper()
-	return queryStrings(x.t, x.h.openDB(eng), "SELECT DISTINCT key FROM observations WHERE kind=? AND stage=?", kind, stage)
+	return queryStrings(x.t, x.h.openDB(eng), "SELECT DISTINCT key FROM observations WHERE kind=? AND stage=?", kind, procedure)
 }
 
 func page(body string) http.HandlerFunc {
@@ -558,5 +558,5 @@ func redirectTo(code int, loc string) http.HandlerFunc {
 	}
 }
 
-// defaultStageList is the production stage registry.
-func defaultStageList() []run.Stage { return cli.DefaultDeps().Stages }
+// defaultProcedureList is the production procedure registry.
+func defaultProcedureList() []run.Procedure { return cli.DefaultDeps().Procedures }

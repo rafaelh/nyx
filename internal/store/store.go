@@ -1,4 +1,4 @@
-// Package store persists engagement inputs, completed checks, observations and record metadata
+// Package store persists engagement inputs, completed jobs, observations and record metadata
 // in SQLite.
 package store
 
@@ -47,7 +47,7 @@ type Options struct {
 	Redactor *config.Redactor
 }
 
-// Obs is an observation produced by completing a check.
+// Obs is an observation produced by completing a job.
 type Obs struct {
 	Kind, Key string
 	Attrs     map[string]any
@@ -57,25 +57,25 @@ type Obs struct {
 type Record struct {
 	Kind, Key           string
 	FirstSeen, LastSeen string
-	Current             bool // true while a completed check still observes the record
+	Current             bool // true while a completed job still observes the record
 	Attrs               map[string]any
-	Stages              []string // sorted stages currently observing the record
+	Producers           []string // sorted procedures currently observing the record
 }
 
 // Str returns the string attribute k, or "" if it is absent or not a string.
 func (r Record) Str(k string) string { s, _ := r.Attrs[k].(string); return s }
 
-// ObsRow is the record key and check key of one stored observation.
-type ObsRow struct{ Key, CheckKey string }
+// ObsRow is the record key and job key of one stored observation.
+type ObsRow struct{ Key, JobKey string }
 
 // Input is a stored scope input or exclusion.
 type Input struct{ Kind, Value, AddedAt string }
 
-// op queues a check completion, or a flush barrier when done is set.
+// op queues a job completion, or a flush barrier when done is set.
 type op struct {
-	stage, check string
-	obs          []Obs
-	done         chan error
+	procedure, job string
+	obs            []Obs
+	done           chan error
 }
 
 // Store serialises writes through one goroutine and commits them in batches. Its methods are
@@ -109,7 +109,7 @@ type Store struct {
 // writeStmts keeps prepared statements for repeated observation writes, avoiding SQL parsing on
 // every commit.
 type writeStmts struct {
-	insertRecord, touchRecord, upsertObs, checkObs, deleteObs, refresh, complete *sql.Stmt
+	insertRecord, touchRecord, upsertObs, jobObs, deleteObs, refresh, complete *sql.Stmt
 }
 
 var writeSQL = []string{
@@ -125,7 +125,7 @@ var writeSQL = []string{
 }
 
 func (w *writeStmts) prepare(db *sql.DB) error {
-	ptrs := []**sql.Stmt{&w.insertRecord, &w.touchRecord, &w.upsertObs, &w.checkObs, &w.deleteObs, &w.refresh, &w.complete}
+	ptrs := []**sql.Stmt{&w.insertRecord, &w.touchRecord, &w.upsertObs, &w.jobObs, &w.deleteObs, &w.refresh, &w.complete}
 	for i, q := range writeSQL {
 		st, err := db.Prepare(q)
 		if err != nil {
@@ -138,7 +138,7 @@ func (w *writeStmts) prepare(db *sql.DB) error {
 }
 
 func (w *writeStmts) close() {
-	for _, st := range []*sql.Stmt{w.insertRecord, w.touchRecord, w.upsertObs, w.checkObs, w.deleteObs, w.refresh, w.complete} {
+	for _, st := range []*sql.Stmt{w.insertRecord, w.touchRecord, w.upsertObs, w.jobObs, w.deleteObs, w.refresh, w.complete} {
 		if st != nil {
 			_ = st.Close()
 		}
@@ -147,11 +147,11 @@ func (w *writeStmts) close() {
 
 // txStmts binds the prepared writer statements to one transaction.
 type txStmts struct {
-	insertRecord, touchRecord, upsertObs, checkObs, deleteObs, refresh, complete *sql.Stmt
+	insertRecord, touchRecord, upsertObs, jobObs, deleteObs, refresh, complete *sql.Stmt
 }
 
 func (w *writeStmts) in(tx *sql.Tx) txStmts {
-	return txStmts{tx.Stmt(w.insertRecord), tx.Stmt(w.touchRecord), tx.Stmt(w.upsertObs), tx.Stmt(w.checkObs),
+	return txStmts{tx.Stmt(w.insertRecord), tx.Stmt(w.touchRecord), tx.Stmt(w.upsertObs), tx.Stmt(w.jobObs),
 		tx.Stmt(w.deleteObs), tx.Stmt(w.refresh), tx.Stmt(w.complete)}
 }
 
@@ -362,13 +362,13 @@ func (s *Store) send(o op) bool {
 	return true
 }
 
-// CheckKey redacts a key into its stored form. Use this form when comparing Completed results
+// JobKey redacts a key into its stored form. Use this form when comparing Completed results
 // or passing valid keys to FinishRedo.
-func (s *Store) CheckKey(check string) string { return s.red.Redact(check) }
+func (s *Store) JobKey(job string) string { return s.red.Redact(job) }
 
-// Complete queues the completion of a check with its observations.
-func (s *Store) Complete(stage, check string, obs []Obs) {
-	s.send(op{stage: stage, check: s.CheckKey(check), obs: obs})
+// Complete queues the completion of a job with its observations.
+func (s *Store) Complete(procedure, job string, obs []Obs) {
+	s.send(op{procedure: procedure, job: s.JobKey(job), obs: obs})
 }
 
 // Flush waits until everything queued so far is committed and returns the first write error.
@@ -520,9 +520,9 @@ func (s *Store) commitOps(batch []op) []Obs {
 	return news
 }
 
-// applyComplete records the kinds touched by a check completion for version updates.
+// applyComplete records the kinds touched by a job completion for version updates.
 func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]bool) ([]Obs, error) {
-	// For duplicate observations within a check, the last value wins.
+	// For duplicate observations within a job, the last value wins.
 	type rk struct{ kind, key string }
 	seen := map[rk]Obs{}
 	var order []rk
@@ -557,14 +557,14 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		} else if _, err := st.touchRecord.Exec(today, k.kind, k.key); err != nil {
 			return nil, err
 		}
-		if _, err := st.upsertObs.Exec(k.kind, k.key, o.stage, o.check, string(blob), today); err != nil {
+		if _, err := st.upsertObs.Exec(k.kind, k.key, o.procedure, o.job, string(blob), today); err != nil {
 			return nil, err
 		}
 		kinds[k.kind] = true
 	}
-	// Remove observations this check no longer produces. Refresh affected records because
-	// other checks may still support them.
-	rows, err := st.checkObs.Query(o.stage, o.check)
+	// Remove observations this job no longer produces. Refresh affected records because
+	// other jobs may still support them.
+	rows, err := st.jobObs.Query(o.procedure, o.job)
 	stored, err := scanAll(rows, err, func(r *sql.Rows) (k rk, err error) {
 		err = r.Scan(&k.kind, &k.key)
 		return k, err
@@ -576,7 +576,7 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		if _, ok := seen[k]; ok {
 			continue
 		}
-		if _, err := st.deleteObs.Exec(k.kind, k.key, o.stage, o.check); err != nil {
+		if _, err := st.deleteObs.Exec(k.kind, k.key, o.procedure, o.job); err != nil {
 			return nil, err
 		}
 		if _, err := st.refresh.Exec(k.kind, k.key); err != nil {
@@ -584,7 +584,7 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		}
 		kinds[k.kind] = true
 	}
-	_, err = st.complete.Exec(o.stage, o.check, today)
+	_, err = st.complete.Exec(o.procedure, o.job, today)
 	return news, err
 }
 
@@ -597,9 +597,9 @@ func refreshCurrent(tx *sql.Tx, kind, key string) error {
 	return err
 }
 
-// Completed returns a stage's completed keys in their stored CheckKey form.
-func (s *Store) Completed(stage string) (map[string]struct{}, error) {
-	keys, err := queryAll(s.db, scanString, "SELECT key FROM checks WHERE stage=?", stage)
+// Completed returns a procedure's completed keys in their stored JobKey form.
+func (s *Store) Completed(procedure string) (map[string]struct{}, error) {
+	keys, err := queryAll(s.db, scanString, "SELECT key FROM checks WHERE stage=?", procedure)
 	out := make(map[string]struct{}, len(keys))
 	for _, k := range keys {
 		out[k] = struct{}{}
@@ -645,7 +645,7 @@ func scanString(r *sql.Rows) (s string, err error) {
 type Reader struct{ q querier }
 
 // Records includes current and non-current records. Current observations merge field by field
-// in stage order, with later stages winning. Unlisted stages sort first.
+// in procedure order, with later procedures winning. Unlisted procedures sort first.
 func (s *Store) Records(kind string, order []string) ([]Record, error) {
 	return Reader{s.db}.Records(kind, order)
 }
@@ -671,12 +671,12 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 	}
 
 	type ob struct {
-		key, stage, check string
-		attrs             map[string]any
+		key, procedure, job string
+		attrs               map[string]any
 	}
 	obs, err := queryAll(rd.q, func(rows *sql.Rows) (o ob, err error) {
 		var blob string
-		if err = rows.Scan(&o.key, &o.stage, &o.check, &blob); err == nil {
+		if err = rows.Scan(&o.key, &o.procedure, &o.job, &blob); err == nil {
 			_ = json.Unmarshal([]byte(blob), &o.attrs)
 		}
 		return o, err
@@ -685,7 +685,7 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 		return nil, err
 	}
 	slices.SortFunc(obs, func(a, b ob) int {
-		return cmp.Or(cmp.Compare(rank[a.stage], rank[b.stage]), cmp.Compare(a.stage, b.stage), cmp.Compare(a.check, b.check))
+		return cmp.Or(cmp.Compare(rank[a.procedure], rank[b.procedure]), cmp.Compare(a.procedure, b.procedure), cmp.Compare(a.job, b.job))
 	})
 	for _, o := range obs {
 		i, ok := idx[o.key]
@@ -693,33 +693,33 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 			continue
 		}
 		maps.Copy(recs[i].Attrs, o.attrs)
-		if !slices.Contains(recs[i].Stages, o.stage) {
-			recs[i].Stages = append(recs[i].Stages, o.stage)
+		if !slices.Contains(recs[i].Producers, o.procedure) {
+			recs[i].Producers = append(recs[i].Producers, o.procedure)
 		}
 	}
 	for i := range recs {
-		slices.Sort(recs[i].Stages)
+		slices.Sort(recs[i].Producers)
 	}
 	return recs, nil
 }
 
-// Observations lists the observations of a kind made by a stage.
-func (s *Store) Observations(kind, stage string) ([]ObsRow, error) {
-	return Reader{s.db}.Observations(kind, stage)
+// Observations lists the observations of a kind made by a procedure.
+func (s *Store) Observations(kind, procedure string) ([]ObsRow, error) {
+	return Reader{s.db}.Observations(kind, procedure)
 }
 
-// Observations lists the observations of a kind made by a stage.
-func (rd Reader) Observations(kind, stage string) ([]ObsRow, error) {
+// Observations lists the observations of a kind made by a procedure.
+func (rd Reader) Observations(kind, procedure string) ([]ObsRow, error) {
 	return queryAll(rd.q, func(rows *sql.Rows) (r ObsRow, err error) {
-		err = rows.Scan(&r.Key, &r.CheckKey)
+		err = rows.Scan(&r.Key, &r.JobKey)
 		return r, err
-	}, "SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, stage)
+	}, "SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, procedure)
 }
 
-// Observer is a completed check that observes a record.
-type Observer struct{ Stage, CheckKey string }
+// Observer is a completed job that observes a record.
+type Observer struct{ Procedure, JobKey string }
 
-// Observers lists completed supporting checks by record key, ordered by stage and check key.
+// Observers lists completed supporting jobs by record key, ordered by procedure and job key.
 // Redo removes completion markers before replacing old observations, so those stale
 // observations do not count as current support.
 func (s *Store) Observers(kind string) (map[string][]Observer, error) {
@@ -728,7 +728,7 @@ func (s *Store) Observers(kind string) (map[string][]Observer, error) {
 		o   Observer
 	}
 	rows, err := queryAll(s.db, func(r *sql.Rows) (w row, err error) {
-		err = r.Scan(&w.key, &w.o.Stage, &w.o.CheckKey)
+		err = r.Scan(&w.key, &w.o.Procedure, &w.o.JobKey)
 		return w, err
 	}, `SELECT o.key, o.stage, o.check_key FROM observations o
 		JOIN checks c ON c.stage = o.stage AND c.key = o.check_key
@@ -777,15 +777,15 @@ func (rd Reader) Inputs() ([]Input, error) {
 	}, "SELECT kind,value,added_at FROM inputs ORDER BY kind,value")
 }
 
-// Redo removes a stage's completion markers and marks it for a sweep. Old observations remain
-// until checks rerun, but no longer count in Observers. Affected kind versions change to
+// Redo removes a procedure's completion markers and marks it for a sweep. Old observations remain
+// until jobs rerun, but no longer count in Observers. Affected kind versions change to
 // invalidate support caches.
-func (s *Store) Redo(stage string) error {
+func (s *Store) Redo(procedure string) error {
 	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
-		if _, err := tx.Exec("DELETE FROM checks WHERE stage=?", stage); err != nil {
+		if _, err := tx.Exec("DELETE FROM checks WHERE stage=?", procedure); err != nil {
 			return nil, err
 		}
-		names, err := queryAll(tx, scanString, "SELECT DISTINCT kind FROM observations WHERE stage=?", stage)
+		names, err := queryAll(tx, scanString, "SELECT DISTINCT kind FROM observations WHERE stage=?", procedure)
 		if err != nil {
 			return nil, err
 		}
@@ -793,7 +793,7 @@ func (s *Store) Redo(stage string) error {
 		for _, k := range names {
 			kinds[k] = true
 		}
-		_, err = tx.Exec(setMetaSQL, "redo:"+stage, s.today())
+		_, err = tx.Exec(setMetaSQL, "redo:"+procedure, s.today())
 		return kinds, err
 	})
 }
@@ -820,7 +820,7 @@ func (s *Store) update(fn func(*sql.Tx) (map[string]bool, error)) error {
 	return nil
 }
 
-// PendingRedo lists stages whose redo has not finished.
+// PendingRedo lists procedures whose redo has not finished.
 func (s *Store) PendingRedo() ([]string, error) {
 	keys, err := queryAll(s.db, scanString, "SELECT key FROM meta WHERE key LIKE 'redo:%' ORDER BY key")
 	for i, k := range keys {
@@ -829,32 +829,32 @@ func (s *Store) PendingRedo() ([]string, error) {
 	return keys, err
 }
 
-// FinishRedo removes observations for checks absent from valid and clears the pending-redo
-// marker. valid needs every current check key in stored CheckKey form. The result reports
+// FinishRedo removes observations for jobs absent from valid and clears the pending-redo
+// marker. valid needs every current job key in stored JobKey form. The result reports
 // whether records changed.
-func (s *Store) FinishRedo(stage string, valid map[string]struct{}) (changed bool, err error) {
+func (s *Store) FinishRedo(procedure string, valid map[string]struct{}) (changed bool, err error) {
 	err = s.update(func(tx *sql.Tx) (map[string]bool, error) {
-		kinds, err := sweepObservations(tx, stage, valid)
+		kinds, err := sweepObservations(tx, procedure, valid)
 		if err != nil {
 			return nil, err
 		}
 		changed = len(kinds) > 0
-		_, err = tx.Exec("DELETE FROM meta WHERE key=?", "redo:"+stage)
+		_, err = tx.Exec("DELETE FROM meta WHERE key=?", "redo:"+procedure)
 		return kinds, err
 	})
 	return changed && err == nil, err
 }
 
-// Retire removes obsolete completed checks and their observations. This makes superseded
-// evidence non-current and allows a removed check to run if it reappears. valid needs every
-// current key in CheckKey form. The result reports whether records changed.
-func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, err error) {
+// Retire removes obsolete completed jobs and their observations. This makes superseded
+// evidence non-current and allows a removed job to run if it reappears. valid needs every
+// current key in JobKey form. The result reports whether records changed.
+func (s *Store) Retire(procedure string, valid map[string]struct{}) (changed bool, err error) {
 	err = s.update(func(tx *sql.Tx) (map[string]bool, error) {
-		kinds, err := sweepObservations(tx, stage, valid)
+		kinds, err := sweepObservations(tx, procedure, valid)
 		if err != nil {
 			return nil, err
 		}
-		if err := retireChecks(tx, stage, valid); err != nil {
+		if err := retireJobs(tx, procedure, valid); err != nil {
 			return nil, err
 		}
 		changed = len(kinds) > 0
@@ -863,8 +863,8 @@ func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, e
 	return changed && err == nil, err
 }
 
-func retireChecks(tx *sql.Tx, stage string, valid map[string]struct{}) error {
-	keys, err := queryAll(tx, scanString, "SELECT key FROM checks WHERE stage=?", stage)
+func retireJobs(tx *sql.Tx, procedure string, valid map[string]struct{}) error {
+	keys, err := queryAll(tx, scanString, "SELECT key FROM checks WHERE stage=?", procedure)
 	if err != nil {
 		return err
 	}
@@ -872,7 +872,7 @@ func retireChecks(tx *sql.Tx, stage string, valid map[string]struct{}) error {
 		if _, ok := valid[k]; ok {
 			continue
 		}
-		if _, err := tx.Exec("DELETE FROM checks WHERE stage=? AND key=?", stage, k); err != nil {
+		if _, err := tx.Exec("DELETE FROM checks WHERE stage=? AND key=?", procedure, k); err != nil {
 			return err
 		}
 	}
@@ -881,21 +881,21 @@ func retireChecks(tx *sql.Tx, stage string, valid map[string]struct{}) error {
 
 // sweepObservations removes obsolete observations, refreshes affected records and returns their
 // kinds.
-func sweepObservations(tx *sql.Tx, stage string, valid map[string]struct{}) (map[string]bool, error) {
-	type obsKey struct{ kind, key, check string }
+func sweepObservations(tx *sql.Tx, procedure string, valid map[string]struct{}) (map[string]bool, error) {
+	type obsKey struct{ kind, key, job string }
 	all, err := queryAll(tx, func(r *sql.Rows) (o obsKey, err error) {
-		err = r.Scan(&o.kind, &o.key, &o.check)
+		err = r.Scan(&o.kind, &o.key, &o.job)
 		return o, err
-	}, "SELECT kind,key,check_key FROM observations WHERE stage=?", stage)
+	}, "SELECT kind,key,check_key FROM observations WHERE stage=?", procedure)
 	if err != nil {
 		return nil, err
 	}
 	kinds := map[string]bool{}
 	for _, o := range all {
-		if _, ok := valid[o.check]; ok {
+		if _, ok := valid[o.job]; ok {
 			continue
 		}
-		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?", o.kind, o.key, stage, o.check); err != nil {
+		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?", o.kind, o.key, procedure, o.job); err != nil {
 			return nil, err
 		}
 		if err := refreshCurrent(tx, o.kind, o.key); err != nil {
@@ -916,15 +916,15 @@ const shownSchema = `CREATE TABLE IF NOT EXISTS shown(kind TEXT NOT NULL, key TE
 const shownMeta = "shown_saved"
 
 // ShownRow preserves one previously visible output entry. Kind and Key identify its changes.csv
-// row; stages, scope and severity retain details that non-current records may lose.
+// row; procedures, scope and severity retain details that non-current records may lose.
 type ShownRow struct {
 	Kind, Key       string
-	Stages          []string
+	Producers       []string
 	Scope, Severity string
 }
 
 func (r ShownRow) Equal(o ShownRow) bool {
-	return r.Kind == o.Kind && r.Key == o.Key && r.Scope == o.Scope && r.Severity == o.Severity && slices.Equal(r.Stages, o.Stages)
+	return r.Kind == o.Kind && r.Key == o.Key && r.Scope == o.Scope && r.Severity == o.Severity && slices.Equal(r.Producers, o.Producers)
 }
 
 // SaveShown atomically replaces the baseline. Once a baseline is cached by reading or saving
@@ -973,7 +973,7 @@ func writeShown(tx *sql.Tx, old map[shownKey]ShownRow, rows []ShownRow) error {
 				continue
 			}
 		}
-		if _, err := ins.Exec(r.Kind, r.Key, strings.Join(r.Stages, ","), r.Scope, r.Severity); err != nil {
+		if _, err := ins.Exec(r.Kind, r.Key, strings.Join(r.Producers, ","), r.Scope, r.Severity); err != nil {
 			return err
 		}
 	}
@@ -1004,10 +1004,10 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 		return nil, false, err
 	}
 	rows, err = queryAll(s.db, func(q *sql.Rows) (r ShownRow, err error) {
-		var stages string
-		err = q.Scan(&r.Kind, &r.Key, &stages, &r.Scope, &r.Severity)
-		if stages != "" {
-			r.Stages = strings.Split(stages, ",")
+		var procedures string
+		err = q.Scan(&r.Kind, &r.Key, &procedures, &r.Scope, &r.Severity)
+		if procedures != "" {
+			r.Producers = strings.Split(procedures, ",")
 		}
 		return r, err
 	}, "SELECT kind,key,stages,scope,severity FROM shown ORDER BY kind,key")

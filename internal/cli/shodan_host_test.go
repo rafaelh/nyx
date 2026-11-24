@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// Shodan tests use real stages, fake API responses and counted loopback port targets to expose
+// Shodan tests use real procedures, fake API responses and counted loopback port targets to expose
 // every request/connection.
 
 const (
@@ -181,14 +181,14 @@ func (p *pworld) passiveText(args ...string) int {
 // regexpLine reports whether the pattern matches somewhere in s.
 func regexpLine(s, pattern string) bool { return regexp.MustCompile(pattern).MatchString(s) }
 
-// --- The stage ---
+// --- The procedure ---
 
 func TestShodanHost_NotConfiguredWithoutKey(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
 	p.app()
 	p.mustPassive()
-	if st, reason := p.stageState("shodan-host"); st != "not-configured" || reason != "no key" {
+	if st, reason := p.procedureState("shodan-host"); st != "not-configured" || reason != "no key" {
 		t.Errorf("shodan-host = %s (%s), want not-configured (no key)", st, reason)
 	}
 	if n := len(p.requests("api.shodan.io")); n != 0 {
@@ -210,7 +210,7 @@ func TestShodanHost_PassiveShowsOpenAndRiskyPorts(t *testing.T) {
 	if got := p.lookups(); !slices.Equal(got, []string{rootIP, appHost}) {
 		t.Errorf("host lookups = %v, want both dedicated addresses", got)
 	}
-	if st, _ := p.stageState("shodan-host"); st != "done" {
+	if st, _ := p.procedureState("shodan-host"); st != "done" {
 		t.Errorf("shodan-host = %s, want done", st)
 	}
 	if hdr, _, _ := strings.Cut(p.file(eng, "open-ports.csv"), "\n"); hdr != "ip,port,banner,hostnames,source,confirmed,shodan_last_seen,product,version,current,first_seen,last_seen" {
@@ -238,7 +238,7 @@ func TestShodanHost_PassiveShowsOpenAndRiskyPorts(t *testing.T) {
 	if n := never.conns.Load(); n != 0 {
 		t.Errorf("a passive run dialled the address %d times", n)
 	}
-	if st, reason := p.stageState("ports"); st != "not-configured" || reason != "passive-only" {
+	if st, reason := p.procedureState("ports"); st != "not-configured" || reason != "passive-only" {
 		t.Errorf("ports = %s (%s)", st, reason)
 	}
 }
@@ -254,7 +254,7 @@ func TestShodanHost_UnknownAddressCompletesWithNothing(t *testing.T) {
 	if got := p.completedKeys("shodan-host"); !slices.Equal(got, []string{rootIP, appHost}) {
 		t.Errorf("completed = %v, want both addresses", got)
 	}
-	if st, _ := p.stageState("shodan-host"); st != "done" {
+	if st, _ := p.procedureState("shodan-host"); st != "done" {
 		t.Errorf("shodan-host = %s, want done", st)
 	}
 	if n := len(p.obsAttrs(eng, "reported_port")); n != 0 {
@@ -268,14 +268,14 @@ func TestShodanHost_UnknownAddressCompletesWithNothing(t *testing.T) {
 	}
 }
 
-// A rejected key stops the stage, like the other keyed sources.
-func TestShodanHost_RejectedKeyAbortsTheStage(t *testing.T) {
+// A rejected key stops the procedure, like the other keyed sources.
+func TestShodanHost_RejectedKeyAbortsTheProcedure(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
 	f := p.shodan()
 	p.app()
 	f.setStatus(401)
-	// Both checks fail, and a refused key is not cured by waiting.
+	// Both jobs fail, and a refused key is not cured by waiting.
 	if e := p.partialPassive("--ports", "3389", "--concurrency", "1"); e.transient || e.msg != "2 checks failed: shodan-host 2" {
 		t.Errorf("%+v", e)
 	}
@@ -286,7 +286,7 @@ func TestShodanHost_RejectedKeyAbortsTheStage(t *testing.T) {
 	if n := len(p.lookups()); n != 1 {
 		t.Errorf("%d lookups after a 401, want the stage aborted after the first", n)
 	}
-	if st, _ := p.stageState("shodan-host"); st != "failed" {
+	if st, _ := p.procedureState("shodan-host"); st != "failed" {
 		t.Errorf("shodan-host = %s, want failed", st)
 	}
 }
@@ -311,7 +311,7 @@ func TestShodanHost_CapDefersInAddressOrder(t *testing.T) {
 	if n := deferredOf(t, p.h, "shodan-host"); n != 2 {
 		t.Errorf("summary deferred shodan-host = %d, want 2", n)
 	}
-	if st, _ := p.stageState("shodan-host"); st != "done" {
+	if st, _ := p.procedureState("shodan-host"); st != "done" {
 		t.Errorf("shodan-host = %s, want done (deferred checks are not failures)", st)
 	}
 	if ev := lastState(p.h.events(), "shodan-host"); ev.num("failed") != 0 {
@@ -591,7 +591,7 @@ func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
 	if r := p.riskPortRow(appHost, 3306); r != nil && r["current"] == "true" {
 		t.Errorf("risk-ports.csv has a current row for a closed port: %v", r)
 	}
-	// The report came with the first check: no second handshake was made for it.
+	// The report came with the first job: no second handshake was made for it.
 	if got, want := p.checked(), portKeys([]string{appHost, rootIP}, []int{3306}); !slices.Equal(got, want) {
 		t.Errorf("port checks = %v, want %v", got, want)
 	}
@@ -599,7 +599,7 @@ func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
 
 // --- Active, then Shodan ---
 
-// A later report allows one extra check for an unconfirmed port, never repeated checks for
+// A later report allows one extra job for an unconfirmed port, never repeated jobs for
 // already-open ports.
 func TestShodanHost_LateReportCostsOneExtraHandshake(t *testing.T) {
 	t.Parallel()

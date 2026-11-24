@@ -176,15 +176,15 @@ func (m *model) settingItems() []item {
 	return out
 }
 
-// skipItems marks running stages [x], dims skipped stages and follows them with invalid skip
+// skipItems marks running procedures [x], dims skipped procedures and follows them with invalid skip
 // entries.
 func (m *model) skipItems() []item {
 	var out []item
 	nameCol := 0
-	for _, s := range m.info.Stages {
+	for _, s := range m.info.Procedures {
 		nameCol = max(nameCol, layout.Measure(s.Name))
 	}
-	for i, s := range m.info.Stages {
+	for i, s := range m.info.Procedures {
 		sel := i == m.sel[tabSkip] && m.tab == tabSkip
 		skipped := slices.Contains(m.skip.on, s.Name)
 		changed := skipped != slices.Contains(m.skip.origOn, s.Name)
@@ -197,11 +197,11 @@ func (m *model) skipItems() []item {
 		out = append(out, item{lines: []line{l}})
 	}
 	for j, p := range m.skip.problems {
-		sel := len(m.info.Stages)+j == m.sel[tabSkip] && m.tab == tabSkip
+		sel := len(m.info.Procedures)+j == m.sel[tabSkip] && m.tab == tabSkip
 		out = append(out, item{lines: []line{append(m.marks(sel, false), m.paint(roleBad, "[!] "+m.text(p.Entry)+": "+m.text(p.Message)))}})
 	}
 	if m.skip.list != "" {
-		sel := len(m.info.Stages)+len(m.skip.problems) == m.sel[tabSkip] && m.tab == tabSkip
+		sel := len(m.info.Procedures)+len(m.skip.problems) == m.sel[tabSkip] && m.tab == tabSkip
 		out = append(out, item{lines: []line{append(m.marks(sel, false), m.paint(roleBad, "[!] "+m.text(m.skip.list)))}})
 	}
 	return out

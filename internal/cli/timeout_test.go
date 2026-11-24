@@ -15,14 +15,14 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// blocking combines context-blocked and immediately successful checks without returning check
+// blocking combines context-blocked and immediately successful jobs without returning job
 // errors.
-func blocking(name string, quick, blocked int) *testkit.Stage {
-	return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check {
+func blocking(name string, quick, blocked int) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job {
 			return append(testkit.Keys("q", quick), testkit.Keys("b", blocked)...)
 		},
-		RunFn: func(ctx context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			if strings.HasPrefix(c.Key, "q") {
 				return nil, nil
 			}
@@ -86,8 +86,8 @@ func TestTimeout_IsNotASetting(t *testing.T) {
 	}
 }
 
-// Deadline-cancelled checks stay pending without failure counts and resume exactly once later.
-func TestTimeout_CutChecksAreNeitherDoneNorFailed(t *testing.T) {
+// Deadline-cancelled jobs stay pending without failure counts and resume exactly once later.
+func TestTimeout_CutJobsAreNeitherDoneNorFailed(t *testing.T) {
 	t.Parallel()
 	st := blocking("slow", 2, 4)
 	h := newHarness(t, st)
@@ -102,13 +102,13 @@ func TestTimeout_CutChecksAreNeitherDoneNorFailed(t *testing.T) {
 		t.Errorf("the run took %v for a 400ms deadline", elapsed)
 	}
 	env := h.envelope()
-	if !env.Meta.DeadlineExceeded || env.Meta.ChecksCompleted != 2 || env.Meta.ChecksCancelled != 4 {
+	if !env.Meta.DeadlineExceeded || env.Meta.JobsCompleted != 2 || env.Meta.JobsCancelled != 4 {
 		t.Errorf("meta = %+v", env.Meta)
 	}
 	if got := h.completed("a.com", "slow"); !slices.Equal(got, []string{"q000", "q001"}) {
 		t.Errorf("checks = %v, want only the two quick ones", got)
 	}
-	if got := h.failedChecks("slow"); len(got) != 0 {
+	if got := h.failedJobs("slow"); len(got) != 0 {
 		t.Errorf("a cancelled check was recorded as failed: %v", got)
 	}
 	if _, err := os.Stat(filepath.Join(h.eng("a.com"), "scope.csv")); err != nil {
@@ -124,7 +124,7 @@ func TestTimeout_CutChecksAreNeitherDoneNorFailed(t *testing.T) {
 	if got := st.Executed(); len(got) != 4 || got[0][0] != 'b' {
 		t.Errorf("the second run executed %v, want the four cancelled checks", got)
 	}
-	if env := h.envelope(); env.Meta.DeadlineExceeded || env.Meta.ChecksCancelled != 0 {
+	if env := h.envelope(); env.Meta.DeadlineExceeded || env.Meta.JobsCancelled != 0 {
 		t.Errorf("second run meta = %+v", env.Meta)
 	}
 }
@@ -137,7 +137,7 @@ func TestTimeout_FinishedBeforeTheDeadlineIsUnaffected(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
 	env := h.envelope()
-	if env.Meta.DeadlineExceeded || env.Meta.ChecksCompleted != 3 || env.Meta.ChecksCancelled != 0 {
+	if env.Meta.DeadlineExceeded || env.Meta.JobsCompleted != 3 || env.Meta.JobsCancelled != 0 {
 		t.Errorf("meta = %+v", env.Meta)
 	}
 	if h.stderr.Len() != 0 {
@@ -147,7 +147,7 @@ func TestTimeout_FinishedBeforeTheDeadlineIsUnaffected(t *testing.T) {
 
 // Timer cancellation keeps rate-limit waits from failing early as they would under a context
 // deadline.
-func TestTimeout_CheckWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
+func TestTimeout_JobWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.crtsh(map[string][]string{"a.example": {"www.a.example"}}, nil)
@@ -157,24 +157,24 @@ func TestTimeout_CheckWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
 	env := w.h.envelope()
-	if env.Meta.ChecksCancelled == 0 {
+	if env.Meta.JobsCancelled == 0 {
 		t.Fatalf("no check was waiting when the timer fired: %+v", env.Meta)
 	}
-	if got := w.h.failedChecks(""); len(got) != 0 {
+	if got := w.h.failedJobs(""); len(got) != 0 {
 		t.Errorf("checks waiting on the limiter were recorded as failed: %v", got)
 	}
 }
 
-// Interrupted enumeration cannot retire unlisted checks because the stage never finished
+// Interrupted enumeration cannot retire unlisted jobs because the procedure never finished
 // declaring its valid keys.
 func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 	t.Parallel()
 	listed := []string{"c0", "c1"}
-	fake := &testkit.Stage{StageName: "retiring", Kind: run.ThirdParty,
-		RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	fake := &testkit.Procedure{ProcedureName: "retiring", Kind: run.ThirdParty,
+		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("hostname", c.Key+".a.com")}, nil
 		}}
-	st := &enumStage{Stage: fake, list: &listed}
+	st := &enumProcedure{Procedure: fake, list: &listed}
 	h := newHarness(t, st)
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatalf("first run: exit %d\n%s", code, h.stderr.String())
@@ -202,19 +202,19 @@ func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 	}
 }
 
-// enumStage is a Retiring stage whose enumeration can block until the context ends.
-type enumStage struct {
-	*testkit.Stage
+// enumProcedure is a Retiring procedure whose enumeration can block until the context ends.
+type enumProcedure struct {
+	*testkit.Procedure
 	list  *[]string
 	block bool
 }
 
-func (*enumStage) RetiresUnlistedChecks() {}
+func (*enumProcedure) RetiresUnlistedJobs() {}
 
-func (s *enumStage) Checks(ctx context.Context, _ run.View) iter.Seq2[run.Check, error] {
-	return func(yield func(run.Check, error) bool) {
+func (s *enumProcedure) Jobs(ctx context.Context, _ run.View) iter.Seq2[run.Job, error] {
+	return func(yield func(run.Job, error) bool) {
 		for _, k := range *s.list {
-			if !yield(run.Check{Key: k}, nil) {
+			if !yield(run.Job{Key: k}, nil) {
 				return
 			}
 		}

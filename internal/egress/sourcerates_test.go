@@ -9,7 +9,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 )
 
-// timeRequests makes n requests to https://host/ through a stage whose sources are sources, and
+// timeRequests makes n requests to https://host/ through a procedure whose sources are sources, and
 // returns how long they took.
 func timeRequests(t *testing.T, opts egress.Options, host string, n int, sources ...string) time.Duration {
 	t.Helper()

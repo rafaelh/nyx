@@ -37,7 +37,7 @@ import (
 type harness struct {
 	t                        *testing.T
 	out                      string
-	stages                   []run.Stage
+	procedures               []run.Procedure
 	files                    []output.File  // nil means the default files
 	signals                  chan os.Signal // nil means the run takes no signals
 	stdoutTTY                bool
@@ -71,7 +71,7 @@ type harness struct {
 	udpHits, httpHits, tcpHits atomic.Int32
 }
 
-func newHarness(t *testing.T, stages ...run.Stage) *harness {
+func newHarness(t *testing.T, procedures ...run.Procedure) *harness {
 	t.Helper()
 	// The run sees only this environment, never the process's, so a developer's shell cannot
 	// change a result and tests can run in parallel.
@@ -85,7 +85,7 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 	if err := os.WriteFile(filepath.Join(cfgHome, "nyx", "config.yaml"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, out: t.TempDir(), stages: stages, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), loc: time.UTC, env: env}
+	h := &harness{t: t, out: t.TempDir(), procedures: procedures, now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC), loc: time.UTC, env: env}
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -128,7 +128,7 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 
 func (h *harness) deps() cli.Deps {
 	return cli.Deps{
-		Stages:        h.stages,
+		Procedures:    h.procedures,
 		Files:         h.files,
 		Egress:        h.eopts,
 		Stdout:        &h.stdout,
@@ -479,11 +479,11 @@ func summaryOf(env report.Envelope) event {
 	for _, c := range d.Counts {
 		totals[c.Category] = float64(c.N)
 	}
-	for _, c := range d.FailedChecks {
-		failed[c.Stage] = float64(c.N)
+	for _, c := range d.FailedJobs {
+		failed[c.Procedure] = float64(c.N)
 	}
 	for _, c := range d.Deferred {
-		deferred[c.Stage] = float64(c.N)
+		deferred[c.Procedure] = float64(c.N)
 	}
 	rows := func(fs []report.FindingRow) []any {
 		out := []any{}
@@ -590,18 +590,18 @@ func (h *harness) logMsgs(level string) []string {
 // debugLines are the messages of the DEBUG lines on stderr.
 func (h *harness) debugLines() []string { return h.logMsgs("DEBUG") }
 
-// checkFailure parses the runner's debug text for one failed stage/check.
-type checkFailure struct{ stage, key, err string }
+// jobFailure parses the runner's debug text for one failed procedure/job.
+type jobFailure struct{ procedure, key, err string }
 
-// failedChecks are the checks of a stage (of every stage for "") that the last
+// failedJobs are the jobs of a procedure (of every procedure for "") that the last
 // call's run failed.
-func (h *harness) failedChecks(stage string) []checkFailure {
-	var out []checkFailure
+func (h *harness) failedJobs(procedure string) []jobFailure {
+	var out []jobFailure
 	for _, m := range h.messages("debug", " failed: ") {
 		st, rest, ok := strings.Cut(m, " check ")
 		key, err, ok2 := strings.Cut(rest, " failed: ")
-		if ok && ok2 && (stage == "" || st == stage) {
-			out = append(out, checkFailure{st, key, err})
+		if ok && ok2 && (procedure == "" || st == procedure) {
+			out = append(out, jobFailure{st, key, err})
 		}
 	}
 	return out
@@ -663,7 +663,7 @@ func ofType(evs []event, typ string) []event {
 	return out
 }
 
-func stageEvents(evs []event, name string) []event {
+func procedureEvents(evs []event, name string) []event {
 	var out []event
 	for _, e := range ofType(evs, "stage") {
 		if e.str("name") == name {
@@ -674,7 +674,7 @@ func stageEvents(evs []event, name string) []event {
 }
 
 func lastState(evs []event, name string) event {
-	se := stageEvents(evs, name)
+	se := procedureEvents(evs, name)
 	if len(se) == 0 {
 		return nil
 	}
@@ -732,8 +732,8 @@ func (h *harness) inputs(name, kind string) []string {
 	return queryStrings(h.t, h.openDB(name), "SELECT value FROM inputs WHERE kind=?", kind)
 }
 
-func (h *harness) completed(name, stage string) []string {
-	return queryStrings(h.t, h.openDB(name), "SELECT key FROM checks WHERE stage=?", stage)
+func (h *harness) completed(name, procedure string) []string {
+	return queryStrings(h.t, h.openDB(name), "SELECT key FROM checks WHERE stage=?", procedure)
 }
 
 func (h *harness) meta(name, key string) (string, bool) {

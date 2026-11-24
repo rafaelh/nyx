@@ -81,7 +81,7 @@ func TestThreatDocs_CreditSpamhaus(t *testing.T) {
 		t.Errorf("the README's credits do not name Spamhaus:\n%s", credits)
 	}
 
-	h := newHarness(t, cli.DefaultDeps().Stages...)
+	h := newHarness(t, cli.DefaultDeps().Procedures...)
 	if code := h.execRoot("help", "findings"); code != 0 {
 		t.Fatalf("help findings: exit %d", code)
 	}

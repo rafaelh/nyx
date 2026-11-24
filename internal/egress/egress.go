@@ -1,5 +1,5 @@
 // Package egress owns nyx's network I/O and enforces target contact policy. It returns its own
-// result types so stage packages do not depend on net, net/http or crypto/tls; the boundary
+// result types so procedure packages do not depend on net, net/http or crypto/tls; the boundary
 // test checks this separation.
 package egress
 
@@ -121,7 +121,7 @@ func (o Options) WithSettings(s config.Settings, r *config.Redactor) Options {
 	return o
 }
 
-// Clients grants HTTP/TCP target access only to target-contacting stages.
+// Clients grants HTTP/TCP target access only to target-contacting procedures.
 type Clients struct {
 	DNS        Resolver
 	ThirdParty ThirdPartyHTTP
@@ -140,7 +140,7 @@ type Egress struct {
 	dnsLim  *rate.Limiter
 	rr      atomic.Uint32
 
-	thirdParty *http.Client // shared by every stage's ThirdPartyHTTP
+	thirdParty *http.Client // shared by every procedure's ThirdPartyHTTP
 }
 
 // New creates an Egress.
@@ -220,7 +220,7 @@ func wait(ctx context.Context, l *rate.Limiter) error {
 	return err
 }
 
-// Clients selects source clients and grants target clients only when authorised by stage
+// Clients selects source clients and grants target clients only when authorised by procedure
 // contact type.
 func (e *Egress) Clients(target bool, sources []string) Clients {
 	c := Clients{

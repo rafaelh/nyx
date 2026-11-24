@@ -36,7 +36,7 @@ func resolve(d *inventory.Data, name string, addrs ...string) {
 		d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: name, Type: typ, Value: a})
 		d.IPs = append(d.IPs, ip(a))
 	}
-	d.Hosts = append(d.Hosts, inventory.Host{Name: name, Stages: []string{"crtsh"}})
+	d.Hosts = append(d.Hosts, inventory.Host{Name: name, Producers: []string{"crtsh"}})
 }
 
 func newScope(inv *inventory.Inventory, excl ...string) *scope.Scope {
@@ -52,10 +52,10 @@ func TestWildcardOnly(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1", "203.0.113.2")}}
-	resolve(&d, "zz.example.com", "203.0.113.1")                                                          // overlaps the probe addresses
-	resolve(&d, "real.example.com", "203.0.113.50")                                                       // distinct: a real host
-	resolve(&d, "deep.sub.example.com", "203.0.113.1")                                                    // not directly under the zone
-	d.Hosts = append(d.Hosts, inventory.Host{Name: "late.example.com", Stages: []string{"permutations"}}) // unresolved
+	resolve(&d, "zz.example.com", "203.0.113.1")                                                             // overlaps the probe addresses
+	resolve(&d, "real.example.com", "203.0.113.50")                                                          // distinct: a real host
+	resolve(&d, "deep.sub.example.com", "203.0.113.1")                                                       // not directly under the zone
+	d.Hosts = append(d.Hosts, inventory.Host{Name: "late.example.com", Producers: []string{"permutations"}}) // unresolved
 	inv := inventory.New(d, provider.Default())
 	wo := inv.WildcardOnly()
 	if !wo["zz.example.com"] || wo["real.example.com"] || wo["deep.sub.example.com"] || wo["late.example.com"] || wo["example.com"] {
@@ -77,11 +77,11 @@ func TestWildcardOnlyByCNAME(t *testing.T) {
 	d.Resolutions = append(d.Resolutions,
 		inventory.Resolution{Name: "a.example.com", Type: "CNAME", Value: "lb.cdn.example.net"},
 		inventory.Resolution{Name: "a.example.com", Type: "A", Value: "203.0.113.99"})
-	d.Hosts = append(d.Hosts, inventory.Host{Name: "a.example.com", Stages: []string{"crtsh"}})
+	d.Hosts = append(d.Hosts, inventory.Host{Name: "a.example.com", Producers: []string{"crtsh"}})
 	d.Resolutions = append(d.Resolutions,
 		inventory.Resolution{Name: "b.example.com", Type: "CNAME", Value: "other.example.net"},
 		inventory.Resolution{Name: "b.example.com", Type: "A", Value: "203.0.113.98"})
-	d.Hosts = append(d.Hosts, inventory.Host{Name: "b.example.com", Stages: []string{"crtsh"}})
+	d.Hosts = append(d.Hosts, inventory.Host{Name: "b.example.com", Producers: []string{"crtsh"}})
 	wo := inventory.New(d, provider.Default()).WildcardOnly()
 	if !wo["a.example.com"] || wo["b.example.com"] {
 		t.Errorf("wildcard-only = %v", wo)
@@ -118,7 +118,7 @@ func TestRepresentativeIsProbeable(t *testing.T) {
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1"), CNAME: "wild.example.net"}}
 	resolve(&d, "admin.example.com", "203.0.113.1") // smallest, but excluded
 	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: "b.example.com", Type: "CNAME", Value: "wild.example.net"})
-	d.Hosts = append(d.Hosts, inventory.Host{Name: "b.example.com", Stages: []string{"crtsh"}}) // wildcard-only, no addresses
+	d.Hosts = append(d.Hosts, inventory.Host{Name: "b.example.com", Producers: []string{"crtsh"}}) // wildcard-only, no addresses
 	resolve(&d, "shop.example.com", "203.0.113.1")
 	inv := inventory.New(d, provider.Default())
 	sc := newScope(inv, "admin.example.com")
@@ -133,11 +133,11 @@ func TestSeeds(t *testing.T) {
 	var d inventory.Data
 	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1")}}
 	d.Hosts = []inventory.Host{
-		{Name: "api.corp.example.com", Stages: []string{"crtsh"}},
-		{Name: "api-dev.corp.example.com", Stages: []string{"permutations"}},
-		{Name: "both.corp.example.com", Stages: []string{"permutations", "rdns"}},
-		{Name: "x.example.org", Stages: []string{"crtsh"}},
-		{Name: "example.com", Stages: []string{"crtsh"}}, // the apex: its parent "com" is not in scope
+		{Name: "api.corp.example.com", Producers: []string{"crtsh"}},
+		{Name: "api-dev.corp.example.com", Producers: []string{"permutations"}},
+		{Name: "both.corp.example.com", Producers: []string{"permutations", "rdns"}},
+		{Name: "x.example.org", Producers: []string{"crtsh"}},
+		{Name: "example.com", Producers: []string{"crtsh"}}, // the apex: its parent "com" is not in scope
 	}
 	resolve(&d, "wild.example.com", "203.0.113.1")
 	resolve(&d, "real.example.com", "203.0.113.2") // exists for real, but its parent is a wildcard zone
@@ -156,8 +156,8 @@ func TestProviderHosts(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
 	d.Hosts = []inventory.Host{
-		{Name: "cdn.example.com", Stages: []string{"crtsh"}}, {Name: "dangling.example.com", Stages: []string{"crtsh"}},
-		{Name: "mail.example.com", Stages: []string{"crtsh"}}, {Name: "apex.example.com", Stages: []string{"crtsh"}},
+		{Name: "cdn.example.com", Producers: []string{"crtsh"}}, {Name: "dangling.example.com", Producers: []string{"crtsh"}},
+		{Name: "mail.example.com", Producers: []string{"crtsh"}}, {Name: "apex.example.com", Producers: []string{"crtsh"}},
 	}
 	d.Resolutions = []inventory.Resolution{
 		{Name: "cdn.example.com", Type: "CNAME", Value: "d1.cloudfront.net"},

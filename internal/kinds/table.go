@@ -12,7 +12,7 @@ import (
 // Record handles define attributes and visibility rules. Fields always supplied omit omitempty
 // so zero values are stored and rendered. Optional fields use omitempty; pointers distinguish
 // zero from unknown, such as false for a checked certificate versus nil when TLS was not
-// checked. Since observations merge field by field, stages omit fields they do not know.
+// checked. Since observations merge field by field, procedures omit fields they do not know.
 
 // Entities use scope placement; in-scope roots are inputs and are not counted as discoveries.
 var (
@@ -225,7 +225,7 @@ var findingFound = func(store.Record) map[string]any { return nil }
 // before records are read.
 func SetFindingFound(found func(store.Record) map[string]any) { findingFound = found }
 
-// Evidence: stages store these, the findings package derives findings from them.
+// Evidence: procedures store these, the findings package derives findings from them.
 var (
 	TakeoverHTTP   = define[TakeoverHTTPAttrs](Kind{Name: "takeover_http"})
 	Storage        = define[StorageAttrs](Kind{Name: "storage"})

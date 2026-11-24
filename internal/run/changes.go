@@ -17,7 +17,7 @@ import (
 // entry represents an output row and whether it is currently visible.
 type entry struct {
 	label, key, scope, severity string
-	stages                      []string // sorted stages contributing visible records
+	procedures                  []string // sorted procedures contributing visible records
 	shown                       bool
 	first, last                 string // earliest first_seen and latest last_seen across contributing records
 }
@@ -63,15 +63,15 @@ func entriesOf(snap output.Snapshot) []entry {
 	}
 	out := make([]entry, 0, len(byKey))
 	for _, e := range byKey {
-		slices.Sort(e.stages)
-		e.stages = slices.Compact(e.stages)
+		slices.Sort(e.procedures)
+		e.procedures = slices.Compact(e.procedures)
 		out = append(out, *e)
 	}
 	slices.SortFunc(out, func(a, b entry) int { return cmp.Or(cmp.Compare(a.label, b.label), cmp.Compare(a.key, b.key)) })
 	return out
 }
 
-// add includes every record in the date range, but only visible records in stages and severity.
+// add includes every record in the date range, but only visible records in procedures and severity.
 func (e *entry) add(r store.Record, shown bool) {
 	if r.FirstSeen != "" && (e.first == "" || r.FirstSeen < e.first) {
 		e.first = r.FirstSeen
@@ -81,7 +81,7 @@ func (e *entry) add(r store.Record, shown bool) {
 		return
 	}
 	e.shown = true
-	e.stages = append(e.stages, r.Stages...)
+	e.procedures = append(e.procedures, r.Producers...)
 	if e.label == kinds.LabelFinding {
 		e.severity = r.Str("severity")
 	}
@@ -92,7 +92,7 @@ func shownRows(entries []entry) []store.ShownRow {
 	var rows []store.ShownRow
 	for _, e := range entries {
 		if e.shown {
-			rows = append(rows, store.ShownRow{Kind: e.label, Key: e.key, Stages: e.stages, Scope: e.scope, Severity: e.severity})
+			rows = append(rows, store.ShownRow{Kind: e.label, Key: e.key, Producers: e.procedures, Scope: e.scope, Severity: e.severity})
 		}
 	}
 	return rows
@@ -109,8 +109,8 @@ type baseline struct {
 }
 
 // compare returns changes in changes.csv order. Gone rows retain their previous scope and
-// severity. During a passive run, missing entries observed only by target-contacting stages are
-// carried forward: those stages have not checked them again. Derived records can still be
+// severity. During a passive run, missing entries observed only by target-contacting procedures are
+// carried forward: those procedures have not checked them again. Derived records can still be
 // reported gone. Carried rows remain in the next baseline so a later active run can report
 // their removal.
 func (b *baseline) compare(cur []entry, passive bool, target map[string]bool) (changes []output.Change, carried []store.ShownRow) {
@@ -141,7 +141,7 @@ func (b *baseline) compare(cur []entry, passive bool, target map[string]bool) (c
 		if e != nil && e.shown {
 			continue
 		}
-		if passive && len(r.Stages) > 0 && slices.IndexFunc(r.Stages, func(s string) bool { return !target[s] }) < 0 {
+		if passive && len(r.Producers) > 0 && slices.IndexFunc(r.Producers, func(s string) bool { return !target[s] }) < 0 {
 			carried = append(carried, r)
 			continue
 		}
@@ -168,7 +168,7 @@ func (r *Runner) loadBaseline() (*baseline, error) {
 		return nil, err
 	}
 	sig := r.kindSig(scopeKinds)
-	built, err := BuildScope(r.inputs, r.cfg.Stages, runnerSource{r})
+	built, err := BuildScope(r.inputs, r.cfg.Procedures, runnerSource{r})
 	if err != nil {
 		return nil, err
 	}
@@ -221,9 +221,9 @@ func (r *Runner) saveShown(entries []entry, carried []store.ShownRow) error {
 	return nil
 }
 
-func targetStages(stages []Stage) map[string]bool {
+func targetProcedures(procedures []Procedure) map[string]bool {
 	m := map[string]bool{}
-	for _, s := range stages {
+	for _, s := range procedures {
 		if s.Contact() == Target {
 			m[s.Name()] = true
 		}

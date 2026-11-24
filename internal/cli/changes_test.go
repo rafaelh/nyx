@@ -265,7 +265,7 @@ func TestChanges_NewExclusion(t *testing.T) {
 	}
 }
 
-// Passive runs defer target-only disappearance reports until active checks can verify them.
+// Passive runs defer target-only disappearance reports until active jobs can verify them.
 func TestChanges_PassiveRunDoesNotReportTargetRecordsGone(t *testing.T) {
 	t.Parallel()
 	for _, passive := range []bool{true, false} {
@@ -300,19 +300,19 @@ func TestChanges_PassiveRunDoesNotReportTargetRecordsGone(t *testing.T) {
 }
 
 // Budget deferral preserves previous records rather than making them appear gone.
-func TestChanges_DeferredChecksAreNotGone(t *testing.T) {
+func TestChanges_DeferredJobsAreNotGone(t *testing.T) {
 	t.Parallel()
-	checks := []run.Check{{Key: "c0", Cost: 1}}
-	st := &retiringBudgeted{testkit.Budgeted{Stage: &testkit.Stage{StageName: "budgeted", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return checks },
-		RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	jobs := []run.Job{{Key: "c0", Cost: 1}}
+	st := &retiringBudgeted{testkit.Budgeted{Procedure: &testkit.Procedure{ProcedureName: "budgeted", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return jobs },
+		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{host(c.Key + ".a.com")}, nil
 		}}, Limit: 1}}
 	h := newHarness(t, st)
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	checks = []run.Check{{Key: "c0", Cost: 1}, {Key: "c1", Cost: 1}, {Key: "c2", Cost: 1}}
+	jobs = []run.Job{{Key: "c0", Cost: 1}, {Key: "c1", Cost: 1}, {Key: "c2", Cost: 1}}
 	if code := h.exec("-e", "a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}

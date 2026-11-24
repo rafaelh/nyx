@@ -28,10 +28,10 @@ type StoreOptions struct {
 	Path string
 	// Env supplies HOME for tilde expansion during validation.
 	Env config.Env
-	// Sources and Stages provide setup tab metadata through Info.
-	Sources []setup.Source
-	Stages  []setup.Stage
-	// SkipEntry returns recon's reason for an invalid/unskippable stage, or "" when
+	// Sources and Procedures provide setup tab metadata through Info.
+	Sources    []setup.Source
+	Procedures []setup.Procedure
+	// SkipEntry returns recon's reason for an invalid/unskippable procedure, or "" when
 	// accepted.
 	SkipEntry func(name string) string
 	// Getwd resolves relative edits from setup's working directory; nil uses os.Getwd.
@@ -61,7 +61,7 @@ func NewStore(o StoreOptions) *Store {
 
 // Info returns the absolute config path and tab metadata.
 func (s *Store) Info() setup.Info {
-	return setup.Info{Path: s.path, Sources: s.o.Sources, Stages: s.o.Stages}
+	return setup.Info{Path: s.path, Sources: s.o.Sources, Procedures: s.o.Procedures}
 }
 
 // fileToken records original bytes or absence for conflict detection.

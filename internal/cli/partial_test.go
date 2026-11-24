@@ -51,25 +51,25 @@ func (h *harness) partialOf(code int, jsonMode bool, ids []string, records bool)
 	return f
 }
 
-// partialFailed verifies a retryable partial error naming a stage and failed-check count.
-func (h *harness) partialFailed(code int, stage string, n int) failure {
+// partialFailed verifies a retryable partial error naming a procedure and failed-job count.
+func (h *harness) partialFailed(code int, procedure string, n int) failure {
 	h.t.Helper()
 	f := h.partial(code, true)
-	if want := fmt.Sprintf("%d checks failed: %s %d", n, stage, n); f.msg != want || !f.transient {
+	if want := fmt.Sprintf("%d checks failed: %s %d", n, procedure, n); f.msg != want || !f.transient {
 		h.t.Errorf("error = %+v, want %q, transient", f, want)
 	}
 	return f
 }
 
-// erring is a stage whose checks fail with err (n checks, keys f000...).
-func erring(name string, n int, err error) *testkit.Stage {
-	return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("f", n) },
-		RunFn:    func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) { return nil, err }}
+// erring is a procedure whose jobs fail with err (n jobs, keys f000...).
+func erring(name string, n int, err error) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("f", n) },
+		RunFn:  func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) { return nil, err }}
 }
 
-// Failed checks preserve successful output and retry cleanly after the fault is removed.
-func TestPartial_FailedCheck(t *testing.T) {
+// Failed jobs preserve successful output and retry cleanly after the fault is removed.
+func TestPartial_FailedJob(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range []bool{true, false} {
 		t.Run(fmt.Sprint("json=", jsonMode), func(t *testing.T) {
@@ -90,7 +90,7 @@ func TestPartial_FailedCheck(t *testing.T) {
 			}
 			if jsonMode {
 				env := h.envelope()
-				if env.Meta.ChecksCompleted != 3 || env.Meta.DeadlineExceeded || len(env.Data.FailedChecks) != 1 || env.Data.FailedChecks[0].N != 2 {
+				if env.Meta.JobsCompleted != 3 || env.Meta.DeadlineExceeded || len(env.Data.FailedJobs) != 1 || env.Data.FailedJobs[0].N != 2 {
 					t.Errorf("envelope = %+v", env)
 				}
 			} else if !strings.Contains(h.stdout.String(), "Failed checks") {
@@ -111,26 +111,28 @@ func TestPartial_FailedCheck(t *testing.T) {
 func TestPartial_TransientByCause(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name      string
-		stages    func() []run.Stage
-		transient bool
+		name       string
+		procedures func() []run.Procedure
+		transient  bool
 	}{
-		{"a rejected key", func() []run.Stage {
-			return []run.Stage{erring("keyed", 3, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected))}
+		{"a rejected key", func() []run.Procedure {
+			return []run.Procedure{erring("keyed", 3, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected))}
 		}, false},
-		{"a rejected key and another failure", func() []run.Stage {
-			return []run.Stage{erring("keyed", 3, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected)), erring("flaky", 1, errors.New("boom"))}
+		{"a rejected key and another failure", func() []run.Procedure {
+			return []run.Procedure{erring("keyed", 3, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected)), erring("flaky", 1, errors.New("boom"))}
 		}, true},
-		{"a plain abort", func() []run.Stage {
-			return []run.Stage{erring("limited", 2, fmt.Errorf("HTTP 429: %w", run.ErrAbortStage))}
+		{"a plain abort", func() []run.Procedure {
+			return []run.Procedure{erring("limited", 2, fmt.Errorf("HTTP 429: %w", run.ErrAbortProcedure))}
 		}, true},
-		{"a spent quota", func() []run.Stage { return []run.Stage{erring("spent", 2, fmt.Errorf("HTTP 429: %w", run.ErrQuota))} }, true},
-		{"a server error", func() []run.Stage { return []run.Stage{erring("flaky", 2, errors.New("HTTP 500"))} }, true},
-		{"a panic", func() []run.Stage { return []run.Stage{panicking("boom")} }, true},
+		{"a spent quota", func() []run.Procedure {
+			return []run.Procedure{erring("spent", 2, fmt.Errorf("HTTP 429: %w", run.ErrQuota))}
+		}, true},
+		{"a server error", func() []run.Procedure { return []run.Procedure{erring("flaky", 2, errors.New("HTTP 500"))} }, true},
+		{"a panic", func() []run.Procedure { return []run.Procedure{panicking("boom")} }, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			h := newHarness(t, c.stages()...)
+			h := newHarness(t, c.procedures()...)
 			f := h.partial(h.exec("a.com", "--concurrency", "1"), false)
 			if f.transient != c.transient {
 				t.Errorf("transient = %v, want %v: %+v", f.transient, c.transient, f)
@@ -142,17 +144,17 @@ func TestPartial_TransientByCause(t *testing.T) {
 	}
 }
 
-func panicking(name string) *testkit.Stage {
-	return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("p", 1) },
-		RunFn:    func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) { panic("boom") }}
+func panicking(name string) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("p", 1) },
+		RunFn:  func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) { panic("boom") }}
 }
 
-// keyedGet is a stage whose one check asks a keyed source through the shared HTTP helper.
-func keyedGet(name string) *testkit.Stage {
-	return &testkit.Stage{StageName: name, Kind: run.ThirdParty, Src: []string{"api.example-source.test"},
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("k", 3) },
-		RunFn: func(ctx context.Context, _ run.Check, e egress.Clients) ([]run.Observation, error) {
+// keyedGet is a procedure whose one job asks a keyed source through the shared HTTP helper.
+func keyedGet(name string) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty, Src: []string{"api.example-source.test"},
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("k", 3) },
+		RunFn: func(ctx context.Context, _ run.Job, e egress.Clients) ([]run.Observation, error) {
 			_, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example-source.test/x",
 				KeySource: "shodan", KeyHeader: "X-Key"})
 			return nil, err
@@ -198,7 +200,7 @@ func TestPartial_ExitsZeroFor(t *testing.T) {
 	t.Parallel()
 	t.Run("not configured", func(t *testing.T) {
 		t.Parallel()
-		nokey := &testkit.Stage{StageName: "keyed", Kind: run.ThirdParty, ConfiguredFn: func(run.Env) (bool, string) { return false, "no key" }}
+		nokey := &testkit.Procedure{ProcedureName: "keyed", Kind: run.ThirdParty, ConfiguredFn: func(run.Env) (bool, string) { return false, "no key" }}
 		h := newHarness(t, nokey)
 		if code := h.exec("a.com", "--json"); code != 0 {
 			t.Errorf("exit %d\n%s", code, h.stderr.String())
@@ -206,7 +208,7 @@ func TestPartial_ExitsZeroFor(t *testing.T) {
 	})
 	t.Run("deferred by a budget", func(t *testing.T) {
 		t.Parallel()
-		h := newHarness(t, budgeted(1, func(run.View) []run.Check { return costed(1, 1, 1) }))
+		h := newHarness(t, budgeted(1, func(run.View) []run.Job { return costed(1, 1, 1) }))
 		if code := h.exec("a.com", "--json"); code != 0 {
 			t.Fatalf("exit %d\n%s", code, h.stderr.String())
 		}
@@ -216,9 +218,9 @@ func TestPartial_ExitsZeroFor(t *testing.T) {
 	})
 	t.Run("truncated by a page cap", func(t *testing.T) {
 		t.Parallel()
-		st := &testkit.Stage{StageName: "paged", Kind: run.ThirdParty,
-			ChecksFn: func(run.View) []run.Check { return testkit.Keys("p", 1) },
-			RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+		st := &testkit.Procedure{ProcedureName: "paged", Kind: run.ThirdParty,
+			JobsFn: func(run.View) []run.Job { return testkit.Keys("p", 1) },
+			RunFn: func(ctx context.Context, _ run.Job, _ egress.Clients) ([]run.Observation, error) {
 				run.Warnf(ctx, "result truncated at the page cap")
 				return nil, nil
 			}}
@@ -240,14 +242,14 @@ func TestPartial_ExitsZeroFor(t *testing.T) {
 	})
 }
 
-// A check a stage abandoned without running it is failed but not completed.
-func TestPartial_AbortedChecksAreNotCompleted(t *testing.T) {
+// A job a procedure abandoned without running it is failed but not completed.
+func TestPartial_AbortedJobsAreNotCompleted(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, erring("keyed", 4, fmt.Errorf("HTTP 401: %w", run.ErrKeyRejected)))
 	f := h.partial(h.exec("a.com", "--json", "--concurrency", "1", "--rate-per-source", "1000"), true)
 	env := h.envelope()
-	if f.msg != "4 checks failed: keyed 4" || env.Meta.ChecksCompleted != 1 {
-		t.Errorf("%+v completed %d, want 4 failed and 1 completed", f, env.Meta.ChecksCompleted)
+	if f.msg != "4 checks failed: keyed 4" || env.Meta.JobsCompleted != 1 {
+		t.Errorf("%+v completed %d, want 4 failed and 1 completed", f, env.Meta.JobsCompleted)
 	}
 }
 
@@ -269,7 +271,7 @@ func TestPartial_DeadlineMessageAndHint(t *testing.T) {
 			}
 			if jsonMode {
 				env := h.envelope()
-				if !env.Meta.DeadlineExceeded || env.Meta.ChecksCompleted != 3 || env.Meta.ChecksCancelled != 3 {
+				if !env.Meta.DeadlineExceeded || env.Meta.JobsCompleted != 3 || env.Meta.JobsCancelled != 3 {
 					t.Errorf("meta = %+v", env.Meta)
 				}
 			} else if !strings.Contains(h.stdout.String(), "Stopped by the deadline: 3 checks completed, 3 cancelled") {
@@ -312,7 +314,7 @@ func TestPartial_DeadlineHint(t *testing.T) {
 				if code := h.execRoot(append(slices.Clone(args), kept...)...); code != 7 {
 					t.Fatalf("seed run: exit %d", code)
 				}
-				st.RunFn = func(ctx context.Context, k run.Check, _ egress.Clients) ([]run.Observation, error) {
+				st.RunFn = func(ctx context.Context, k run.Job, _ egress.Clients) ([]run.Observation, error) {
 					if strings.HasPrefix(k.Key, "b") {
 						<-ctx.Done()
 						return nil, ctx.Err()
@@ -377,22 +379,22 @@ func quoteAll(args []string) []string {
 	return out
 }
 
-// With no check succeeding the hint says to raise --timeout, and the error is not transient, whatever
+// With no job succeeding the hint says to raise --timeout, and the error is not transient, whatever
 // the failures were.
 func TestPartial_RaiseTimeoutWhenNothingSucceeded(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name    string
-		stages  []run.Stage
-		timeout string
+		name       string
+		procedures []run.Procedure
+		timeout    string
 	}{
-		{"a timeout too small to start a check", []run.Stage{blocking("slow", 3, 0)}, "1ms"},
-		{"every started check cancelled", []run.Stage{blocking("slow", 0, 3)}, "400ms"},
-		{"one check that always fails and the rest cancelled", []run.Stage{erring("flaky", 1, errors.New("boom")), blocking("slow", 0, 3)}, "400ms"},
+		{"a timeout too small to start a check", []run.Procedure{blocking("slow", 3, 0)}, "1ms"},
+		{"every started check cancelled", []run.Procedure{blocking("slow", 0, 3)}, "400ms"},
+		{"one check that always fails and the rest cancelled", []run.Procedure{erring("flaky", 1, errors.New("boom")), blocking("slow", 0, 3)}, "400ms"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			h := newHarness(t, c.stages...)
+			h := newHarness(t, c.procedures...)
 			f := h.partial(h.exec("a.com", "--timeout", c.timeout), false)
 			if want := "raise --timeout: no check succeeded within " + c.timeout; f.hint != want || f.transient {
 				t.Errorf("hint %q transient %v, want %q and not transient", f.hint, f.transient, want)
@@ -405,9 +407,9 @@ func TestPartial_RaiseTimeoutWhenNothingSucceeded(t *testing.T) {
 func TestPartial_SignalDuringWrapUpLeavesStdoutEmpty(t *testing.T) {
 	t.Parallel()
 	var cut atomic.Bool
-	st := &testkit.Stage{StageName: "slow", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("b", 1) },
-		RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "slow", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("b", 1) },
+		RunFn: func(ctx context.Context, _ run.Job, _ egress.Clients) ([]run.Observation, error) {
 			<-ctx.Done()
 			cut.Store(true)
 			return nil, ctx.Err()
@@ -432,17 +434,17 @@ func TestPartial_SignalDuringWrapUpLeavesStdoutEmpty(t *testing.T) {
 // the deadline's.
 func TestPartial_NetblockLimitComesBeforeTheDeadline(t *testing.T) {
 	t.Parallel()
-	// Discover an oversized block before a second blocking check so cleanup, rather than
-	// normal stage completion, encounters the limit.
-	asn := expander{&testkit.Stage{StageName: "asn", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
-			var cs []run.Check
+	// Discover an oversized block before a second blocking job so cleanup, rather than
+	// normal procedure completion, encounters the limit.
+	asn := expander{&testkit.Procedure{ProcedureName: "asn", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
+			var cs []run.Job
 			for _, a := range v.Inputs().ASNs {
-				cs = append(cs, run.Check{Key: a})
+				cs = append(cs, run.Job{Key: a})
 			}
-			return append(cs, run.Check{Key: "block"})
+			return append(cs, run.Job{Key: "block"})
 		},
-		RunFn: func(ctx context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			if c.Key == "block" {
 				<-ctx.Done()
 				return nil, ctx.Err()

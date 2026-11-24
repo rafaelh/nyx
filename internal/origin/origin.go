@@ -1,4 +1,4 @@
-// Package origin selects and confirms possible servers behind CDN/WAF hostnames. Stages and
+// Package origin selects and confirms possible servers behind CDN/WAF hostnames. Procedures and
 // findings share these pure decisions so checked and reported origins agree.
 package origin
 

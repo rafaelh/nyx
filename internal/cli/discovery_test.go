@@ -16,8 +16,8 @@ import (
 
 const eng = "example.com"
 
-func stateOf(w *world, stage string) (string, string) {
-	s := lastState(w.h.events(), stage)
+func stateOf(w *world, procedure string) (string, string) {
+	s := lastState(w.h.events(), procedure)
 	if s == nil {
 		return "", ""
 	}
@@ -57,7 +57,7 @@ func TestSources_KeylessSources(t *testing.T) {
 	if len(w.requests("web.archive.org")) < 3 {
 		t.Errorf("wayback should be paged (count + 2 pages): %d requests", len(w.requests("web.archive.org")))
 	}
-	// Look at Common Crawl's own observation, not whichever stage's attributes a
+	// Look at Common Crawl's own observation, not whichever procedure's attributes a
 	// name-keyed map happens to keep.
 	ccAttrs := queryStrings(t, w.h.openDB(eng), "SELECT attrs FROM observations WHERE kind='hostname' AND key='d.example.com' AND stage='commoncrawl'")
 	if len(ccAttrs) != 1 || !strings.Contains(ccAttrs[0], "CC-MAIN-2026-01") {
@@ -136,7 +136,7 @@ func TestSources_KeyedSources(t *testing.T) {
 		}
 		_, _ = rw.Write([]byte(`{"matches":[],"total":0}`))
 	})
-	// The sources this test does not exercise answer with nothing, so no check fails.
+	// The sources this test does not exercise answer with nothing, so no job fails.
 	w.handle("api.hackertarget.com", func(rw http.ResponseWriter, _ *http.Request) { _, _ = rw.Write([]byte("No records found")) })
 	w.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"categories":[],"prefixes":[]}}`))
 	w.handle("reverse-whois.whoisxmlapi.com", func(rw http.ResponseWriter, r *http.Request) {
@@ -170,7 +170,7 @@ func TestSources_KeyedSources(t *testing.T) {
 	}
 }
 
-// A rejected or exhausted key fails the stage, records nothing, and is retried.
+// A rejected or exhausted key fails the procedure, records nothing, and is retried.
 func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 	t.Parallel()
 	for _, code := range []int{401, 403, 429} {
@@ -192,7 +192,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 			if n := len(w.requests("www.virustotal.com")); n != 1 {
 				t.Errorf("the stage should abort after the first rejection, saw %d requests", n)
 			}
-			// Fix the key: the same checks run and complete.
+			// Fix the key: the same jobs run and complete.
 			w.handle("www.virustotal.com", jsonBody(`{"data":[{"id":"fixed.example.com"}],"meta":{}}`))
 			w.h.setKey("virustotal", "vt-key-fixed")
 			if c := w.run("--passive", "example.com"); c != 0 {
@@ -208,7 +208,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 	}
 }
 
-// Source-specific no-data 404s complete checks rather than retrying indefinitely.
+// Source-specific no-data 404s complete jobs rather than retrying indefinitely.
 func TestSources_NotFoundIsNoData(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -406,7 +406,7 @@ func TestPermutations_InvalidCapExits2(t *testing.T) {
 	}
 }
 
-func TestPermutations_CapAndSettingsChangeChecks(t *testing.T) {
+func TestPermutations_CapAndSettingsChangeJobs(t *testing.T) {
 	t.Parallel()
 	w, wl := permWorld(t, "dev\nboth\nstaging\ntest\nbeta\nold\nnew\nqa\n")
 	w.run("--passive", "--wordlist", wl, "--permutations-max", "5", "example.com")
@@ -550,7 +550,7 @@ func TestWildcards(t *testing.T) {
 		t.Errorf("real host should be eligible: %v", ip)
 	}
 
-	// A name discovered after the zone's check is still caught.
+	// A name discovered after the zone's job is still caught.
 	w.crtsh(map[string][]string{"example.com": {"junk1.example.com", "junk2.example.com", "real.example.com", "junk3.example.com"}}, nil)
 	w.h.exec("--json", "--redo", "crtsh", "--rate-per-source", "1000", "--rate-dns", "100000", "--passive", "--no-permutations", "example.com")
 	if got := w.lines(eng, "wildcard-excluded.txt"); !slices.Contains(got, "junk3.example.com") {

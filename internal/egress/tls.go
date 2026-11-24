@@ -198,7 +198,7 @@ func ipNames(ips []net.IP) []string {
 }
 
 // Probe is the set of target clients for one address, built with NewProbe. Clients, which the
-// stages get, has no TLS client.
+// procedures get, has no TLS client.
 type Probe struct {
 	TCP  TargetTCP
 	HTTP TargetHTTP

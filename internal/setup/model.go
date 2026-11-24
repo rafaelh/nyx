@@ -150,7 +150,7 @@ func (r *settingRow) relative() string {
 
 // skipState is the skip list being edited.
 type skipState struct {
-	on       []string // the skippable stages the list holds, in file order, then those toggled on
+	on       []string // the skippable procedures the list holds, in file order, then those toggled on
 	problems []SkipProblem
 	list     string // a problem with the list as a whole
 
@@ -180,7 +180,7 @@ func (s *skipState) toggle(name string) {
 	s.list = ""
 }
 
-// entries preserves file order, retains problem entries and appends newly enabled stages.
+// entries preserves file order, retains problem entries and appends newly enabled procedures.
 func (s *skipState) entries() []string {
 	out := []string{}
 	for _, name := range s.on {
@@ -274,9 +274,9 @@ func newModel(ctx context.Context, b Backend, o Options) (*model, error) {
 	for i, s := range m.info.Sources {
 		m.info.Sources[i].Turns = sanitize.Line(s.Turns)
 	}
-	m.info.Stages = slices.Clone(m.info.Stages)
-	for i, s := range m.info.Stages {
-		m.info.Stages[i].Does = sanitize.Line(s.Does)
+	m.info.Procedures = slices.Clone(m.info.Procedures)
+	for i, s := range m.info.Procedures {
+		m.info.Procedures[i].Does = sanitize.Line(s.Does)
 	}
 	for _, l := range b.ThreatData() {
 		m.threat = append(m.threat, threatEntry{list: l})
@@ -573,7 +573,7 @@ func (m *model) rows(t tabID) int {
 	case tabSettings:
 		return len(m.sets)
 	case tabSkip:
-		n := len(m.info.Stages) + len(m.skip.problems)
+		n := len(m.info.Procedures) + len(m.skip.problems)
 		if m.skip.list != "" {
 			n++
 		}
@@ -601,8 +601,8 @@ func (m *model) activate() {
 		m.ed = &editState{tab: tabSettings, row: i, f: newField(false, m.sets[i].text)}
 		m.mode = modeEdit
 	case tabSkip:
-		if i < len(m.info.Stages) {
-			m.skip.toggle(m.info.Stages[i].Name)
+		if i < len(m.info.Procedures) {
+			m.skip.toggle(m.info.Procedures[i].Name)
 		} else {
 			m.say(roleHelp, "Press x to remove this entry")
 		}
@@ -625,16 +625,16 @@ func (m *model) clearRow() {
 	}
 }
 
-// clearSkip removes one invalid entry, clears a list conflict or disables a stage.
+// clearSkip removes one invalid entry, clears a list conflict or disables a procedure.
 func (m *model) clearSkip(i int) {
-	stages := len(m.info.Stages)
+	procedures := len(m.info.Procedures)
 	switch {
-	case i < stages:
-		if name := m.info.Stages[i].Name; slices.Contains(m.skip.on, name) {
+	case i < procedures:
+		if name := m.info.Procedures[i].Name; slices.Contains(m.skip.on, name) {
 			m.skip.toggle(name)
 		}
-	case i < stages+len(m.skip.problems):
-		m.skip.problems = slices.Delete(m.skip.problems, i-stages, i-stages+1)
+	case i < procedures+len(m.skip.problems):
+		m.skip.problems = slices.Delete(m.skip.problems, i-procedures, i-procedures+1)
 	default:
 		m.skip.list = ""
 	}

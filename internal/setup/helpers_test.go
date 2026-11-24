@@ -63,7 +63,7 @@ func testInfo() Info {
 			{Name: "certspotter", Turns: "certificate transparency (also works without a key)"},
 			{Name: "nvd", Turns: "nyx cve: 50 requests per 30 s instead of 5"},
 		},
-		Stages: []Stage{
+		Procedures: []Procedure{
 			{Name: "dns", Does: "resolves hostnames"},
 			{Name: "ports", Does: "checks open TCP ports"},
 			{Name: "web", Does: "fetches home pages"},

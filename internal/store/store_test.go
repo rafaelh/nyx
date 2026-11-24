@@ -87,8 +87,8 @@ func TestReobservation(t *testing.T) {
 	}
 }
 
-// Two stages observing one record keep both stages' attrs; later stages in order win.
-func TestTwoStagesAttrs(t *testing.T) {
+// Two procedures observing one record keep both procedures' attrs; later procedures in order win.
+func TestTwoProceduresAttrs(t *testing.T) {
 	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
@@ -105,11 +105,11 @@ func TestTwoStagesAttrs(t *testing.T) {
 	if rs[0].Attrs["src"] != "ct" {
 		t.Errorf("order must decide: %v", rs[0].Attrs)
 	}
-	if strings.Join(rs[0].Stages, ",") != "archive,ct" {
-		t.Errorf("stages = %v", rs[0].Stages)
+	if strings.Join(rs[0].Producers, ",") != "archive,ct" {
+		t.Errorf("stages = %v", rs[0].Producers)
 	}
 
-	// Redo of ct (check re-performed, no longer observed) leaves archive's attrs and currency.
+	// Redo of ct (job re-performed, no longer observed) leaves archive's attrs and currency.
 	if err := s.Redo("ct"); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestTwoStagesAttrs(t *testing.T) {
 	}
 }
 
-// Completed lists a stage's completed checks, and only that stage's.
+// Completed lists a procedure's completed jobs, and only that procedure's.
 func TestCompleted(t *testing.T) {
 	t.Parallel()
 	c := newClock()
@@ -161,7 +161,7 @@ func TestRedoSweepsOrphans(t *testing.T) {
 	if done, _ := s.Completed("st"); len(done) != 0 {
 		t.Fatalf("redo must clear checks: %v", done)
 	}
-	// ip1 is re-performed; ip2 is no longer produced by the stage.
+	// ip1 is re-performed; ip2 is no longer produced by the procedure.
 	s.Complete("st", "ip1", []store.Obs{{Kind: "x", Key: "a"}})
 	mustFlush(t, s)
 	if _, err := s.FinishRedo("st", map[string]struct{}{"ip1": {}}); err != nil {
@@ -175,9 +175,9 @@ func TestRedoSweepsOrphans(t *testing.T) {
 	}
 }
 
-// Retire forgets the checks a stage no longer yields, with their observations,
-// and leaves the other stages and the still-valid checks alone.
-func TestRetireUnlistedChecks(t *testing.T) {
+// Retire forgets the jobs a procedure no longer yields, with their observations,
+// and leaves the other procedures and the still-valid jobs alone.
+func TestRetireUnlistedJobs(t *testing.T) {
 	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
@@ -206,9 +206,9 @@ func TestRetireUnlistedChecks(t *testing.T) {
 	}
 }
 
-// A check a redo forgot that has not completed again (it failed, say) keeps its
+// A job a redo forgot that has not completed again (it failed, say) keeps its
 // old observations while it is still yielded.
-func TestRedoFailedCheckKeepsObservations(t *testing.T) {
+func TestRedoFailedJobKeepsObservations(t *testing.T) {
 	t.Parallel()
 	c := newClock()
 	s, _ := open(t, c, nil)
@@ -276,8 +276,8 @@ func TestRedactionInStore(t *testing.T) {
 	}
 }
 
-// A check key containing a key value is matched in its stored (redacted) form.
-func TestRedactedCheckKeyMatches(t *testing.T) {
+// A job key containing a key value is matched in its stored (redacted) form.
+func TestRedactedJobKeyMatches(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), config.NewRedactor("123"))
 	s.Complete("st", "AS4123", nil)
@@ -286,8 +286,8 @@ func TestRedactedCheckKeyMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := done[s.CheckKey("AS4123")]; !ok || len(done) != 1 {
-		t.Errorf("completed = %v, CheckKey = %q", done, s.CheckKey("AS4123"))
+	if _, ok := done[s.JobKey("AS4123")]; !ok || len(done) != 1 {
+		t.Errorf("completed = %v, CheckKey = %q", done, s.JobKey("AS4123"))
 	}
 }
 
@@ -365,7 +365,7 @@ func TestObservationsOf(t *testing.T) {
 	s.Complete("other", "x", []store.Obs{{Kind: "netblock", Key: "10.9.0.0/24"}})
 	mustFlush(t, s)
 	obs, err := s.Observations("netblock", "asn")
-	if err != nil || len(obs) != 1 || obs[0].Key != "10.0.0.0/24" || obs[0].CheckKey != "AS1" {
+	if err != nil || len(obs) != 1 || obs[0].Key != "10.0.0.0/24" || obs[0].JobKey != "AS1" {
 		t.Errorf("%v %v", obs, err)
 	}
 }
@@ -420,8 +420,8 @@ func TestKindVersion(t *testing.T) {
 	}
 }
 
-// Redo invalidates observer caches only for kinds the stage supports.
-func TestRedoBumpsTheKindsTheStageObserves(t *testing.T) {
+// Redo invalidates observer caches only for kinds the procedure supports.
+func TestRedoBumpsTheKindsTheProcedureObserves(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	s.Complete("st", "c1", []store.Obs{{Kind: "x", Key: "a"}})
@@ -439,7 +439,7 @@ func TestRedoBumpsTheKindsTheStageObserves(t *testing.T) {
 	}
 }
 
-// Observers excludes forgotten and retired checks even if stale observations remain stored.
+// Observers excludes forgotten and retired jobs even if stale observations remain stored.
 func TestObservers(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
@@ -459,7 +459,7 @@ func TestObservers(t *testing.T) {
 		t.Helper()
 		var have []string
 		for _, o := range got[key] {
-			have = append(have, o.Stage+"/"+o.CheckKey)
+			have = append(have, o.Procedure+"/"+o.JobKey)
 		}
 		if strings.Join(have, ",") != strings.Join(pairs, ",") {
 			t.Errorf("observers of %s = %v, want %v", key, have, pairs)
@@ -469,19 +469,19 @@ func TestObservers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want(got, "x.org", "crtsh/k1", "whoisxml/Acme") // by stage, then check
+	want(got, "x.org", "crtsh/k1", "whoisxml/Acme") // by procedure, then job
 	want(got, "y.org", "whoisxml/Acme")
 	if len(got) != 2 {
 		t.Errorf("only the kind's own records: %v", got)
 	}
 
-	// A check that no longer produces a record stops observing it.
+	// A job that no longer produces a record stops observing it.
 	s.Complete("crtsh", "k1", nil)
 	mustFlush(t, s)
 	got, _ = s.Observers("root")
 	want(got, "x.org", "whoisxml/Acme")
 
-	// A redo forgets the stage's completed checks: until one completes again it
+	// A redo forgets the procedure's completed jobs: until one completes again it
 	// observes nothing, even though its stale observations are still stored.
 	if err := s.Redo("whoisxml"); err != nil {
 		t.Fatal(err)
@@ -499,7 +499,7 @@ func TestObservers(t *testing.T) {
 	want(got, "x.org", "whoisxml/Acme")
 	want(got, "y.org")
 
-	// A retired check no longer observes.
+	// A retired job no longer observes.
 	s.Complete("st", "svc|fp=old", obs("root", "z.org"))
 	s.Complete("st", "svc|fp=new", obs("root", "z.org"))
 	mustFlush(t, s)

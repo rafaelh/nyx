@@ -34,7 +34,7 @@ func TestThreatHosts_TheCanariesSeeARequest(t *testing.T) {
 // An authorised keyed recon run still sends nothing to threat-data source hosts.
 func TestThreatHosts_ReconSendsThemNothing(t *testing.T) { // mutation target
 	t.Parallel()
-	x := newWebWith(t, riskStages...)
+	x := newWebWith(t, riskProcedures...)
 	for _, k := range []string{"shodan", "censys", "chaos", "securitytrails", "virustotal", "whoisxml", "github", "certspotter"} {
 		x.h.setKey(k, "key-SECRET-"+k)
 	}

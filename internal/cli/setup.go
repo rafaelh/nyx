@@ -94,7 +94,7 @@ func (s *secrets) add(vs ...string) {
 // setupBackend adds credential testing to configedit's file backend.
 type setupBackend struct {
 	*configedit.Store
-	threatKeeper // shared client options for credential tests and threat-list updates
+	threatKeeper        // shared client options for credential tests and threat-list updates
 	completion   string // the Settings tab's tab-completion line, from completionHint
 }
 
@@ -158,10 +158,10 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 			Input:   map[string][]string{"config": {abs}}}
 	}
 
-	names := stageNames(d.Stages)
+	names := procedureNames(d.Procedures)
 	store := configedit.NewStore(configedit.StoreOptions{
 		Path: abs, Env: d.Env,
-		Sources: setupSources(d.Stages), Stages: setupStages(d.Stages),
+		Sources: setupSources(d.Procedures), Procedures: setupProcedures(d.Procedures),
 		SkipEntry: func(name string) string { msg, _ := skipProblem(name, "", names); return msg },
 		Getwd:     d.Getwd, NoFsync: d.NoFsync,
 	})

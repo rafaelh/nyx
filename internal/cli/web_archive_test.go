@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// passive runs only third-party stages.
+// passive runs only third-party procedures.
 func (x *web) passive(args ...string) int {
 	x.t.Helper()
 	x.fill()
@@ -22,7 +22,7 @@ func (x *web) mustPassive(args ...string) {
 	}
 }
 
-// partialPassive verifies partial output and returns the failed-check error.
+// partialPassive verifies partial output and returns the failed-job error.
 func (x *web) partialPassive(args ...string) failure {
 	x.t.Helper()
 	return x.h.partial(x.passive(args...), true)
@@ -110,7 +110,7 @@ func TestArchive_ArchivedURLsWithoutASchemeAreKept(t *testing.T) {
 	}
 }
 
-func TestArchive_CapIsRoundRobinDeterministicAndPartOfTheCheckKey(t *testing.T) {
+func TestArchive_CapIsRoundRobinDeterministicAndPartOfTheJobKey(t *testing.T) {
 	t.Parallel()
 	x := archiveWorld(t)
 	x.mustPassive("--archive-max-urls", "4")
@@ -156,7 +156,7 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 		t.Errorf("archive.max_urls in the config file ignored: %v", got)
 	}
 
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -165,9 +165,9 @@ func TestArchive_CapSettingIsValidatedAndDocumented(t *testing.T) {
 			t.Errorf("help missing %q", want)
 		}
 	}
-	topic := h.stagesHelp()
+	topic := h.proceduresHelp()
 	for _, s := range []string{"httpprobe", "crawl"} {
-		if stageRow(topic, s) == "" {
+		if procedureRow(topic, s) == "" {
 			t.Errorf("help stages does not list %s", s)
 		}
 	}

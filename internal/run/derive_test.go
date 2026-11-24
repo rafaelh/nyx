@@ -93,10 +93,10 @@ func ipapiNetwork() *abusive.Snapshot {
 }
 
 // threatWorld supplies scope, address ownership and prior findings for derivation tests.
-func threatWorld(addr string, stored ...store.Record) deriveInput {
+func threatWorld(addr string, stored ...store.Record) analysisInput {
 	a := netip.MustParseAddr(addr)
 	inv := inventory.New(inventory.Data{
-		Hosts:       []inventory.Host{{Name: "app.example.com", Stages: []string{"crtsh"}}},
+		Hosts:       []inventory.Host{{Name: "app.example.com", Producers: []string{"crtsh"}}},
 		Resolutions: []inventory.Resolution{{Name: "app.example.com", Type: "A", Value: addr}},
 		Owners:      map[netip.Addr]provider.Owner{a: {ASN: 64500, Known: true}},
 	}, provider.Default())
@@ -105,7 +105,7 @@ func threatWorld(addr string, stored ...store.Record) deriveInput {
 		kinds.Hostname.Name(): {rec("hostname", "app.example.com", true, nil, "crtsh")},
 		kinds.Finding.Name():  stored,
 	}
-	return deriveInput{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv), Inputs: input.Parsed{Roots: []string{"example.com"}},
+	return analysisInput{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv), Inputs: input.Parsed{Roots: []string{"example.com"}},
 		Today: "2026-11-01", Records: func(k kinds.Named) []store.Record { return recs[k.Name()] }}
 }
 

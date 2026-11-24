@@ -18,16 +18,16 @@ import (
 const maxListedCandidates = 20
 
 // Result contains the rendered summary and counters used to decide the command's outcome.
-// Completed includes checks that returned successfully or with an error; Succeeded counts only
-// successes. Cancelled checks are retried next run and are counted separately, by stage. Checks
-// abandoned after a stage abort count as failures without being completed. Summary.FailedChecks
+// Completed includes jobs that returned successfully or with an error; Succeeded counts only
+// successes. Cancelled jobs are retried next run and are counted separately, by procedure. Jobs
+// abandoned after a procedure abort count as failures without being completed. Summary.FailedJobs
 // holds the failure totals.
 type Result struct {
 	Summary   report.Summary
 	Completed int
 	Succeeded int
-	Cancelled []report.StageCount
-	// KeyRejected counts failures caused by a rejected API key, including checks abandoned
+	Cancelled []report.ProcedureCount
+	// KeyRejected counts failures caused by a rejected API key, including jobs abandoned
 	// after the rejection.
 	KeyRejected int
 }
@@ -36,14 +36,14 @@ type Result struct {
 func (r *Runner) result() Result {
 	res := Result{}
 	r.mu.Lock()
-	failed, deferred := []report.StageCount{}, []report.StageCount{}
+	failed, deferred := []report.ProcedureCount{}, []report.ProcedureCount{}
 	for _, name := range slices.Sorted(maps.Keys(r.stats)) {
 		s := r.stats[name]
 		if s.failed > 0 {
-			failed = append(failed, report.StageCount{Stage: name, N: s.failed})
+			failed = append(failed, report.ProcedureCount{Procedure: name, N: s.failed})
 		}
 		if s.deferred > 0 {
-			deferred = append(deferred, report.StageCount{Stage: name, N: s.deferred})
+			deferred = append(deferred, report.ProcedureCount{Procedure: name, N: s.deferred})
 		}
 		res.Completed += s.completed
 		res.Succeeded += s.succeeded
@@ -51,7 +51,7 @@ func (r *Runner) result() Result {
 	}
 	for _, name := range r.order {
 		if s := r.stats[name]; s != nil && s.cancelled > 0 {
-			res.Cancelled = append(res.Cancelled, report.StageCount{Stage: name, N: s.cancelled})
+			res.Cancelled = append(res.Cancelled, report.ProcedureCount{Procedure: name, N: s.cancelled})
 		}
 	}
 	r.mu.Unlock()
@@ -64,7 +64,7 @@ func (r *Runner) result() Result {
 	ranked := r.rankedCandidates()
 	sum := report.Summary{
 		Engagement: filepath.Base(r.cfg.Engagement.Dir()), Directory: dir,
-		Counts: []report.CountRow{}, FailedChecks: failed, Deferred: deferred,
+		Counts: []report.CountRow{}, FailedJobs: failed, Deferred: deferred,
 		NotConfigured: r.notConfigured(), Findings: headlineRows(recs),
 		Candidates: ranked[:min(len(ranked), maxListedCandidates)], CandidatesTotal: len(ranked),
 		UnconfirmedRiskyPorts: findings.UnconfirmedRisky(recs), Notes: r.notes(),
@@ -77,12 +77,12 @@ func (r *Runner) result() Result {
 	return res
 }
 
-// notConfigured lists blocked stages and their reasons in registry order.
-func (r *Runner) notConfigured() []report.StageReason {
-	out := []report.StageReason{}
-	for _, s := range r.cfg.Stages {
+// notConfigured lists blocked procedures and their reasons in registry order.
+func (r *Runner) notConfigured() []report.ProcedureReason {
+	out := []report.ProcedureReason{}
+	for _, s := range r.cfg.Procedures {
 		if ok, reason := r.gate(s); !ok {
-			out = append(out, report.StageReason{Stage: s.Name(), Reason: reason})
+			out = append(out, report.ProcedureReason{Procedure: s.Name(), Reason: reason})
 		}
 	}
 	return out

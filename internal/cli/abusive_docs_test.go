@@ -64,11 +64,11 @@ func TestAbusiveDocs_GiveTheSnapshotDates(t *testing.T) {
 	}
 }
 
-// nyx help findings lists both types, nyx help stages the netblockowner stage, and nyx ip --help
+// nyx help findings lists both types, nyx help procedures the netblockowner procedure, and nyx ip --help
 // both keys among the --fields names.
 func TestAbusiveDocs_Help(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, cli.DefaultDeps().Stages...)
+	h := newHarness(t, cli.DefaultDeps().Procedures...)
 	if code := h.execRoot("help", "findings"); code != 0 {
 		t.Fatalf("help findings: exit %d", code)
 	}
@@ -82,7 +82,7 @@ func TestAbusiveDocs_Help(t *testing.T) {
 	if found != 2 {
 		t.Errorf("nyx help findings lists %d of the two abusive-network rows:\n%s", found, h.stdout.String())
 	}
-	h2 := newHarness(t, cli.DefaultDeps().Stages...)
+	h2 := newHarness(t, cli.DefaultDeps().Procedures...)
 	if code := h2.execRoot("help", "stages"); code != 0 {
 		t.Fatalf("help stages: exit %d", code)
 	}
@@ -170,7 +170,7 @@ func TestAbusiveDocs_NoCommandContactsTheThreatDataHosts(t *testing.T) { // muta
 	}
 	// Every host or source name each command asks, with what asks it.
 	var asked [][2]string
-	for _, s := range cli.DefaultDeps().Stages {
+	for _, s := range cli.DefaultDeps().Procedures {
 		for _, src := range s.Sources() {
 			asked = append(asked, [2]string{"stage " + s.Name() + " declares", src})
 		}

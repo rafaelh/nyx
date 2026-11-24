@@ -16,20 +16,20 @@ import (
 
 // unkeyedSource pairs source responses with expected discovered names.
 type unkeyedSource struct {
-	stage, host string
+	procedure, host string
 	// ok holds the names in names plus noise that must not be recorded: a name
 	// outside the root, an address and a URL.
 	ok    string
 	names []string
 	// empty is a well-formed answer with no names; bad is an answer of the wrong shape.
 	empty, bad string
-	// checkKey is the key of the one check a run for example.com completes.
-	checkKey string
+	// jobKey is the key of the one job a run for example.com completes.
+	jobKey string
 }
 
 var unkeyedSources = []unkeyedSource{
 	{
-		stage: "hackertarget", host: "api.hackertarget.com", checkKey: "example.com",
+		procedure: "hackertarget", host: "api.hackertarget.com", jobKey: "example.com",
 		ok: "ht.example.com,198.51.100.7\noff.example.org,198.51.100.8\n198.51.100.9,198.51.100.9\n" +
 			"https://url.example.com/x,198.51.100.10\n",
 		names: []string{"ht.example.com"},
@@ -37,7 +37,7 @@ var unkeyedSources = []unkeyedSource{
 		bad:   "<html>oops</html>",
 	},
 	{
-		stage: "urlscan", host: "urlscan.io", checkKey: "example.com",
+		procedure: "urlscan", host: "urlscan.io", jobKey: "example.com",
 		ok: `{"results":[
 			{"page":{"domain":"us.example.com","url":"https://url.example.com/login","ip":"198.51.100.7"},"task":{"domain":"us2.example.com"}},
 			{"page":{"domain":"off.example.org"},"task":{"domain":"198.51.100.9"}}]}`,
@@ -46,7 +46,7 @@ var unkeyedSources = []unkeyedSource{
 		bad:   `{"message":"nope"}`,
 	},
 	{
-		stage: "certspotter", host: "api.certspotter.com", checkKey: "example.com|pages=10",
+		procedure: "certspotter", host: "api.certspotter.com", jobKey: "example.com|pages=10",
 		ok:    `[{"id":"1","dns_names":["cs.example.com","*.wild.example.com","off.example.org","198.51.100.9","https://url.example.com/x"]}]`,
 		names: []string{"cs.example.com", "wild.example.com"},
 		empty: `[]`,
@@ -58,7 +58,7 @@ var unkeyedSources = []unkeyedSource{
 // after the first is empty.
 func (s unkeyedSource) serve(w *world, body string) {
 	s.handle(w, func(rw http.ResponseWriter, r *http.Request) {
-		if s.stage == "certspotter" && r.URL.Query().Get("after") != "" {
+		if s.procedure == "certspotter" && r.URL.Query().Get("after") != "" {
 			_, _ = rw.Write([]byte("[]"))
 			return
 		}
@@ -88,7 +88,7 @@ func hackerTargetHosts(w *world, body string) {
 func forEachUnkeyed(t *testing.T, fn func(t *testing.T, w *world, s unkeyedSource)) {
 	t.Helper()
 	for _, s := range unkeyedSources {
-		t.Run(s.stage, func(t *testing.T) {
+		t.Run(s.procedure, func(t *testing.T) {
 			t.Parallel()
 			fn(t, newWorld(t), s)
 		})
@@ -129,11 +129,11 @@ func TestUnkeyed_NamesAreRecorded(t *testing.T) {
 				t.Errorf("%q must not be recorded as a hostname", noise)
 			}
 		}
-		if st, _ := stateOf(w, s.stage); st != "done" {
-			t.Errorf("%s state = %s, want done", s.stage, st)
+		if st, _ := stateOf(w, s.procedure); st != "done" {
+			t.Errorf("%s state = %s, want done", s.procedure, st)
 		}
-		if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{s.checkKey}) {
-			t.Errorf("completed checks = %v, want the root's check %q", done, s.checkKey)
+		if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{s.jobKey}) {
+			t.Errorf("completed checks = %v, want the root's check %q", done, s.jobKey)
 		}
 		if reqs := w.requests(s.host); len(reqs) == 0 || reqs[0].Method != http.MethodGet || !strings.Contains(reqs[0].URI, "example.com") {
 			t.Errorf("requests = %+v, want a GET naming the root", reqs)
@@ -216,7 +216,7 @@ func TestUnkeyed_NamesAreNormalised(t *testing.T) {
 }
 
 // HackerTarget's two "nothing found" answers, and an empty body (no lines),
-// complete the check without retry.
+// complete the job without retry.
 func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 	t.Parallel()
 	for _, body := range []string{"No records found", "error check your search parameter", ""} {
@@ -242,13 +242,13 @@ func TestUnkeyed_HackerTargetEmptyBodies(t *testing.T) {
 	}
 }
 
-// A spent quota stops that stage alone: one warning, the checks fail and are retried.
-func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
+// A spent quota stops that procedure alone: one warning, the jobs fail and are retried.
+func TestUnkeyed_QuotaSpentAbortsOnlyThatProcedure(t *testing.T) {
 	t.Parallel()
 	type variant struct {
 		name  string
 		serve func(w *world, s unkeyedSource)
-		only  string // restrict to one stage
+		only  string // restrict to one procedure
 	}
 	variants := []variant{
 		{name: "HTTP 429", serve: func(w *world, s unkeyedSource) { s.handle(w, status(429)) }},
@@ -258,10 +258,10 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 	}
 	for _, v := range variants {
 		for _, s := range unkeyedSources {
-			if v.only != "" && v.only != s.stage {
+			if v.only != "" && v.only != s.procedure {
 				continue
 			}
-			t.Run(v.name+"/"+s.stage, func(t *testing.T) {
+			t.Run(v.name+"/"+s.procedure, func(t *testing.T) {
 				t.Parallel()
 				w := newWorld(t)
 				v.serve(w, s)
@@ -269,18 +269,18 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 				w.dns.A("c.example.com", "203.0.113.5")
 				// reverseip also asks HackerTarget, and has its own quota test.
 				f := w.h.partial(w.run("--passive", "--concurrency", "1", "--skip", "reverseip", "example.com", "example.org"), true)
-				if !f.transient || f.msg != "2 checks failed: "+s.stage+" 2" {
+				if !f.transient || f.msg != "2 checks failed: "+s.procedure+" 2" {
 					t.Errorf("a spent quota is transient and fails both checks: %+v", f)
 				}
-				checkQuotaSpentStage(t, w, s)
+				checkQuotaSpentProcedure(t, w, s)
 
 				// The warning needs no flag: a repeat run warns again.
-				w.run("--passive", "--concurrency", "1", "--redo", s.stage, "example.com", "example.org")
-				if warns := w.h.messages("warning", s.stage); len(warns) != 1 {
+				w.run("--passive", "--concurrency", "1", "--redo", s.procedure, "example.com", "example.org")
+				if warns := w.h.messages("warning", s.procedure); len(warns) != 1 {
 					t.Errorf("want the quota warning again on a repeat run, got %q", warns)
 				}
 
-				// The next run retries every check.
+				// The next run retries every job.
 				checkQuotaRetried(t, w, s)
 			})
 		}
@@ -288,14 +288,14 @@ func TestUnkeyed_QuotaSpentAbortsOnlyThatStage(t *testing.T) {
 }
 
 // checkQuotaRetried checks that once the source answers again, the next run
-// retries and completes both checks and records the source's names.
+// retries and completes both jobs and records the source's names.
 func checkQuotaRetried(t *testing.T, w *world, s unkeyedSource) {
 	t.Helper()
 	s.serve(w, s.ok)
 	if code := w.run("--passive", "example.com", "example.org"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
-	if done := w.h.completed(eng, s.stage); len(done) != 2 {
+	if done := w.h.completed(eng, s.procedure); len(done) != 2 {
 		t.Errorf("both roots should complete on the next run: %v", done)
 	}
 	if got := w.lines(eng, "subdomains.txt"); !slices.Contains(got, s.names[0]) {
@@ -303,22 +303,22 @@ func checkQuotaRetried(t *testing.T, w *world, s unkeyedSource) {
 	}
 }
 
-// checkQuotaSpentStage verifies one request/warning and no completions without affecting other
-// stages.
-func checkQuotaSpentStage(t *testing.T, w *world, s unkeyedSource) {
+// checkQuotaSpentProcedure verifies one request/warning and no completions without affecting other
+// procedures.
+func checkQuotaSpentProcedure(t *testing.T, w *world, s unkeyedSource) {
 	t.Helper()
-	if st, _ := stateOf(w, s.stage); st != "failed" {
+	if st, _ := stateOf(w, s.procedure); st != "failed" {
 		t.Errorf("state = %s, want failed", st)
 	}
-	if done := w.h.completed(eng, s.stage); len(done) != 0 {
+	if done := w.h.completed(eng, s.procedure); len(done) != 0 {
 		t.Errorf("a spent quota must not be recorded as done: %v", done)
 	}
 	if n := len(w.requests(s.host)); n != 1 {
 		t.Errorf("the stage should stop after the first answer, saw %d requests", n)
 	}
-	warns := w.h.messages("warning", s.stage)
+	warns := w.h.messages("warning", s.procedure)
 	if len(warns) != 1 || !strings.Contains(warns[0], "quota") || !strings.Contains(warns[0], "retried next run") {
-		t.Errorf("want one quota warning naming %s, got %q", s.stage, warns)
+		t.Errorf("want one quota warning naming %s, got %q", s.procedure, warns)
 	}
 	if st, _ := stateOf(w, "crtsh"); st != "done" {
 		t.Errorf("other stages must be unaffected: crtsh = %s", st)
@@ -331,14 +331,14 @@ func checkQuotaSpentStage(t *testing.T, w *world, s unkeyedSource) {
 // A runner-level check of the abort warning, independent of any source.
 func TestRunner_QuotaAbortWarnsOnce(t *testing.T) {
 	t.Parallel()
-	if !errors.Is(run.ErrQuota, run.ErrAbortStage) {
+	if !errors.Is(run.ErrQuota, run.ErrAbortProcedure) {
 		t.Error("ErrQuota must be an abort of the stage")
 	}
 	run.Warnf(context.Background(), "with no warner this does nothing %d", 1)
 
-	st := &testkit.Stage{StageName: "quota", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 4) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "quota", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 4) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			run.Warnf(ctx, "inside %s", c.Key)
 			return nil, fmt.Errorf("HTTP 429: %w", run.ErrQuota)
 		}}
@@ -381,22 +381,22 @@ func TestUnkeyed_NotFoundIsEmpty(t *testing.T) {
 		if code := w.run("--passive", "example.com"); code != 0 {
 			t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 		}
-		if st, _ := stateOf(w, s.stage); st != "done" {
+		if st, _ := stateOf(w, s.procedure); st != "done" {
 			t.Errorf("state = %s, want done", st)
 		}
-		if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{s.checkKey}) {
+		if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{s.jobKey}) {
 			t.Errorf("a 404 completes the check: %v", done)
 		}
 		s.serve(w, s.empty)
-		w.run("--passive", "--redo", s.stage, "example.com")
-		if st, _ := stateOf(w, s.stage); st != "done" {
+		w.run("--passive", "--redo", s.procedure, "example.com")
+		if st, _ := stateOf(w, s.procedure); st != "done" {
 			t.Errorf("a well-formed empty answer: state = %s, want done", st)
 		}
 	})
 }
 
 // A wrong-shaped body, a server error and an oversized body are transient: the
-// check is not recorded, and the next run retries it.
+// job is not recorded, and the next run retries it.
 func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 	t.Parallel()
 	oversize := func(s unkeyedSource) http.HandlerFunc {
@@ -414,25 +414,25 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 			{"HTTP 500", func(w *world) { s.handle(w, status(500)) }},
 			{"oversized", func(w *world) { s.handle(w, oversize(s)) }},
 		} {
-			t.Run(s.stage+"/"+v.name, func(t *testing.T) {
+			t.Run(s.procedure+"/"+v.name, func(t *testing.T) {
 				t.Parallel()
 				w := newWorld(t)
 				v.serve(w)
 				for _, n := range s.names {
 					w.dns.A(n, "203.0.113.5")
 				}
-				if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 checks failed: "+s.stage+" 1" {
+				if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient || f.msg != "1 checks failed: "+s.procedure+" 1" {
 					t.Errorf("%+v", f)
 				}
-				if st, _ := stateOf(w, s.stage); st != "failed" {
+				if st, _ := stateOf(w, s.procedure); st != "failed" {
 					t.Errorf("state = %s, want failed", st)
 				}
-				if done := w.h.completed(eng, s.stage); len(done) != 0 {
+				if done := w.h.completed(eng, s.procedure); len(done) != 0 {
 					t.Errorf("must not be recorded as done: %v", done)
 				}
 				s.serve(w, s.ok)
 				w.run("--passive", "example.com")
-				if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{s.checkKey}) {
+				if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{s.jobKey}) {
 					t.Errorf("retry should complete: %v", done)
 				}
 				if got := w.lines(eng, "subdomains.txt"); !slices.Contains(got, s.names[0]) {
@@ -443,9 +443,9 @@ func TestUnkeyed_TransientFailuresAreRetried(t *testing.T) {
 	}
 }
 
-// Get is unchanged: a 429 from one range publisher fails that list's check and
+// Get is unchanged: a 429 from one range publisher fails that list's job and
 // does not abort providerranges.
-func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
+func TestGet_RangePublisher429StaysAFailedJob(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.handle("ip-ranges.amazonaws.com", status(429))
@@ -454,7 +454,7 @@ func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
 	if f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com"), true); !f.transient || f.msg != "1 checks failed: providerranges 1" {
 		t.Errorf("%+v", f)
 	}
-	if got, want := w.h.completed(eng, "providerranges"), allRangeChecksBut("aws"); !slices.Equal(got, want) {
+	if got, want := w.h.completed(eng, "providerranges"), allRangeJobsBut("aws"); !slices.Equal(got, want) {
 		t.Errorf("completed = %v, want every list but the one that answered 429", got)
 	}
 	if n := len(w.requests("www.gstatic.com")); n != 1 {
@@ -465,7 +465,7 @@ func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
 	}
 }
 
-// New stages add discoveries without repeating checks from existing stages.
+// New procedures add discoveries without repeating jobs from existing procedures.
 func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -473,12 +473,12 @@ func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	w.dns.A("old.example.com", "203.0.113.5")
 	w.dns.A("new.example.com", "203.0.113.6")
 	hackerTargetHosts(w, "new.example.com,203.0.113.6\nold.example.com,203.0.113.5\n")
-	// hostsearch counts the requests of the hackertarget stage alone: the
-	// reverseip stage asks the same host for reverse lookups.
+	// hostsearch counts the requests of the hackertarget procedure alone: the
+	// reverseip procedure asks the same host for reverse lookups.
 	hostsearch := func() int { return w.src["api.hackertarget.com"].count("GET", "/hostsearch/") }
 	var skipNew []string
 	for _, s := range unkeyedSources {
-		skipNew = append(skipNew, "--skip", s.stage)
+		skipNew = append(skipNew, "--skip", s.procedure)
 	}
 	if code := w.run(append([]string{"--passive", "--no-permutations"}, append(skipNew, "example.com")...)...); code != 0 {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
@@ -520,10 +520,10 @@ func TestUnkeyed_HelpAndRedo(t *testing.T) {
 	w := newWorld(t)
 	w.h.exec("--help")
 	help := w.h.stdout.String()
-	topic := w.h.stagesHelp()
+	topic := w.h.proceduresHelp()
 	for _, s := range unkeyedSources {
-		if stageRow(topic, s.stage) == "" {
-			t.Errorf("help stages does not list %s", s.stage)
+		if procedureRow(topic, s.procedure) == "" {
+			t.Errorf("help stages does not list %s", s.procedure)
 		}
 	}
 	if !strings.Contains(help, "--skip") {
@@ -628,7 +628,7 @@ func TestCertSpotter_KeySentAndNeverShown(t *testing.T) {
 	}
 }
 
-// A rejected key stops the stage like a spent quota, and is not retried within
+// A rejected key stops the procedure like a spent quota, and is not retried within
 // the run.
 func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 	t.Parallel()
@@ -657,9 +657,9 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 	}
 }
 
-// Adding a key retries pending checks; completed checks need redo because credentials are not
+// Adding a key retries pending jobs; completed jobs need redo because credentials are not
 // keyed.
-func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
+func TestCertSpotter_KeyAddedLaterAppliesToPendingJobs(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	certspotterPages(w, func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer "+certspotterKey })
@@ -695,7 +695,7 @@ func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 }
 
 // Paging stops at certspotter.max_pages with a warning; the cap is part of the
-// check, so raising it repeats the check.
+// job, so raising it repeats the job.
 func TestCertSpotter_PageCap(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -721,7 +721,7 @@ func TestCertSpotter_PageCap(t *testing.T) {
 		t.Errorf("want one truncation warning, got %q", warns)
 	}
 
-	// Raising the cap makes a new check, and the longer result is not truncated.
+	// Raising the cap makes a new job, and the longer result is not truncated.
 	if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}

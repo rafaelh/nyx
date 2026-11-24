@@ -377,7 +377,7 @@ func urlRows(s Snapshot) []Row {
 			if a.Status != 0 { // fetched
 				status = strconv.Itoa(a.Status)
 			}
-			rows = append(rows, recordRow(r, r.Key, a.Host, status, strings.Join(r.Stages, ",")))
+			rows = append(rows, recordRow(r, r.Key, a.Host, status, strings.Join(r.Producers, ",")))
 		}
 	}
 	return rows

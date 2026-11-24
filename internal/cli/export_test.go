@@ -20,11 +20,11 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// exportWorld is an engagement "a.com" recorded by a run, and the stages it was
+// exportWorld is an engagement "a.com" recorded by a run, and the procedures it was
 // recorded with.
 type exportWorld struct {
 	h       *harness
-	dropOld *atomic.Bool // the disc stage no longer finds old.a.com
+	dropOld *atomic.Bool // the disc procedure no longer finds old.a.com
 	title   atomic.Value // the title disc gives the web service on www.a.com
 }
 
@@ -40,9 +40,9 @@ func newExportWorld(t *testing.T) *exportWorld {
 		"title", "from zeta", "server", "zeta-server"))
 	alpha := finder("alpha", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
 		"title", "from alpha"))
-	disc := &testkit.Stage{StageName: "disc", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	disc := &testkit.Procedure{ProcedureName: "disc", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			out := []run.Observation{
 				obs("hostname", "www.a.com"), obs("hostname", "admin.a.com"), obs("hostname", "evil.example"),
 				obs("root", "b.org"),
@@ -98,7 +98,7 @@ func (l exLine) attrs() map[string]any {
 	m, _ := l["attrs"].(map[string]any)
 	return m
 }
-func (l exLine) stages() []string {
+func (l exLine) procedures() []string {
 	var out []string
 	for _, s := range l["stages"].([]any) {
 		out = append(out, s.(string))
@@ -234,19 +234,19 @@ func checkExportPlacement(t *testing.T, lines []exLine) {
 func checkExportRecordFields(t *testing.T, lines []exLine) {
 	t.Helper()
 	www := exportLine(t, lines, "hostname", "www.a.com")
-	if www["current"] != true || !slices.Equal(www.stages(), []string{"disc"}) ||
+	if www["current"] != true || !slices.Equal(www.procedures(), []string{"disc"}) ||
 		www.str("first_seen") != "2026-11-01" || www.str("last_seen") != "2026-11-01" {
 		t.Errorf("www.a.com = %v", www)
 	}
-	// Non-current records have no current observations, attributes or observing stages.
+	// Non-current records have no current observations, attributes or observing procedures.
 	for _, k := range []struct{ kind, key string }{{"hostname", "old.a.com"}, {"web_service", "https://old.a.com"}} {
 		old := exportLine(t, lines, k.kind, k.key)
-		if old["current"] != false || len(old.stages()) != 0 || old["attrs"] == nil || len(old.attrs()) != 0 {
+		if old["current"] != false || len(old.procedures()) != 0 || old["attrs"] == nil || len(old.attrs()) != 0 {
 			t.Errorf("%s %s should be not current with no stages or attributes: %v", k.kind, k.key, old)
 		}
 	}
 	nb := exportLine(t, lines, "netblock", "198.51.100.0/24")
-	if !slices.Equal(nb.stages(), []string{"asn", "disc"}) || nb.attrs()["asn"] != "AS64500" || nb.attrs()["org"] != "Acme" {
+	if !slices.Equal(nb.procedures(), []string{"asn", "disc"}) || nb.attrs()["asn"] != "AS64500" || nb.attrs()["org"] != "Acme" {
 		t.Errorf("netblock attributes and stages are the merge of asn and disc: %v", nb)
 	}
 	ws := exportLine(t, lines, "web_service", "https://www.a.com")
@@ -254,10 +254,10 @@ func checkExportRecordFields(t *testing.T, lines []exLine) {
 		t.Errorf("web service attrs = %v", ws.attrs())
 	}
 
-	// Derived records are exported like the rest, from their pseudo-stage.
+	// Derived records are exported like the rest, from their pseudo-procedure.
 	rank := exportLine(t, lines, "candidate_rank", kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: "hostname", Value: "evil.example"}))
-	if !slices.Equal(rank.stages(), []string{"candidate-rank"}) {
-		t.Errorf("candidate rank stages = %v", rank.stages())
+	if !slices.Equal(rank.procedures(), []string{"candidate-rank"}) {
+		t.Errorf("candidate rank stages = %v", rank.procedures())
 	}
 }
 
@@ -342,7 +342,7 @@ func TestExport_FieldOrder(t *testing.T) {
 	}
 }
 
-// Merged attributes follow the registry's stage order, as a run's do.
+// Merged attributes follow the registry's procedure order, as a run's do.
 func TestExport_MergeFollowsRegistryOrder(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)
@@ -350,8 +350,8 @@ func TestExport_MergeFollowsRegistryOrder(t *testing.T) {
 	if l.attrs()["title"] != "from alpha" || l.attrs()["server"] != "zeta-server" {
 		t.Errorf("attrs = %v: the later stage in the registry wins a field, and an earlier one's other fields stay", l.attrs())
 	}
-	if !slices.Equal(l.stages(), []string{"alpha", "zeta"}) {
-		t.Errorf("stages = %v", l.stages())
+	if !slices.Equal(l.procedures(), []string{"alpha", "zeta"}) {
+		t.Errorf("stages = %v", l.procedures())
 	}
 	// The same attributes as the run's own CSV.
 	rows := csvRows(t, w.h.readOut("a.com", "web-services.csv"))
@@ -616,11 +616,11 @@ func TestExport_WhileRunning(t *testing.T) {
 		t.Fatalf("exit %d: %s", before.code, before.stderr)
 	}
 
-	// A second run of the same engagement, held inside a check.
+	// A second run of the same engagement, held inside a job.
 	started, release := make(chan struct{}), make(chan struct{})
-	blocker := &testkit.Stage{StageName: "blocker", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("b", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	blocker := &testkit.Procedure{ProcedureName: "blocker", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("b", 1) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			close(started)
 			<-release
 			return []run.Observation{obs("hostname", "late.a.com")}, nil
@@ -703,7 +703,7 @@ func TestExport_NeverWrites(t *testing.T) {
 
 func TestExport_NoEngagement(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, &testkit.Stage{StageName: "s", Kind: run.ThirdParty})
+	h := newHarness(t, &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty})
 
 	if e := export(h, "-e", "missing"); e.code != 3 {
 		t.Errorf("missing engagement: exit %d, want 3", e.code)

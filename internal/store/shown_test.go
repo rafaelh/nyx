@@ -24,13 +24,13 @@ func TestShown_NeverSavedIsNotEmpty(t *testing.T) {
 	}
 }
 
-// Baseline round-trips preserve placement/severity/stages needed to describe gone rows.
+// Baseline round-trips preserve placement/severity/procedures needed to describe gone rows.
 func TestShown_SaveReplaces(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
 	first := []store.ShownRow{ // in the order Shown returns them: by kind, then key
-		{Kind: "finding", Key: "takeover|x", Stages: []string{"findings"}, Severity: "high"},
-		{Kind: "hostname", Key: "a.a.com", Stages: []string{"crtsh", "resolve"}, Scope: "in-scope"},
+		{Kind: "finding", Key: "takeover|x", Producers: []string{"findings"}, Severity: "high"},
+		{Kind: "hostname", Key: "a.a.com", Producers: []string{"crtsh", "resolve"}, Scope: "in-scope"},
 	}
 	if err := s.SaveShown(first); err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestShown_SaveReplaces(t *testing.T) {
 	if err := s.SaveShown(second); err != nil {
 		t.Fatal(err)
 	}
-	if got, _, _ = s.Shown(); len(got) != 1 || got[0].Key != "b.a.com" || len(got[0].Stages) != 0 {
+	if got, _, _ = s.Shown(); len(got) != 1 || got[0].Key != "b.a.com" || len(got[0].Producers) != 0 {
 		t.Errorf("after a second save: %+v", got)
 	}
 }
@@ -107,7 +107,7 @@ func TestHasRecords(t *testing.T) {
 	}
 	s.Complete("crtsh", "k", []store.Obs{{Kind: "hostname", Key: "a.a.com"}})
 	mustFlush(t, s)
-	if err := s.Redo("crtsh"); err != nil { // the record stays, with no completed check observing it
+	if err := s.Redo("crtsh"); err != nil { // the record stays, with no completed job observing it
 		t.Fatal(err)
 	}
 	if has, err := s.HasRecords(); err != nil || !has {
@@ -121,8 +121,8 @@ func TestShown_SuccessiveSavesLeaveTheLastRows(t *testing.T) {
 	t.Parallel()
 	c := newClock()
 	s, p := open(t, c, nil)
-	row := func(key, scope string, stages ...string) store.ShownRow {
-		return store.ShownRow{Kind: "hostname", Key: key, Scope: scope, Stages: stages}
+	row := func(key, scope string, procedures ...string) store.ShownRow {
+		return store.ShownRow{Kind: "hostname", Key: key, Scope: scope, Producers: procedures}
 	}
 	saves := [][]store.ShownRow{
 		{row("a.a.com", "in-scope", "crtsh"), row("b.a.com", "in-scope"), row("c.a.com", "candidate")},

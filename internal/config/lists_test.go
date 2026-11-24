@@ -196,7 +196,7 @@ func TestSensitiveSamplesHaveEntries(t *testing.T) {
 	}
 }
 
-// Pin existing path hashes because changing them reruns checks and disconnects previously
+// Pin existing path hashes because changing them reruns jobs and disconnects previously
 // stored hits.
 var goldenEntries = []string{
 	"/.git/config|eb95cb36",

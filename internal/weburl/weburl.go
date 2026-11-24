@@ -1,4 +1,4 @@
-// Package weburl holds the pure rules for HTTP(S) URLs that the web and archive stages share:
+// Package weburl holds the pure rules for HTTP(S) URLs that the web and archive procedures share:
 // canonical form, service origin, host and static-asset detection. It does no I/O.
 package weburl
 

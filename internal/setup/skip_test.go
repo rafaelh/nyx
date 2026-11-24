@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-func TestSkipTab_OffersTheSkippableStagesWithTheirDescriptions(t *testing.T) {
+func TestSkipTab_OffersTheSkippableProceduresWithTheirDescriptions(t *testing.T) {
 	t.Parallel()
 	h := newTH(t, newFake())
 	h.press("tab", "tab")
 	f := h.view()
-	for _, s := range testInfo().Stages {
+	for _, s := range testInfo().Procedures {
 		mustHave(t, lineWith(f, "[x] "+s.Name), s.Does)
 	}
 	mustNotHave(t, f, "] resolve", "[x] resolve")
@@ -20,7 +20,7 @@ func TestSkipTab_OffersTheSkippableStagesWithTheirDescriptions(t *testing.T) {
 func TestSkipTab_ADescriptionIsCutToOneLineWithAnEllipsis(t *testing.T) {
 	t.Parallel()
 	b := newFake()
-	b.info.Stages[0].Does = "resolves hostnames and then keeps on going with a very long description that cannot fit"
+	b.info.Procedures[0].Does = "resolves hostnames and then keeps on going with a very long description that cannot fit"
 	h := newTH(t, b, atSize(60, 16))
 	h.press("tab", "tab")
 	f := h.view()
@@ -30,15 +30,15 @@ func TestSkipTab_ADescriptionIsCutToOneLineWithAnEllipsis(t *testing.T) {
 	}
 }
 
-func TestSkipTab_TogglingStagesBuildsTheWholeListInOrder(t *testing.T) {
+func TestSkipTab_TogglingProceduresBuildsTheWholeListInOrder(t *testing.T) {
 	t.Parallel()
 	b := newFake()
 	b.snap.Skip = []string{"web", "dns"}
 	h := newTH(t, b)
 	h.press("tab", "tab")
 	mustHave(t, h.view(), "[ ] web", "[ ] dns", "[x] ports")
-	h.press("down", "enter") // initial skipped stage
-	h.press("up", "enter")   // initial enabled stage
+	h.press("down", "enter") // initial skipped procedure
+	h.press("up", "enter")   // initial enabled procedure
 	mustHave(t, h.view(), "[x] dns", "[ ] ports")
 	h.press("ctrl+s")
 	if h.m.changes() != 0 {
@@ -132,9 +132,9 @@ func TestSkipTab_TogglingBackIsNoChangeAndEmptyingTheListWritesAnEmptyList(t *te
 func TestSkipTab_ScrollsToKeepTheSelectionVisible(t *testing.T) {
 	t.Parallel()
 	b := newFake()
-	b.info.Stages = nil
+	b.info.Procedures = nil
 	for i := range 37 {
-		b.info.Stages = append(b.info.Stages, Stage{Name: fmt.Sprintf("stage%02d", i), Does: "does a thing"})
+		b.info.Procedures = append(b.info.Procedures, Procedure{Name: fmt.Sprintf("stage%02d", i), Does: "does a thing"})
 	}
 	h := newTH(t, b, atSize(60, 16))
 	h.press("tab", "tab")

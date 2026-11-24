@@ -21,22 +21,22 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// Every third-party host pattern the discovery and storage stages declare.
+// Every third-party host pattern the discovery and storage procedures declare.
 var sourcePatterns = []string{
 	"crt.sh", "web.archive.org", "index.commoncrawl.org", "www.virustotal.com", "api.securitytrails.com",
 	"api.shodan.io", "reverse-whois.whoisxmlapi.com", "stat.ripe.net", "ip-ranges.amazonaws.com", "www.gstatic.com",
 	"api.hackertarget.com", "urlscan.io", "api.certspotter.com",
 	"api.platform.censys.io", "dns.projectdiscovery.io", "api.github.com",
-	// The rdap stage's: IANA's bootstrap file and the five registries.
+	// The rdap procedure's: IANA's bootstrap file and the five registries.
 	"data.iana.org", "rdap.arin.net", "rdap.db.ripe.net", "rdap.apnic.net", "rdap.lacnic.net", "rdap.afrinic.net",
 	// The range publishers after AWS and GCP.
 	"www.cloudflare.com", "api.fastly.com", "www.digitalocean.com", "docs.oracle.com", "geoip.linode.com",
-	// The storage stage's; their default answer is "no such bucket".
+	// The storage procedure's; their default answer is "no such bucket".
 	"s3.amazonaws.com", "s3.*.amazonaws.com", "storage.googleapis.com", "*.blob.core.windows.net",
 }
 
-// Worlds omit risk stages by default to avoid unrelated sensitive-path traffic.
-var riskStages = []string{"email", "storage", "takeover", "sensitive-paths"}
+// Worlds omit risk procedures by default to avoid unrelated sensitive-path traffic.
+var riskProcedures = []string{"email", "storage", "takeover", "sensitive-paths"}
 
 const noSuchBucketXML = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>`
 const containerNotFoundXML = `<?xml version="1.0" encoding="utf-8"?><Error><Code>ContainerNotFound</Code><Message>The specified container does not exist.</Message></Error>`
@@ -76,7 +76,7 @@ type world struct {
 	probeMu    sync.Mutex
 	probeNames []string
 	provHosts  []string
-	probe      *testkit.Stage
+	probe      *testkit.Procedure
 }
 
 func newWorld(t *testing.T) *world {
@@ -84,11 +84,11 @@ func newWorld(t *testing.T) *world {
 	return newWorldWith(t)
 }
 
-// newWorldWith is newWorld with the named risk stages kept in the stage list.
+// newWorldWith is newWorld with the named risk procedures kept in the procedure list.
 func newWorldWith(t *testing.T, keep ...string) *world {
 	t.Helper()
 	w := &world{t: t, src: map[string]*source{}}
-	w.probe = &testkit.Stage{StageName: "probe", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
+	w.probe = &testkit.Procedure{ProcedureName: "probe", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job {
 		w.probeMu.Lock()
 		defer w.probeMu.Unlock()
 		w.probeNames = v.ProbeHostnames()
@@ -99,10 +99,10 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 		return nil
 	}}
 	// Only port tests install all sweep destinations, so other worlds omit the real sweep.
-	stages := slices.DeleteFunc(cli.DefaultDeps().Stages, func(s run.Stage) bool {
-		return s.Name() == "ports" || slices.Contains(riskStages, s.Name()) && !slices.Contains(keep, s.Name())
+	procedures := slices.DeleteFunc(cli.DefaultDeps().Procedures, func(s run.Procedure) bool {
+		return s.Name() == "ports" || slices.Contains(riskProcedures, s.Name()) && !slices.Contains(keep, s.Name())
 	})
-	w.h = newHarness(t, append(stages, w.probe)...)
+	w.h = newHarness(t, append(procedures, w.probe)...)
 	// Use a small permutation list for unrelated tests; explicit wordlists and
 	// built-in-list tests override it.
 	words, err := filepath.Abs(filepath.Join("testdata", "words-default.txt"))

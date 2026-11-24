@@ -55,7 +55,7 @@ func TestCNAMEEntries(t *testing.T) {
 	}
 }
 
-// Check hashes remain stable until fingerprint-relevant data changes.
+// Entry hashes remain stable until fingerprint-relevant data changes.
 func TestEntryHash(t *testing.T) {
 	t.Parallel()
 	a, err := provider.Parse([]byte("cname:\n  - {suffix: x.test, provider: p, service: S, body: 'foo'}\n"))

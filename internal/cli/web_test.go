@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-// Web tests drive real stages against counted loopback servers to verify contact decisions.
+// Web tests drive real procedures against counted loopback servers to verify contact decisions.
 
 func (x *web) wantServices(want ...string) {
 	x.t.Helper()
@@ -28,14 +28,14 @@ func (x *web) mustRun(args ...string) {
 	}
 }
 
-// partialRun verifies expected failed-check counts after output and returns the retryable
+// partialRun verifies expected failed-job counts after output and returns the retryable
 // partial error.
-func (x *web) partialRun(stage string, n int, args ...string) failure {
+func (x *web) partialRun(procedure string, n int, args ...string) failure {
 	x.t.Helper()
-	return x.h.partialFailed(x.run(args...), stage, n)
+	return x.h.partialFailed(x.run(args...), procedure, n)
 }
 
-func (x *web) completedKeys(stage string) []string { return x.h.completed(eng, stage) }
+func (x *web) completedKeys(procedure string) []string { return x.h.completed(eng, procedure) }
 
 // --- Which hostnames and ports are probed ---
 
@@ -57,7 +57,7 @@ func TestProbe_HostnamesProbedOn80And443(t *testing.T) {
 	if !b443.requests()[0].TLS {
 		t.Error("b:443 was not probed over TLS")
 	}
-	// A closed port is a completed check with no record.
+	// A closed port is a completed job with no record.
 	keys := x.completedKeys("httpprobe")
 	for _, k := range []string{"a.example.com:80", "a.example.com:443", "c.example.com:80", "c.example.com:443", "b.example.com:80"} {
 		if !slices.Contains(keys, k) {
@@ -125,7 +125,7 @@ func TestProbe_NonStandardPortDetectedOnce(t *testing.T) {
 	if !slices.Contains(keys, "port|203.0.113.5:8080") {
 		t.Errorf("detection check missing: %v", keys)
 	}
-	// Ports 80 and 443 belong to the hostname checks, never the detection check.
+	// Ports 80 and 443 belong to the hostname jobs, never the detection job.
 	for _, k := range keys {
 		if strings.HasPrefix(k, "port|") && (strings.HasSuffix(k, ":80") || strings.HasSuffix(k, ":443")) {
 			t.Errorf("detection check %s on a standard port", k)

@@ -35,8 +35,8 @@ func byKey(cs []output.Change) map[string]output.Change {
 func TestDiff_NewReturnedGone(t *testing.T) {
 	t.Parallel()
 	b := newBaseline([]store.ShownRow{
-		{Kind: "web service", Key: "https://kept.a.com", Scope: "in-scope", Stages: []string{"web"}},
-		{Kind: "web service", Key: "https://lost.a.com", Scope: "in-scope", Stages: []string{"web"}},
+		{Kind: "web service", Key: "https://kept.a.com", Scope: "in-scope", Producers: []string{"web"}},
+		{Kind: "web service", Key: "https://lost.a.com", Scope: "in-scope", Producers: []string{"web"}},
 	}, map[entryKey]bool{
 		{"web service", "https://kept.a.com"}: true, {"web service", "https://lost.a.com"}: true,
 		{"web service", "https://back.a.com"}: true,
@@ -67,7 +67,7 @@ func TestDiff_NewReturnedGone(t *testing.T) {
 // disappear.
 func TestDiff_FindingSeverity(t *testing.T) {
 	t.Parallel()
-	b := newBaseline([]store.ShownRow{{Kind: "finding", Key: "certificates|expiring|https://a.com", Severity: "low", Stages: []string{"findings"}}}, map[entryKey]bool{{"finding", "certificates|expiring|https://a.com"}: true})
+	b := newBaseline([]store.ShownRow{{Kind: "finding", Key: "certificates|expiring|https://a.com", Severity: "low", Producers: []string{"findings"}}}, map[entryKey]bool{{"finding", "certificates|expiring|https://a.com"}: true})
 	cur := []entry{
 		{label: "finding", key: "certificates|expiring|https://a.com", shown: false},
 		{label: "finding", key: "certificates|expired|https://a.com", severity: "medium", shown: true},
@@ -96,14 +96,14 @@ func TestDiff_FirstRun(t *testing.T) {
 func TestDiff_PassiveRule(t *testing.T) {
 	t.Parallel()
 	rows := []store.ShownRow{
-		{Kind: "web service", Key: "target-only", Stages: []string{"httpprobe"}},
-		{Kind: "web service", Key: "two-targets", Stages: []string{"httpprobe", "portscan"}},
-		{Kind: "web service", Key: "mixed", Stages: []string{"crtsh", "httpprobe"}},
-		{Kind: "hostname", Key: "third-party", Stages: []string{"crtsh"}},
-		{Kind: "finding", Key: "certificates|expired|x", Severity: "medium", Stages: []string{"findings"}},
-		{Kind: "candidate", Key: "x.org", Stages: []string{"candidate-rank"}},
-		{Kind: "third party", Key: "a.com|cname|github.io", Stages: []string{"thirdparty-cname"}}, // what a deriver stores
-		{Kind: "address", Key: "192.0.2.1"},                                                       // no stage at all
+		{Kind: "web service", Key: "target-only", Producers: []string{"httpprobe"}},
+		{Kind: "web service", Key: "two-targets", Producers: []string{"httpprobe", "portscan"}},
+		{Kind: "web service", Key: "mixed", Producers: []string{"crtsh", "httpprobe"}},
+		{Kind: "hostname", Key: "third-party", Producers: []string{"crtsh"}},
+		{Kind: "finding", Key: "certificates|expired|x", Severity: "medium", Producers: []string{"findings"}},
+		{Kind: "candidate", Key: "x.org", Producers: []string{"candidate-rank"}},
+		{Kind: "third party", Key: "a.com|cname|github.io", Producers: []string{"thirdparty-cname"}}, // what an analysis stores
+		{Kind: "address", Key: "192.0.2.1"},                                                          // no procedure at all
 	}
 	cur := []entry{
 		{label: "web service", key: "fresh", shown: true},
@@ -163,8 +163,8 @@ func snapshot(t *testing.T, sc *scope.Scope, inv *inventory.Inventory, recs map[
 	return output.Snapshot{Today: "2026-11-01", Scope: sc, Inv: inv, Records: recs, Vis: kinds.NewVisibility(sc, inv), ASNNetblocks: map[string]string{}}
 }
 
-func rec(kind, key string, current bool, attrs map[string]any, stages ...string) store.Record {
-	return store.Record{Kind: kind, Key: key, Current: current, Attrs: attrs, Stages: stages, FirstSeen: "2026-10-01", LastSeen: "2026-11-01"}
+func rec(kind, key string, current bool, attrs map[string]any, procedures ...string) store.Record {
+	return store.Record{Kind: kind, Key: key, Current: current, Attrs: attrs, Producers: procedures, FirstSeen: "2026-10-01", LastSeen: "2026-11-01"}
 }
 
 func entryOf(es []entry, label, key string) *entry {
@@ -218,8 +218,8 @@ func TestEntriesOf_FollowTheFiles(t *testing.T) {
 	if e := entryOf(es, "finding", "certificates|expired|https://www.a.com"); e != nil && e.severity != "medium" {
 		t.Errorf("finding severity = %q", e.severity)
 	}
-	if e := entryOf(es, "web service", "https://www.a.com"); e != nil && !slices.Equal(e.stages, []string{"httpprobe"}) {
-		t.Errorf("stages = %v", e.stages)
+	if e := entryOf(es, "web service", "https://www.a.com"); e != nil && !slices.Equal(e.procedures, []string{"httpprobe"}) {
+		t.Errorf("stages = %v", e.procedures)
 	}
 	for _, e := range es {
 		if e.label == "" || e.key == "" {
@@ -272,7 +272,7 @@ func TestEntriesOf_OneEntryPerFileRow(t *testing.T) {
 	for _, e := range es {
 		if e.label == "resolution" && e.key == "www.a.com|A|192.0.2.1" {
 			n++
-			if !slices.Equal(e.stages, []string{"resolve", "shodan"}) {
+			if !slices.Equal(e.procedures, []string{"resolve", "shodan"}) {
 				t.Errorf("resolution entry = %+v", e)
 			}
 		}
@@ -304,7 +304,7 @@ func TestEntriesOf_OpenPortFromBothSources(t *testing.T) {
 			found = append(found, &es[i])
 		}
 	}
-	if len(found) != 1 || !found[0].shown || !slices.Equal(found[0].stages, []string{"portscan", "shodan"}) {
+	if len(found) != 1 || !found[0].shown || !slices.Equal(found[0].procedures, []string{"portscan", "shodan"}) {
 		t.Errorf("open port entries = %+v", found)
 	}
 }

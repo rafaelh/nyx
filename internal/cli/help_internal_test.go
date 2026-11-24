@@ -15,7 +15,7 @@ import (
 // rootWith simulates registering a new command.
 func rootWith(t *testing.T) *cobra.Command {
 	t.Helper()
-	inv := newInvocation(withDefaults(Deps{Stages: nil}), nil)
+	inv := newInvocation(withDefaults(Deps{Procedures: nil}), nil)
 	root := newRoot(inv)
 	extra := &cobra.Command{
 		Use:     "kev <id>... [flags]",
@@ -94,7 +94,7 @@ func screens(t *testing.T) map[string][]helpBlock {
 	out := map[string][]helpBlock{
 		"root":     rootHelpBlocks(root),
 		"findings": findingsBlocks(),
-		"stages":   stagesBlocks(inv.d.Stages),
+		"stages":   proceduresBlocks(inv.d.Procedures),
 	}
 	for _, c := range runnable(root) {
 		out[c.CommandPath()] = commandHelpBlocks(c)

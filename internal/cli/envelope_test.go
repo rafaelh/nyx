@@ -155,9 +155,9 @@ func TestEnvelope_NoEventLinesAndDebugOnlyAddsDebugLines(t *testing.T) {
 // masked.
 func TestEnvelope_WarningsAreInMetaMaskedAndStripped(t *testing.T) {
 	t.Parallel()
-	warner := &testkit.Stage{StageName: "warner", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("w", 1) },
-		RunFn: func(ctx context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	warner := &testkit.Procedure{ProcedureName: "warner", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("w", 1) },
+		RunFn: func(ctx context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			run.Warnf(ctx, "result truncated \x1b[31mred\x1b[0m for key sekret-key-123")
 			return nil, nil
 		}}
@@ -179,32 +179,34 @@ func TestEnvelope_WarningsAreInMetaMaskedAndStripped(t *testing.T) {
 	}
 }
 
-// not_configured names each stage that did not run, and why, in registry order; it is empty when all
+// not_configured names each procedure that did not run, and why, in registry order; it is empty when all
 // ran.
 func TestEnvelope_NotConfigured(t *testing.T) {
 	t.Parallel()
-	stage := func(name string, kind run.Contact) *testkit.Stage { return &testkit.Stage{StageName: name, Kind: kind} }
-	nokey := stage("keyed", run.ThirdParty)
+	procedure := func(name string, kind run.Contact) *testkit.Procedure {
+		return &testkit.Procedure{ProcedureName: name, Kind: kind}
+	}
+	nokey := procedure("keyed", run.ThirdParty)
 	nokey.ConfiguredFn = func(run.Env) (bool, string) { return false, "no key" }
-	h := newHarness(t, stage("skipme", run.ThirdParty), stage("probe", run.Target), nokey, stage("ok", run.ThirdParty))
+	h := newHarness(t, procedure("skipme", run.ThirdParty), procedure("probe", run.Target), nokey, procedure("ok", run.ThirdParty))
 	if code := h.exec("a.com", "--json", "--skip", "skipme"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
-	want := []report.StageReason{{Stage: "skipme", Reason: "skipped"}, {Stage: "probe", Reason: "no authorisation"}, {Stage: "keyed", Reason: "no key"}}
+	want := []report.ProcedureReason{{Procedure: "skipme", Reason: "skipped"}, {Procedure: "probe", Reason: "no authorisation"}, {Procedure: "keyed", Reason: "no key"}}
 	if got := h.envelope().Data.NotConfigured; !slices.Equal(got, want) {
 		t.Errorf("not_configured = %v, want %v", got, want)
 	}
 
-	h = newHarness(t, stage("skipme", run.ThirdParty), stage("probe", run.Target), nokey)
+	h = newHarness(t, procedure("skipme", run.ThirdParty), procedure("probe", run.Target), nokey)
 	if code := h.exec("a.com", "--json", "--passive", "--skip", "skipme"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
 	}
-	want = []report.StageReason{{Stage: "skipme", Reason: "skipped"}, {Stage: "probe", Reason: "passive-only"}, {Stage: "keyed", Reason: "no key"}}
+	want = []report.ProcedureReason{{Procedure: "skipme", Reason: "skipped"}, {Procedure: "probe", Reason: "passive-only"}, {Procedure: "keyed", Reason: "no key"}}
 	if got := h.envelope().Data.NotConfigured; !slices.Equal(got, want) {
 		t.Errorf("not_configured = %v, want %v", got, want)
 	}
 
-	h = newHarness(t, stage("ok", run.ThirdParty))
+	h = newHarness(t, procedure("ok", run.ThirdParty))
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
@@ -266,9 +268,9 @@ func TestEnvelope_CandidatesAreCappedAndSourcesAreAList(t *testing.T) {
 func TestEnvelope_ChangesSinceTheLastRun(t *testing.T) {
 	t.Parallel()
 	hosts := []string{"www.a.com"}
-	st := &testkit.Stage{StageName: "fake", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", len(hosts)) },
-		RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "fake", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("c", len(hosts)) },
+		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("hostname", hosts[int(c.Key[len(c.Key)-1]-'0')])}, nil
 		}}
 	h := newHarness(t, st)
@@ -307,7 +309,7 @@ func TestEnvelope_StdoutIsEmptyOnOtherExits(t *testing.T) {
 	h = newHarness(t, noop())
 	h.failed(h.exec("--json", "--cidr", "10.0.0.0/16", "--netblock-limit", "1000"), 2, true)
 
-	hold := &testkit.Stage{StageName: "hold", Kind: run.ThirdParty}
+	hold := &testkit.Procedure{ProcedureName: "hold", Kind: run.ThirdParty}
 	h = newHarness(t, hold)
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -345,19 +347,19 @@ func TestEnvelope_FindingTextIsStrippedAndMasked(t *testing.T) {
 	}
 }
 
-// noteStage is a stage that adds a line to the summary.
-type noteStage struct {
-	*testkit.Stage
+// noteProcedure is a procedure that adds a line to the summary.
+type noteProcedure struct {
+	*testkit.Procedure
 	text string
 }
 
-func (s noteStage) Notes(run.View) []string { return []string{s.text} }
+func (s noteProcedure) Notes(run.View) []string { return []string{s.text} }
 
-// Stage notes bypass store/log cleaning, so the envelope must clean and redact them itself.
+// Procedure notes bypass store/log cleaning, so the envelope must clean and redact them itself.
 func TestEnvelope_NotesAreStrippedAndMasked(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
-	h := newHarness(t, noteStage{&testkit.Stage{StageName: "noter", Kind: run.ThirdParty}, "seen \x1b[31mred\x1b[0m " + key})
+	h := newHarness(t, noteProcedure{&testkit.Procedure{ProcedureName: "noter", Kind: run.ThirdParty}, "seen \x1b[31mred\x1b[0m " + key})
 	h.setKey("fake", key)
 	if code := h.exec("a.com", "--json"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())

@@ -78,7 +78,7 @@ func TestIdentifiers_ProbeAndCrawlUnion(t *testing.T) {
 	if a != "G-AAAAAA1;GTM-ABCD123" || p != "111111111" || f != hash100 || c != "© 2026 Acme Pty Ltd" {
 		t.Errorf("analytics = %q, pixels = %q, favicon = %q, copyright = %q", a, p, f, c)
 	}
-	// Each stage recorded what it saw: the probe the root page, the crawl both.
+	// Each procedure recorded what it saw: the probe the root page, the crawl both.
 	if got := x.observedBy("web_identifier", "httpprobe"); !slices.Equal(got, []string{
 		"http://www.example.com|analytics|G-AAAAAA1", "http://www.example.com|copyright|© 2026 Acme Pty Ltd", "http://www.example.com|favicon|" + hash100}) {
 		t.Errorf("httpprobe observed %v", got)
@@ -311,7 +311,7 @@ func TestFavicon_FailedRequestDoesNotLoseTheService(t *testing.T) {
 	if r := x.service("http://www.example.com"); r["title"] != "home" || r["favicon_hash"] != "" {
 		t.Errorf("service = %v, want it recorded without a favicon", r)
 	}
-	if st, _ := x.stageState("httpprobe"); st != "done" {
+	if st, _ := x.procedureState("httpprobe"); st != "done" {
 		t.Errorf("httpprobe = %s, want done", st)
 	}
 	if n := s.count("/favicon.ico"); n != 1 {
@@ -441,7 +441,7 @@ func (x *web) searches() (queries, pages []string) {
 
 func (x *web) queries() []string { q, _ := x.searches(); return q }
 
-func (x *web) stageState(name string) (string, string) { return stateOf(x.world, name) }
+func (x *web) procedureState(name string) (string, string) { return stateOf(x.world, name) }
 
 const (
 	qFavicon = "http.favicon.hash:" + hash100
@@ -501,7 +501,7 @@ func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
 			t.Errorf("a search asked for page %q, want the first only", p)
 		}
 	}
-	if st, _ := x.stageState("identifier-pivot"); st != "done" {
+	if st, _ := x.procedureState("identifier-pivot"); st != "done" {
 		t.Errorf("identifier-pivot = %s, want done", st)
 	}
 	// What the pivot found: an in-scope name, and the registrable domains of the others.
@@ -538,13 +538,13 @@ func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
 	}
 }
 
-// Identifiers are recorded even where nothing can be searched, and the stage says why.
+// Identifiers are recorded even where nothing can be searched, and the procedure says why.
 func TestIdentifierPivot_NotConfiguredWithoutKey(t *testing.T) {
 	t.Parallel()
 	x, _, _, _ := pivotWorld(t)
 	x.h.setKey("shodan", "")
 	x.mustRun()
-	if st, reason := x.stageState("identifier-pivot"); st != "not-configured" || reason != "no key" {
+	if st, reason := x.procedureState("identifier-pivot"); st != "not-configured" || reason != "no key" {
 		t.Errorf("identifier-pivot = %s (%s), want not-configured (no key)", st, reason)
 	}
 	if n := len(x.queries()); n != 0 {
@@ -606,7 +606,7 @@ func TestIdentifierPivot_TooManyHostsRecordsNothing(t *testing.T) {
 	}
 }
 
-// A key without search access fails the stage once, with one warning.
+// A key without search access fails the procedure once, with one warning.
 func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
@@ -618,7 +618,7 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 	if got := x.queries(); len(got) != 1 {
 		t.Errorf("searches after a 403 = %v, want the stage aborted after the first", got)
 	}
-	if st, _ := x.stageState("identifier-pivot"); st != "failed" {
+	if st, _ := x.procedureState("identifier-pivot"); st != "failed" {
 		t.Errorf("identifier-pivot = %s, want failed", st)
 	}
 	if got := x.completedKeys("identifier-pivot"); len(got) != 0 {
@@ -637,7 +637,7 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 
 // Credit exhaustion preserves completed searches and defers refused/unsent searches to the next
 // run.
-func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
+func TestIdentifierPivot_NoCreditsStopsTheProcedure(t *testing.T) {
 	t.Parallel()
 	x, f, _, _ := pivotWorld(t)
 	f.fail(qPixel, 402)
@@ -648,7 +648,7 @@ func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
 	if got := x.queries(); !slices.Equal(got, []string{qFavicon, qPixel}) {
 		t.Fatalf("searches = %v, want the stage stopped at the refused one", got)
 	}
-	// One search finished, so the stage is done with a failure, not failed.
+	// One search finished, so the procedure is done with a failure, not failed.
 	if ev := lastState(x.h.events(), "identifier-pivot"); ev.num("failed") == 0 {
 		t.Errorf("identifier-pivot event = %v, want failed checks", ev)
 	}
@@ -661,7 +661,7 @@ func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
 	if got := x.queries(); !slices.Equal(got, []string{qFavicon, qPixel, qPixel, qGA}) {
 		t.Errorf("searches over both runs = %v, want the refused one repeated and the last one sent", got)
 	}
-	if st, _ := x.stageState("identifier-pivot"); st != "done" {
+	if st, _ := x.procedureState("identifier-pivot"); st != "done" {
 		t.Errorf("identifier-pivot = %s, want done", st)
 	}
 }
@@ -686,7 +686,7 @@ func TestIdentifierPivot_PassivePivotsStoredIdentifiers(t *testing.T) {
 	if got := sorted(x.queries()); !slices.Equal(got, sorted([]string{qFavicon, qPixel, qGA})) {
 		t.Errorf("a passive run searched %v, want every stored identifier", got)
 	}
-	if st, _ := x.stageState("identifier-pivot"); st != "done" {
+	if st, _ := x.procedureState("identifier-pivot"); st != "done" {
 		t.Errorf("identifier-pivot = %s, want done under --passive", st)
 	}
 	if hits() != before {

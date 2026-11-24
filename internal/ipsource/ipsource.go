@@ -2,7 +2,7 @@
 // nyx ip. It has no engagement state; callers provide paced egress clients. Sources are third
 // parties, never the queried address.
 //
-// ErrQuota lets recon abort a stage and IP lookups stop later calls to the affected host.
+// ErrQuota lets recon abort a procedure and IP lookups stop later calls to the affected host.
 package ipsource
 
 import "errors"

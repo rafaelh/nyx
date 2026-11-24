@@ -37,9 +37,9 @@ type Rate struct {
 // Crawl holds the crawl limits.
 type Crawl struct{ MaxDepth, MaxPages int }
 
-// JSParse holds the settings of the jsparse stage.
+// JSParse holds the settings of the jsparse procedure.
 type JSParse struct {
-	// MaxScripts caps fetched scripts per origin without changing check keys. Fetched
+	// MaxScripts caps fetched scripts per origin without changing job keys. Fetched
 	// scripts retain their slots when new URLs appear. Raising the cap admits pending
 	// scripts; lowering it retires excess scripts in URL order.
 	MaxScripts int
@@ -61,47 +61,47 @@ type Storage struct {
 	MaxNames int
 }
 
-// Shodan holds the settings of the shodan-host stage.
+// Shodan holds the settings of the shodan-host procedure.
 type Shodan struct {
 	// MaxHosts budgets address lookups, deferring excess work.
 	MaxHosts int
 }
 
-// IdentifierPivot holds the settings of the identifier-pivot stage.
+// IdentifierPivot holds the settings of the identifier-pivot procedure.
 type IdentifierPivot struct {
 	// MaxQueries budgets identifier searches across runs.
 	MaxQueries int
 }
 
-// NSReverse holds the settings of the nsreverse stage.
+// NSReverse holds the settings of the nsreverse procedure.
 type NSReverse struct {
 	// MaxDomains limits domains returned for one name server or mail host. Larger results
-	// are treated as shared hosting and discarded. The limit is part of the check key, so
+	// are treated as shared hosting and discarded. The limit is part of the job key, so
 	// changing it reruns lookups.
 	MaxDomains int
 }
 
-// ReverseIP holds the settings of the reverseip stage.
+// ReverseIP holds the settings of the reverseip procedure.
 type ReverseIP struct {
 	// MaxDomains limits distinct registrable domains returned for one address. Larger
 	// results are treated as shared hosting and discarded. Changing the limit creates new
-	// checks.
+	// jobs.
 	MaxDomains int
 }
 
-// DNSHistory holds the settings of the dnshistory stage.
+// DNSHistory holds the settings of the dnshistory procedure.
 type DNSHistory struct {
 	// MaxHosts budgets historical hostname lookups across runs.
 	MaxHosts int
 }
 
-// OriginCheck caps origin candidates per CDN/WAF hostname. The stage and findings share this
+// OriginCheck caps origin candidates per CDN/WAF hostname. The procedure and findings share this
 // setting so checked and reported candidates agree.
 type OriginCheck struct {
 	MaxCandidates int
 }
 
-// GitHub holds the settings of the github stage.
+// GitHub holds the settings of the github procedure.
 type GitHub struct {
 	// MaxResults versions each root's GitHub search cap, up to the service's 1,000-result
 	// ceiling. Changing it reruns searches.
@@ -113,11 +113,11 @@ const maxGitHubResults = 1000
 
 // PagedSource configures capped source pagination.
 type PagedSource struct {
-	// MaxPages versions checks so increasing the cap repeats affected root queries.
+	// MaxPages versions jobs so increasing the cap repeats affected root queries.
 	MaxPages int
 }
 
-// skipNone clears configured skipped stages for one invocation.
+// skipNone clears configured skipped procedures for one invocation.
 const skipNone = "none"
 
 // Settings are the validated settings for a run.
@@ -132,7 +132,7 @@ type Settings struct {
 	WordlistWords []string
 	Permutations  Permutations
 	Concurrency   int
-	// PortConcurrency gives slow port checks a separate worker pool because silent ports
+	// PortConcurrency gives slow port jobs a separate worker pool because silent ports
 	// consume the full connect timeout.
 	PortConcurrency int
 	Rate            Rate
@@ -144,13 +144,13 @@ type Settings struct {
 	OutputDir      string
 	NetblockLimit  int // IPv4 addresses
 	Certspotter    PagedSource
-	// Skip holds normalised stage names after resolving "none". The caller validates stage
+	// Skip holds normalised procedure names after resolving "none". The caller validates procedure
 	// existence.
 	Skip      []string
 	ShodanDNS PagedSource
 	Censys    PagedSource
 	Chaos     PagedSource
-	// SensitivePathMaxRequests budgets path checks per run.
+	// SensitivePathMaxRequests budgets path jobs per run.
 	SensitivePathMaxRequests int
 	Shodan                   Shodan
 	ReverseIP                ReverseIP
@@ -242,16 +242,16 @@ func BuiltinSensitivePathsLabel() string { return builtinLabel(len(builtinSensit
 // dkimSelectors are the DKIM selectors looked up for every root.
 var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3", "default", "dkim", "mail", "s1", "s2", "smtp", "mandrill", "mxvault", "everlytickey1", "everlytickey2", "zendesk1", "zendesk2", "cm", "sig1", "scph1", "mte1"}
 
-// DKIMSelectors are the selectors the email stage looks up.
+// DKIMSelectors are the selectors the email procedure looks up.
 func DKIMSelectors() []string { return slices.Clone(dkimSelectors) }
 
-// ListHash versions checks when list contents change.
+// ListHash versions jobs when list contents change.
 func ListHash(list []string) string {
 	sum := sha256.Sum256([]byte(strings.Join(list, "\n")))
 	return hex.EncodeToString(sum[:6])
 }
 
-// DKIMSelectorHash versions email checks. Its older format is preserved because existing
+// DKIMSelectorHash versions email jobs. Its older format is preserved because existing
 // engagement keys contain it.
 func DKIMSelectorHash() string {
 	sum := sha256.Sum256([]byte(strings.Join(dkimSelectors, ",")))
@@ -682,8 +682,8 @@ func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 	}
 }
 
-// parseSkip trims, lowercases and deduplicates stage names. A lone "none" clears the list;
-// combining it with stage names is invalid.
+// parseSkip trims, lowercases and deduplicates procedure names. A lone "none" clears the list;
+// combining it with procedure names is invalid.
 func parseSkip(items []string) ([]string, error) {
 	out, none := SkipNames(items)
 	if none && len(out) > 0 {
@@ -692,7 +692,7 @@ func parseSkip(items []string) ([]string, error) {
 	return out, nil
 }
 
-// SkipNames returns trimmed, lowercase, unique stage names without blanks or "none". Its second
+// SkipNames returns trimmed, lowercase, unique procedure names without blanks or "none". Its second
 // result reports whether "none" occurred.
 func SkipNames(items []string) (names []string, none bool) {
 	for _, it := range items {

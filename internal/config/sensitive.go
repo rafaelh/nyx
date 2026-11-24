@@ -24,7 +24,7 @@ type SensitivePath struct {
 	Severity  string // high, medium or low; default medium
 }
 
-// Hash versions response matchers so signature, magic or status changes create new checks.
+// Hash versions response matchers so signature, magic or status changes create new jobs.
 func (p SensitivePath) Hash() string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%x\x00%d", p.Signature, p.Magic, p.Status)))
 	return hex.EncodeToString(sum[:4])

@@ -164,7 +164,7 @@ func TestConsoleLevels(t *testing.T) {
 	}
 }
 
-// Header, stage and count messages keep their text, with no colour in them.
+// Header, procedure and count messages keep their text, with no colour in them.
 func TestConsoleMessageText(t *testing.T) {
 	t.Parallel()
 	c := plain(report.Info)

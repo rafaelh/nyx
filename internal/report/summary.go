@@ -19,18 +19,18 @@ import (
 // compatible; removing, renaming or changing their types breaks the interface. WriteEnvelope
 // normalises lists to non-nil values.
 type Summary struct {
-	Engagement            string         `json:"engagement"`
-	Directory             string         `json:"directory"`
-	Counts                []CountRow     `json:"counts"`
-	FailedChecks          []StageCount   `json:"failed_checks"`
-	Deferred              []StageCount   `json:"deferred"`
-	NotConfigured         []StageReason  `json:"not_configured"`
-	Findings              []FindingRow   `json:"findings"`
-	Candidates            []CandidateRow `json:"candidates"`
-	CandidatesTotal       int            `json:"candidates_total"`
-	UnconfirmedRiskyPorts int            `json:"unconfirmed_risky_ports"`
-	Notes                 []string       `json:"notes"`
-	Changes               *Changes       `json:"changes"`
+	Engagement            string            `json:"engagement"`
+	Directory             string            `json:"directory"`
+	Counts                []CountRow        `json:"counts"`
+	FailedJobs            []ProcedureCount  `json:"failed_checks"`
+	Deferred              []ProcedureCount  `json:"deferred"`
+	NotConfigured         []ProcedureReason `json:"not_configured"`
+	Findings              []FindingRow      `json:"findings"`
+	Candidates            []CandidateRow    `json:"candidates"`
+	CandidatesTotal       int               `json:"candidates_total"`
+	UnconfirmedRiskyPorts int               `json:"unconfirmed_risky_ports"`
+	Notes                 []string          `json:"notes"`
+	Changes               *Changes          `json:"changes"`
 }
 
 // CountRow is how many records a category holds.
@@ -39,16 +39,16 @@ type CountRow struct {
 	N        int    `json:"n"`
 }
 
-// StageCount is a number of checks of one stage.
-type StageCount struct {
-	Stage string `json:"stage"`
-	N     int    `json:"n"`
+// ProcedureCount is a number of jobs of one procedure.
+type ProcedureCount struct {
+	Procedure string `json:"stage"`
+	N         int    `json:"n"`
 }
 
-// StageReason is a stage that did not run, and why.
-type StageReason struct {
-	Stage  string `json:"stage"`
-	Reason string `json:"reason"`
+// ProcedureReason is a procedure that did not run, and why.
+type ProcedureReason struct {
+	Procedure string `json:"stage"`
+	Reason    string `json:"reason"`
 }
 
 // FindingRow is a finding of high or medium severity. Detail is nil when it has none.
@@ -82,7 +82,7 @@ type ChangeCount struct {
 	N      int    `json:"n"`
 }
 
-// WriteSummary formats counts, stage notes, partial-work details, findings, candidates and
+// WriteSummary formats counts, procedure notes, partial-work details, findings, candidates and
 // optional changes in their supplied order. It sanitises target text and writes once with a
 // final newline. Plain streams use lines; terminals use aligned counts, tables and wrapped text
 // with ruled headings. Width is captured once for consistent alignment.
@@ -111,13 +111,13 @@ func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
 		b.WriteString("\n  " + n)
 	}
 	if env.Meta.DeadlineExceeded {
-		fmt.Fprintf(&b, "\n  Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.ChecksCompleted, env.Meta.ChecksCancelled)
+		fmt.Fprintf(&b, "\n  Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled)
 	}
 	for _, blk := range []struct {
 		heading string
-		rows    []StageCount
+		rows    []ProcedureCount
 	}{
-		{"Failed checks (retried on the next run; --debug shows each failure)", s.FailedChecks},
+		{"Failed checks (retried on the next run; --debug shows each failure)", s.FailedJobs},
 		{"Deferred to the next run", s.Deferred},
 	} {
 		if len(blk.rows) == 0 {
@@ -126,7 +126,7 @@ func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
 		b.WriteString("\n" + d.Bold(blk.heading))
 		rows = rows[:0]
 		for _, r := range blk.rows {
-			rows = append(rows, labelled{r.Stage, r.N})
+			rows = append(rows, labelled{r.Procedure, r.N})
 		}
 		writeLabelled(&b, rows)
 	}
@@ -220,13 +220,13 @@ func writeTerminalSummary(w io.Writer, st layout.Stream, env Envelope) {
 		text(n)
 	}
 	if env.Meta.DeadlineExceeded {
-		text(fmt.Sprintf("Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.ChecksCompleted, env.Meta.ChecksCancelled))
+		text(fmt.Sprintf("Stopped by the deadline: %d checks completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled))
 	}
 	for _, blk := range []struct {
 		heading string
-		rows    []StageCount
+		rows    []ProcedureCount
 	}{
-		{"Failed checks (retried on the next run; --debug shows each failure)", sum.FailedChecks},
+		{"Failed checks (retried on the next run; --debug shows each failure)", sum.FailedJobs},
 		{"Deferred to the next run", sum.Deferred},
 	} {
 		if len(blk.rows) == 0 {
@@ -235,7 +235,7 @@ func writeTerminalSummary(w io.Writer, st layout.Stream, env Envelope) {
 		heading(blk.heading)
 		rows = rows[:0]
 		for _, r := range blk.rows {
-			rows = append(rows, labelled{r.Stage, r.N})
+			rows = append(rows, labelled{r.Procedure, r.N})
 		}
 		counts(rows)
 	}

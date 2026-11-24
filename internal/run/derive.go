@@ -18,7 +18,7 @@ import (
 
 // deriveInput provides the scope, inventory, visibility, inputs, date and record readers used
 // to calculate derived records.
-type deriveInput struct {
+type analysisInput struct {
 	Scope     *scope.Scope
 	Inv       *inventory.Inventory
 	Vis       *kinds.Visibility
@@ -28,27 +28,27 @@ type deriveInput struct {
 	Observers func(kinds.Named) map[string][]store.Observer
 }
 
-// deriver calculates records and stores them under one synthetic stage and check. Records it
-// stops producing become non-current. It runs after stage work and before rendering when its
-// input versions or the date change. Each deriver writes one kind; other derivers do not read
+// analysis calculates records and stores them under one synthetic procedure and job. Records it
+// stops producing become non-current. It runs after procedure work and before rendering when its
+// input versions or the date change. Each analysis writes one kind; other analyses do not read
 // that output.
 //
 // The optional hook runs after storage, with stored=false if the records were unchanged. Read
 // failures skip the hook and leave the derivation due for retry.
-type deriver struct {
+type analysis struct {
 	name   string
 	reads  []kinds.Named
 	writes kinds.Named
-	derive func(deriveInput) (obs []store.Obs, after func(stored bool))
+	derive func(analysisInput) (obs []store.Obs, after func(stored bool))
 
 	sig    string            // signature of the inputs used for the last derivation
 	stored [sha256.Size]byte // hash of the last stored date and records
 }
 
-// newDerivers orders the calculations. Findings read all non-derived kinds so writing derived
+// newAnalyses orders the calculations. Findings read all non-derived kinds so writing derived
 // records cannot trigger another findings calculation.
-func (r *Runner) newDerivers() []*deriver {
-	others := []*deriver{
+func (r *Runner) newAnalyses() []*analysis {
+	others := []*analysis{
 		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: plain(r.rankCandidates)},
 		{name: "thirdparty-cname", reads: []kinds.Named{kinds.Hostname, kinds.Resolution, kinds.Wildcard}, writes: kinds.ThirdParty, derive: plain(thirdPartyCNAME)},
 	}
@@ -63,17 +63,17 @@ func (r *Runner) newDerivers() []*deriver {
 			evidence = append(evidence, named)
 		}
 	}
-	return append([]*deriver{{name: "findings", reads: evidence, writes: kinds.Finding, derive: r.deriveFindings}}, others...)
+	return append([]*analysis{{name: "findings", reads: evidence, writes: kinds.Finding, derive: r.deriveFindings}}, others...)
 }
 
-func plain(f func(deriveInput) []store.Obs) func(deriveInput) ([]store.Obs, func(bool)) {
-	return func(in deriveInput) ([]store.Obs, func(bool)) { return f(in), nil }
+func plain(f func(analysisInput) []store.Obs) func(analysisInput) ([]store.Obs, func(bool)) {
+	return func(in analysisInput) ([]store.Obs, func(bool)) { return f(in), nil }
 }
 
 // deriveFindings calculates findings and storage attribution from the same evidence. The store
 // announces new findings. The returned hook also announces severity increases, such as a port
 // confirmed by a handshake, and saves attribution for rendering.
-func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
+func (r *Runner) deriveFindings(in analysisInput) ([]store.Obs, func(bool)) {
 	fs, attribution := findings.DeriveAll(findings.Input{Scope: in.Scope, Inv: in.Inv, Settings: r.cfg.Settings,
 		Today: in.Today, Records: in.Records, Roots: in.Inputs.Roots, Orgs: in.Inputs.Orgs, Vis: in.Vis,
 		Abusive: r.cfg.Abusive, Drop: r.cfg.Drop, HistoryOnly: r.historyOnly(in.Records)})
@@ -102,8 +102,8 @@ func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
 }
 
 // thirdPartyCNAME identifies SaaS platforms serving in-scope names. It reads the inventory's
-// source kinds rather than third_party, which both this deriver and stages write.
-func thirdPartyCNAME(in deriveInput) []store.Obs {
+// source kinds rather than third_party, which both this analysis and procedures write.
+func thirdPartyCNAME(in analysisInput) []store.Obs {
 	return thirdparty.CNAME(in.Scope, in.Inv)
 }
 
@@ -114,18 +114,18 @@ func (r *Runner) derive() error {
 		return nil
 	}
 	today := r.today()
-	for _, d := range r.derivers {
+	for _, d := range r.analyses {
 		sig := r.kindSig(d.reads) + today
 		if sig == d.sig {
 			continue
 		}
 		var readErr error
-		obs, after := d.derive(deriveInput{Scope: sc, Inv: inv, Vis: vis, Inputs: r.inputs, Today: today,
+		obs, after := d.derive(analysisInput{Scope: sc, Inv: inv, Vis: vis, Inputs: r.inputs, Today: today,
 			Records: keepFirstErr(&readErr, r.records), Observers: keepFirstErr(&readErr, r.observers)})
 		if readErr != nil {
 			return readErr
 		}
-		stored, err := r.storeDerived(d.name, obs, &d.stored)
+		stored, err := r.storeAnalysis(d.name, obs, &d.stored)
 		if err != nil {
 			return err
 		}
@@ -137,20 +137,20 @@ func (r *Runner) derive() error {
 	return nil
 }
 
-// evidence describes a check's support for a candidate. Stages implementing Evidencer supply
-// the source and item; others use the stage name and check key. The source determines the
+// evidence describes a job's support for a candidate. Procedures implementing Evidencer supply
+// the source and item; others use the procedure name and job key. The source determines the
 // family.
-func (r *Runner) evidence(stage, check string) candidates.Evidence {
-	source, item := stage, check
-	if e, ok := r.evidencers[stage]; ok {
-		source, item = e.Evidence(check)
+func (r *Runner) evidence(procedure, job string) candidates.Evidence {
+	source, item := procedure, job
+	if e, ok := r.evidencers[procedure]; ok {
+		source, item = e.Evidence(job)
 	}
 	return candidates.Evidence{Source: source, Item: item, Family: r.families.Of(source)}
 }
 
-// rankCandidates calculates candidate ranks from the completed checks supporting each
+// rankCandidates calculates candidate ranks from the completed jobs supporting each
 // candidate.
-func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
+func (r *Runner) rankCandidates(in analysisInput) []store.Obs {
 	last := map[candidates.Key]candidates.Rank{}
 	for _, rec := range in.Records(kinds.CandidateRank) {
 		if rec.Current {
@@ -167,7 +167,7 @@ func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
 			}
 			c := candidates.Candidate{Type: kind.Name(), Value: rec.Key, Current: rec.Current}
 			for _, o := range observers[rec.Key] {
-				c.Evidence = append(c.Evidence, r.evidence(o.Stage, o.CheckKey))
+				c.Evidence = append(c.Evidence, r.evidence(o.Procedure, o.JobKey))
 			}
 			cs = append(cs, c)
 		}
@@ -189,8 +189,8 @@ func rankOf(a kinds.CandidateRankAttrs) candidates.Rank {
 	return candidates.Rank{Sources: sources, Count: a.EvidenceCount, Confidence: candidates.Confidence(a.Confidence)}
 }
 
-// historyOnly returns a predicate for addresses observed exclusively by Historical stages. Such
-// addresses may no longer belong to the engagement. It returns nil if no stages provide
+// historyOnly returns a predicate for addresses observed exclusively by Historical procedures. Such
+// addresses may no longer belong to the engagement. It returns nil if no procedures provide
 // historical data.
 func (r *Runner) historyOnly(records func(kinds.Named) []store.Record) func(netip.Addr) bool {
 	if len(r.historical) == 0 {
@@ -199,10 +199,10 @@ func (r *Runner) historyOnly(records func(kinds.Named) []store.Record) func(neti
 	only := map[netip.Addr]bool{}
 	for _, rec := range records(kinds.IP) {
 		a, err := netip.ParseAddr(rec.Key)
-		if err != nil || !rec.Current || len(rec.Stages) == 0 {
+		if err != nil || !rec.Current || len(rec.Producers) == 0 {
 			continue
 		}
-		if slices.ContainsFunc(rec.Stages, func(s string) bool { return !r.historical[s] }) {
+		if slices.ContainsFunc(rec.Producers, func(s string) bool { return !r.historical[s] }) {
 			continue
 		}
 		only[a.Unmap()] = true

@@ -16,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// Reverse-IP tests run real stages against loopback HackerTarget/SecurityTrails responses.
+// Reverse-IP tests run real procedures against loopback HackerTarget/SecurityTrails responses.
 
 const securityTrailsKey = "st-key-SECRET-0004"
 
@@ -85,7 +85,7 @@ func (q stQuery) server() string {
 }
 
 // stReverse validates keyed domain searches and supplies empty subdomain responses to isolate
-// the tested stage.
+// the tested procedure.
 type stReverse struct {
 	mu                 sync.Mutex
 	byAddr, byNS, byMX map[string][]string
@@ -214,7 +214,7 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 		ht.set(a, "No records found")
 	}
 
-	// The owner source is down for one address, which fails the owner check and nothing else.
+	// The owner source is down for one address, which fails the owner job and nothing else.
 	if f := x.h.partial(x.passive("--cidr", "198.51.100.0/30", "-x", "203.0.113.64/28"), true); f.msg != "1 checks failed: ipowner 1" {
 		t.Errorf("error = %+v, want the one failed ipowner check", f)
 	}
@@ -233,7 +233,7 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 	}
 }
 
-// Adding SecurityTrails enables IPv6 checks without repeating completed IPv4 work.
+// Adding SecurityTrails enables IPv6 jobs without repeating completed IPv4 work.
 func TestReverseIP_IPv6WaitsForTheKey(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -310,7 +310,7 @@ func TestReverseIP_RecordsNamesByScope(t *testing.T) {
 	}
 }
 
-// Each of HackerTarget's "nothing found" replies completes the check with
+// Each of HackerTarget's "nothing found" replies completes the job with
 // nothing.
 func TestReverseIP_NoRecordsCompletesWithNothing(t *testing.T) {
 	t.Parallel()
@@ -336,7 +336,7 @@ func TestReverseIP_NoRecordsCompletesWithNothing(t *testing.T) {
 
 // A reply that is not a list of names is an error, retried: it is never recorded
 // as "no names".
-func TestReverseIP_UnreadableReplyIsAFailedCheck(t *testing.T) {
+func TestReverseIP_UnreadableReplyIsAFailedJob(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
 	ht := x.hackerTarget()
@@ -354,7 +354,7 @@ func TestReverseIP_UnreadableReplyIsAFailedCheck(t *testing.T) {
 
 // --- The shared-hosting guard ---
 
-// Enforce distinct registrable-domain caps inclusively and version checks when caps change.
+// Enforce distinct registrable-domain caps inclusively and version jobs when caps change.
 func TestReverseIP_SharedHostingGuard(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -395,7 +395,7 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 		t.Errorf("completed = %v", x.completedKeys("reverseip"))
 	}
 
-	// A higher cap is a new check for every address.
+	// A higher cap is a new job for every address.
 	before := len(x.htAsked())
 	x.mustPassive("--reverseip-max-domains", "101")
 	if got := len(x.htAsked()) - before; got != 3 {
@@ -411,8 +411,8 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 
 // --- Quota and keys ---
 
-// Both HTTP and text quota responses abort once, warn once and leave checks pending.
-func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
+// Both HTTP and text quota responses abort once, warn once and leave jobs pending.
+func TestReverseIP_QuotaStopsTheProcedureAndIsRetried(t *testing.T) {
 	t.Parallel()
 	variants := map[string]func(rw http.ResponseWriter){
 		"HTTP 429": func(rw http.ResponseWriter) { http.Error(rw, "slow down", http.StatusTooManyRequests) },
@@ -504,9 +504,9 @@ func TestReverseIP_SecurityTrailsKey(t *testing.T) {
 	}
 }
 
-// A rejected SecurityTrails key stops the stage, HackerTarget lookups included:
-// the checks that remain are not sent, and nothing is completed.
-func TestReverseIP_RejectedSecurityTrailsKeyStopsTheStage(t *testing.T) {
+// A rejected SecurityTrails key stops the procedure, HackerTarget lookups included:
+// the jobs that remain are not sent, and nothing is completed.
+func TestReverseIP_RejectedSecurityTrailsKeyStopsTheProcedure(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
 	x.hackerTarget()
@@ -611,17 +611,17 @@ func TestReverseIP_OncePerEngagementUntilRedo(t *testing.T) {
 
 // --- Registry, help and docs ---
 
-// The registry order is pinned by TestRiskStageRegistry.
+// The registry order is pinned by TestRiskProcedureRegistry.
 func TestReverseIP_HelpAndSetting(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if !strings.Contains(h.stdout.String(), "--reverseip-max-domains") {
 		t.Error("help missing --reverseip-max-domains")
 	}
-	if stageRow(h.stagesHelp(), "reverseip") == "" {
+	if procedureRow(h.proceduresHelp(), "reverseip") == "" {
 		t.Error("help stages does not list reverseip")
 	}
 }

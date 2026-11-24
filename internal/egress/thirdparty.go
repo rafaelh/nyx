@@ -26,18 +26,18 @@ const (
 // ThirdPartyRequest is a request to a third-party source.
 type ThirdPartyRequest struct {
 	Method      string // GET, HEAD or POST
-	URL         string // https URL whose host matches the calling stage's Sources()
+	URL         string // https URL whose host matches the calling procedure's Sources()
 	Body        []byte
 	ContentType string
 	// Accept sets the Accept header when it is not empty.
 	Accept string
 	// KeySource names a configured key to attach, as header KeyHeader and/or
-	// query parameter KeyParam. The client attaches it; stages never handle it.
+	// query parameter KeyParam. The client attaches it; procedures never handle it.
 	KeySource, KeyHeader, KeyParam string
 	// KeyPrefix is put before the key in the KeyHeader value ("Bearer ").
 	KeyPrefix string
 	// KeyBodyField injects the configured key into a JSON body field without exposing the
-	// key value to the stage.
+	// key value to the procedure.
 	KeyBodyField string
 	// Timeout overrides the default HTTP timeout for this request (at most 120 s).
 	Timeout time.Duration
@@ -57,7 +57,7 @@ type ThirdPartyResponse struct {
 // or "" if there is none.
 func (r ThirdPartyResponse) HeaderValue(name string) string { return http.Header(r.Header).Get(name) }
 
-// ThirdPartyHTTP talks to the hosts a stage declared in Sources().
+// ThirdPartyHTTP talks to the hosts a procedure declared in Sources().
 type ThirdPartyHTTP interface {
 	Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyResponse, error)
 }

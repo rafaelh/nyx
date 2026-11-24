@@ -535,8 +535,8 @@ func TestTargetAPIShape(t *testing.T) {
 	}
 }
 
-// Target clients are only given to Target stages.
-func TestClientsForThirdPartyStageHaveNoTargetClients(t *testing.T) {
+// Target clients are only given to Target procedures.
+func TestClientsForThirdPartyProcedureHaveNoTargetClients(t *testing.T) {
 	t.Parallel()
 	eg := egress.New(egress.Options{})
 	c := eg.Clients(false, []string{"stat.ripe.net"})

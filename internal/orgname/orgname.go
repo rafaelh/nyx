@@ -1,5 +1,5 @@
 // Package orgname matches organisation inputs by requiring every meaningful word, ignoring
-// case, punctuation and legal suffixes. Registry stages share this rule for consistent matches.
+// case, punctuation and legal suffixes. Registry procedures share this rule for consistent matches.
 package orgname
 
 import (

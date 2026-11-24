@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// risk adds selected exposure stages to a fake web world.
+// risk adds selected exposure procedures to a fake web world.
 type risk struct{ *web }
 
-func newRisk(t *testing.T, stages ...string) *risk {
+func newRisk(t *testing.T, procedures ...string) *risk {
 	t.Helper()
-	return &risk{newWebWith(t, stages...)}
+	return &risk{newWebWith(t, procedures...)}
 }
 
 // rows indexes an engagement CSV by column names.
@@ -70,7 +70,7 @@ func (x *risk) summaryTargets() []string {
 	return out
 }
 
-func (x *risk) state(stage string) event { return lastState(x.h.events(), stage) }
+func (x *risk) state(procedure string) event { return lastState(x.h.events(), procedure) }
 
 // Storage service fakes
 

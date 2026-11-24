@@ -77,7 +77,7 @@ func TestColour_TheFooterKeysAreAmberAndTheirDescriptionsMuted(t *testing.T) {
 	}
 }
 
-func TestColour_ASkippedStageIsFaintAndARunningOneIsNot(t *testing.T) {
+func TestColour_ASkippedProcedureIsFaintAndARunningOneIsNot(t *testing.T) {
 	t.Parallel()
 	b := newFake()
 	b.snap.Skip = []string{"ports"}
@@ -95,7 +95,7 @@ func TestColour_ASkippedStageIsFaintAndARunningOneIsNot(t *testing.T) {
 func TestColour_EveryColouredFrameFitsAndKeepsItsEscapesWhole(t *testing.T) {
 	t.Parallel()
 	b := newFake()
-	b.info.Stages[0].Does = strings.Repeat("a long description ", 10)
+	b.info.Procedures[0].Does = strings.Repeat("a long description ", 10)
 	b.snap.Settings["wordlist"] = Value{Text: "x", Set: true, Default: "d", Problem: "wordlist: cannot read " + strings.Repeat("/long", 30)}
 	h := newTH(t, b, inColour, atSize(60, 16))
 	h.press("down", "tab", "down", "tab", "up", "left", "left", "enter")

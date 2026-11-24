@@ -46,39 +46,39 @@ func abSnapshotOn(netsDate, asnsDate string, nets []abusive.NetworkEntry, asns [
 	})
 }
 
-// abWorld is a web world run under --passive with the abusive check's stages.
+// abWorld is a web world run under --passive with the abusive check's procedures.
 type abWorld struct {
 	*web
-	history *testkit.Stage
+	history *testkit.Procedure
 	histIPs []string
 }
 
 func newAbWorld(t *testing.T) *abWorld {
 	t.Helper()
 	x := &abWorld{web: newWeb(t)}
-	// A stage whose addresses come from DNS history, which names the addresses of histIPs.
-	x.history = &testkit.Stage{StageName: "fakehistory", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check {
+	// A procedure whose addresses come from DNS history, which names the addresses of histIPs.
+	x.history = &testkit.Procedure{ProcedureName: "fakehistory", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job {
 			if len(x.histIPs) == 0 {
 				return nil
 			}
-			return []run.Check{{Key: "history"}}
+			return []run.Job{{Key: "history"}}
 		},
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			var out []run.Observation
 			for _, a := range x.histIPs {
 				out = append(out, run.Observation{Kind: "ip", Key: a})
 			}
 			return out, nil
 		}}
-	x.h.stages = append(x.h.stages, historicalStage{x.history})
+	x.h.procedures = append(x.h.procedures, historicalProcedure{x.history})
 	return x
 }
 
-// historicalStage is a stage that says its addresses come from DNS history.
-type historicalStage struct{ *testkit.Stage }
+// historicalProcedure is a procedure that says its addresses come from DNS history.
+type historicalProcedure struct{ *testkit.Procedure }
 
-func (historicalStage) HistoricalAddresses() {}
+func (historicalProcedure) HistoricalAddresses() {}
 
 // origin scripts Team Cymru's answer for the first address of a unit: its AS and announced prefix.
 func (x *abWorld) origin(addr string, asn int) {
@@ -237,7 +237,7 @@ func TestAbusiveRecon_OriginIsAskedOncePerUnit(t *testing.T) {
 	}
 }
 
-// Unknown AS ownership completes empty; transient failures retry only the affected check.
+// Unknown AS ownership completes empty; transient failures retry only the affected job.
 func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -270,7 +270,7 @@ func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 	if done := x.completedKeys("netblockowner"); !slices.Equal(done, []string{"198.51.100.0/24", "198.51.101.0/24"}) {
 		t.Errorf("completed checks = %v: a failed check is not completed, an unknown one is", done)
 	}
-	// The next run retries only the failed check, now that the resolver answers.
+	// The next run retries only the failed job, now that the resolver answers.
 	x.dns.ClearRcode(dnsname.CymruOrigin(netip.MustParseAddr("198.51.102.0")))
 	x.origin("198.51.102.0", 64999)
 	units := []string{"198.51.100.0", "198.51.101.0", "198.51.102.0"}

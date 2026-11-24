@@ -352,7 +352,7 @@ func TestCrawl_MissingListsAreNotRecorded(t *testing.T) {
 	}
 }
 
-func TestCrawl_DisabledAndSettingsAreInTheCheckKey(t *testing.T) {
+func TestCrawl_DisabledAndSettingsAreInTheJobKey(t *testing.T) {
 	t.Parallel()
 	x, s := crawlFixture(t)
 	x.mustRun("--crawl-pages", "0")

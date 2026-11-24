@@ -182,7 +182,7 @@ func lastLine(s string) string {
 // Root help includes command essentials and JSON examples; recon tuning remains in recon help.
 func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.execRoot("--help"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
@@ -212,7 +212,7 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 		// The help topics.
 		"nyx help stages", "nyx help findings",
 	}
-	for _, s := range h.stages {
+	for _, s := range h.procedures {
 		wants = append(wants, s.Name())
 	}
 	for _, k := range kinds.All() {
@@ -223,7 +223,7 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 			t.Errorf("the root help lacks %q", want)
 		}
 	}
-	// Help identifies stages that cannot be skipped.
+	// Help identifies procedures that cannot be skipped.
 	if !strings.Contains(help, "resolve, wildcard, ipowner, providerranges") {
 		t.Error("the root help does not name the stages --skip refuses")
 	}
@@ -291,7 +291,7 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 		check func(t *testing.T, h *harness)
 	}{
 		{"--json", func(t *testing.T, h *harness) {
-			// The failed check makes the run partial: stdout is the one envelope, and stderr is the
+			// The failed job makes the run partial: stdout is the one envelope, and stderr is the
 			// error and nothing else.
 			h.envelope()
 			if f := h.theError(true); f.code != "PARTIAL" || len(h.logLines()) != 0 {
@@ -318,14 +318,14 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 		}},
 	} {
 		for _, before := range []bool{true, false} {
-			h := newHarness(t, failingCheck("boom"))
+			h := newHarness(t, failingJob("boom"))
 			var code int
 			if before {
 				code = reconWithFlags(h, []string{c.flag}, nil)
 			} else {
 				code = reconWithFlags(h, nil, []string{c.flag})
 			}
-			if code != 7 { // failingCheck's failed check makes the run partial
+			if code != 7 { // failingJob's failed job makes the run partial
 				t.Fatalf("%s (before the command: %v): exit %d\n%s", c.flag, before, code, h.stderr.String())
 			}
 			c.check(t, h)
@@ -335,7 +335,7 @@ func TestTree_SharedFlagsBeforeAndAfterTheCommand(t *testing.T) {
 	checkExportTakesSharedFlags(t)
 
 	// --json with --debug is allowed: the DEBUG line is on stderr.
-	h := newHarness(t, failingCheck("boom"))
+	h := newHarness(t, failingJob("boom"))
 	if code := reconWithFlags(h, []string{"--json"}, []string{"--debug"}); code != 7 || len(h.debugLines()) != 1 {
 		t.Errorf("--json --debug: exit %d, DEBUG lines %q", code, h.debugLines())
 	}
@@ -396,7 +396,7 @@ func TestTree_QuietWithDebugIsAUsageError(t *testing.T) { //nolint:paralleltest 
 // key sets one.
 func TestTree_SharedFlagsAreNotSettings(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, failingCheck("boom"))
+	h := newHarness(t, failingJob("boom"))
 	h.setenv("NYX_JSON", "1")
 	h.setenv("NYX_QUIET", "1")
 	h.setenv("NYX_DEBUG", "1")
@@ -468,7 +468,7 @@ func TestTree_FlagsAreSpeltInFull(t *testing.T) { //nolint:paralleltest // it ch
 		h.untouched()
 		cwd()
 	}
-	st := ackStage()
+	st := ackProcedure()
 	h := newHarness(t, st)
 	if code := h.exec("a.com", "--authorized"); code != 0 || len(st.Executed()) != 3 {
 		t.Errorf("--authorized: exit %d, executed %v", code, st.Executed())

@@ -72,7 +72,7 @@ func TestCompletion_NeedsOneSupportedShell(t *testing.T) {
 // commands, the shared flags and every value a flag takes from a fixed list.
 func TestCompletion_OffersCommandsFlagsAndValues(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, helpStages()...)
+	h := newHarness(t, helpProcedures()...)
 	for _, c := range []struct {
 		args          []string
 		want, without []string
@@ -82,7 +82,7 @@ func TestCompletion_OffersCommandsFlagsAndValues(t *testing.T) {
 		{[]string{"recon", ""}, []string{"export"}, nil, ":4"},
 		{[]string{"recon", "--"}, []string{"--json", "--quiet", "--redo", "--skip", "--passive"}, []string{"--palette"}, ":4"},
 		{[]string{"recon", "--redo", ""}, []string{"crtsh", "resolve", "ports"}, nil, ":4"},
-		// --skip leaves out the stages it refuses, and offers none.
+		// --skip leaves out the procedures it refuses, and offers none.
 		{[]string{"recon", "--skip", ""}, []string{"crtsh", "ports", "none"}, []string{"resolve", "wildcard", "providerranges"}, ":4"},
 		{[]string{"recon", "--output-dir", ""}, nil, nil, ":16"},
 		{[]string{"recon", "export", "--kind", ""}, []string{"finding", "hostname", "input", "exclusion"}, nil, ":4"},
@@ -142,7 +142,7 @@ func TestCompletion_OnlySetupsHelpPointsToIt(t *testing.T) {
 // A completion request reads no config file: a broken one changes nothing and prints no hint.
 func TestCompletion_ReadsNoConfig(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, helpStages()...)
+	h := newHarness(t, helpProcedures()...)
 	cfg := writeFile(t, t.TempDir(), "config.yaml", "not: [valid\n")
 	got, _ := completions(t, h, "recon", "--config", cfg, "--redo", "")
 	if !slices.Contains(got, "crtsh") || h.stderr.Len() != 0 {

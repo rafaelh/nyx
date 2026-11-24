@@ -227,7 +227,7 @@ func Key(provider, name, container string) string {
 	return provider + "|" + name
 }
 
-// AccountKey identifies an Azure account consistently in storage checks and missing-resource
+// AccountKey identifies an Azure account consistently in storage jobs and missing-resource
 // sets.
 func AccountKey(name string) string { return "azure-account|" + name }
 

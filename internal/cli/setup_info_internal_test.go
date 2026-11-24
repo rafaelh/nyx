@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// Key descriptions derive required/optional stages, with explicit Cert Spotter and NVD wording.
+// Key descriptions derive required/optional procedures, with explicit Cert Spotter and NVD wording.
 func TestKeyTurnsOn(t *testing.T) {
 	t.Parallel()
-	stages := defaultStages()
+	procedures := defaultProcedures()
 	got := map[string]string{}
-	for _, s := range setupSources(stages) {
+	for _, s := range setupSources(procedures) {
 		got[s.Name] = s.Turns
 	}
 	if len(got) != 9 {
@@ -39,11 +39,11 @@ func TestKeyTurnsOn(t *testing.T) {
 	}
 }
 
-// The stages offered to skip are the registry's, without the ones other stages depend on.
-func TestSetupStagesLeaveOutTheUnskippable(t *testing.T) {
+// The procedures offered to skip are the registry's, without the ones other procedures depend on.
+func TestSetupProceduresLeaveOutTheUnskippable(t *testing.T) {
 	t.Parallel()
 	var names []string
-	for _, s := range setupStages(defaultStages()) {
+	for _, s := range setupProcedures(defaultProcedures()) {
 		names = append(names, s.Name)
 		if s.Does == "" {
 			t.Errorf("stage %s has no description", s.Name)
@@ -57,7 +57,7 @@ func TestSetupStagesLeaveOutTheUnskippable(t *testing.T) {
 	if !slices.Contains(names, "crtsh") {
 		t.Errorf("skippable stages are missing: %v", names)
 	}
-	if want := len(defaultStages()) - len(unskippable); len(names) != want {
+	if want := len(defaultProcedures()) - len(unskippable); len(names) != want {
 		t.Errorf("%d stages offered, want %d", len(names), want)
 	}
 }

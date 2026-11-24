@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// --- The jsparse stage ---
+// --- The jsparse procedure ---
 
 // js serves a script.
 func js(body string) http.HandlerFunc {
@@ -147,7 +147,7 @@ func TestJSParse_RedirectsAndFailures(t *testing.T) {
 		"/loop.js": redirectTo(302, "/loop.js"),
 	}))
 	b := x.plain("203.0.113.6", 80, routes(map[string]http.HandlerFunc{"/target.js": js(`x("/api/from-target")`)}))
-	// The script that times out fails its check on both runs, and only that one.
+	// The script that times out fails its job on both runs, and only that one.
 	for range 2 {
 		x.partialRun("jsparse", 1)
 	}
@@ -465,7 +465,7 @@ x("https://api.example.com/v1/items");x("http://evil.example.net/off");x("/stati
 	}
 }
 
-// Passive runs skip script fetching and mark the stage unconfigured.
+// Passive runs skip script fetching and mark the procedure unconfigured.
 func TestJSParse_NotUnderPassive(t *testing.T) {
 	t.Parallel()
 	x, s := jsFixture(t, []string{"/app.js"}, map[string]http.HandlerFunc{"/app.js": js(`x("/api/a")`)})

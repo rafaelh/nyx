@@ -40,16 +40,16 @@ func TestWriteSummary_PlainText(t *testing.T) {
 		Data: report.Summary{
 			Engagement: "acme", Directory: "/x",
 			Counts:                []report.CountRow{{Category: "hosts", N: 12}, {Category: "open ports", N: 5}, {Category: "urls", N: 340}},
-			FailedChecks:          []report.StageCount{{Stage: "asn", N: 2}},
-			Deferred:              []report.StageCount{{Stage: "shodan", N: 4}},
-			NotConfigured:         []report.StageReason{{Stage: "ports", Reason: "passive-only"}}, // not in the human text
+			FailedJobs:            []report.ProcedureCount{{Procedure: "asn", N: 2}},
+			Deferred:              []report.ProcedureCount{{Procedure: "shodan", N: 4}},
+			NotConfigured:         []report.ProcedureReason{{Procedure: "ports", Reason: "passive-only"}}, // not in the human text
 			Findings:              headlineRows(),
 			Candidates:            []report.CandidateRow{candidateRow("x.org", "-d x.org", 2)},
 			CandidatesTotal:       1,
 			UnconfirmedRiskyPorts: 3,
 			Notes:                 []string{"shodan: truncated"},
 		},
-		Meta: report.Meta{DeadlineExceeded: true, ChecksCompleted: 7, ChecksCancelled: 2},
+		Meta: report.Meta{DeadlineExceeded: true, JobsCompleted: 7, JobsCancelled: 2},
 	}
 	want := "Summary\n" +
 		"  hosts            12\n" +
@@ -88,8 +88,8 @@ func TestWriteSummary_Minimal(t *testing.T) {
 func TestWriteSummary_CountColumnWidth(t *testing.T) {
 	t.Parallel()
 	got := writeSummary(palette.None, withData(report.Summary{
-		Counts:       []report.CountRow{{Category: "a very long category", N: 1}, {Category: "b", N: 22}},
-		FailedChecks: []report.StageCount{{Stage: "dns", N: 3}},
+		Counts:     []report.CountRow{{Category: "a very long category", N: 1}, {Category: "b", N: 22}},
+		FailedJobs: []report.ProcedureCount{{Procedure: "dns", N: 3}},
 	}))
 	containsAll(t, got, "  a very long category 1\n", "  b                    22\n", "  dns              3\n")
 }
@@ -124,11 +124,11 @@ func TestWriteSummary_NotesAndUnconfirmedRiskyPorts(t *testing.T) {
 func TestWriteSummary_DeadlineLine(t *testing.T) {
 	t.Parallel()
 	s := report.Summary{
-		Counts:       []report.CountRow{{Category: "hosts", N: 1}},
-		Notes:        []string{"a note"},
-		FailedChecks: []report.StageCount{{Stage: "dns", N: 1}},
+		Counts:     []report.CountRow{{Category: "hosts", N: 1}},
+		Notes:      []string{"a note"},
+		FailedJobs: []report.ProcedureCount{{Procedure: "dns", N: 1}},
 	}
-	env := report.Envelope{Data: s, Meta: report.Meta{DeadlineExceeded: true, ChecksCompleted: 12, ChecksCancelled: 34}}
+	env := report.Envelope{Data: s, Meta: report.Meta{DeadlineExceeded: true, JobsCompleted: 12, JobsCancelled: 34}}
 	out := writeSummary(palette.None, env)
 	const line = "Stopped by the deadline: 12 checks completed, 34 cancelled"
 	if !strings.Contains(out, "  a note\n  "+line+"\nFailed checks") {
@@ -149,10 +149,10 @@ func TestWriteSummary_DeadlineLine(t *testing.T) {
 func TestWriteSummary_EmptyBlocksAreLeftOut(t *testing.T) {
 	t.Parallel()
 	out := writeSummary(palette.None, withData(report.Summary{
-		Counts:       []report.CountRow{{Category: "hosts", N: 1}},
-		FailedChecks: []report.StageCount{},
-		Findings:     []report.FindingRow{},
-		Candidates:   []report.CandidateRow{},
+		Counts:     []report.CountRow{{Category: "hosts", N: 1}},
+		FailedJobs: []report.ProcedureCount{},
+		Findings:   []report.FindingRow{},
+		Candidates: []report.CandidateRow{},
 	}))
 	for _, bad := range []string{"Failed", "Deferred", "Findings", "Candidates", "Since last run"} {
 		if strings.Contains(out, bad) {
@@ -187,8 +187,8 @@ func TestWriteSummary_Coloured(t *testing.T) {
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
 		env := report.Envelope{Data: report.Summary{
 			Counts:          []report.CountRow{{Category: "hosts", N: 12}},
-			FailedChecks:    []report.StageCount{{Stage: "asn", N: 2}},
-			Deferred:        []report.StageCount{{Stage: "shodan", N: 1}},
+			FailedJobs:      []report.ProcedureCount{{Procedure: "asn", N: 2}},
+			Deferred:        []report.ProcedureCount{{Procedure: "shodan", N: 1}},
 			Findings:        headlineRows(),
 			Candidates:      []report.CandidateRow{candidateRow("x.org", "-d x.org", 1)},
 			CandidatesTotal: 1,
@@ -279,7 +279,7 @@ func TestWriteSummary_SinceLastRun(t *testing.T) {
 	env := withData(report.Summary{
 		Counts:     []report.CountRow{{Category: "hosts", N: 12}},
 		Candidates: []report.CandidateRow{candidateRow("x.org", "-d x.org", 1)},
-		Deferred:   []report.StageCount{{Stage: "shodan", N: 4}},
+		Deferred:   []report.ProcedureCount{{Procedure: "shodan", N: 4}},
 		Changes: &report.Changes{
 			Counts: []report.ChangeCount{
 				{Kind: "finding", Change: "gone", N: 3},
@@ -339,13 +339,13 @@ func TestWriteSummary_Sanitises(t *testing.T) {
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
 	row := report.FindingRow{Severity: "high", Category: evil, Target: evil, Detail: &evil}
 	env := report.Envelope{Data: report.Summary{
-		Counts:       []report.CountRow{{Category: evil, N: 1}},
-		FailedChecks: []report.StageCount{{Stage: evil, N: 1}},
-		Deferred:     []report.StageCount{{Stage: evil, N: 1}},
-		Findings:     []report.FindingRow{row},
-		Candidates:   []report.CandidateRow{{Value: evil, Sources: []string{evil, evil}, Promote: evil}},
-		Notes:        []string{evil},
-		Changes:      &report.Changes{Findings: []report.FindingRow{row}},
+		Counts:     []report.CountRow{{Category: evil, N: 1}},
+		FailedJobs: []report.ProcedureCount{{Procedure: evil, N: 1}},
+		Deferred:   []report.ProcedureCount{{Procedure: evil, N: 1}},
+		Findings:   []report.FindingRow{row},
+		Candidates: []report.CandidateRow{{Value: evil, Sources: []string{evil, evil}, Promote: evil}},
+		Notes:      []string{evil},
+		Changes:    &report.Changes{Findings: []report.FindingRow{row}},
 	}}
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		rest := stripEscapes(writeSummary(d, env))

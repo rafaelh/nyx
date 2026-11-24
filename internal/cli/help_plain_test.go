@@ -8,11 +8,13 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// helpStages supplies stable representative stage names so golden help does not change with
+// helpProcedures supplies stable representative procedure names so golden help does not change with
 // every registry addition.
-func helpStages() []run.Stage {
-	st := func(name string, kind run.Contact) run.Stage { return &testkit.Stage{StageName: name, Kind: kind} }
-	return []run.Stage{
+func helpProcedures() []run.Procedure {
+	st := func(name string, kind run.Contact) run.Procedure {
+		return &testkit.Procedure{ProcedureName: name, Kind: kind}
+	}
+	return []run.Procedure{
 		st("crtsh", run.ThirdParty), st("shodan", run.ThirdParty), st("providerranges", run.ThirdParty),
 		st("resolve", run.ThirdParty), st("wildcard", run.ThirdParty), st("httpprobe", run.Target), st("ports", run.Target),
 	}
@@ -42,7 +44,7 @@ func TestHelp_PlainJoin(t *testing.T) {
 		t.Run(s.name, func(t *testing.T) {
 			t.Parallel()
 			goldenPlain(t, "help-"+s.name, func(tune func(*harness)) (*harness, string) {
-				h := newHarness(t, helpStages()...)
+				h := newHarness(t, helpProcedures()...)
 				tune(h)
 				if code := h.execRoot(s.args...); code != 0 {
 					t.Fatalf("%v: exit %d, stderr %q", s.args, code, h.stderr.String())
@@ -59,11 +61,11 @@ func TestHelp_JSONOnTerminalIsPlain(t *testing.T) {
 	for _, s := range helpScreens {
 		t.Run(s.name, func(t *testing.T) {
 			t.Parallel()
-			plain := newHarness(t, helpStages()...)
+			plain := newHarness(t, helpProcedures()...)
 			if code := plain.execRoot(s.args...); code != 0 {
 				t.Fatal(plain.stderr.String())
 			}
-			h := newHarness(t, helpStages()...)
+			h := newHarness(t, helpProcedures()...)
 			colourAt(t, h, palette.TrueColor)
 			h.setenv("COLUMNS", "70")
 			if code := h.execRoot(append([]string{"--json"}, s.args...)...); code != 0 {

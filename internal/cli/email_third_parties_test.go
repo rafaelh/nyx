@@ -9,7 +9,7 @@ import (
 	mdns "github.com/miekg/dns"
 )
 
-// emailWorld is a passive world with the email stage kept in the stage list.
+// emailWorld is a passive world with the email procedure kept in the procedure list.
 func emailWorld(t *testing.T) *world {
 	t.Helper()
 	return newWorldWith(t, "email")
@@ -92,7 +92,7 @@ func TestEmailThirdParties_IgnoredRedirectIsNotListed(t *testing.T) {
 	}
 }
 
-// A SERVFAIL on any include fails the check, so the run records no third parties for the root.
+// A SERVFAIL on any include fails the job, so the run records no third parties for the root.
 func TestEmailThirdParties_IncludeServfailRecordsNothing(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -306,7 +306,7 @@ func TestEmailThirdParties_OneRowAndProvider(t *testing.T) {
 	}
 }
 
-// The new third parties are announced and counted, and the stage runs under --passive.
+// The new third parties are announced and counted, and the procedure runs under --passive.
 func TestEmailThirdParties_FoundLineCountAndPassive(t *testing.T) {
 	t.Parallel()
 	seed := func(w *world) {
@@ -469,8 +469,8 @@ func TestEmailMTASTS_NoFallbackForSubdomainRoot(t *testing.T) {
 	}
 }
 
-// A SERVFAIL on the lookup fails the check, which is retried.
-func TestEmailMTASTS_ServfailFailsTheCheck(t *testing.T) {
+// A SERVFAIL on the lookup fails the job, which is retried.
+func TestEmailMTASTS_ServfailFailsTheJob(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
 	healthy().apply(w.dns, "example.com")
@@ -504,7 +504,7 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 		t.Fatalf("an unchanged engagement asked again: %d", n)
 	}
 
-	// Make the checks look like the ones an earlier build stored.
+	// Make the jobs look like the ones an earlier build stored.
 	db := w.h.openDB(eng)
 	if _, err := db.Exec("UPDATE checks SET key = replace(key, '|mta-sts', '') WHERE stage = 'email'"); err != nil {
 		t.Fatal(err)

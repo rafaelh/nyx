@@ -21,8 +21,8 @@ var srvServices = []string{
 
 var wellKnownLabels = []string{"autodiscover", "lyncdiscover", "enterpriseenrollment", "enterpriseregistration", "mta-sts"}
 
-// srvChecks are the completed dnsroot checks of the SRV list: "<root>|SRV|<hash>".
-func srvChecks(w *world) []string {
+// srvJobs are the completed dnsroot jobs of the SRV list: "<root>|SRV|<hash>".
+func srvJobs(w *world) []string {
 	var out []string
 	for _, k := range w.h.completed(eng, "dnsroot") {
 		if strings.Contains(k, "|SRV|") {
@@ -74,7 +74,7 @@ func TestSRV_AnswersAreRows(t *testing.T) {
 			}
 		}
 	}
-	if k := srvChecks(w); len(k) != 1 || !strings.HasPrefix(k[0], "example.com|SRV|") {
+	if k := srvJobs(w); len(k) != 1 || !strings.HasPrefix(k[0], "example.com|SRV|") {
 		t.Errorf("SRV checks = %v, want one for the root", k)
 	}
 }
@@ -127,8 +127,8 @@ func TestSRV_Targets(t *testing.T) {
 	}
 }
 
-// Transient SRV failures retry only the root's SRV check.
-func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
+// Transient SRV failures retry only the root's SRV job.
+func TestSRV_FailureFailsOnlyTheSRVJob(t *testing.T) {
 	t.Parallel()
 	for name, fail := range map[string]func(w *world){
 		"servfail": func(w *world) { w.dns.RcodeType("_matrix._tcp.example.com", "SRV", egress.RCodeServFail) },
@@ -144,7 +144,7 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 				t.Errorf("a failed lookup is transient and fails one check: %+v", f)
 			}
 
-			if k := srvChecks(w); len(k) != 0 {
+			if k := srvJobs(w); len(k) != 0 {
 				t.Errorf("a failed lookup completed the SRV check: %v", k)
 			}
 			done := w.h.completed(eng, "dnsroot")
@@ -160,7 +160,7 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 			w.dns.ClearRcodeType("_matrix._tcp.example.com", "SRV")
 			w.dns.Undrop("_matrix._tcp.example.com")
 			runRoot(t, w, "-e", eng)
-			if k := srvChecks(w); len(k) != 1 {
+			if k := srvJobs(w); len(k) != 1 {
 				t.Errorf("the failed SRV check was not retried: %v", k)
 			}
 			if resolutionRow(w, "_sip._tls.example.com", "SRV") == nil {
@@ -173,24 +173,24 @@ func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 	}
 }
 
-// An engagement that already has the four record types runs the SRV check once
+// An engagement that already has the four record types runs the SRV job once
 // and asks nothing it already holds.
-func TestSRV_ExistingEngagementRunsOnlyTheNewCheck(t *testing.T) {
+func TestSRV_ExistingEngagementRunsOnlyTheNewJob(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.dns.NS("example.com", "ns1.dns-host.test")
 	runRoot(t, w)
-	// The engagement as an older release left it: no SRV check.
+	// The engagement as an older release left it: no SRV job.
 	if _, err := w.h.openDB(eng).Exec(`DELETE FROM checks WHERE stage = 'dnsroot' AND key LIKE '%|SRV|%'`); err != nil {
 		t.Fatal(err)
 	}
-	if k := srvChecks(w); len(k) != 0 {
+	if k := srvJobs(w); len(k) != 0 {
 		t.Fatalf("setup: %v", k)
 	}
 	w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 	runRoot(t, w, "-e", eng)
 
-	if k := srvChecks(w); len(k) != 1 {
+	if k := srvJobs(w); len(k) != 1 {
 		t.Errorf("SRV checks = %v, want the new one", k)
 	}
 	if resolutionRow(w, "_sip._tls.example.com", "SRV") == nil {
@@ -277,22 +277,22 @@ func TestSRV_PortsReportedNeverConnected(t *testing.T) {
 }
 
 // SRV rows do not introduce hostnames, wildcard zones or addresses.
-func TestSRV_NoWildcardCheckForServiceNames(t *testing.T) {
+func TestSRV_NoWildcardJobForServiceNames(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.dns.SRV("_sip._tls.example.com", 10, 60, 5061, "sip.example.com")
 	w.dns.A("sip.example.com", "203.0.113.11")
 	w.owner("203.0.113.11", 64500, "ACME-NET")
-	feed := &testkit.Stage{StageName: "feed", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "x"}} },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	feed := &testkit.Procedure{ProcedureName: "feed", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: "x"}} },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{
 				resolutionObs("_imaps._tcp.example.com", "SRV", "0 1 993 mail.example.com"),
 				// A control: the same shape as a CNAME does name a zone.
 				resolutionObs("_c._ctl.example.com", "CNAME", "target.example.net"),
 			}, nil
 		}}
-	w.h.stages = append(w.h.stages, feed)
+	w.h.procedures = append(w.h.procedures, feed)
 	runRoot(t, w)
 
 	done := w.h.completed(eng, "wildcard")
@@ -411,26 +411,26 @@ func TestSRV_WellKnownLabelsAreCosted(t *testing.T) {
 	}
 }
 
-// Adding the labels to an engagement repeats the root check once, and no seed check.
-func TestSRV_WellKnownLabelsRepeatRootChecksOnce(t *testing.T) {
+// Adding the labels to an engagement repeats the root job once, and no seed job.
+func TestSRV_WellKnownLabelsRepeatRootJobsOnce(t *testing.T) {
 	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	permRun(w, wl, "--permutations-max", "5")
-	checks := w.h.completed(eng, "permutations")
+	jobs := w.h.completed(eng, "permutations")
 	var rootKey string
-	for _, k := range checks {
+	for _, k := range jobs {
 		if strings.HasPrefix(k, "root|") {
 			rootKey = k
 		} else if strings.Contains(k, "|wk=") {
-			// Seed keys stay compatible because only root checks gained well-known
+			// Seed keys stay compatible because only root jobs gained well-known
 			// labels.
 			t.Errorf("a seed check key carries the labels, so an upgrade would repeat it: %s", k)
 		}
 	}
 	// The engagement as an older release left it: its root key has no token of the labels.
 	legacy, _, ok := strings.Cut(rootKey, "|wk=")
-	if len(checks) != 3 || !ok {
-		t.Fatalf("setup: the root key does not carry the labels: %v", checks)
+	if len(jobs) != 3 || !ok {
+		t.Fatalf("setup: the root key does not carry the labels: %v", jobs)
 	}
 	if _, err := w.h.openDB(eng).Exec(`UPDATE checks SET key = ? WHERE stage = 'permutations' AND key = ?`, legacy, rootKey); err != nil {
 		t.Fatal(err)

@@ -16,12 +16,12 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// KeyToken versions parent checks so older engagements collect server addresses once after
+// KeyToken versions parent jobs so older engagements collect server addresses once after
 // upgrading.
 const KeyToken = "|addrs"
 
 // Observations resolves only servers whose addresses can affect inventory.AddressDecides.
-// Timeout/SERVFAIL produces no addresses without failing the parent check. Context cancellation
+// Timeout/SERVFAIL produces no addresses without failing the parent job. Context cancellation
 // is the only returned error.
 func Observations(ctx context.Context, e egress.Clients, sc *scope.Scope, host string) ([]run.Observation, error) {
 	host = dnsname.Normalise(host)

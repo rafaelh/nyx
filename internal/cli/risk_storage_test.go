@@ -48,7 +48,7 @@ func TestStorage_AttributedByCNAME(t *testing.T) {
 	if got := x.summaryTargets(); len(got) != 1 {
 		t.Errorf("summary = %v", got)
 	}
-	// A completed check is never repeated.
+	// A completed job is never repeated.
 	x.mustRun("--storage-max-names", "1")
 	if n := s3.count("GET", "/acme-assets"); n != 1 {
 		t.Errorf("a second run listed the bucket again (%d)", n)
@@ -119,7 +119,7 @@ func TestStorage_RegionRedirectFollowed(t *testing.T) {
 	x2.dns.CNAME("static.example.com", "acme-eu.s3.amazonaws.com")
 	x2.host("acme-eu.s3.amazonaws.com", "203.0.113.30")
 	x2.handle("s3.amazonaws.com", bucketHandler(map[string]bucket{"acme-eu": {list: 301, redirect: "evil.example.net/x"}}))
-	x2.partialRun("storage", 1, "--storage-max-names", "1") // the unusable redirect fails the check
+	x2.partialRun("storage", 1, "--storage-max-names", "1") // the unusable redirect fails the job
 	if r := find(x2.rows("risk-storage.csv"), "name", "acme-eu"); r != nil {
 		t.Errorf("a malformed region produced a result: %v", r)
 	}
@@ -176,7 +176,7 @@ func TestStorage_AzureAccountThenContainers(t *testing.T) {
 	}
 }
 
-// A newly referenced object adds one HEAD check, does not re-list the bucket,
+// A newly referenced object adds one HEAD job, does not re-list the bucket,
 // and leaves no stale "public".
 func TestStorage_NewObjectReference(t *testing.T) {
 	t.Parallel()
@@ -222,7 +222,7 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")
 	x.names()
-	x.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"categories":[],"prefixes":[]}}`)) // the org-asn stage finds nothing
+	x.handle("stat.ripe.net", jsonBody(`{"status":"ok","data":{"categories":[],"prefixes":[]}}`)) // the org-asn procedure finds nothing
 	x.mustRun("--passive", "--storage-max-names", "4", "--org", "Acme Corp")
 	want := []string{
 		"azure-account|acmecorp", "azure-account|acmecorpbackup", "azure-account|acmecorpbackups",
@@ -241,7 +241,7 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 	}
 	n := len(x.src["s3.amazonaws.com"].requestLog())
 
-	// Raising the cap adds only the new checks.
+	// Raising the cap adds only the new jobs.
 	x.mustRun("--passive", "--storage-max-names", "5", "--org", "Acme Corp")
 	got2 := x.completedKeys("storage")
 	if len(got2) <= len(got) {

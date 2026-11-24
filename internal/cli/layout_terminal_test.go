@@ -46,10 +46,10 @@ func assertNoKeyPieces(t *testing.T, key, out string) {
 	}
 }
 
-// warnStage emits supplied warning messages.
-func warnStage(msgs ...string) *testkit.Stage {
-	return &testkit.Stage{StageName: "warner", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+// warnProcedure emits supplied warning messages.
+func warnProcedure(msgs ...string) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: "warner", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			for _, m := range msgs {
 				v.Warn("%s", m)
 			}
@@ -108,7 +108,7 @@ func TestLayout_StderrWidth(t *testing.T) {
 	words := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 12)) // 275 cells
 	run1 := func(t *testing.T, width func() int, set bool) string {
 		t.Helper()
-		h := newHarness(t, warnStage(words))
+		h := newHarness(t, warnProcedure(words))
 		h.stderrTTY = true
 		h.setenv("NO_COLOR", "1")
 		d := h.deps()
@@ -136,7 +136,7 @@ func TestLayout_StderrWidth(t *testing.T) {
 		t.Errorf("a terminal of 70: widest line %d:\n%s", maxCells(out), out)
 	}
 	// stdout's width does not move stderr's.
-	h := newHarness(t, warnStage(words))
+	h := newHarness(t, warnProcedure(words))
 	h.stderrTTY = true
 	h.setenv("NO_COLOR", "1")
 	h.stdoutWidth = 70
@@ -162,7 +162,7 @@ func TestLayout_LongWarningWraps(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			h := newHarness(t, warnStage(msg))
+			h := newHarness(t, warnProcedure(msg))
 			c.setup(h)
 			h.setenv("COLUMNS", "80")
 			if code := h.exec("a.com", "--quiet"); code != 0 {
@@ -208,9 +208,9 @@ func checkWrapped(t *testing.T, lines []string, indent int) {
 func TestLayout_JSONDebugLinesWrap(t *testing.T) {
 	t.Parallel()
 	words := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 12))
-	failing := &testkit.Stage{StageName: "bad", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("b", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	failing := &testkit.Procedure{ProcedureName: "bad", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("b", 1) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return nil, errors.New(words)
 		}}
 	var envelopes [2]string
@@ -237,7 +237,7 @@ func TestLayout_JSONDebugLinesWrap(t *testing.T) {
 func TestLayout_RunFitsEightyColumns(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor, palette.Color16} {
-		h := newHarness(t, someFindings(), failingCheck("boom"))
+		h := newHarness(t, someFindings(), failingJob("boom"))
 		if d == palette.None {
 			h.stdoutTTY, h.stderrTTY = true, true
 			h.setenv("NO_COLOR", "1")
@@ -260,7 +260,7 @@ func TestLayout_RunFitsEightyColumns(t *testing.T) {
 func TestLayout_RunWritesOnlyPaletteSequences(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
-		h := newHarness(t, someFindings(), failingCheck("boom"))
+		h := newHarness(t, someFindings(), failingJob("boom"))
 		colourAt(t, h, d)
 		h.setenv("COLUMNS", "80")
 		if code := h.exec("a.com", "--debug"); code != 7 {
@@ -275,7 +275,7 @@ func TestLayout_RunWritesOnlyPaletteSequences(t *testing.T) {
 func TestLayout_UncolouredTerminalsHaveNoEscape(t *testing.T) {
 	t.Parallel()
 	for name, env := range map[string]map[string]string{"NO_COLOR": {"NO_COLOR": "1"}, "dumb": {"TERM": "dumb"}} {
-		h := newHarness(t, someFindings(), failingCheck("boom"))
+		h := newHarness(t, someFindings(), failingJob("boom"))
 		h.stdoutTTY, h.stderrTTY = true, true
 		h.setenv("COLORTERM", "truecolor")
 		for k, v := range env {
@@ -339,7 +339,7 @@ func TestLayout_PaletteSheetOnATerminal(t *testing.T) {
 	}
 }
 
-// Stage notes are cleaned/redacted before wrapping so controls or split keys cannot survive
+// Procedure notes are cleaned/redacted before wrapping so controls or split keys cannot survive
 // layout.
 func TestLayout_SummaryNoteIsCleanedBeforeLayout(t *testing.T) {
 	t.Parallel()
@@ -352,7 +352,7 @@ func TestLayout_SummaryNoteIsCleanedBeforeLayout(t *testing.T) {
 	}
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 		for _, note := range notes {
-			h := newHarness(t, noteStage{&testkit.Stage{StageName: "noter", Kind: run.ThirdParty}, note})
+			h := newHarness(t, noteProcedure{&testkit.Procedure{ProcedureName: "noter", Kind: run.ThirdParty}, note})
 			h.setKey("fake", key)
 			h.setenv("COLUMNS", "60")
 			if d == palette.None {

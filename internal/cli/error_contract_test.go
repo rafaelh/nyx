@@ -146,7 +146,7 @@ func TestContract_TerminalCharactersStripped(t *testing.T) {
 // and nothing is created or contacted.
 func TestContract_EveryProblemInOneError(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	for _, jsonMode := range []bool{false, true} {
-		h := newHarness(t, defaultStageList()...)
+		h := newHarness(t, defaultProcedureList()...)
 		cwd := emptyDir(t)
 		missing := filepath.Join(t.TempDir(), "absent.txt")
 		args := []string{"--concurrency", "abc", "--redo", "nope", "--skip", "resolve", "bad_domain.com",
@@ -244,7 +244,7 @@ func TestContract_NetblockLimit(t *testing.T) {
 		{[]string{"-q"}, nil},
 	} {
 		prefix := "10.0.0.0/22" // 1024 addresses
-		later := &testkit.Stage{StageName: "later", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("a", 1) }}
+		later := &testkit.Procedure{ProcedureName: "later", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("a", 1) }}
 		h := newHarness(t, newASN(), later)
 		asnServer(t, h, &prefix)
 		args := append(slices.Clone(c.before), "recon", "--output-dir", h.out, "--asn", "64500", "--netblock-limit", "1000")
@@ -299,8 +299,8 @@ func TestContract_CancelledContextIsAnInterrupt(t *testing.T) {
 	for _, jsonMode := range []bool{false, true} {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 2) },
-			RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+		st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 2) },
+			RunFn: func(ctx context.Context, _ run.Job, _ egress.Clients) ([]run.Observation, error) {
 				cancel()
 				<-ctx.Done()
 				return nil, ctx.Err()
@@ -326,8 +326,8 @@ func TestContract_CancelledContextIsAnInterrupt(t *testing.T) {
 		}
 	}
 	// A deadline is not an interrupt.
-	h := newHarness(t, &testkit.Stage{StageName: "slow", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+	h := newHarness(t, &testkit.Procedure{ProcedureName: "slow", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(ctx context.Context, _ run.Job, _ egress.Clients) ([]run.Observation, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}})
@@ -393,13 +393,13 @@ func TestContract_PanicIsAnUnexpectedFailure(t *testing.T) {
 	}
 }
 
-// Check panics do not stop other checks and remain pending for retry next run.
-func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
+// Job panics do not stop other jobs and remain pending for retry next run.
+func TestContract_PanicInAJobFailsOnlyThatJob(t *testing.T) {
 	t.Parallel()
 	panics := map[string]bool{"c001": true, "c003": true, "c005": true}
 	var armed = true
-	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 6) },
-		RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 6) },
+		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			if armed && panics[c.Key] {
 				panic("check boom " + c.Key)
 			}
@@ -425,10 +425,10 @@ func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 		t.Errorf("retried %v", got)
 	}
 
-	// A panic while a stage lists its checks fails the enumeration, and the run
-	// carries on to the next stage.
-	enum := &testkit.Stage{StageName: "enum", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { panic("enum boom") }}
-	after := &testkit.Stage{StageName: "after", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("a", 1) }}
+	// A panic while a procedure lists its jobs fails the enumeration, and the run
+	// carries on to the next procedure.
+	enum := &testkit.Procedure{ProcedureName: "enum", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { panic("enum boom") }}
+	after := &testkit.Procedure{ProcedureName: "after", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("a", 1) }}
 	h = newHarness(t, enum, after)
 	if code := h.exec("a.com", "--json"); code != 7 {
 		t.Fatalf("exit %d\n%s", code, h.stderr.String())
@@ -445,7 +445,7 @@ func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 // contact.
 func TestContract_NoPrompt(t *testing.T) {
 	t.Parallel()
-	st := ackStage()
+	st := ackProcedure()
 	h := newHarness(t, st)
 	h.stdoutTTY, h.stderrTTY = true, true
 	h.setenv("NO_COLOR", "1") // terminals, with plain lines to read
@@ -479,7 +479,7 @@ func TestContract_NoPrompt(t *testing.T) {
 
 // A .env file in the working directory changes nothing.
 func TestContract_DotEnvIsNotLoaded(t *testing.T) {
-	keyed := &testkit.Stage{StageName: "keyed", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("k", 1) },
+	keyed := &testkit.Procedure{ProcedureName: "keyed", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("k", 1) },
 		ConfiguredFn: func(e run.Env) (bool, string) {
 			if e.Settings.Keys["fake"].Reveal() == "" {
 				return false, "no key"

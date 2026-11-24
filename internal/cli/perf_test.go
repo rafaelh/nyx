@@ -56,7 +56,7 @@ func copyFile(t *testing.T, src, dst string) {
 	}
 }
 
-// TestPerfLargeEngagement profiles local processing with real passive stages and fake sources.
+// TestPerfLargeEngagement profiles local processing with real passive procedures and fake sources.
 // Enable the perf tag and use -cpuprofile to capture a profile.
 func TestPerfLargeEngagement(t *testing.T) {
 	t.Parallel()

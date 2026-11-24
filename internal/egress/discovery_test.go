@@ -64,7 +64,7 @@ func thirdPartyEgress(t *testing.T, base map[string]string, opts egress.Options)
 }
 
 // thirdPartyServer serves h as each of sources (api.example.net if none is
-// given) and returns the client of a stage with those sources.
+// given) and returns the client of a procedure with those sources.
 func thirdPartyServer(t *testing.T, h http.HandlerFunc, opts egress.Options, sources ...string) egress.ThirdPartyHTTP {
 	t.Helper()
 	srv := httptest.NewServer(h)
@@ -119,7 +119,7 @@ func TestThirdPartyTimeout(t *testing.T) {
 	}
 }
 
-// The client puts the key into the JSON body; the stage never sees it.
+// The client puts the key into the JSON body; the procedure never sees it.
 func TestThirdPartyKeyBodyField(t *testing.T) {
 	t.Parallel()
 	var got map[string]any

@@ -11,11 +11,11 @@ import (
 // second.
 const (
 	rolePointer  = "pointer"   // the selection arrow
-	roleName     = "name"      // a key's, setting's or stage's name; the active tab
+	roleName     = "name"      // a key's, setting's or procedure's name; the active tab
 	roleNameDim  = "name-dim"  //
 	roleValue    = "value"     // a key or a setting's value
 	roleValueDim = "value-dim" //
-	roleFaint    = "faint"     // an unset key, the rule under the tabs, a skipped stage
+	roleFaint    = "faint"     // an unset key, the rule under the tabs, a skipped procedure
 	roleHelp     = "help"      // explanatory text and what a key does
 	roleKey      = "key"       // a key to press
 	roleGood     = "good"      // an accepted key, a save

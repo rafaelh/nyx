@@ -39,11 +39,11 @@ func colourAt(t *testing.T, h *harness, d palette.Depth) {
 	}
 }
 
-// finder is a stage that records the observations once.
-func finder(name string, observations ...run.Observation) *testkit.Stage {
-	return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+// finder is a procedure that records the observations once.
+func finder(name string, observations ...run.Observation) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return observations, nil
 		}}
 }
@@ -52,15 +52,15 @@ func findingObs(key, severity string) run.Observation {
 	return obs("finding", key, "category", "exposed", "severity", severity, "target", "https://a.com/"+key, "detail", "d"+key)
 }
 
-func someFindings() *testkit.Stage {
+func someFindings() *testkit.Procedure {
 	return finder("s", obs("hostname", "www.a.com"), findingObs("h", "high"), findingObs("m", "medium"), findingObs("l", "low"))
 }
 
-// failingCheck is a stage with three checks, the second of which fails.
-func failingCheck(msg string) *testkit.Stage {
-	return &testkit.Stage{StageName: "mixed", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("m", 3) },
-		RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+// failingJob is a procedure with three jobs, the second of which fails.
+func failingJob(msg string) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: "mixed", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("m", 3) },
+		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			if c.Key == "m001" {
 				return nil, errors.New(msg)
 			}
@@ -68,8 +68,8 @@ func failingCheck(msg string) *testkit.Stage {
 		}}
 }
 
-func targetStage(name string) *testkit.Stage {
-	return &testkit.Stage{StageName: name, Kind: run.Target, ChecksFn: func(run.View) []run.Check { return testkit.Keys("t", 1) }}
+func targetProcedure(name string) *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: name, Kind: run.Target, JobsFn: func(run.View) []run.Job { return testkit.Keys("t", 1) }}
 }
 
 // summaryOnly says stdout holds the summary and nothing else.
@@ -130,8 +130,8 @@ func TestLog_RunsWithoutASummaryWriteNothingToStdout(t *testing.T) {
 	t.Run("interrupted", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 2) },
-			RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+		st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 2) },
+			RunFn: func(ctx context.Context, _ run.Job, _ egress.Clients) ([]run.Observation, error) {
 				cancel()
 				<-ctx.Done()
 				return nil, ctx.Err()
@@ -192,29 +192,29 @@ func TestLog_LineLayoutAndTimeZone(t *testing.T) {
 	}
 }
 
-// Warnings are WARN lines with no flag; a failed stage is ERROR; a check failure is DEBUG only.
+// Warnings are WARN lines with no flag; a failed procedure is ERROR; a job failure is DEBUG only.
 func TestLog_Levels(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
-	warner := &testkit.Stage{StageName: "warner", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+	warner := &testkit.Procedure{ProcedureName: "warner", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			n := calls.Add(1)
 			v.Warn("technology detection is off")
 			v.Warn("seen %d passes", n)
 			return testkit.Keys("w", 1)
 		},
-		RunFn: func(ctx context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			run.Warnf(ctx, "result for %s was truncated", c.Key)
 			return nil, nil
 		}}
-	quota := &testkit.Stage{StageName: "quota", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("q", 2) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	quota := &testkit.Procedure{ProcedureName: "quota", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("q", 2) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return nil, fmt.Errorf("429: %w", run.ErrQuota)
 		}}
-	failing := &testkit.Stage{StageName: "failing", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("f", 2) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	failing := &testkit.Procedure{ProcedureName: "failing", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("f", 2) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return nil, errors.New("source unavailable")
 		}}
 	h := newHarness(t, warner, quota, failing)
@@ -242,7 +242,7 @@ func TestLog_Levels(t *testing.T) {
 	if count("result for w000 was truncated") != 1 || count("quota: quota spent or key rejected; 2 checks will be retried next run") != 1 {
 		t.Errorf("Warnf and quota warnings: %q", warns)
 	}
-	// A completely failed stage uses ERROR severity.
+	// A completely failed procedure uses ERROR severity.
 	if msgs := h.logMsgs("ERROR"); len(msgs) != 2 || !strings.HasPrefix(msgs[0], "quota          failed") || !strings.HasPrefix(msgs[1], "failing        failed") {
 		t.Errorf("ERROR lines = %q", msgs)
 	}
@@ -261,11 +261,11 @@ func TestLog_Levels(t *testing.T) {
 	}
 }
 
-// An isolated failed check is counted while others succeed; details appear only in debug
+// An isolated failed job is counted while others succeed; details appear only in debug
 // output.
-func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
+func TestLog_FailedJobIsDebugOnly(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, failingCheck("boom"))
+	h := newHarness(t, failingJob("boom"))
 	if code := h.exec("a.com"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
@@ -304,12 +304,12 @@ func notAuthorisedWarnings(h *harness) []string {
 	return out
 }
 
-// The authorisation warning names the stages left out, once, before any stage line.
+// The authorisation warning names the procedures left out, once, before any procedure line.
 func TestLog_AuthorisationWarning(t *testing.T) {
 	t.Parallel()
 	const tail = "; --authorised confirms authorisation"
-	mk := func() []run.Stage {
-		return []run.Stage{finder("src"), targetStage("probe"), targetStage("crawl2")}
+	mk := func() []run.Procedure {
+		return []run.Procedure{finder("src"), targetProcedure("probe"), targetProcedure("crawl2")}
 	}
 
 	t.Run("names the stages, after the header and before any stage line", func(t *testing.T) {
@@ -372,17 +372,17 @@ func TestLog_AuthorisationWarning(t *testing.T) {
 }
 
 // checkInterruptedRunWarns checks that a run interrupted during its first
-// check still shows the authorisation warning.
+// job still shows the authorisation warning.
 func checkInterruptedRunWarns(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	first := &testkit.Stage{StageName: "src", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(ctx context.Context, _ run.Check, _ egress.Clients) ([]run.Observation, error) {
+	first := &testkit.Procedure{ProcedureName: "src", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(ctx context.Context, _ run.Job, _ egress.Clients) ([]run.Observation, error) {
 			cancel()
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}}
-	h := newHarness(t, first, targetStage("probe"))
+	h := newHarness(t, first, targetProcedure("probe"))
 	if code := h.execCtx(ctx, "a.com"); code != 130 {
 		t.Fatalf("exit %d", code)
 	}
@@ -391,9 +391,9 @@ func checkInterruptedRunWarns(t *testing.T) {
 	}
 }
 
-// With the default registry the warning names exactly the stages whose line
+// With the default registry the warning names exactly the procedures whose line
 // reads not-configured (no authorisation).
-func TestLog_AuthorisationWarningMatchesTheStageLines(t *testing.T) {
+func TestLog_AuthorisationWarningMatchesTheProcedureLines(t *testing.T) {
 	t.Parallel()
 	w := newWorldWith(t, "takeover", "sensitive-paths")
 	if code := w.run("example.com"); code != 0 {
@@ -417,10 +417,10 @@ func TestLog_AuthorisationWarningMatchesTheStageLines(t *testing.T) {
 // --quiet, --debug and the flags that are gone.
 func TestLog_Flags(t *testing.T) {
 	t.Parallel()
-	stages := func() []run.Stage {
-		return []run.Stage{
-			&testkit.Stage{StageName: "warns", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { v.Warn("careful"); return testkit.Keys("w", 1) }},
-			failingCheck("boom"),
+	procedures := func() []run.Procedure {
+		return []run.Procedure{
+			&testkit.Procedure{ProcedureName: "warns", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { v.Warn("careful"); return testkit.Keys("w", 1) }},
+			failingJob("boom"),
 		}
 	}
 	levels := func(h *harness) string {
@@ -445,7 +445,7 @@ func TestLog_Flags(t *testing.T) {
 		{[]string{"-q"}, "WARN"},
 		{[]string{"--debug"}, "DEBUG,INFO,WARN"},
 	} {
-		h := newHarness(t, stages()...)
+		h := newHarness(t, procedures()...)
 		if code := h.exec(append([]string{"a.com"}, c.args...)...); code != 7 {
 			t.Fatalf("%v: exit %d\n%s", c.args, code, h.stderr.String())
 		}
@@ -455,7 +455,7 @@ func TestLog_Flags(t *testing.T) {
 		summaryOnly(t, h) // the summary is printed whatever the level
 	}
 
-	h := newHarness(t, stages()...)
+	h := newHarness(t, procedures()...)
 	if code := h.exec("a.com", "--quiet", "--debug"); code != 2 || h.stdout.Len() != 0 || !strings.HasPrefix(h.stderr.String(), "error: ") {
 		t.Errorf("--quiet --debug: exit %d, stdout %q, stderr %q", code, h.stdout.String(), h.stderr.String())
 	}
@@ -464,7 +464,7 @@ func TestLog_Flags(t *testing.T) {
 	}
 
 	// Neither is a setting.
-	h = newHarness(t, stages()...)
+	h = newHarness(t, procedures()...)
 	h.setenv("NYX_QUIET", "1")
 	h.setenv("NYX_DEBUG", "1")
 	if code := h.exec("a.com"); code != 7 {
@@ -475,14 +475,14 @@ func TestLog_Flags(t *testing.T) {
 	}
 	for _, key := range []string{"quiet", "debug"} {
 		cfg := writeFile(t, t.TempDir(), "config.yaml", key+": true\n")
-		h := newHarness(t, stages()...)
+		h := newHarness(t, procedures()...)
 		if code := h.exec("a.com", "--config", cfg); code != 2 || !strings.Contains(h.stderr.String(), key) {
 			t.Errorf("%s in a config file: exit %d, stderr %q", key, code, h.stderr.String())
 		}
 	}
 }
 
-// Header, stage and count messages keep their text; found lines carry the severity badge.
+// Header, procedure and count messages keep their text; found lines carry the severity badge.
 func TestLog_FoundLinesPlain(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, someFindings())
@@ -547,7 +547,7 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 	if !strings.Contains(h.stderr.String(), "\x1b[38;2;169;177;198;48;2;42;47;58m weird    \x1b[0m") {
 		t.Errorf("unknown severity is not in the DEBUG style:\n%q", h.stderr.String())
 	}
-	// A finding line with text of its own, and a stage line, colour only what the layout names.
+	// A finding line with text of its own, and a procedure line, colour only what the layout names.
 	h = newHarness(t, st)
 	colourAt(t, h, palette.TrueColor)
 	h.exec("a.com")
@@ -566,7 +566,7 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 // are bold on a coloured stdout and nothing else is styled.
 func TestLog_Summary(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, someFindings(), failingCheck("boom"))
+	h := newHarness(t, someFindings(), failingJob("boom"))
 	if code := h.exec("a.com", "--quiet"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
@@ -584,7 +584,7 @@ func TestLog_Summary(t *testing.T) {
 
 	// Terminal summary headings/tables use semantic palette roles plus finding badges.
 	d := palette.TrueColor
-	h = newHarness(t, someFindings(), failingCheck("boom"))
+	h = newHarness(t, someFindings(), failingJob("boom"))
 	colourAt(t, h, d)
 	h.stderrTTY = false
 	h.setenv("COLUMNS", "80")
@@ -611,7 +611,7 @@ func TestLog_Summary(t *testing.T) {
 		t.Errorf("stderr is not a terminal here, yet it has an escape:\n%q", h.stderr.String())
 	}
 	// Uncoloured, the rule is - and the table has no escape.
-	h = newHarness(t, someFindings(), failingCheck("boom"))
+	h = newHarness(t, someFindings(), failingJob("boom"))
 	h.stdoutTTY = true
 	h.setenv("NO_COLOR", "1")
 	h.setenv("COLUMNS", "80")
@@ -694,14 +694,14 @@ func TestLog_ColourDepth(t *testing.T) {
 func TestLog_JSON(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
-	mk := func() []run.Stage {
-		warns := &testkit.Stage{StageName: "warns", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { v.Warn("careful"); return testkit.Keys("w", 1) }}
-		bad := &testkit.Stage{StageName: "bad", Kind: run.ThirdParty,
-			ChecksFn: func(run.View) []run.Check { return testkit.Keys("b", 1) },
-			RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	mk := func() []run.Procedure {
+		warns := &testkit.Procedure{ProcedureName: "warns", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { v.Warn("careful"); return testkit.Keys("w", 1) }}
+		bad := &testkit.Procedure{ProcedureName: "bad", Kind: run.ThirdParty,
+			JobsFn: func(run.View) []run.Job { return testkit.Keys("b", 1) },
+			RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 				return nil, errors.New("GET /x?key=" + key + " failed")
 			}}
-		return []run.Stage{warns, bad, someFindings()}
+		return []run.Procedure{warns, bad, someFindings()}
 	}
 	var base string
 	for i, args := range [][]string{{}, {"--debug"}, {"--quiet"}} {
@@ -763,8 +763,8 @@ func TestLog_MessageHandling(t *testing.T) {
 	splitByBell := "sekret-\x07key-4242"
 	splitByCSI := "tail " + strings.Repeat("s", 40) + " sekret-\x1b[2Jkey-4242 " + strings.Repeat("s", 40)
 	splitInLongWord := strings.Repeat("q", 60) + "sekret-\x1b]0;t\x07key-4242" + strings.Repeat("q", 60)
-	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			v.Warn("warned %s %s", evil, key)
 			v.Warn("%s", long)
 			for _, m := range []string{atBreaks, hardBroken, splitByBell, splitByCSI, splitInLongWord} {
@@ -772,7 +772,7 @@ func TestLog_MessageHandling(t *testing.T) {
 			}
 			return testkit.Keys("c", 2)
 		},
-		RunFn: func(ctx context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			if c.Key == "c001" {
 				return nil, errors.New("failed " + evil + " " + key + " " + splitByBell)
 			}
@@ -920,7 +920,7 @@ func TestLog_Palette(t *testing.T) {
 	if !strings.Contains(col, esc) || !strings.Contains(stripSGR(col), "\n"+strings.Repeat(" ", 21)+"continued") {
 		t.Errorf("coloured sheet:\n%q", col)
 	}
-	// Terminal palette previews exercise tables, badges, stage states, findings and
+	// Terminal palette previews exercise tables, badges, procedure states, findings and
 	// wrapping.
 	d := palette.TrueColor
 	for _, want := range []string{
@@ -971,19 +971,19 @@ func TestLog_Help(t *testing.T) {
 	}
 }
 
-// The otx and anubis stages are gone; what they found stays.
+// The otx and anubis procedures are gone; what they found stays.
 func TestLog_OTXAndAnubisAreRemoved(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"otx", "anubis"} {
 		for _, flag := range []string{"--redo", "--skip"} {
-			h := newHarness(t, cli.DefaultDeps().Stages...)
+			h := newHarness(t, cli.DefaultDeps().Procedures...)
 			if code := h.exec("--passive", flag, name, "example.com"); code != 2 || !strings.Contains(h.stderr.String(), "unknown stage") {
 				t.Errorf("%s %s: exit %d, stderr %q", flag, name, code, h.stderr.String())
 			}
 		}
 	}
-	h := newHarness(t, cli.DefaultDeps().Stages...)
-	if topic := h.stagesHelp(); stageRow(topic, "otx") != "" || stageRow(topic, "anubis") != "" {
+	h := newHarness(t, cli.DefaultDeps().Procedures...)
+	if topic := h.proceduresHelp(); procedureRow(topic, "otx") != "" || procedureRow(topic, "anubis") != "" {
 		t.Errorf("help stages lists them:\n%s", topic)
 	}
 
@@ -1002,7 +1002,7 @@ func TestLog_OTXAndAnubisAreRemoved(t *testing.T) {
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}
-	h.stages = []run.Stage{noop()}
+	h.procedures = []run.Procedure{noop()}
 	if code := h.exec("-e", "a.com"); code != 0 {
 		t.Fatal(h.stderr.String())
 	}

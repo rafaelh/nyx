@@ -1,4 +1,4 @@
-// Package inventory derives shared views of stored records for output, stages and egress
+// Package inventory derives shared views of stored records for output, procedures and egress
 // policy. It identifies wildcard-only names, provider infrastructure and addresses eligible for
 // port checks. These views are recalculated from records so new discoveries and updated
 // provider data take effect immediately.
@@ -19,10 +19,10 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Host is a hostname record and the stages currently observing it.
+// Host is a hostname record and the procedures currently observing it.
 type Host struct {
-	Name   string
-	Stages []string
+	Name      string
+	Producers []string
 }
 
 // Resolution represents a DNS answer. A/AAAA rows associate the queried name with an address;
@@ -258,7 +258,7 @@ func (i *Inventory) Representatives(sc *scope.Scope) map[string]string {
 // beneath them would not reveal distinct hosts.
 func (i *Inventory) WildcardZone(name string) bool { return i.zone[name] }
 
-// Seeds selects in-scope names observed by stages other than the generator. It excludes
+// Seeds selects in-scope names observed by procedures other than the generator. It excludes
 // wildcard-only names and names whose parent is outside scope or a wildcard zone. This avoids
 // splitting an apex at its public suffix and feeding generated names back into discovery.
 func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
@@ -268,7 +268,7 @@ func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 			!sc.HostInScope(parent(h.Name)) {
 			continue
 		}
-		if slices.ContainsFunc(h.Stages, func(s string) bool { return s != generator }) {
+		if slices.ContainsFunc(h.Producers, func(s string) bool { return s != generator }) {
 			out = append(out, h.Name)
 		}
 	}

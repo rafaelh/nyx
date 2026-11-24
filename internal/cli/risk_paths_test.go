@@ -93,7 +93,7 @@ func TestSensitivePaths_RequestedOnceAndMatched(t *testing.T) {
 	if www.count("/.env") != 1 || plain.count("/.env") != 1 {
 		t.Error("a second run repeated a completed check")
 	}
-	// A redone stage asks again.
+	// A redone procedure asks again.
 	x.mustRun("--crawl-pages", "0", "--sensitive-paths", x.pathsFile(pathsYAML), "--redo", "sensitive-paths")
 	if www.count("/.env") != 2 {
 		t.Errorf("--redo sensitive-paths: /.env requested %d times", www.count("/.env"))
@@ -237,7 +237,7 @@ func TestSensitivePaths_EditedEntrySupersedesOldHit(t *testing.T) {
 	if got := x.summaryTargets(); slices.Contains(got, "http://www.example.com/.git/config=high") {
 		t.Errorf("the superseded hit is still in the summary: %v", got)
 	}
-	// Restoring the entry asks again, since the old check was forgotten.
+	// Restoring the entry asks again, since the old job was forgotten.
 	x.mustRun("--crawl-pages", "0", "--sensitive-paths", x.pathsFile(pathsYAML))
 	if s.count("/.git/config") != 3 {
 		t.Errorf("restored entry: .git/config requested %d times", s.count("/.git/config"))

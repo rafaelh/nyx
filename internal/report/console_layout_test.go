@@ -173,7 +173,7 @@ func TestConsoleFoundLineWraps(t *testing.T) {
 	}
 }
 
-// Stage state words alone gain semantic message colour; non-failing state levels remain INFO.
+// Procedure state words alone gain semantic message colour; non-failing state levels remain INFO.
 func TestConsoleStateWords(t *testing.T) {
 	t.Parallel()
 	for _, d := range depths {

@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// families mirrors stage-declared source families for ranking tests.
+// families mirrors procedure-declared source families for ranking tests.
 var families = candidates.NewFamilies(map[string]string{
 	"crtsh": candidates.CertTransparency, "certspotter": candidates.CertTransparency, "wayback": candidates.WebArchive,
 	"reverseip": candidates.ReverseIP, "rdap": candidates.Registrant, "whoisxml": candidates.Registrant, "org-asn": candidates.Registrant,
@@ -99,7 +99,7 @@ func TestFamiliesOf(t *testing.T) {
 	}
 }
 
-// A family a stage names takes the place of a retired source's.
+// A family a procedure names takes the place of a retired source's.
 func TestFamiliesNamedOverRetired(t *testing.T) {
 	t.Parallel()
 	f := candidates.NewFamilies(map[string]string{"otx": "otx"})

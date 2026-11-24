@@ -12,10 +12,10 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Records adapts stage and findings readers to current-kind access.
+// Records adapts procedure and findings readers to current-kind access.
 type Records func(kinds.Named) []store.Record
 
-// Pair includes a candidate and the fronted host's HTTPS probe data needed for checks and
+// Pair includes a candidate and the fronted host's HTTPS probe data needed for jobs and
 // findings.
 type Pair struct {
 	Candidate
@@ -31,9 +31,9 @@ func (p Pair) Key() string {
 	return kinds.OriginCheck.Key(kinds.OriginCheckAttrs{Host: p.Host, Addr: p.Addr.String()})
 }
 
-// CheckKey includes the pair and a hash of the probed title/certificate subject so changes
+// JobKey includes the pair and a hash of the probed title/certificate subject so changes
 // trigger another origin check.
-func (p Pair) CheckKey() string {
+func (p Pair) JobKey() string {
 	sum := sha256.Sum256([]byte(p.Probe.Title + "\x00" + p.CertSubject))
 	return p.Key() + "|" + hex.EncodeToString(sum[:4])
 }

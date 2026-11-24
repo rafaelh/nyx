@@ -14,8 +14,8 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Event drives console progress: run_start, stage, found, count, warning and debug. Summary
-// output is separate. Debug events include failed-check details.
+// Event drives console progress: run_start, procedure, found, count, warning and debug. Summary
+// output is separate. Debug events include failed-job details.
 type Event struct {
 	Type   string
 	Fields map[string]any
@@ -158,7 +158,7 @@ func str(f map[string]any, k string) string {
 	}
 }
 
-// Emit maps run_start/found/count to INFO, stage failures to ERROR, other stages to INFO,
+// Emit maps run_start/found/count to INFO, procedure failures to ERROR, other procedures to INFO,
 // warnings to WARN and debug to DEBUG. Unknown types are ignored.
 func (c *Console) Emit(ev Event) {
 	level, ok := eventLevel(ev)
@@ -218,9 +218,9 @@ func badgeSpan(s layout.Stream, c palette.Category, value string) layout.Span {
 	return layout.Span{Text: value, Style: func(x string) string { return s.Depth.Value(c, x) }, Keep: true}
 }
 
-// stageSpans keeps the padded stage name whole, colours its state on terminals and leaves
+// procedureSpans keeps the padded procedure name whole, colours its state on terminals and leaves
 // reason/counts plain.
-func stageSpans(s layout.Stream, name, state, reason, checks, failed string) []layout.Span {
+func procedureSpans(s layout.Stream, name, state, reason, jobs, failed string) []layout.Span {
 	spans := []layout.Span{
 		{Text: fmt.Sprintf("%-14s", name), Keep: true},
 		{Text: " "},
@@ -231,7 +231,7 @@ func stageSpans(s layout.Stream, name, state, reason, checks, failed string) []l
 		rest += " (" + reason + ")"
 	}
 	if state == "done" {
-		rest += fmt.Sprintf(" (%s checks, %s failed)", checks, failed)
+		rest += fmt.Sprintf(" (%s checks, %s failed)", jobs, failed)
 	}
 	if rest != "" {
 		spans = append(spans, layout.Span{Text: rest})
@@ -269,7 +269,7 @@ func (c *Console) message(ev Event) (msg []layout.Span) {
 		}
 		msg = layout.Plain(m)
 	case "stage":
-		msg = stageSpans(s, str(f, "name"), str(f, "state"), str(f, "reason"), str(f, "checks"), str(f, "failed"))
+		msg = procedureSpans(s, str(f, "name"), str(f, "state"), str(f, "reason"), str(f, "checks"), str(f, "failed"))
 	case "found":
 		msg = foundSpans(s, str(f, "category"), str(f, "value"), str(f, "text"), str(f, "severity"))
 	case "count":

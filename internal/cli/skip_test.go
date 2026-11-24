@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// Explicit skipping takes priority over other stage-gating reasons and performs no work.
-func TestSkip_StateAndNoChecks(t *testing.T) {
+// Explicit skipping takes priority over other procedure-gating reasons and performs no work.
+func TestSkip_StateAndNoJobs(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.crtsh(map[string][]string{"example.com": {"a.example.com"}}, nil)
@@ -45,7 +45,7 @@ func TestSkip_StateAndNoChecks(t *testing.T) {
 	}
 }
 
-// Skipping marks nothing not current: what a stage found earlier stays.
+// Skipping marks nothing not current: what a procedure found earlier stays.
 func TestSkip_KeepsEarlierResults(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -79,10 +79,10 @@ func TestSkip_InvalidExits2(t *testing.T) {
 	t.Parallel()
 	protected := []string{"resolve", "wildcard", "ipowner", "providerranges"}
 	type tc struct {
-		name        string
-		args        []string
-		want        string // in the message
-		listsStages bool   // the message names the stages that can be skipped
+		name            string
+		args            []string
+		want            string // in the message
+		listsProcedures bool   // the message names the procedures that can be skipped
 	}
 	cases := []tc{
 		{"unknown stage", []string{"--skip", "nonesuch"}, "nonesuch", true},
@@ -100,14 +100,14 @@ func TestSkip_InvalidExits2(t *testing.T) {
 				t.Fatalf("exit %d, want 2", code)
 			}
 			f := w.h.theError(true)
-			msg := f.msg + "; " + f.hint // the valid stages are in the hint
+			msg := f.msg + "; " + f.hint // the valid procedures are in the hint
 			if !strings.Contains(msg, c.want) {
 				t.Errorf("message %q does not mention %q", msg, c.want)
 			}
-			if c.listsStages {
-				for _, stage := range []string{"crtsh", "hackertarget", "certspotter"} {
-					if !strings.Contains(msg, stage) {
-						t.Errorf("message does not list the stage names (missing %s): %q", stage, msg)
+			if c.listsProcedures {
+				for _, procedure := range []string{"crtsh", "hackertarget", "certspotter"} {
+					if !strings.Contains(msg, procedure) {
+						t.Errorf("message does not list the stage names (missing %s): %q", procedure, msg)
 					}
 				}
 			}
@@ -118,7 +118,7 @@ func TestSkip_InvalidExits2(t *testing.T) {
 	}
 }
 
-// Naming an unknown stage in the config file exits 2 too.
+// Naming an unknown procedure in the config file exits 2 too.
 func TestSkip_InvalidSettingExits2(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)

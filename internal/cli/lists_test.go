@@ -30,14 +30,14 @@ func worldWithSeeds(t *testing.T, words string) (*world, string) {
 }
 
 // permRun runs the permutations on one root with a single worker, so names are
-// queried in the order the stage yields them.
+// queried in the order the procedure yields them.
 func permRun(w *world, wl string, args ...string) int {
 	full := append([]string{"--passive", "--concurrency", "1", "--wordlist", wl}, args...)
 	return w.run(append(full, "example.com")...)
 }
 
-// Process sorted roots before seeds, admitting exact-fit checks and deferring the first
-// overflow plus all later checks.
+// Process sorted roots before seeds, admitting exact-fit jobs and deferring the first
+// overflow plus all later jobs.
 func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
@@ -91,7 +91,7 @@ func TestListsPermutations_SeedIsNeverSplit(t *testing.T) {
 	}
 }
 
-// Always admit the run's first check so a tiny cap cannot prevent progress.
+// Always admit the run's first job so a tiny cap cannot prevent progress.
 func TestListsPermutations_RootAloneOverCapIsTaken(t *testing.T) {
 	t.Parallel()
 	w, wl := worldWithSeeds(t, "dev\ntest\nbeta\nold\nqa\nuat\nstg\nprod\nint\nlab\n")
@@ -207,7 +207,7 @@ func TestListsPermutations_InvalidCapExits2(t *testing.T) {
 
 // The first run after the list changes repeats every permutation check once;
 // the run after that repeats none.
-func TestListsPermutations_ChangedListRepeatsChecksOnce(t *testing.T) {
+func TestListsPermutations_ChangedListRepeatsJobsOnce(t *testing.T) {
 	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
 	permRun(w, wl, "--permutations-max", "5")
@@ -331,7 +331,7 @@ func TestListsSensitive_SeverityOrderAcrossServices(t *testing.T) {
 	}
 }
 
-// Deferral preserves older hits even when redo only repeats some checks.
+// Deferral preserves older hits even when redo only repeats some jobs.
 func TestListsSensitive_EarlierHitStaysCurrentWhenDeferring(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "sensitive-paths")

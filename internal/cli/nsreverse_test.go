@@ -10,7 +10,7 @@ import (
 	mdns "github.com/miekg/dns"
 )
 
-// Run real DNS/email/reverse-server stages against loopback SecurityTrails searches filtered by
+// Run real DNS/email/reverse-server procedures against loopback SecurityTrails searches filtered by
 // NS/MX.
 
 // stServers are the servers SecurityTrails' domain search was asked about, as
@@ -135,7 +135,7 @@ func TestNSReverse_MarkersInBothFiles(t *testing.T) {
 	}
 }
 
-// Without the key the stage is not-configured, nothing is fetched, and the
+// Without the key the procedure is not-configured, nothing is fetched, and the
 // markers are still produced.
 func TestNSReverse_WithoutKeyOnlyTheMarkers(t *testing.T) {
 	t.Parallel()
@@ -263,7 +263,7 @@ func TestNSReverse_ExcludedRootStaysExcluded(t *testing.T) {
 	}
 }
 
-// Changing caps reruns checks without duplicating stable server evidence.
+// Changing caps reruns jobs without duplicating stable server evidence.
 func TestNSReverse_ChangingTheCapAsksAgainWithoutCountingTwice(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, true)
@@ -281,7 +281,7 @@ func TestNSReverse_ChangingTheCapAsksAgainWithoutCountingTwice(t *testing.T) {
 // --- The cap ---
 
 // Reject over-cap servers before recording results; exact-cap results pass and raised caps
-// create new checks.
+// create new jobs.
 func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
 	t.Parallel()
 	x, st := sharedWorld(t, true)
@@ -342,9 +342,9 @@ func TestNSReverse_CapCountsPagesWithoutATotal(t *testing.T) {
 
 // --- Quota ---
 
-// A refused key or spent quota stops the stage, completes nothing, and the checks
+// A refused key or spent quota stops the procedure, completes nothing, and the jobs
 // are made on the next run.
-func TestNSReverse_QuotaStopsTheStage(t *testing.T) {
+func TestNSReverse_QuotaStopsTheProcedure(t *testing.T) {
 	t.Parallel()
 	x, st := sharedWorld(t, true)
 	st.setStatus(http.StatusTooManyRequests)
@@ -418,7 +418,7 @@ func TestNSReverse_NothingFoundIsContacted(t *testing.T) {
 	}
 }
 
-// Check-version tokens collect server addresses once for older engagements.
+// Job-version tokens collect server addresses once for older engagements.
 func TestNSReverse_ExistingEngagementLooksUpAddressesOnce(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, false)
@@ -439,7 +439,7 @@ func TestNSReverse_ExistingEngagementLooksUpAddressesOnce(t *testing.T) {
 		t.Errorf("an unchanged engagement asked again: %d", asked())
 	}
 
-	// Make the checks look like the ones an earlier build stored.
+	// Make the jobs look like the ones an earlier build stored.
 	if _, err := x.h.openDB(eng).Exec("UPDATE checks SET key = replace(key, '|addrs', '') WHERE stage IN ('dnsroot', 'email')"); err != nil {
 		t.Fatal(err)
 	}

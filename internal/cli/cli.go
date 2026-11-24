@@ -26,29 +26,29 @@ import (
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/procedures/asn"
+	"github.com/rafaelh/nyx/internal/procedures/dns"
+	"github.com/rafaelh/nyx/internal/procedures/dnshistory"
+	"github.com/rafaelh/nyx/internal/procedures/github"
+	"github.com/rafaelh/nyx/internal/procedures/nsreverse"
+	"github.com/rafaelh/nyx/internal/procedures/orgpivot"
+	"github.com/rafaelh/nyx/internal/procedures/ports"
+	"github.com/rafaelh/nyx/internal/procedures/providerranges"
+	"github.com/rafaelh/nyx/internal/procedures/rdap"
+	"github.com/rafaelh/nyx/internal/procedures/reverseip"
+	"github.com/rafaelh/nyx/internal/procedures/risk"
+	"github.com/rafaelh/nyx/internal/procedures/shodan"
+	"github.com/rafaelh/nyx/internal/procedures/subdomains"
+	"github.com/rafaelh/nyx/internal/procedures/web"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/sanitize"
-	"github.com/rafaelh/nyx/internal/stages/asn"
-	"github.com/rafaelh/nyx/internal/stages/dns"
-	"github.com/rafaelh/nyx/internal/stages/dnshistory"
-	"github.com/rafaelh/nyx/internal/stages/github"
-	"github.com/rafaelh/nyx/internal/stages/nsreverse"
-	"github.com/rafaelh/nyx/internal/stages/orgpivot"
-	"github.com/rafaelh/nyx/internal/stages/ports"
-	"github.com/rafaelh/nyx/internal/stages/providerranges"
-	"github.com/rafaelh/nyx/internal/stages/rdap"
-	"github.com/rafaelh/nyx/internal/stages/reverseip"
-	"github.com/rafaelh/nyx/internal/stages/risk"
-	"github.com/rafaelh/nyx/internal/stages/shodan"
-	"github.com/rafaelh/nyx/internal/stages/subdomains"
-	"github.com/rafaelh/nyx/internal/stages/web"
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
 // Deps supplies Execute's replaceable dependencies for production and tests.
 type Deps struct {
-	Stages      []run.Stage // in registry order
+	Procedures  []run.Procedure // in registry order
 	Files       []output.File
 	Egress      egress.Options
 	Stdout      io.Writer
@@ -93,8 +93,8 @@ type Deps struct {
 // separately.
 func DefaultDeps() Deps {
 	return Deps{
-		Version: versionString(debug.ReadBuildInfo()),
-		Stages:  defaultStages(), Files: output.Default(),
+		Version:    versionString(debug.ReadBuildInfo()),
+		Procedures: defaultProcedures(), Files: output.Default(),
 		Stdout: os.Stdout, Stderr: os.Stderr,
 		StdoutIsTTY: func() bool { return term.IsTerminal(int(os.Stdout.Fd())) },
 		StderrIsTTY: func() bool { return term.IsTerminal(int(os.Stderr.Fd())) },
@@ -170,7 +170,7 @@ func withDefaults(d Deps) Deps {
 	return d
 }
 
-// defaultStages orders sources before DNS and stages that consume their discoveries. Repeated
+// defaultProcedures orders sources before DNS and procedures that consume their discoveries. Repeated
 // passes pick up results found late. The port sweep runs last because it can take hours;
 // hostname probing runs first, and the next pass probes newly found ports.
 //
@@ -178,11 +178,11 @@ func withDefaults(d Deps) Deps {
 // netblockowner follows to supply abuse-check evidence. Storage follows crawling,
 // identifier-pivot follows web identifier collection, and origincheck follows DNS history and
 // web probing. dnshistory follows reverseip so both can use earlier address/name discoveries.
-func defaultStages() []run.Stage {
+func defaultProcedures() []run.Procedure {
 	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, hackertarget, urlscan, certspotter, censys, chaos
-	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
-	stages = append(stages, sub...)
-	return append(stages,
+	procedures := []run.Procedure{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
+	procedures = append(procedures, sub...)
+	return append(procedures,
 		github.New(), shodan.New(), shodan.NewDNS(), providerranges.New(),
 		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewNetblockOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
 		dnshistory.New(), risk.NewEmail(), nsreverse.New(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
@@ -477,9 +477,9 @@ func flagOf(err error) string {
 	return ""
 }
 
-func stageNames(stages []run.Stage) []string {
+func procedureNames(procedures []run.Procedure) []string {
 	var names []string
-	for _, s := range stages {
+	for _, s := range procedures {
 		names = append(names, s.Name())
 	}
 	return names

@@ -12,7 +12,7 @@ import (
 )
 
 // Sheet previews palette entries and real log formatting for checking terminal themes. It uses
-// now for sample timestamps. On terminals it also includes headings, tables, CVE bars, stage
+// now for sample timestamps. On terminals it also includes headings, tables, CVE bars, procedure
 // states, found events and an over-width message to exercise wrapping.
 func Sheet(w io.Writer, s layout.Stream, now time.Time) {
 	if s.Terminal {
@@ -74,7 +74,7 @@ func writeLayoutSamples(b *strings.Builder, s layout.Stream, now time.Time) {
 		{"running", "", Info}, {"done", "", Info}, {"done-previously", "", Info},
 		{"failed", "", Error}, {"not-configured", "no key", Info},
 	} {
-		b.WriteString(LineSpans(s, now, c.level, stageSpans(s, "crtsh", c.state, c.reason, "12", "1")) + "\n")
+		b.WriteString(LineSpans(s, now, c.level, procedureSpans(s, "crtsh", c.state, c.reason, "12", "1")) + "\n")
 	}
 	b.WriteString(LineSpans(s, now, Info, foundSpans(s, "finding", "https://app.example.com/admin", "", "high")) + "\n")
 	b.WriteString(LineSpans(s, now, Info, foundSpans(s, "host", "www.example.com", "", "")) + "\n")

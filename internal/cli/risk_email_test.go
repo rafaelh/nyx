@@ -198,7 +198,7 @@ func TestEmail_Severities(t *testing.T) {
 	}
 }
 
-// A SERVFAIL on _dmarc is a failed check, retried on the next run.
+// A SERVFAIL on _dmarc is a failed job, retried on the next run.
 func TestEmail_DMARCServfailIsTransient(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "email")
@@ -224,7 +224,7 @@ func TestEmail_DMARCServfailIsTransient(t *testing.T) {
 	}
 }
 
-// A SERVFAIL on an SPF include is a temperror: the check fails and is
+// A SERVFAIL on an SPF include is a temperror: the job fails and is
 // retried, instead of completing with a permanent spf-invalid.
 func TestEmail_IncludeServfailIsTransient(t *testing.T) {
 	t.Parallel()

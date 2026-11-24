@@ -9,8 +9,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// stagesHelp is the output of nyx help stages.
-func (h *harness) stagesHelp() string {
+// proceduresHelp is the output of nyx help procedures.
+func (h *harness) proceduresHelp() string {
 	h.t.Helper()
 	if code := h.execRoot("help", "stages"); code != 0 {
 		h.t.Fatalf("help stages: exit %d, stderr %q", code, h.stderr.String())
@@ -18,10 +18,10 @@ func (h *harness) stagesHelp() string {
 	return h.stdout.String()
 }
 
-// stageRow is the row of the stages topic for stage, or "" when it has none.
-func stageRow(topic, stage string) string {
+// procedureRow is the row of the procedures topic for procedure, or "" when it has none.
+func procedureRow(topic, procedure string) string {
 	for line := range strings.SplitSeq(topic, "\n") {
-		if f := strings.Fields(line); len(f) > 0 && strings.TrimSuffix(f[0], "*") == stage {
+		if f := strings.Fields(line); len(f) > 0 && strings.TrimSuffix(f[0], "*") == procedure {
 			return line
 		}
 	}
@@ -123,16 +123,16 @@ func helpOff(t *testing.T, args ...string) string {
 	return h.stdout.String()
 }
 
-// The stages topic follows registry order and marks required stages; recon help omits the full
+// The procedures topic follows registry order and marks required procedures; recon help omits the full
 // list.
-func TestHelp_StagesTopic(t *testing.T) {
+func TestHelp_ProceduresTopic(t *testing.T) {
 	t.Parallel()
-	stages := defaultStageList()
-	h := newHarness(t, stages...)
-	topic := h.stagesHelp()
+	procedures := defaultProcedureList()
+	h := newHarness(t, procedures...)
+	topic := h.proceduresHelp()
 	last := -1
-	for _, s := range stages {
-		row := stageRow(topic, s.Name())
+	for _, s := range procedures {
+		row := procedureRow(topic, s.Name())
 		if row == "" {
 			t.Errorf("%s is not listed", s.Name())
 			continue
@@ -175,14 +175,14 @@ func TestHelp_StagesTopic(t *testing.T) {
 		t.Error("the root help does not list nyx help stages")
 	}
 
-	// Terminal stages tables warn-colour target contact; detailed layout is tested
+	// Terminal procedures tables warn-colour target contact; detailed layout is tested
 	// separately.
 	colourAt(t, h, palette.TrueColor)
-	coloured := h.stagesHelp()
+	coloured := h.proceduresHelp()
 	if !strings.Contains(coloured, palette.TrueColor.Text(palette.Semantic, "warning", "target")) {
 		t.Errorf("target contact is not coloured:\n%s", coloured)
 	}
-	for _, s := range stages {
+	for _, s := range procedures {
 		if !strings.Contains(sgr.ReplaceAllString(coloured, ""), s.Name()) {
 			t.Errorf("%s is missing from the coloured topic", s.Name())
 		}

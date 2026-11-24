@@ -94,7 +94,7 @@ func TestCommonCrawl_PagesAreReadUntilThePastTheLastAnswer(t *testing.T) {
 	}
 }
 
-// Retry gateway overload responses and complete the check when the index recovers.
+// Retry gateway overload responses and complete the job when the index recovers.
 func TestCommonCrawl_AnOverloadedAnswerIsSentAgain(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -124,7 +124,7 @@ func TestCommonCrawl_AnOverloadedAnswerIsSentAgain(t *testing.T) {
 	}
 }
 
-// After three retries the request fails the check, which the next run retries.
+// After three retries the request fails the job, which the next run retries.
 func TestCommonCrawl_GivesUpAfterThreeRetries(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -136,7 +136,7 @@ func TestCommonCrawl_GivesUpAfterThreeRetries(t *testing.T) {
 	if st, _ := stateOf(w, "commoncrawl"); st != "failed" {
 		t.Errorf("commoncrawl = %s, want failed", st)
 	}
-	f := w.h.failedChecks("commoncrawl")
+	f := w.h.failedJobs("commoncrawl")
 	if len(f) != 1 || !strings.Contains(f[0].err, "HTTP 504") || !strings.Contains(f[0].err, "3 retries") {
 		t.Errorf("failures = %q, want the 504 and the retries", f)
 	}

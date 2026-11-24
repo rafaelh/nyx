@@ -22,7 +22,9 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-func noop() *testkit.Stage { return &testkit.Stage{StageName: "noop", Kind: run.ThirdParty} }
+func noop() *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: "noop", Kind: run.ThirdParty}
+}
 
 func obs(kind, key string, kv ...any) run.Observation {
 	a := map[string]any{}
@@ -131,8 +133,8 @@ func TestNoInputsAndNoEngagement(t *testing.T) {
 // Help.
 func TestHelp(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "alpha", Kind: run.ThirdParty}
-	h := newHarness(t, st, &testkit.Stage{StageName: "beta", Kind: run.ThirdParty})
+	st := &testkit.Procedure{ProcedureName: "alpha", Kind: run.ThirdParty}
+	h := newHarness(t, st, &testkit.Procedure{ProcedureName: "beta", Kind: run.ThirdParty})
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -155,9 +157,9 @@ func TestHelp(t *testing.T) {
 	if strings.Contains(help, "--key") || strings.Contains(help, "--api-key") {
 		t.Error("help must not offer key flags")
 	}
-	topic := h.stagesHelp()
+	topic := h.proceduresHelp()
 	for _, s := range []string{"alpha", "beta"} {
-		if stageRow(topic, s) == "" {
+		if procedureRow(topic, s) == "" {
 			t.Errorf("help stages does not list %s:\n%s", s, topic)
 		}
 	}
@@ -167,7 +169,7 @@ func TestHelp(t *testing.T) {
 func TestRerunAddsAndResumes(t *testing.T) {
 	t.Parallel()
 	var gotRoots, gotExcl []string
-	st := &testkit.Stage{StageName: "spy", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
+	st := &testkit.Procedure{ProcedureName: "spy", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job {
 		in := v.Inputs()
 		gotRoots, gotExcl = in.Roots, in.Exclusions
 		return nil
@@ -192,9 +194,9 @@ func TestRerunAddsAndResumes(t *testing.T) {
 
 func TestPromotedCandidate(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "disc", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "disc", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("root", "partner.net"), obs("hostname", "www.partner.net")}, nil
 		}}
 	h := newHarness(t, st)
@@ -239,13 +241,13 @@ func TestEngagementDirAdopted(t *testing.T) {
 	}
 }
 
-// Re-runs perform only checks without a recorded result.
-func TestResumeOnlyNewChecks(t *testing.T) {
+// Re-runs perform only jobs without a recorded result.
+func TestResumeOnlyNewJobs(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "ports", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
-		var cs []run.Check
+	st := &testkit.Procedure{ProcedureName: "ports", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job {
+		var cs []run.Job
 		for _, p := range v.Settings().Ports {
-			cs = append(cs, run.Check{Key: fmt.Sprintf("h:%d", p)})
+			cs = append(cs, run.Job{Key: fmt.Sprintf("h:%d", p)})
 		}
 		return cs
 	}}
@@ -268,10 +270,10 @@ func TestResumeOnlyNewChecks(t *testing.T) {
 	}
 }
 
-func TestKeyEncodedSettingCreatesNewChecks(t *testing.T) {
+func TestKeyEncodedSettingCreatesNewJobs(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "crawl", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check {
-		return []run.Check{{Key: fmt.Sprintf("https://a.com|depth=%d|pages=%d", v.Settings().Crawl.MaxDepth, v.Settings().Crawl.MaxPages)}}
+	st := &testkit.Procedure{ProcedureName: "crawl", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job {
+		return []run.Job{{Key: fmt.Sprintf("https://a.com|depth=%d|pages=%d", v.Settings().Crawl.MaxDepth, v.Settings().Crawl.MaxPages)}}
 	}}
 	h := newHarness(t, st)
 	h.exec("a.com")
@@ -286,7 +288,7 @@ func TestKeyEncodedSettingCreatesNewChecks(t *testing.T) {
 	}
 }
 
-// inScopeHostnames are the in-scope hostname records a fake stage reads, in key order.
+// inScopeHostnames are the in-scope hostname records a fake procedure reads, in key order.
 func inScopeHostnames(v run.View) []string {
 	var out []string
 	for _, rec := range v.Records(kinds.Hostname) {
@@ -300,24 +302,24 @@ func inScopeHostnames(v run.View) []string {
 // Transient failures.
 func TestTransientFailure(t *testing.T) {
 	t.Parallel()
-	flaky := &testkit.Stage{StageName: "flaky", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
-			cs := []run.Check{{Key: "X"}, {Key: "Y"}}
+	flaky := &testkit.Procedure{ProcedureName: "flaky", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
+			cs := []run.Job{{Key: "X"}, {Key: "Y"}}
 			for _, hn := range inScopeHostnames(v) {
-				cs = append(cs, run.Check{Key: "host:" + hn})
+				cs = append(cs, run.Job{Key: "host:" + hn})
 			}
 			return cs
 		},
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			if c.Key == "X" {
 				return nil, fmt.Errorf("timeout talking to source")
 			}
 			return nil, nil
 		}}
-	// A later stage creates new in-scope hostnames so a second pass happens.
-	later := &testkit.Stage{StageName: "later", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("l", 1) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	// A later procedure creates new in-scope hostnames so a second pass happens.
+	later := &testkit.Procedure{ProcedureName: "later", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("l", 1) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("hostname", "new.a.com")}, nil
 		}}
 	h := newHarness(t, flaky, later)
@@ -339,7 +341,7 @@ func TestTransientFailure(t *testing.T) {
 	if slices.Contains(h.completed("a.com", "flaky"), "X") || !slices.Contains(h.completed("a.com", "flaky"), "Y") {
 		t.Errorf("completed = %v", h.completed("a.com", "flaky"))
 	}
-	if f := h.failedChecks("flaky"); len(f) != 1 || f[0].key != "X" || f[0].err != "timeout talking to source" {
+	if f := h.failedJobs("flaky"); len(f) != 1 || f[0].key != "X" || f[0].err != "timeout talking to source" {
 		t.Errorf("failures = %v", f)
 	}
 	evs := h.events()
@@ -358,12 +360,12 @@ func TestTransientFailure(t *testing.T) {
 	}
 }
 
-func TestErrAbortStage(t *testing.T) {
+func TestErrAbortProcedure(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "abort", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 4) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
-			return nil, fmt.Errorf("source says no: %w", run.ErrAbortStage)
+	st := &testkit.Procedure{ProcedureName: "abort", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 4) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+			return nil, fmt.Errorf("source says no: %w", run.ErrAbortProcedure)
 		}}
 	h := newHarness(t, st)
 	if code := h.exec("a.com", "--json", "--concurrency", "1"); code != 7 {
@@ -384,9 +386,9 @@ func TestErrAbortStage(t *testing.T) {
 // Count enumeration failure once and terminate rather than looping across passes.
 func TestEnumerationErrorTerminates(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "enum", Kind: run.ThirdParty,
-		ChecksFn:  func(v run.View) []run.Check { return testkit.Keys("c", 1) },
-		ChecksErr: errors.New("cannot list checks"),
+	st := &testkit.Procedure{ProcedureName: "enum", Kind: run.ThirdParty,
+		JobsFn:  func(v run.View) []run.Job { return testkit.Keys("c", 1) },
+		JobsErr: errors.New("cannot list checks"),
 	}
 	h := newHarness(t, st)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -401,15 +403,15 @@ func TestEnumerationErrorTerminates(t *testing.T) {
 }
 
 // Redo.
-func redoStages(behaviour *int) (*testkit.Stage, *testkit.Stage) {
-	s := &testkit.Stage{StageName: "src", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+func redoProcedures(behaviour *int) (*testkit.Procedure, *testkit.Procedure) {
+	s := &testkit.Procedure{ProcedureName: "src", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			if *behaviour == 2 {
 				return testkit.Keys("k", 2)[1:] // k1 only: k0 becomes an orphan
 			}
 			return testkit.Keys("k", 2)
 		},
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			switch {
 			case c.Key == "k000" && *behaviour == 0:
 				return []run.Observation{obs("web_service", "u0", "host", "a.com")}, nil
@@ -418,9 +420,9 @@ func redoStages(behaviour *int) (*testkit.Stage, *testkit.Stage) {
 			}
 			return nil, nil
 		}}
-	o := &testkit.Stage{StageName: "other", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("t", 1) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	o := &testkit.Procedure{ProcedureName: "other", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("t", 1) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("web_service", "u1", "host", "a.com")}, nil
 		}}
 	return s, o
@@ -448,7 +450,7 @@ func currentOf(t *testing.T, h *harness, kind string) map[string]string {
 func TestRedo(t *testing.T) {
 	t.Parallel()
 	b := 0
-	src, other := redoStages(&b)
+	src, other := redoProcedures(&b)
 	h := newHarness(t, src, other)
 	h.exec("a.com", "--json")
 	if got := h.total("web services"); got != 2 {
@@ -475,10 +477,10 @@ func TestRedo(t *testing.T) {
 	}
 }
 
-func TestRedoSweepsOrphanedChecks(t *testing.T) {
+func TestRedoSweepsOrphanedJobs(t *testing.T) {
 	t.Parallel()
 	b := 0
-	src, other := redoStages(&b)
+	src, other := redoProcedures(&b)
 	h := newHarness(t, src, other)
 	h.exec("a.com")
 	b = 2
@@ -490,17 +492,17 @@ func TestRedoSweepsOrphanedChecks(t *testing.T) {
 	}
 }
 
-// A redo whose enumeration fails part-way must not sweep the checks it never
+// A redo whose enumeration fails part-way must not sweep the jobs it never
 // listed, and stays pending.
-func TestRedoKeepsUnlistedChecksOnEnumerationError(t *testing.T) {
+func TestRedoKeepsUnlistedJobsOnEnumerationError(t *testing.T) {
 	t.Parallel()
 	b := 0
-	src, other := redoStages(&b)
+	src, other := redoProcedures(&b)
 	h := newHarness(t, src, other)
 	h.exec("a.com")
 	b = 2                                                          // k0 is not listed...
-	src.ChecksErr = errors.New("listing failed")                   // ...because enumeration fails
-	if code := h.exec("-e", "a.com", "--redo", "src"); code != 7 { // the failed enumeration is a failed check
+	src.JobsErr = errors.New("listing failed")                     // ...because enumeration fails
+	if code := h.exec("-e", "a.com", "--redo", "src"); code != 7 { // the failed enumeration is a failed job
 		t.Fatal(h.stderr.String())
 	}
 	if cur := currentOf(t, h, "web_service"); cur["u0"] != "1" {
@@ -511,11 +513,11 @@ func TestRedoKeepsUnlistedChecksOnEnumerationError(t *testing.T) {
 	}
 }
 
-// Redacted secret-bearing check keys still support completion lookup within and across runs.
-func TestRedactedCheckKeyCompletes(t *testing.T) {
+// Redacted secret-bearing job keys still support completion lookup within and across runs.
+func TestRedactedJobKeyCompletes(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "asnish", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return []run.Check{{Key: "AS4123"}} }}
+	st := &testkit.Procedure{ProcedureName: "asnish", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return []run.Job{{Key: "AS4123"}} }}
 	h := newHarness(t, st)
 	h.setKey("fake", "123")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -531,7 +533,7 @@ func TestRedactedCheckKeyCompletes(t *testing.T) {
 	}
 }
 
-func TestRedoUnknownStage(t *testing.T) {
+func TestRedoUnknownProcedure(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
 	if code := h.exec("a.com", "--redo", "nope"); code != 2 || !strings.Contains(h.stderr.String(), "nope") {
@@ -542,24 +544,24 @@ func TestRedoUnknownStage(t *testing.T) {
 	}
 }
 
-// Discovery loop across stages and passes.
+// Discovery loop across procedures and passes.
 func TestDiscoveryLoop(t *testing.T) {
 	t.Parallel()
-	perHost := func(prefix string) func(v run.View) []run.Check {
-		return func(v run.View) []run.Check {
-			var cs []run.Check
+	perHost := func(prefix string) func(v run.View) []run.Job {
+		return func(v run.View) []run.Job {
+			var cs []run.Job
 			for _, hn := range inScopeHostnames(v) {
-				cs = append(cs, run.Check{Key: prefix + hn, Input: hn})
+				cs = append(cs, run.Job{Key: prefix + hn, Input: hn})
 			}
 			return cs
 		}
 	}
-	a := &testkit.Stage{StageName: "A", Kind: run.ThirdParty, ChecksFn: perHost("A:")}
-	b := &testkit.Stage{StageName: "B", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
-			return append([]run.Check{{Key: "B:seed"}}, perHost("B:")(v)...)
+	a := &testkit.Procedure{ProcedureName: "A", Kind: run.ThirdParty, JobsFn: perHost("A:")}
+	b := &testkit.Procedure{ProcedureName: "B", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
+			return append([]run.Job{{Key: "B:seed"}}, perHost("B:")(v)...)
 		},
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			switch c.Key {
 			case "B:seed":
 				return []run.Observation{obs("hostname", "new1.a.com"), obs("hostname", "other.net")}, nil
@@ -568,7 +570,7 @@ func TestDiscoveryLoop(t *testing.T) {
 			}
 			return nil, nil
 		}}
-	c := &testkit.Stage{StageName: "C", Kind: run.ThirdParty, ChecksFn: perHost("C:")}
+	c := &testkit.Procedure{ProcedureName: "C", Kind: run.ThirdParty, JobsFn: perHost("C:")}
 	h := newHarness(t, a, b, c)
 	done := make(chan int, 1)
 	go func() { done <- h.exec("a.com") }()
@@ -590,10 +592,10 @@ func TestDiscoveryLoop(t *testing.T) {
 			t.Errorf("A needs a second pass for %s: %v", want, a.Executed())
 		}
 	}
-	for _, st := range []*testkit.Stage{a, b, c} {
+	for _, st := range []*testkit.Procedure{a, b, c} {
 		for _, k := range st.Executed() {
 			if strings.Contains(k, "other.net") {
-				t.Errorf("out-of-scope name given to stage %s: %s", st.StageName, k)
+				t.Errorf("out-of-scope name given to stage %s: %s", st.ProcedureName, k)
 			}
 		}
 	}
@@ -605,8 +607,8 @@ func TestDiscoveryLoop(t *testing.T) {
 // Passive mode.
 func TestPassive(t *testing.T) {
 	t.Parallel()
-	target := &testkit.Stage{StageName: "probe", Kind: run.Target, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("p", 3) }}
-	third := &testkit.Stage{StageName: "third", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("t", 2) }}
+	target := &testkit.Procedure{ProcedureName: "probe", Kind: run.Target, JobsFn: func(v run.View) []run.Job { return testkit.Keys("p", 3) }}
+	third := &testkit.Procedure{ProcedureName: "third", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { return testkit.Keys("t", 2) }}
 	h := newHarness(t, third, target)
 	if code := h.exec("a.com", "--passive", "--authorised", "--json"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -624,12 +626,12 @@ func TestPassive(t *testing.T) {
 }
 
 // Acknowledgement.
-// ackStage has two fixed checks plus one per root, so adding a root creates new work.
-func ackStage() *testkit.Stage {
-	return &testkit.Stage{StageName: "probe", Kind: run.Target, ChecksFn: func(v run.View) []run.Check {
+// ackProcedure has two fixed jobs plus one per root, so adding a root creates new work.
+func ackProcedure() *testkit.Procedure {
+	return &testkit.Procedure{ProcedureName: "probe", Kind: run.Target, JobsFn: func(v run.View) []run.Job {
 		cs := testkit.Keys("p", 2)
 		for _, r := range v.Inputs().Roots {
-			cs = append(cs, run.Check{Key: "r:" + r})
+			cs = append(cs, run.Job{Key: "r:" + r})
 		}
 		return cs
 	}}
@@ -638,7 +640,7 @@ func ackStage() *testkit.Stage {
 func TestAckFlag(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--authorised", "--authorized"} {
-		st := ackStage()
+		st := ackProcedure()
 		h := newHarness(t, st)
 		if code := h.exec("a.com", flag); code != 0 {
 			t.Fatal(h.stderr.String())
@@ -647,7 +649,7 @@ func TestAckFlag(t *testing.T) {
 			t.Errorf("%s: executed %v", flag, st.Executed())
 		}
 	}
-	st := ackStage()
+	st := ackProcedure()
 	h := newHarness(t, st)
 	h.exec("a.com", "--authorised", "--passive")
 	if _, ok := h.meta("a.com", "ack_at"); !ok {
@@ -674,7 +676,7 @@ func asnServer(t *testing.T, h *harness, prefix *string) {
 func TestNetblockGuard(t *testing.T) {
 	t.Parallel()
 	var prefix = "10.0.0.0/22" // 1024 addresses
-	after := &testkit.Stage{StageName: "after", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("a", 2) }}
+	after := &testkit.Procedure{ProcedureName: "after", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { return testkit.Keys("a", 2) }}
 	h := newHarness(t, newASN(), after)
 	asnServer(t, h, &prefix)
 
@@ -708,19 +710,19 @@ func TestNetblockGuard(t *testing.T) {
 	}
 }
 
-// ASN expansion depends on the marker interface and input check key, not the stage's name.
-func TestASNNetblocksComeFromTheExpandingStage(t *testing.T) {
+// ASN expansion depends on the marker interface and input job key, not the procedure's name.
+func TestASNNetblocksComeFromTheExpandingProcedure(t *testing.T) {
 	t.Parallel()
-	announce := func(name, prefix string) *testkit.Stage {
-		return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-			ChecksFn: func(v run.View) []run.Check {
-				var cs []run.Check
+	announce := func(name, prefix string) *testkit.Procedure {
+		return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty,
+			JobsFn: func(v run.View) []run.Job {
+				var cs []run.Job
 				for _, a := range v.Inputs().ASNs {
-					cs = append(cs, run.Check{Key: a})
+					cs = append(cs, run.Job{Key: a})
 				}
 				return cs
 			},
-			RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+			RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 				return []run.Observation{kinds.Netblock.Obs(prefix, kinds.NetblockAttrs{ASN: c.Key})}, nil
 			}}
 	}
@@ -741,7 +743,7 @@ func TestASNNetblocksComeFromTheExpandingStage(t *testing.T) {
 
 func TestNetblockInputGuard(t *testing.T) {
 	t.Parallel()
-	first := &testkit.Stage{StageName: "first", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("a", 2) }}
+	first := &testkit.Procedure{ProcedureName: "first", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { return testkit.Keys("a", 2) }}
 	h := newHarness(t, first)
 	if code := h.exec("--cidr", "10.0.0.0/16", "--netblock-limit", "100"); code != 2 || len(first.Executed()) != 0 {
 		t.Errorf("exit %d executed %v", code, first.Executed())
@@ -751,9 +753,9 @@ func TestNetblockInputGuard(t *testing.T) {
 // excluded.csv, end to end through the CLI.
 func TestExcludedCSV(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "disc", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "disc", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{
 				obs("hostname", "admin.a.com"), obs("hostname", "db.a.com"), obs("hostname", "www.a.com"),
 				obs("resolution", "db.a.com|A|198.51.100.7", "name", "db.a.com", "type", "A", "value", "198.51.100.7"),
@@ -779,17 +781,17 @@ func TestExcludedCSV(t *testing.T) {
 }
 
 // States, found lines, counts, summary.
-func TestStageStatesAndFound(t *testing.T) {
+func TestProcedureStatesAndFound(t *testing.T) {
 	t.Parallel()
-	prev := &testkit.Stage{StageName: "prev", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("p", 2) }}
-	failing := &testkit.Stage{StageName: "failing", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("f", 2) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	prev := &testkit.Procedure{ProcedureName: "prev", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { return testkit.Keys("p", 2) }}
+	failing := &testkit.Procedure{ProcedureName: "failing", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("f", 2) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return nil, fmt.Errorf("source unavailable")
 		}}
-	partial := &testkit.Stage{StageName: "partial", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("q", 2) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	partial := &testkit.Procedure{ProcedureName: "partial", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("q", 2) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			if c.Key == "q000" {
 				return nil, fmt.Errorf("rate limited")
 			}
@@ -801,18 +803,18 @@ func TestStageStatesAndFound(t *testing.T) {
 				obs("finding", "f3", "category", "misc", "severity", "low", "target", "x", "detail", "minor"),
 			}, nil
 		}}
-	nokey := &testkit.Stage{StageName: "nokey", Kind: run.ThirdParty, ConfiguredFn: func(run.Env) (bool, string) { return false, "no key" }}
-	empty := &testkit.Stage{StageName: "empty", Kind: run.ThirdParty}
-	target := &testkit.Stage{StageName: "probe", Kind: run.Target, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("x", 1) }}
+	nokey := &testkit.Procedure{ProcedureName: "nokey", Kind: run.ThirdParty, ConfiguredFn: func(run.Env) (bool, string) { return false, "no key" }}
+	empty := &testkit.Procedure{ProcedureName: "empty", Kind: run.ThirdParty}
+	target := &testkit.Procedure{ProcedureName: "probe", Kind: run.Target, JobsFn: func(v run.View) []run.Job { return testkit.Keys("x", 1) }}
 	h := newHarness(t, prev, failing, partial, nokey, empty, target)
 	if code := h.exec("a.com", "--json"); code != 7 {
 		t.Fatal(h.stderr.String())
 	}
 	evs := h.events()
-	checkStageStates(t, evs)
+	checkProcedureStates(t, evs)
 	checkFoundLines(t, evs)
 	checkStatesSummary(t, evs)
-	// Re-run: nothing new is printed, previously-done stages say so.
+	// Re-run: nothing new is printed, previously-done procedures say so.
 	h.exec("-e", "a.com", "--json")
 	evs = h.events()
 	if len(ofType(evs, "found")) != 0 {
@@ -823,8 +825,8 @@ func TestStageStatesAndFound(t *testing.T) {
 	}
 }
 
-// checkStageStates verifies final states and rejects repeated identical state events.
-func checkStageStates(t *testing.T, evs []event) {
+// checkProcedureStates verifies final states and rejects repeated identical state events.
+func checkProcedureStates(t *testing.T, evs []event) {
 	t.Helper()
 	want := map[string][2]string{ // state, reason
 		"failing": {"failed", ""}, "partial": {"done", ""}, "nokey": {"not-configured", "no key"},
@@ -843,7 +845,7 @@ func checkStageStates(t *testing.T, evs []event) {
 		t.Errorf("empty: %v", s)
 	}
 	for _, name := range []string{"prev", "failing", "partial", "nokey", "empty", "probe"} {
-		se := stageEvents(evs, name)
+		se := procedureEvents(evs, name)
 		for i := 1; i < len(se); i++ {
 			if se[i].str("state") == se[i-1].str("state") && se[i].num("checks") == se[i-1].num("checks") {
 				t.Errorf("%s: repeated stage line %v", name, se)
@@ -946,8 +948,8 @@ func TestJSONMode(t *testing.T) {
 
 func TestNonTTYNoANSI(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 1) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty, JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("web_service", "https://a.com")}, nil
 		}}
 	h := newHarness(t, st)
@@ -972,9 +974,9 @@ func TestNonTTYNoANSI(t *testing.T) {
 // Concurrency bound.
 func TestConcurrencyBound(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 24) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 24) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			time.Sleep(15 * time.Millisecond)
 			return nil, nil
 		}}
@@ -990,7 +992,7 @@ func TestConcurrencyBound(t *testing.T) {
 // Invalid input is rejected before any activity.
 func TestInvalidInputsTouchNothing(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "s", Kind: run.Target, ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 3) }}
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.Target, JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 3) }}
 	badCfg := writeFile(t, t.TempDir(), "bad.yaml", "concurency: 3\n")
 	badList := writeFile(t, t.TempDir(), "d.txt", "ok.example.com\nco.uk\n")
 	cases := []struct {
@@ -1033,9 +1035,9 @@ func TestInvalidInputsTouchNothing(t *testing.T) {
 // Exit codes and lock.
 func TestExitCodes(t *testing.T) {
 	t.Parallel()
-	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 2) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 2) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			return nil, fmt.Errorf("transient")
 		}}
 	h := newHarness(t, st)
@@ -1071,9 +1073,9 @@ func TestExitCodes(t *testing.T) {
 func TestInterruptedByContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
-	st := &testkit.Stage{StageName: "s", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 50) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	st := &testkit.Procedure{ProcedureName: "s", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 50) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			if c.Key == "c005" {
 				cancel()
 			}
@@ -1097,15 +1099,15 @@ func TestSecretsNeverLeak(t *testing.T) {
 	t.Parallel()
 	const fakeKey, otherKey = "FAKESENTINEL-7f3a91", "OTHERSENTINEL-c20b44"
 	var gotFake, gotOther string
-	mk := func(name, source string, got *string) *testkit.Stage {
-		return &testkit.Stage{StageName: name, Kind: run.ThirdParty, Src: []string{"api.example.net"},
+	mk := func(name, source string, got *string) *testkit.Procedure {
+		return &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty, Src: []string{"api.example.net"},
 			ConfiguredFn: func(e run.Env) (bool, string) {
 				k, ok := e.Key(source)
 				*got = k.Reveal()
 				return ok, "no key"
 			},
-			ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", 3) },
-			RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+			JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", 3) },
+			RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 				key := *got
 				switch c.Key {
 				case "c000":
@@ -1127,7 +1129,7 @@ func TestSecretsNeverLeak(t *testing.T) {
 		if jsonMode {
 			args = append(args, "--json")
 		}
-		if code := h.exec(args...); code != 7 { // each stage's rejected check is a failed check
+		if code := h.exec(args...); code != 7 { // each procedure's rejected job is a failed job
 			t.Fatalf("exit %d: %s", code, h.stderr.String())
 		}
 		if gotFake != fakeKey || gotOther != otherKey {

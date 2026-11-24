@@ -1,4 +1,4 @@
-// Package testkit supplies configurable stage fakes for runner tests.
+// Package testkit supplies configurable procedure fakes for runner tests.
 package testkit
 
 import (
@@ -12,16 +12,16 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// Stage implements run.Stage while recording checks and concurrency.
-type Stage struct {
-	StageName string
-	Kind      run.Contact
-	Src       []string
+// Procedure implements run.Procedure while recording jobs and concurrency.
+type Procedure struct {
+	ProcedureName string
+	Kind          run.Contact
+	Src           []string
 
 	ConfiguredFn func(run.Env) (bool, string)
-	ChecksFn     func(v run.View) []run.Check
-	ChecksErr    error // simulate enumeration failure after all supplied checks
-	RunFn        func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error)
+	JobsFn       func(v run.View) []run.Job
+	JobsErr      error // simulate enumeration failure after all supplied jobs
+	RunFn        func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error)
 
 	mu        sync.Mutex
 	executed  []string
@@ -29,33 +29,33 @@ type Stage struct {
 	maxActive int
 }
 
-func (s *Stage) Name() string         { return s.StageName }
-func (s *Stage) Contact() run.Contact { return s.Kind }
-func (s *Stage) Sources() []string    { return s.Src }
+func (s *Procedure) Name() string         { return s.ProcedureName }
+func (s *Procedure) Contact() run.Contact { return s.Kind }
+func (s *Procedure) Sources() []string    { return s.Src }
 
-func (s *Stage) Configured(e run.Env) (bool, string) {
+func (s *Procedure) Configured(e run.Env) (bool, string) {
 	if s.ConfiguredFn != nil {
 		return s.ConfiguredFn(e)
 	}
 	return true, ""
 }
 
-func (s *Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
-	return func(yield func(run.Check, error) bool) {
-		if s.ChecksFn != nil {
-			for _, c := range s.ChecksFn(v) {
+func (s *Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
+	return func(yield func(run.Job, error) bool) {
+		if s.JobsFn != nil {
+			for _, c := range s.JobsFn(v) {
 				if !yield(c, nil) {
 					return
 				}
 			}
 		}
-		if s.ChecksErr != nil {
-			yield(run.Check{}, s.ChecksErr)
+		if s.JobsErr != nil {
+			yield(run.Job{}, s.JobsErr)
 		}
 	}
 }
 
-func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+func (s *Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 	s.mu.Lock()
 	s.executed = append(s.executed, c.Key)
 	s.active++
@@ -74,39 +74,39 @@ func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	return s.RunFn(ctx, c, e)
 }
 
-// Executed returns the keys of the checks run so far, in order.
-func (s *Stage) Executed() []string {
+// Executed returns the keys of the jobs run so far, in order.
+func (s *Procedure) Executed() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.executed...)
 }
 
-// MaxActive reports peak concurrent checks.
-func (s *Stage) MaxActive() int {
+// MaxActive reports peak concurrent jobs.
+func (s *Procedure) MaxActive() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.maxActive
 }
 
 // Reset clears execution history.
-func (s *Stage) Reset() {
+func (s *Procedure) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.executed, s.maxActive = nil, 0
 }
 
-// Keys creates stable, zero-padded check IDs.
-func Keys(prefix string, n int) []run.Check {
-	out := make([]run.Check, n)
+// Keys creates stable, zero-padded job IDs.
+func Keys(prefix string, n int) []run.Job {
+	out := make([]run.Job, n)
 	for i := range out {
-		out[i] = run.Check{Key: fmt.Sprintf("%s%03d", prefix, i)}
+		out[i] = run.Job{Key: fmt.Sprintf("%s%03d", prefix, i)}
 	}
 	return out
 }
 
-// Budgeted adds a Limit-sized per-run budget to the fake stage.
+// Budgeted adds a Limit-sized per-run budget to the fake procedure.
 type Budgeted struct {
-	*Stage
+	*Procedure
 	Limit int
 }
 

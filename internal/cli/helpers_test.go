@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/procedures/asn"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/asn"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-func newASN() run.Stage { return asn.New() }
+func newASN() run.Procedure { return asn.New() }
 
-// expander marks fake input-ASN expansion through the same interface as the real stage.
-type expander struct{ *testkit.Stage }
+// expander marks fake input-ASN expansion through the same interface as the real procedure.
+type expander struct{ *testkit.Procedure }
 
 func (expander) ExpandsInputASNs() {}
 

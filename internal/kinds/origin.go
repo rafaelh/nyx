@@ -24,7 +24,7 @@ var OriginCheck = defineJoined(Kind{Name: "origin_check", HostAttr: "host"},
 	func(a *OriginCheckAttrs) []*string { return []*string{&a.Host, &a.Addr} })
 
 // OriginCheckAttrs holds the responding scheme, status, title, body length and certificate-name
-// match. HTTP has no certificate match. Zero values are stored so later checks replace earlier
+// match. HTTP has no certificate match. Zero values are stored so later jobs replace earlier
 // results completely.
 type OriginCheckAttrs struct {
 	Host          string `json:"host"`

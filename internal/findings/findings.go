@@ -1,5 +1,5 @@
 // Package findings calculates exposures from stored evidence, scope, inventory, settings and
-// date without I/O. Stages store evidence rather than findings. Recalculation removes findings
+// date without I/O. Procedures store evidence rather than findings. Recalculation removes findings
 // that no longer apply after exclusions, renewed certificates or time changes.
 package findings
 
@@ -60,11 +60,11 @@ func newFinding(category, typ, severity, target, detail string, attrs map[string
 // DeriveAll computes the findings and the storage Attribution together, so the
 // references, guesses and public states they share are computed once.
 func DeriveAll(in Input) ([]Finding, map[string]StorageAttr) {
-	d := newDeriver(in)
+	d := newAnalysis(in)
 	return d.findings(), d.attribution()
 }
 
-func (d *deriver) findings() []Finding {
+func (d *analysis) findings() []Finding {
 	var out []Finding
 	out = append(out, d.takeovers()...)
 	out = append(out, d.storage()...)
@@ -94,7 +94,7 @@ func (d *deriver) findings() []Finding {
 	return out
 }
 
-type deriver struct {
+type analysis struct {
 	in   Input
 	vis  *kinds.Visibility
 	refs []cloudstorage.Reference // see references
@@ -108,16 +108,16 @@ type deriver struct {
 	portIdx *portIndex              // see portIndex
 }
 
-func newDeriver(in Input) *deriver {
+func newAnalysis(in Input) *analysis {
 	vis := in.Vis
 	if vis == nil {
 		vis = kinds.NewVisibility(in.Scope, in.Inv)
 	}
-	return &deriver{in: in, vis: vis}
+	return &analysis{in: in, vis: vis}
 }
 
 // current is the current records of a kind.
-func (d *deriver) current(k kinds.Named) []store.Record {
+func (d *analysis) current(k kinds.Named) []store.Record {
 	var out []store.Record
 	for _, r := range d.in.Records(k) {
 		if r.Current {
@@ -128,7 +128,7 @@ func (d *deriver) current(k kinds.Named) []store.Record {
 }
 
 // services indexes the current, visible web services by key.
-func (d *deriver) services() map[string]store.Record {
+func (d *analysis) services() map[string]store.Record {
 	if d.svcs != nil {
 		return d.svcs
 	}
@@ -142,7 +142,7 @@ func (d *deriver) services() map[string]store.Record {
 }
 
 // serviceAttrs caches decoded visible-service attributes by key.
-func (d *deriver) serviceAttrs() map[string]kinds.WebServiceAttrs {
+func (d *analysis) serviceAttrs() map[string]kinds.WebServiceAttrs {
 	if d.svcAttrs != nil {
 		return d.svcAttrs
 	}
@@ -154,7 +154,7 @@ func (d *deriver) serviceAttrs() map[string]kinds.WebServiceAttrs {
 }
 
 // hostnamesByIP is the in-scope hostnames behind each address, computed once.
-func (d *deriver) hostnamesByIP() map[netip.Addr][]string {
+func (d *analysis) hostnamesByIP() map[netip.Addr][]string {
 	if d.hosts == nil {
 		d.hosts = d.in.Inv.HostnamesByIP(d.in.Scope)
 	}
@@ -169,7 +169,7 @@ type portIndex struct {
 }
 
 // portIndex indexes the current ports, computed once.
-func (d *deriver) portIndex() *portIndex {
+func (d *analysis) portIndex() *portIndex {
 	if d.portIdx != nil {
 		return d.portIdx
 	}
@@ -189,7 +189,7 @@ func (d *deriver) portIndex() *portIndex {
 }
 
 // horizon is the date days after today, or false when today does not parse.
-func (d *deriver) horizon(days int) (string, bool) {
+func (d *analysis) horizon(days int) (string, bool) {
 	today, err := time.Parse(time.DateOnly, d.in.Today)
 	if err != nil {
 		return "", false
@@ -200,7 +200,7 @@ func (d *deriver) horizon(days int) (string, bool) {
 // isTrue reads an attribute that may be unknown: only a known true is true.
 func isTrue(b *bool) bool { return b != nil && *b }
 
-func (d *deriver) sensitivePaths() []Finding {
+func (d *analysis) sensitivePaths() []Finding {
 	svcs := d.services()
 	severity := map[string]string{} // path|hash -> the entry's severity
 	for _, e := range d.in.Settings.SensitivePathEntries {
@@ -222,7 +222,7 @@ func (d *deriver) sensitivePaths() []Finding {
 	return out
 }
 
-func (d *deriver) email() []Finding {
+func (d *analysis) email() []Finding {
 	var out []Finding
 	for _, r := range d.current(kinds.EmailPosture) {
 		if !d.vis.Shown(kinds.EmailPosture, r) {
@@ -272,7 +272,7 @@ func (d *deriver) email() []Finding {
 // ports assigns full severity to nyx-confirmed risky ports. Third-party-only ports start one
 // level lower and unconfirmed, unless nyx found them closed. Confirmation updates the same
 // finding.
-func (d *deriver) ports() []Finding {
+func (d *analysis) ports() []Finding {
 	risky := map[int]bool{}
 	for _, p := range d.in.Settings.RiskyPorts {
 		risky[p] = true
@@ -300,7 +300,7 @@ func (d *deriver) ports() []Finding {
 	return out
 }
 
-func (d *deriver) certificates() []Finding {
+func (d *analysis) certificates() []Finding {
 	horizon, ok := d.horizon(d.in.Settings.CertExpiryDays)
 	if !ok {
 		return nil
@@ -342,7 +342,7 @@ func (d *deriver) certificates() []Finding {
 
 // hostnameMismatch checks certificate names only where the target can fix them. IP literals and
 // services on shared CDN/SaaS infrastructure are excluded.
-func (d *deriver) hostnameMismatch(a kinds.WebServiceAttrs) bool {
+func (d *analysis) hostnameMismatch(a kinds.WebServiceAttrs) bool {
 	if kinds.TLSTrust(a) != kinds.TrustHostnameMismatch {
 		return false
 	}

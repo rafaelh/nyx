@@ -1,5 +1,5 @@
 // Package candidates ranks discoveries outside scope by the independent evidence supporting
-// them. Evidence pairs a source with the item linking a candidate to the engagement. Stages
+// them. Evidence pairs a source with the item linking a candidate to the engagement. Procedures
 // group sources into families; confidence depends on which families agree. This package
 // performs no I/O and does not read scope or the store.
 package candidates
@@ -43,7 +43,7 @@ type Rank struct {
 	Confidence Confidence
 }
 
-// Stages group related sources into these families. Undeclared sources each form their own
+// Procedures group related sources into these families. Undeclared sources each form their own
 // family.
 const (
 	CertTransparency = "certificate transparency"
@@ -62,7 +62,7 @@ var retired = map[string]string{"otx": PassiveDNS, "anubis": PassiveDNS}
 // Families groups evidence sources by discovery mechanism.
 type Families struct{ m map[string]string }
 
-// NewFamilies combines stage-declared source families with mappings for retired sources.
+// NewFamilies combines procedure-declared source families with mappings for retired sources.
 func NewFamilies(named map[string]string) Families {
 	m := maps.Clone(retired)
 	maps.Copy(m, named)
@@ -137,7 +137,7 @@ const (
 	typeOrganisation = "organisation"
 )
 
-// Candidate pairs a discovered entity with the evidence from its completed checks. Type is its
+// Candidate pairs a discovered entity with the evidence from its completed jobs. Type is its
 // record kind: root, hostname, netblock, asn or organisation.
 type Candidate struct {
 	Type, Value string
@@ -158,7 +158,7 @@ type Ranked struct {
 // hostname discoveries to corroborate each other. Hostnames retain their own ranks.
 //
 // Non-current candidates keep their last rank. Current candidates without direct evidence also
-// keep their rank while redo checks are pending; inherited hostname evidence alone cannot make
+// keep their rank while redo jobs are pending; inherited hostname evidence alone cannot make
 // a root current. Candidates without a rank to preserve are omitted.
 func RankAll(cs []Candidate, last map[Key]Rank, orgs []string) []Ranked {
 	support := make([][]Evidence, len(cs))

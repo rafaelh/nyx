@@ -14,7 +14,7 @@ import (
 // The keyed subdomain sources that reuse existing keys: shodan-dns (keys.shodan),
 // censys and chaos.
 
-// defaultPagesKey is the key of the one check a run for example.com completes.
+// defaultPagesKey is the key of the one job a run for example.com completes.
 const defaultPagesKey = "example.com|pages=10"
 
 const (
@@ -23,9 +23,9 @@ const (
 	chaosKey  = "ch-key-SECRET-0003"
 )
 
-// keyedSource describes authentication checks and response fixtures for one keyed stage.
+// keyedSource describes authentication checks and response fixtures for one keyed procedure.
 type keyedSource struct {
-	stage, host, source, key string
+	procedure, host, source, key string
 	// auth reports whether the request carries the key the way the source wants it.
 	auth func(*http.Request) bool
 	// ok holds the names in names plus noise that must not be recorded.
@@ -35,7 +35,7 @@ type keyedSource struct {
 
 var keyedSources = []keyedSource{
 	{
-		stage: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey,
+		procedure: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey,
 		auth: func(r *http.Request) bool { return r.URL.Query().Get("key") == shodanKey && r.Method == http.MethodGet },
 		ok: `{"domain":"example.com","tags":[],"subdomains":["sd","only"],"more":false,"data":[
 			{"subdomain":"sd","type":"A","value":"198.51.100.7","last_seen":"2026-01-01T00:00:00"},
@@ -43,7 +43,7 @@ var keyedSources = []keyedSource{
 		names: []string{"sd.example.com", "only.example.com"},
 	},
 	{
-		stage: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey,
+		procedure: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey,
 		auth: func(r *http.Request) bool {
 			return r.Header.Get("Authorization") == "Bearer "+censysKey && r.Method == http.MethodPost
 		},
@@ -53,7 +53,7 @@ var keyedSources = []keyedSource{
 		names: []string{"cs.example.com", "wild.example.com"},
 	},
 	{
-		stage: "chaos", host: "dns.projectdiscovery.io", source: "chaos", key: chaosKey,
+		procedure: "chaos", host: "dns.projectdiscovery.io", source: "chaos", key: chaosKey,
 		auth: func(r *http.Request) bool {
 			return r.Header.Get("Authorization") == chaosKey && r.Method == http.MethodGet
 		},
@@ -79,7 +79,7 @@ func (s keyedSource) serveWith(w *world, body string) {
 func forEachKeyed(t *testing.T, fn func(t *testing.T, w *world, s keyedSource)) {
 	t.Helper()
 	for _, s := range keyedSources {
-		t.Run(s.stage, func(t *testing.T) {
+		t.Run(s.procedure, func(t *testing.T) {
 			t.Parallel()
 			fn(t, newWorld(t), s)
 		})
@@ -104,11 +104,11 @@ func TestKeyed_NotConfiguredWithoutKey(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	for _, s := range keyedSources {
-		if st, reason := stateOf(w, s.stage); st != "not-configured" || reason != "no key" {
-			t.Errorf("%s = %s (%s), want not-configured (no key)", s.stage, st, reason)
+		if st, reason := stateOf(w, s.procedure); st != "not-configured" || reason != "no key" {
+			t.Errorf("%s = %s (%s), want not-configured (no key)", s.procedure, st, reason)
 		}
 		if n := len(w.requests(s.host)); n != 0 {
-			t.Errorf("%s sent %d requests without a key", s.stage, n)
+			t.Errorf("%s sent %d requests without a key", s.procedure, n)
 		}
 	}
 }
@@ -124,8 +124,8 @@ func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 		if code := w.run("--passive", "example.com"); code != 0 {
 			t.Fatalf("exit %d", code)
 		}
-		if st, _ := stateOf(w, s.stage); st != "done" {
-			t.Errorf("%s state = %s, want done", s.stage, st)
+		if st, _ := stateOf(w, s.procedure); st != "done" {
+			t.Errorf("%s state = %s, want done", s.procedure, st)
 		}
 		got := w.lines(eng, "subdomains.txt")
 		for _, n := range s.names {
@@ -139,7 +139,7 @@ func TestKeyed_NamesAreRecordedAndKeySent(t *testing.T) {
 				t.Errorf("%q must not be recorded as a hostname", noise)
 			}
 		}
-		if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{defaultPagesKey}) {
+		if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{defaultPagesKey}) {
 			t.Errorf("completed = %v, want %q", done, defaultPagesKey)
 		}
 		reqs := w.requests(s.host)
@@ -195,12 +195,12 @@ func TestKeyed_RequestShapes(t *testing.T) {
 	}
 }
 
-// A rejected key or a spent quota stops that stage for the run, and only that stage.
-func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
+// A rejected key or a spent quota stops that procedure for the run, and only that procedure.
+func TestKeyed_RejectionStopsOnlyThatProcedure(t *testing.T) {
 	t.Parallel()
 	for _, s := range keyedSources {
 		for _, code := range []int{401, 403, 429} {
-			t.Run(fmt.Sprintf("%s/%d", s.stage, code), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/%d", s.procedure, code), func(t *testing.T) {
 				t.Parallel()
 				w := newWorld(t)
 				for _, o := range keyedSources {
@@ -215,10 +215,10 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 				if want := code == 429; f.transient != want {
 					t.Errorf("transient = %v, want %v: %+v", f.transient, want, f)
 				}
-				if !strings.Contains(f.msg, s.stage) {
-					t.Errorf("the error does not name %s: %q", s.stage, f.msg)
+				if !strings.Contains(f.msg, s.procedure) {
+					t.Errorf("the error does not name %s: %q", s.procedure, f.msg)
 				}
-				checkOnlyStageStopped(t, w, s)
+				checkOnlyProcedureStopped(t, w, s)
 				if hits := leaks(w); len(hits) > 0 {
 					t.Errorf("key leaked into %v", hits)
 				}
@@ -227,12 +227,12 @@ func TestKeyed_RejectionStopsOnlyThatStage(t *testing.T) {
 	}
 }
 
-// checkOnlyStageStopped checks that the rejected source's stage failed after
-// its one request and that every other keyed stage finished.
-func checkOnlyStageStopped(t *testing.T, w *world, s keyedSource) {
+// checkOnlyProcedureStopped checks that the rejected source's procedure failed after
+// its one request and that every other keyed procedure finished.
+func checkOnlyProcedureStopped(t *testing.T, w *world, s keyedSource) {
 	t.Helper()
-	if st, _ := stateOf(w, s.stage); st != "failed" {
-		t.Errorf("%s state = %s, want failed", s.stage, st)
+	if st, _ := stateOf(w, s.procedure); st != "failed" {
+		t.Errorf("%s state = %s, want failed", s.procedure, st)
 	}
 	// shodan-host asks api.shodan.io too, about addresses, with the same key.
 	n := 0
@@ -248,8 +248,8 @@ func checkOnlyStageStopped(t *testing.T, w *world, s keyedSource) {
 		if o.host == s.host {
 			continue
 		}
-		if st, _ := stateOf(w, o.stage); st != "done" {
-			t.Errorf("%s = %s: another stage must not stop", o.stage, st)
+		if st, _ := stateOf(w, o.procedure); st != "done" {
+			t.Errorf("%s = %s: another stage must not stop", o.procedure, st)
 		}
 	}
 }
@@ -263,7 +263,7 @@ func TestKeyed_RejectionWithAnotherFailureIsTransient(t *testing.T) {
 		w.h.setKey(o.source, o.key)
 	}
 	for _, o := range keyedSources {
-		switch o.stage {
+		switch o.procedure {
 		case "censys":
 			w.handle(o.host, status(500))
 		case "chaos":
@@ -306,7 +306,7 @@ func TestKeyed_ChaosNothingForTheRoot(t *testing.T) {
 	}
 }
 
-// A body of the wrong shape is a failed check (retried), never "no names".
+// A body of the wrong shape is a failed job (retried), never "no names".
 func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 	t.Parallel()
 	forEachKeyed(t, func(t *testing.T, w *world, s keyedSource) {
@@ -315,10 +315,10 @@ func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 		if f := w.h.partial(w.run("--passive", "example.com"), true); !f.transient {
 			t.Errorf("an unreadable answer may be a passing fault: %+v", f)
 		}
-		if st, _ := stateOf(w, s.stage); st != "failed" {
-			t.Errorf("%s = %s, want failed", s.stage, st)
+		if st, _ := stateOf(w, s.procedure); st != "failed" {
+			t.Errorf("%s = %s, want failed", s.procedure, st)
 		}
-		if done := w.h.completed(eng, s.stage); len(done) != 0 {
+		if done := w.h.completed(eng, s.procedure); len(done) != 0 {
 			t.Errorf("completed = %v: an unreadable answer must be retried", done)
 		}
 	})
@@ -328,13 +328,13 @@ func TestKeyed_WrongShapeIsAnError(t *testing.T) {
 
 // pagedSource serves three pages of names p1..p3 for the root.
 type pagedSource struct {
-	stage, host, source, key, flag string
-	serve                          func(w *world)
+	procedure, host, source, key, flag string
+	serve                              func(w *world)
 }
 
 func pagedSources() []pagedSource {
 	return []pagedSource{
-		{stage: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey, flag: "--shodan-dns-max-pages",
+		{procedure: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey, flag: "--shodan-dns-max-pages",
 			serve: func(w *world) {
 				w.handle("api.shodan.io", func(rw http.ResponseWriter, r *http.Request) {
 					var n int
@@ -342,7 +342,7 @@ func pagedSources() []pagedSource {
 					fmt.Fprintf(rw, `{"domain":"example.com","subdomains":["p%d"],"data":[{"subdomain":"p%d","type":"A","value":"203.0.113.5"}],"more":%v}`, n, n, n < 3)
 				})
 			}},
-		{stage: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey, flag: "--censys-max-pages",
+		{procedure: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey, flag: "--censys-max-pages",
 			serve: func(w *world) {
 				w.handle("api.platform.censys.io", func(rw http.ResponseWriter, r *http.Request) {
 					var req struct {
@@ -363,11 +363,11 @@ func pagedSources() []pagedSource {
 	}
 }
 
-// Page caps warn and version checks so raising them reruns the search.
+// Page caps warn and version jobs so raising them reruns the search.
 func TestKeyed_PageCap(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
-		t.Run(s.stage, func(t *testing.T) {
+		t.Run(s.procedure, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
 			w.h.setKey(s.source, s.key)
@@ -381,7 +381,7 @@ func TestKeyed_PageCap(t *testing.T) {
 			if code := w.run("--passive", "--no-permutations", "-e", eng); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
-			if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
+			if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{"example.com|pages=10", "example.com|pages=2"}) {
 				t.Errorf("completed = %v, want a new check for the new cap", done)
 			}
 			if !slices.Contains(w.lines(eng, "subdomains.txt"), "p3.example.com") {
@@ -398,10 +398,10 @@ func TestKeyed_PageCap(t *testing.T) {
 // warning.
 func checkCappedRun(t *testing.T, w *world, s pagedSource) {
 	t.Helper()
-	if st, _ := stateOf(w, s.stage); st != "done" {
+	if st, _ := stateOf(w, s.procedure); st != "done" {
 		t.Errorf("reaching the cap completes the check: state = %s", st)
 	}
-	if done := w.h.completed(eng, s.stage); !slices.Equal(done, []string{"example.com|pages=2"}) {
+	if done := w.h.completed(eng, s.procedure); !slices.Equal(done, []string{"example.com|pages=2"}) {
 		t.Errorf("completed = %v", done)
 	}
 	var asked int
@@ -417,7 +417,7 @@ func checkCappedRun(t *testing.T, w *world, s pagedSource) {
 	if !slices.Contains(got, "p2.example.com") || slices.Contains(got, "p3.example.com") {
 		t.Errorf("subdomains.txt = %v, want the first two pages only", got)
 	}
-	if warns := w.h.messages("warning", s.stage); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
+	if warns := w.h.messages("warning", s.procedure); len(warns) != 1 || !strings.Contains(warns[0], "truncated") {
 		t.Errorf("want one truncation warning, got %q", warns)
 	}
 }
@@ -426,7 +426,7 @@ func checkCappedRun(t *testing.T, w *world, s pagedSource) {
 func TestKeyed_PageCapNotReached(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
-		t.Run(s.stage, func(t *testing.T) {
+		t.Run(s.procedure, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t)
 			w.h.setKey(s.source, s.key)
@@ -442,8 +442,8 @@ func TestKeyed_PageCapNotReached(t *testing.T) {
 }
 
 // Chaos answers with the whole list at once, so its cap never bites, but it is
-// still part of the check.
-func TestKeyed_ChaosCapIsInTheCheck(t *testing.T) {
+// still part of the job.
+func TestKeyed_ChaosCapIsInTheJob(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.h.setKey("chaos", chaosKey)
@@ -670,7 +670,7 @@ func TestShodanDNS_ClaimedAddressIsNeverContacted(t *testing.T) {
 func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 	t.Parallel()
 	var names []string
-	for _, s := range defaultStageList() {
+	for _, s := range defaultProcedureList() {
 		names = append(names, s.Name())
 	}
 	idx := func(n string) int { return slices.Index(names, n) }
@@ -679,7 +679,7 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 	if !inOrder || idx("censys") < 0 {
 		t.Errorf("stage order = %v", names)
 	}
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -689,9 +689,9 @@ func TestKeyed_RegistryOrderAndHelp(t *testing.T) {
 			t.Errorf("help missing %q", want)
 		}
 	}
-	topic := h.stagesHelp()
+	topic := h.proceduresHelp()
 	for _, s := range []string{"shodan-dns", "censys", "chaos"} {
-		if stageRow(topic, s) == "" {
+		if procedureRow(topic, s) == "" {
 			t.Errorf("help stages does not list %s", s)
 		}
 	}

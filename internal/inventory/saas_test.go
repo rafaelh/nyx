@@ -24,7 +24,7 @@ func TestSaaSServed(t *testing.T) {
 		{Name: "app.example.com", Type: "A", Value: "203.0.113.23"},
 	}
 	for _, n := range []string{"help", "shop", "pages", "cdn", "www", "app"} {
-		d.Hosts = append(d.Hosts, inventory.Host{Name: n + ".example.com", Stages: []string{"crtsh"}})
+		d.Hosts = append(d.Hosts, inventory.Host{Name: n + ".example.com", Producers: []string{"crtsh"}})
 	}
 	d.Owners = map[netip.Addr]provider.Owner{netip.MustParseAddr("23.227.38.65"): {ASN: 62679, Holder: "SHOPIFY", Known: true}}
 	inv := inventory.New(d, provider.Default())
@@ -62,7 +62,7 @@ func TestProviderServed(t *testing.T) {
 		{Name: "via.example.com", Type: "CNAME", Value: "help.example.com"},
 	}
 	for _, n := range []string{"help", "pages", "cdn", "www", "app", "alias", "via"} {
-		d.Hosts = append(d.Hosts, inventory.Host{Name: n + ".example.com", Stages: []string{"crtsh"}})
+		d.Hosts = append(d.Hosts, inventory.Host{Name: n + ".example.com", Producers: []string{"crtsh"}})
 	}
 	inv := inventory.New(d, provider.Default())
 	for host, want := range map[string]bool{
@@ -87,7 +87,7 @@ func TestProviderServed(t *testing.T) {
 func TestProviderHostEntry(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
-	d.Hosts = []inventory.Host{{Name: "shop.example.com", Stages: []string{"crtsh"}}, {Name: "app.example.com", Stages: []string{"crtsh"}}}
+	d.Hosts = []inventory.Host{{Name: "shop.example.com", Producers: []string{"crtsh"}}, {Name: "app.example.com", Producers: []string{"crtsh"}}}
 	d.Resolutions = []inventory.Resolution{
 		{Name: "shop.example.com", Type: "CNAME", Value: "gone.cloudapp.net"},
 		{Name: "app.example.com", Type: "CNAME", Value: "acme.herokuapp.com"},

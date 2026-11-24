@@ -49,7 +49,7 @@ func rec(kind, key string, kv ...any) store.Record {
 func (f *fixture) add(r store.Record) { f.recs[r.Kind] = append(f.recs[r.Kind], r) }
 
 func (f *fixture) host(name string, addrs ...string) {
-	f.hosts = append(f.hosts, inventory.Host{Name: name, Stages: []string{"crtsh"}})
+	f.hosts = append(f.hosts, inventory.Host{Name: name, Producers: []string{"crtsh"}})
 	for _, a := range addrs {
 		f.res = append(f.res, inventory.Resolution{Name: name, Type: "A", Value: a})
 	}
@@ -397,7 +397,7 @@ func TestAttributedStorage(t *testing.T) {
 			[]string{"storage/exists=low"}, nil},
 		{"exists and private is low", []store.Record{storageRec("s3", "acme-assets", "", "exists", true, "listable", false)}, []string{"storage/exists=low"}, nil},
 		{"missing is a takeover", []store.Record{storageRec("s3", "acme-assets", "", "exists", false),
-			// the takeover stage's HTTP evidence
+			// the takeover procedure's HTTP evidence
 			rec("web_service", "https://static.example.com", "host", "static.example.com", "scheme", "https"),
 			rec("takeover_http", "https://static.example.com", "host", "static.example.com", "service", "https://static.example.com",
 				"url", "https://static.example.com/", "status", 404.0)},

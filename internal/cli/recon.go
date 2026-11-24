@@ -41,7 +41,7 @@ const interruptedRecon = "completed work is saved; run the same command again to
 // newReconCommand builds engagement discovery and its controls.
 func newReconCommand(inv *invocation) *cobra.Command {
 	o := &reconOptions{}
-	names := stageNames(inv.d.Stages)
+	names := procedureNames(inv.d.Procedures)
 	cmd := &cobra.Command{
 		Use:   "recon [domain...] [flags]",
 		Short: "Passive-first reconnaissance of a target's domains, organisations and netblocks",
@@ -167,13 +167,13 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 		eopts.Now = d.Clock
 	}
 	runner := run.New(run.Config{
-		Engagement: eng, Settings: settings, Stages: d.Stages, Egress: egress.New(eopts), Emitter: em,
+		Engagement: eng, Settings: settings, Procedures: d.Procedures, Egress: egress.New(eopts), Emitter: em,
 		Files: d.Files, Clock: d.Clock,
 		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync, Abusive: threat.Abusive, Drop: &threat.Drop,
 	})
 
 	// Use a cancellation timer rather than a context deadline, which would make rate-limit
-	// waits fail early. Stop checks before the deadline to reserve time for output.
+	// waits fail early. Stop jobs before the deadline to reserve time for output.
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	if timeout > 0 {
@@ -252,7 +252,7 @@ func reconFailure(ctx context.Context, inv *invocation, runErr, closeErr error, 
 	switch {
 	case runErr != nil && !deadline:
 		if nl, ok := errors.AsType[*run.NetblockLimitError](runErr); ok {
-			return &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: invocationHint(inv.args, "--allow-large-netblocks")} // approves the netblocks without repeating a stage
+			return &clierr.Error{Code: clierr.InvalidInput, Message: nl.Error(), Hint: invocationHint(inv.args, "--allow-large-netblocks")} // approves the netblocks without repeating a procedure
 		}
 		return runErr
 	case closeErr != nil:
@@ -264,11 +264,11 @@ func reconFailure(ctx context.Context, inv *invocation, runErr, closeErr error, 
 }
 
 // reportRecon writes the summary as text or a JSON envelope, then returns any
-// deadline/check-failure partial error.
+// deadline/job-failure partial error.
 func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run.Result, warnings *report.Warnings, deadline bool) error {
 	d := inv.d
 	env := report.Envelope{Data: res.Summary, Meta: report.Meta{Count: 1, DeadlineExceeded: deadline,
-		ChecksCompleted: res.Completed, ChecksCancelled: sumCounts(res.Cancelled)}}
+		JobsCompleted: res.Completed, JobsCancelled: sumCounts(res.Cancelled)}}
 	if warnings != nil {
 		env.Meta.Warnings = warnings.List()
 	}
@@ -286,11 +286,11 @@ func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run
 	return nil
 }
 
-// unskippable lists stages supplying contact decisions: resolve/wildcard identify real names;
+// unskippable lists procedures supplying contact decisions: resolve/wildcard identify real names;
 // ipowner/providerranges identify shared addresses that must not be port-checked.
 var unskippable = []string{"resolve", "wildcard", "ipowner", "providerranges"}
 
-// validateSkip collects unknown stages, redo conflicts and stages required for contact
+// validateSkip collects unknown procedures, redo conflicts and procedures required for contact
 // decisions.
 func validateSkip(probs *clierr.Problems, skip []string, redo string, names []string) {
 	for _, n := range skip {
@@ -300,7 +300,7 @@ func validateSkip(probs *clierr.Problems, skip []string, redo string, names []st
 	}
 }
 
-// skipProblem returns a reason and hint for an unknown, redone or required stage, otherwise
+// skipProblem returns a reason and hint for an unknown, redone or required procedure, otherwise
 // empty strings.
 func skipProblem(n, redo string, names []string) (msg, hint string) {
 	switch {
@@ -314,7 +314,7 @@ func skipProblem(n, redo string, names []string) (msg, hint string) {
 	return "", ""
 }
 
-// skippableHint lists the stages that can be skipped.
+// skippableHint lists the procedures that can be skipped.
 func skippableHint(names []string) string {
 	return "stages that can be skipped: " + strings.Join(slices.DeleteFunc(slices.Clone(names), func(s string) bool {
 		return slices.Contains(unskippable, s)

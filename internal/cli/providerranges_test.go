@@ -8,7 +8,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/stages/providerranges"
+	"github.com/rafaelh/nyx/internal/procedures/providerranges"
 )
 
 // Use distinct fixture ranges for each publisher to avoid accidental provider evidence from
@@ -24,7 +24,7 @@ const (
 	gcpList      = `{"prefixes":[{"ipv4Prefix":"100.64.0.0/16","scope":"europe-west1"}]}`
 )
 
-var allRangeChecks = []string{"aws", "cloudflare-v4", "cloudflare-v6", "digitalocean", "fastly", "gcp", "linode", "oracle"}
+var allRangeJobs = []string{"aws", "cloudflare-v4", "cloudflare-v6", "digitalocean", "fastly", "gcp", "linode", "oracle"}
 
 // rangeHosts are the seven publishers; newRangeHosts those added after AWS and GCP.
 var (
@@ -34,9 +34,9 @@ var (
 	})
 )
 
-// allRangeChecksBut is every list's check key except k.
-func allRangeChecksBut(k string) []string {
-	return slices.DeleteFunc(slices.Clone(allRangeChecks), func(c string) bool { return c == k })
+// allRangeJobsBut is every list's job key except k.
+func allRangeJobsBut(k string) []string {
+	return slices.DeleteFunc(slices.Clone(allRangeJobs), func(c string) bool { return c == k })
 }
 
 // serveNewRanges answers the six lists added after AWS and GCP.
@@ -87,16 +87,16 @@ func uris(w *world, host string) []string {
 	return out
 }
 
-// Each list is its own check, fetched once and refreshed only by --redo.
-func TestProviderRanges_EachListIsItsOwnCheckFetchedOnce(t *testing.T) {
+// Each list is its own job, fetched once and refreshed only by --redo.
+func TestProviderRanges_EachListIsItsOwnJobFetchedOnce(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	serveAllRanges(w)
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, allRangeChecks) {
-		t.Errorf("completed = %v, want %v", got, allRangeChecks)
+	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, allRangeJobs) {
+		t.Errorf("completed = %v, want %v", got, allRangeJobs)
 	}
 	for host, want := range map[string][]string{
 		"ip-ranges.amazonaws.com": {"/ip-ranges.json"},
@@ -148,8 +148,8 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	if code := w.run("--passive", "example.com"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, allRangeChecks) {
-		t.Errorf("completed = %v, want %v", got, allRangeChecks)
+	if got := w.h.completed(eng, "providerranges"); !slices.Equal(got, allRangeJobs) {
+		t.Errorf("completed = %v, want %v", got, allRangeJobs)
 	}
 	if n := requestCount(w, "ip-ranges.amazonaws.com", "www.gstatic.com"); n != 2 {
 		t.Errorf("AWS and GCP were fetched %d times in all, want once each", n)
@@ -159,7 +159,7 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	}
 }
 
-// Unreadable lists fail their checks while previous successful ranges remain usable, without
+// Unreadable lists fail their jobs while previous successful ranges remain usable, without
 // creating findings.
 func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 	t.Parallel()
@@ -200,11 +200,11 @@ func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 }
 
 // checkFailedRangeList checks that every list but DigitalOcean's completed, and
-// that its failure is a failed check named in a --debug line.
+// that its failure is a failed job named in a --debug line.
 func checkFailedRangeList(t *testing.T, w *world) {
 	t.Helper()
 	done := w.h.completed(eng, "providerranges")
-	if want := allRangeChecksBut("digitalocean"); !slices.Equal(done, want) {
+	if want := allRangeJobsBut("digitalocean"); !slices.Equal(done, want) {
 		t.Errorf("completed = %v, want every list but digitalocean", done)
 	}
 	if !slices.ContainsFunc(w.h.debugLines(), func(m string) bool {
@@ -294,7 +294,7 @@ func TestProviderRanges_DigitalOceanWithoutItsListStaysShared(t *testing.T) {
 	if r == nil || r["provider"] != "digitalocean" || r["port_eligible"] != "false" {
 		t.Errorf("ips.csv: %v, want digitalocean by ASN and not port-eligible", r)
 	}
-	if st, _ := p.stageState("providerranges"); st != "done" {
+	if st, _ := p.procedureState("providerranges"); st != "done" {
 		t.Errorf("providerranges = %s: a failed list must not stop the stage", st)
 	}
 }
@@ -362,7 +362,7 @@ func TestProviderRanges_CNAMEIntoProviderStillMakesAHostShared(t *testing.T) {
 
 // --- the docs ---
 
-// The passive-boundary section names every range publisher the stage contacts,
+// The passive-boundary section names every range publisher the procedure contacts,
 // and says why Azure is not one of them.
 func TestDocs_NameEveryRangePublisher(t *testing.T) {
 	t.Parallel()

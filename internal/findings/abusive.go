@@ -19,7 +19,7 @@ import (
 // Eligible addresses belong to in-scope hostnames, including shared/wildcard hosts, or are
 // current non-history-only IPs inside in-scope netblocks. Exclusions apply. Candidate-only
 // addresses outside those netblocks do not qualify.
-func (d *deriver) abusiveNetworks() []Finding {
+func (d *analysis) abusiveNetworks() []Finding {
 	snap, drop := d.in.Abusive, d.in.Drop
 	if snap == nil && drop == nil {
 		return nil
@@ -51,7 +51,7 @@ func (d *deriver) abusiveNetworks() []Finding {
 }
 
 // abusiveAddrs are the addresses the check applies to, in address order.
-func (d *deriver) abusiveAddrs() []netip.Addr {
+func (d *analysis) abusiveAddrs() []netip.Addr {
 	sc, inv := d.in.Scope, d.in.Inv
 	set := map[netip.Addr]bool{}
 	for name, addrs := range inv.Addrs() {
@@ -81,7 +81,7 @@ func (d *deriver) abusiveAddrs() []netip.Addr {
 
 // abusiveHostnames are the in-scope names behind each address: those that resolve to it (a
 // wildcard-only name too) and those reverse DNS gave it.
-func (d *deriver) abusiveHostnames() map[netip.Addr][]string {
+func (d *analysis) abusiveHostnames() map[netip.Addr][]string {
 	sc := d.in.Scope
 	set := map[netip.Addr]map[string]bool{}
 	add := func(a netip.Addr, name string) {
@@ -113,7 +113,7 @@ func (d *deriver) abusiveHostnames() map[netip.Addr][]string {
 }
 
 // netblockOwners are the origin ASes netblock_owner gives, by the unit's prefix.
-func (d *deriver) netblockOwners() map[string]int {
+func (d *analysis) netblockOwners() map[string]int {
 	units := map[string]int{}
 	for _, r := range d.current(kinds.NetblockOwner) {
 		units[r.Key] = kinds.NetblockOwner.Attrs(r).ASN
@@ -123,7 +123,7 @@ func (d *deriver) netblockOwners() map[string]int {
 
 // originAS uses netblock_owner for addresses inside scope netblocks and ip_owner otherwise.
 // Zero means no known announcing AS.
-func (d *deriver) originAS(units map[string]int, a netip.Addr) int {
+func (d *analysis) originAS(units map[string]int, a netip.Addr) int {
 	if unit, ok := d.in.Scope.OwnerUnit(a); ok {
 		return units[unit.String()]
 	}

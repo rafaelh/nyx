@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// GitHub tests run the real stage against a loopback search endpoint with realistic text-match
+// GitHub tests run the real procedure against a loopback search endpoint with realistic text-match
 // responses.
 
 const githubKey = "gh-token-SECRET-0017"
@@ -151,10 +151,10 @@ func ghMany(root string, n int) []ghFile {
 	return out
 }
 
-// ghFailed reads check failure counts; a partly successful stage can still display done.
+// ghFailed reads job failure counts; a partly successful procedure can still display done.
 func ghFailed(w *world) int { return lastState(w.h.events(), "github").num("failed") }
 
-func ghCheckKey(root string, max int) string { return fmt.Sprintf("%s|max=%d", root, max) }
+func ghJobKey(root string, max int) string { return fmt.Sprintf("%s|max=%d", root, max) }
 
 func TestGitHub_NotConfiguredWithoutKey(t *testing.T) {
 	t.Parallel()
@@ -300,13 +300,13 @@ func TestGitHub_RequestShape(t *testing.T) {
 	if got := r.Header.Get("Accept"); got != "application/vnd.github.text-match+json" {
 		t.Errorf("Accept = %q", got)
 	}
-	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 500), ghCheckKey("example.org", 500)}) {
+	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 500), ghJobKey("example.org", 500)}) {
 		t.Errorf("completed = %v", done)
 	}
 }
 
 // Paging ends at github.max_results, the total or an empty page. The cap is part
-// of the check, so changing it searches again.
+// of the job, so changing it searches again.
 func TestGitHub_CapStopsPaging(t *testing.T) {
 	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 250)})
@@ -320,18 +320,18 @@ func TestGitHub_CapStopsPaging(t *testing.T) {
 	if n := len(w.table(eng, "code-mentions.csv")); n != 150 {
 		t.Errorf("%d rows, want 150: a page is read only as far as the cap", n)
 	}
-	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 150)}) {
+	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 150)}) {
 		t.Errorf("completed = %v", done)
 	}
 
-	// The default cap is 500, and it is a new check.
+	// The default cap is 500, and it is a new job.
 	if code := w.run("--passive", "-e", eng); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if got := ghAsked(w)[2:]; !slices.Equal(got, []string{"example.com#1", "example.com#2", "example.com#3"}) {
 		t.Errorf("after raising the cap, asked = %v, want pages 1 to 3 (the total is 250)", got)
 	}
-	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 150), ghCheckKey("example.com", 500)}) {
+	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 150), ghJobKey("example.com", 500)}) {
 		t.Errorf("completed = %v", done)
 	}
 	if n := len(w.table(eng, "code-mentions.csv")); n != 250 {
@@ -373,7 +373,7 @@ func TestGitHub_StopsAtGitHubsLastPage(t *testing.T) {
 	if got := ghAsked(w); len(got) != 10 || got[9] != "example.com#10" {
 		t.Errorf("asked = %v, want pages 1 to 10 only", got)
 	}
-	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 1000)}) {
+	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 1000)}) {
 		t.Errorf("completed = %v", done)
 	}
 	if n := len(w.table(eng, "code-mentions.csv")); n != 500 {
@@ -581,7 +581,7 @@ func TestGitHub_InterruptDuringTheWait(t *testing.T) {
 	if took := time.Since(start); took > 10*time.Second {
 		t.Errorf("exit took %v: the wait must end at the interrupt", took)
 	}
-	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 500)}) {
+	if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 500)}) {
 		t.Errorf("completed = %v, want only the root searched before the interrupt", done)
 	}
 	if n := len(w.table(eng, "code-mentions.csv")); n != 2 {
@@ -601,7 +601,7 @@ func TestGitHub_InterruptDuringTheWait(t *testing.T) {
 }
 
 // Unwaitable limits and key refusals preserve completed roots and abort unsent work.
-func TestGitHub_StopsTheStage(t *testing.T) {
+func TestGitHub_StopsTheProcedure(t *testing.T) {
 	t.Parallel()
 	far := func() string { return strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) }
 	for name, tc := range map[string]struct {
@@ -644,7 +644,7 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 			if got := ghAsked(w); !slices.Equal(got, []string{"example.com#1", "example.net#1"}) {
 				t.Errorf("asked = %v: the stage stops after the refusal", got)
 			}
-			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 500)}) {
+			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 500)}) {
 				t.Errorf("completed = %v, want the root completed before the stop", done)
 			}
 			if n := len(w.table(eng, "code-mentions.csv")); n != 1 {
@@ -686,14 +686,14 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 			if n := ghFailed(w); n != 1 {
 				t.Errorf("%d checks failed, want 1", n)
 			}
-			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.net", 500)}) {
+			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.net", 500)}) {
 				t.Errorf("completed = %v: only the root that answered", done)
 			}
 			bad = false
 			if code := w.run("--passive", "-e", eng); code != 0 {
 				t.Fatalf("exit %d", code)
 			}
-			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghCheckKey("example.com", 500), ghCheckKey("example.net", 500)}) {
+			if done := w.h.completed(eng, "github"); !slices.Equal(done, []string{ghJobKey("example.com", 500), ghJobKey("example.net", 500)}) {
 				t.Errorf("completed = %v: the failed root is retried", done)
 			}
 		})
@@ -705,7 +705,7 @@ func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 	t.Parallel()
 	var names []string
-	for _, s := range defaultStageList() {
+	for _, s := range defaultProcedureList() {
 		names = append(names, s.Name())
 	}
 	idx := func(n string) int { return slices.Index(names, n) }
@@ -713,14 +713,14 @@ func TestGitHub_RegistryHelpAndSkip(t *testing.T) {
 	if !inOrder {
 		t.Errorf("stage order = %v, want github after the subdomain sources and before shodan", names)
 	}
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if !strings.Contains(h.stdout.String(), "--github-max-results") {
 		t.Error("help missing --github-max-results")
 	}
-	if row := stageRow(h.stagesHelp(), "github"); !strings.Contains(row, " github ") {
+	if row := procedureRow(h.proceduresHelp(), "github"); !strings.Contains(row, " github ") {
 		t.Errorf("help stages does not list github with its key: %q", row)
 	}
 

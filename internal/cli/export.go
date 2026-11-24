@@ -92,15 +92,15 @@ func exportKinds() []string {
 
 // exportLine defines ordered export fields. Entities carry Scope; other kinds carry Shown.
 type exportLine struct {
-	Kind      string         `json:"kind"`
-	Key       string         `json:"key"`
-	Attrs     map[string]any `json:"attrs"`
-	Current   bool           `json:"current"`
-	FirstSeen string         `json:"first_seen"`
-	LastSeen  string         `json:"last_seen"`
-	Stages    []string       `json:"stages"`
-	Scope     string         `json:"scope,omitempty"`
-	Shown     *bool          `json:"shown,omitempty"`
+	Kind       string         `json:"kind"`
+	Key        string         `json:"key"`
+	Attrs      map[string]any `json:"attrs"`
+	Current    bool           `json:"current"`
+	FirstSeen  string         `json:"first_seen"`
+	LastSeen   string         `json:"last_seen"`
+	Procedures []string       `json:"stages"`
+	Scope      string         `json:"scope,omitempty"`
+	Shown      *bool          `json:"shown,omitempty"`
 }
 
 // exportInputLine is an input (its Type is root, org, asn or cidr) or an
@@ -158,7 +158,7 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 	}
 	defer db.Close() // nothing to save: it cannot write
 
-	data, err := exportSnapshot(db, inv.d.Stages, o, red)
+	data, err := exportSnapshot(db, inv.d.Procedures, o, red)
 	if err != nil {
 		return err
 	}
@@ -171,9 +171,9 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 // exportSnapshot reads one consistent transaction, writing inputs and exclusions before records
 // sorted by kind and key. Classification matches a run. Each row is encoded immediately so
 // cleaned attribute copies do not accumulate.
-func exportSnapshot(db *store.ReadOnly, stages []run.Stage, o *exportOptions, red *config.Redactor) ([]byte, error) {
+func exportSnapshot(db *store.ReadOnly, procedures []run.Procedure, o *exportOptions, red *config.Redactor) ([]byte, error) {
 	var out, exclusions bytes.Buffer
-	x := &exporter{o: o, stages: stages, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
+	x := &exporter{o: o, procedures: procedures, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
 	err := db.View(func(r store.Reader) error {
 		out.Reset() // View may call again, for a run that started while it read
 		exclusions.Reset()
@@ -192,10 +192,10 @@ func exportSnapshot(db *store.ReadOnly, stages []run.Stage, o *exportOptions, re
 
 // exporter writes ordered inputs/records and buffers exclusions until inputs are complete.
 type exporter struct {
-	o         *exportOptions
-	stages    []run.Stage // the registry, in order
-	red       *config.Redactor
-	enc, excl *json.Encoder
+	o          *exportOptions
+	procedures []run.Procedure // the registry, in order
+	red        *config.Redactor
+	enc, excl  *json.Encoder
 }
 
 // want reports whether --kind selects kind (no --kind selects every kind).
@@ -234,8 +234,8 @@ func (x *exporter) records(r store.Reader, rows []store.Input) error {
 	if len(wanted) == 0 {
 		return nil // only inputs and exclusions: no scope to build
 	}
-	src := &snapshotSource{r: r, order: stageNames(x.stages), all: map[string][]store.Record{}}
-	built, err := run.BuildScope(engagement.ParseInputs(rows), x.stages, src)
+	src := &snapshotSource{r: r, order: procedureNames(x.procedures), all: map[string][]store.Record{}}
+	built, err := run.BuildScope(engagement.ParseInputs(rows), x.procedures, src)
 	if err != nil {
 		return err
 	}
@@ -261,10 +261,10 @@ func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility
 		}
 		l := exportLine{
 			Kind: k.Name, Key: cleanText(rec.Key, x.red), Attrs: cleanAttrs(rec.Attrs, x.red),
-			Current: rec.Current, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen, Stages: rec.Stages,
+			Current: rec.Current, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen, Procedures: rec.Producers,
 		}
-		if l.Stages == nil {
-			l.Stages = []string{}
+		if l.Procedures == nil {
+			l.Procedures = []string{}
 		}
 		if class, placed := vis.Placement(h, rec); placed {
 			l.Scope = class.String()
@@ -314,8 +314,8 @@ func (s *snapshotSource) CurrentRecords(k kinds.Named) ([]store.Record, error) {
 	return slices.DeleteFunc(slices.Clone(recs), func(r store.Record) bool { return !r.Current }), nil
 }
 
-func (s *snapshotSource) Observations(k kinds.Named, stage string) ([]store.ObsRow, error) {
-	return s.r.Observations(k.Name(), stage)
+func (s *snapshotSource) Observations(k kinds.Named, procedure string) ([]store.ObsRow, error) {
+	return s.r.Observations(k.Name(), procedure)
 }
 
 // cleanText sanitises display text and masks API keys.

@@ -24,7 +24,7 @@ type Closed struct{}
 type Filtered struct{}
 
 // Refused means policy refused the request; nothing was sent. It is a
-// completed check, not a failure.
+// completed job, not a failure.
 type Refused struct{ Reason string }
 
 func (Open) tcpResult()     {}

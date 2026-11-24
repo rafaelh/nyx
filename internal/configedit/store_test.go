@@ -56,12 +56,12 @@ func newWorld(t *testing.T, body *string, mod ...func(*configedit.StoreOptions))
 		w.write(*body)
 	}
 	w.opts = configedit.StoreOptions{
-		Path:      w.path,
-		Env:       config.Env{"HOME=" + w.home},
-		Stages:    []setup.Stage{{Name: "dns", Does: "d"}, {Name: "ports", Does: "p"}, {Name: "email", Does: "e"}},
-		SkipEntry: skipEntry,
-		Getwd:     func() (string, error) { return w.cwd, nil },
-		NoFsync:   true,
+		Path:       w.path,
+		Env:        config.Env{"HOME=" + w.home},
+		Procedures: []setup.Procedure{{Name: "dns", Does: "d"}, {Name: "ports", Does: "p"}, {Name: "email", Does: "e"}},
+		SkipEntry:  skipEntry,
+		Getwd:      func() (string, error) { return w.cwd, nil },
+		NoFsync:    true,
 	}
 	for _, n := range sourceNames {
 		w.opts.Sources = append(w.opts.Sources, setup.Source{Name: n, Turns: "turns " + n})
@@ -135,7 +135,7 @@ func TestStore_InfoGivesTheAbsolutePathAndWhatTheFileCanHold(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, nil)
 	info := w.store.Info()
-	if info.Path != w.path || len(info.Sources) != 9 || info.Sources[1].Name != "shodan" || len(info.Stages) != 3 {
+	if info.Path != w.path || len(info.Sources) != 9 || info.Sources[1].Name != "shodan" || len(info.Procedures) != 3 {
 		t.Errorf("Info = %+v", info)
 	}
 	cwd, err := os.Getwd()

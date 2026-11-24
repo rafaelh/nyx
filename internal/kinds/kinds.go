@@ -1,5 +1,5 @@
 // Package kinds defines typed record handles and their attributes, visibility and output rules.
-// Stages create observations and readers decode records through the same handle. Attribute JSON
+// Procedures create observations and readers decode records through the same handle. Attribute JSON
 // names are stored in engagement databases, so renaming them breaks existing state.
 package kinds
 

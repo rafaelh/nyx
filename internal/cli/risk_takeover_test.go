@@ -60,13 +60,13 @@ func TestTakeover_HTTPTakeover(t *testing.T) {
 	if len(rows) != 1 || rows[0]["target"] != "app.example.com" || rows[0]["type"] != "http-fingerprint" || rows[0]["severity"] != "high" {
 		t.Fatalf("risk-takeover.csv:\n%s", x.file(eng, "risk-takeover.csv"))
 	}
-	if unclaimed.count("/") != 2 || claimed.count("/") != 2 { // the probe's request and the takeover check's
+	if unclaimed.count("/") != 2 || claimed.count("/") != 2 { // the probe's request and the takeover job's
 		t.Errorf("GET / counts: %d %d, want 2 and 2", unclaimed.count("/"), claimed.count("/"))
 	}
 	if !unclaimed.onlyGET() || len(unclaimed.pageURIs()) != 1 {
 		t.Errorf("takeover requested %v", unclaimed.uris())
 	}
-	// Each check is keyed by service and the matched entry's fingerprint.
+	// Each job is keyed by service and the matched entry's fingerprint.
 	keys := x.completedKeys("takeover")
 	if len(keys) != 2 {
 		t.Fatalf("takeover checks = %v", keys)
@@ -82,7 +82,7 @@ func TestTakeover_HTTPTakeover(t *testing.T) {
 	if unclaimed.count("/") != before {
 		t.Error("a completed takeover check was repeated")
 	}
-	// A service not on a provider with a fingerprint is never requested by the stage.
+	// A service not on a provider with a fingerprint is never requested by the procedure.
 	if st := x.state("takeover"); st.str("state") == "failed" {
 		t.Errorf("takeover state = %v", st)
 	}

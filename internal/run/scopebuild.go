@@ -14,18 +14,18 @@ import (
 
 // scopeKinds lists BuildScope's record dependencies. Candidate ranking shares this list so a
 // scope change also triggers reranking. Ranking additionally reads the candidate kinds it
-// produces; see newDerivers.
+// produces; see newAnalyses.
 var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
 	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration, kinds.ServerAddress}
 
 // ScopeSource supplies records for scope classification. Runs read through the store; exports
 // read a single snapshot. Both use the same classification code.
 type ScopeSource interface {
-	// CurrentRecords returns current records with attributes merged in stage registry
+	// CurrentRecords returns current records with attributes merged in procedure registry
 	// order.
 	CurrentRecords(kinds.Named) ([]store.Record, error)
-	// Observations lists the observations of a kind made by a stage.
-	Observations(kind kinds.Named, stage string) ([]store.ObsRow, error)
+	// Observations lists the observations of a kind made by a procedure.
+	Observations(kind kinds.Named, procedure string) ([]store.ObsRow, error)
 }
 
 // rangeCache lets BuildScope reuse the provider-range index between builds. Other sources are
@@ -44,9 +44,9 @@ type Built struct {
 }
 
 // BuildScope classifies stored inputs and current records for runs and exports. ASNExpander
-// stages contribute input ASNs' netblocks to scope. This function only reads state; the runner
+// procedures contribute input ASNs' netblocks to scope. This function only reads state; the runner
 // handles netblock approval and egress policy changes.
-func BuildScope(in input.Parsed, stages []Stage, src ScopeSource) (*Built, error) {
+func BuildScope(in input.Parsed, procedures []Procedure, src ScopeSource) (*Built, error) {
 	excl, err := input.ParseExclusions(in.Exclusions)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func BuildScope(in input.Parsed, stages []Stage, src ScopeSource) (*Built, error
 		}
 		blocks = append(blocks, p)
 	}
-	asnBlocks, err := asnNetblocks(src, stages, in)
+	asnBlocks, err := asnNetblocks(src, procedures, in)
 	if err != nil {
 		return nil, err
 	}
@@ -78,15 +78,15 @@ func BuildScope(in input.Parsed, stages []Stage, src ScopeSource) (*Built, error
 	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv)}, nil
 }
 
-// asnNetblocks maps netblocks observed by ASNExpander stages to their input ASN. It uses check
+// asnNetblocks maps netblocks observed by ASNExpander procedures to their input ASN. It uses job
 // keys rather than mutable record attributes to establish that relationship.
-func asnNetblocks(src ScopeSource, stages []Stage, in input.Parsed) (map[string]string, error) {
+func asnNetblocks(src ScopeSource, procedures []Procedure, in input.Parsed) (map[string]string, error) {
 	want := map[string]bool{}
 	for _, a := range in.ASNs {
 		want[a] = true
 	}
 	out := map[string]string{}
-	for _, s := range stages {
+	for _, s := range procedures {
 		if _, ok := s.(ASNExpander); !ok {
 			continue
 		}
@@ -95,8 +95,8 @@ func asnNetblocks(src ScopeSource, stages []Stage, in input.Parsed) (map[string]
 			return nil, err
 		}
 		for _, row := range rows {
-			if want[row.CheckKey] {
-				out[row.Key] = row.CheckKey
+			if want[row.JobKey] {
+				out[row.Key] = row.JobKey
 			}
 		}
 	}
@@ -155,7 +155,7 @@ func currentAs[T any](src ScopeSource, k kinds.Named, conv func(store.Record) (T
 }
 
 func hostOf(rec store.Record) (inventory.Host, bool) {
-	return inventory.Host{Name: dnsname.Normalise(rec.Key), Stages: rec.Stages}, true
+	return inventory.Host{Name: dnsname.Normalise(rec.Key), Producers: rec.Producers}, true
 }
 
 func resolutionOf(rec store.Record) (inventory.Resolution, bool) {
@@ -258,12 +258,12 @@ func (s runnerSource) CurrentRecords(k kinds.Named) ([]store.Record, error) {
 	return s.r.currentRecords(k)
 }
 
-func (s runnerSource) Observations(k kinds.Named, stage string) ([]store.ObsRow, error) {
-	return s.r.st.Observations(k.Name(), stage)
+func (s runnerSource) Observations(k kinds.Named, procedure string) ([]store.ObsRow, error) {
+	return s.r.st.Observations(k.Name(), procedure)
 }
 
 // ProviderRanges caches the index until the store's provider_range version changes. Scope is
-// rebuilt after every stage, so this avoids repeatedly indexing thousands of rows.
+// rebuilt after every procedure, so this avoids repeatedly indexing thousands of rows.
 func (s runnerSource) ProviderRanges() (*provider.Ranges, error) {
 	r := s.r
 	ver := r.st.KindVersion(kinds.ProviderRange.Name())

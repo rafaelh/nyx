@@ -14,7 +14,7 @@ func TestQuotaError_WrapsRunQuotaAndKeepsTheText(t *testing.T) {
 	t.Parallel()
 	err := fmt.Errorf("bootstrap ipv4.json: %w", &ipsource.RateLimitedError{Host: "data.iana.org"})
 	got := httpsrc.QuotaError(err)
-	if !errors.Is(got, run.ErrQuota) || !errors.Is(got, run.ErrAbortStage) || !errors.Is(got, ipsource.ErrQuota) {
+	if !errors.Is(got, run.ErrQuota) || !errors.Is(got, run.ErrAbortProcedure) || !errors.Is(got, ipsource.ErrQuota) {
 		t.Errorf("%v should be a spent quota of both kinds", got)
 	}
 	var rl *ipsource.RateLimitedError

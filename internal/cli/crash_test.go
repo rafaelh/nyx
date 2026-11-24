@@ -22,7 +22,7 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// TestMain lets the test binary re-execute itself as `nyx` with a fake stage.
+// TestMain lets the test binary re-execute itself as `nyx` with a fake procedure.
 func TestMain(m *testing.M) {
 	if os.Getenv("NYX_TEST_CHILD") == "1" {
 		os.Exit(childMain())
@@ -40,11 +40,11 @@ func childMain() int {
 	n, _ := strconv.Atoi(os.Getenv("NYX_TEST_N"))
 	delay, _ := time.ParseDuration(os.Getenv("NYX_TEST_DELAY"))
 	logPath := os.Getenv("NYX_TEST_LOG")
-	stubborn := os.Getenv("NYX_TEST_STUBBORN") == "1" // checks that do not stop when cancelled
-	hosts := os.Getenv("NYX_TEST_HOSTS") == "1"       // each check finds the hostname <key>.a.com, not a web service
-	st := &testkit.Stage{StageName: "fake", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check { return testkit.Keys("c", n) },
-		RunFn: func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+	stubborn := os.Getenv("NYX_TEST_STUBBORN") == "1" // jobs that do not stop when cancelled
+	hosts := os.Getenv("NYX_TEST_HOSTS") == "1"       // each job finds the hostname <key>.a.com, not a web service
+	st := &testkit.Procedure{ProcedureName: "fake", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job { return testkit.Keys("c", n) },
+		RunFn: func(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 			if logPath != "" {
 				f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 				if err == nil {
@@ -67,7 +67,7 @@ func childMain() int {
 			return []run.Observation{obs("web_service", "ws-"+c.Key)}, nil
 		}}
 	d := cli.DefaultDeps()
-	d.Stages = []run.Stage{st}
+	d.Procedures = []run.Procedure{st}
 	d.Signals = cli.NotifySignals()
 	// Process-kill tests retain the OS page cache, so they can skip costly file fsyncs.
 	d.NoFsync = true
@@ -89,9 +89,9 @@ type childOpts struct {
 	faultFile string
 	args      []string
 	human     bool // leave out --json
-	stubborn  bool // checks ignore cancellation
+	stubborn  bool // jobs ignore cancellation
 	openStdin bool // stdin is a pipe that is never closed
-	hosts     bool // each check finds a hostname in scope of a.com
+	hosts     bool // each job finds a hostname in scope of a.com
 }
 
 // startChild starts the test binary as nyx in a child process. Only the
@@ -186,7 +186,7 @@ func (c *child) waitFault(file string) string {
 
 func (c *child) kill(sig syscall.Signal) { _ = c.cmd.Process.Signal(sig) }
 
-const nChecks = 40
+const nJobs = 40
 
 func engDirOf(out string) string { return filepath.Join(out, "a.com") }
 
@@ -247,15 +247,15 @@ func assertOutputsIntact(t *testing.T, out string) {
 
 func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 	t.Helper()
-	c2 := startChild(t, out, childOpts{n: nChecks, args: o.args})
+	c2 := startChild(t, out, childOpts{n: nJobs, args: o.args})
 	if code := c2.wait(); code != 0 {
 		t.Fatalf("recovery run exit %d", code)
 	}
 	if got := sorted(c2.executed()); strings.Join(got, ",") != strings.Join(wantRun2, ",") {
 		t.Errorf("recovery run executed %d checks, want %d\n got %v\nwant %v", len(got), len(wantRun2), got, wantRun2)
 	}
-	if got := committed(t, out); len(got) != nChecks {
-		t.Errorf("after recovery %d checks recorded, want %d", len(got), nChecks)
+	if got := committed(t, out); len(got) != nJobs {
+		t.Errorf("after recovery %d checks recorded, want %d", len(got), nJobs)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(engDirOf(out), ".nyx", "tmp")); len(entries) != 0 {
 		t.Errorf("tmp not swept: %v", entries)
@@ -294,14 +294,14 @@ func TestChildProcesses(t *testing.T) { //nolint:paralleltest // its subtests fo
 // A kill -9 while an output file is mid-write.
 func testCrashRenderMidFile(t *testing.T) {
 	out := t.TempDir()
-	c1 := startChild(t, out, childOpts{n: nChecks, args: []string{"a.com"}})
+	c1 := startChild(t, out, childOpts{n: nJobs, args: []string{"a.com"}})
 	if code := c1.wait(); code != 0 {
 		t.Fatalf("first run exit %d", code)
 	}
 	before, _ := os.ReadFile(filepath.Join(engDirOf(out), "scope.csv"))
 
 	ff := filepath.Join(t.TempDir(), "fault")
-	c2 := startChild(t, out, childOpts{n: nChecks, fault: "render-mid-file", faultFile: ff, args: []string{"-e", "a.com", "--redo", "fake"}})
+	c2 := startChild(t, out, childOpts{n: nJobs, fault: "render-mid-file", faultFile: ff, args: []string{"-e", "a.com", "--redo", "fake"}})
 	c2.waitFault(ff)
 	c2.kill(syscall.SIGKILL)
 	c2.wait()
@@ -313,7 +313,7 @@ func testCrashRenderMidFile(t *testing.T) {
 		t.Error("scope.csv changed by an interrupted render")
 	}
 	// The interrupted redo is finished by the next run, which is not blocked by the dead lock.
-	c3 := startChild(t, out, childOpts{n: nChecks, args: []string{"-e", "a.com"}})
+	c3 := startChild(t, out, childOpts{n: nJobs, args: []string{"-e", "a.com"}})
 	if code := c3.wait(); code != 0 {
 		t.Fatalf("next run exit %d", code)
 	}
@@ -330,7 +330,7 @@ func testCrashPoints(t *testing.T) {
 			t.Parallel()
 			out := t.TempDir()
 			ff := filepath.Join(t.TempDir(), "fault")
-			c1 := startChild(t, out, childOpts{n: nChecks, fault: point, faultFile: ff, args: []string{"a.com"}})
+			c1 := startChild(t, out, childOpts{n: nJobs, fault: point, faultFile: ff, args: []string{"a.com"}})
 			detail := c1.waitFault(ff)
 			if point == "in-flight" {
 				time.Sleep(400 * time.Millisecond) // let the other workers' completions commit
@@ -348,10 +348,10 @@ func testCrashPoints(t *testing.T) {
 					t.Errorf("in-flight check %s must not be recorded", key)
 				}
 			}
-			if point == "in-check-tx" && len(done) == nChecks {
+			if point == "in-check-tx" && len(done) == nJobs {
 				t.Error("in-check-tx: the pending transaction must not have committed")
 			}
-			finishAndCheck(t, out, setDiff(allKeys(nChecks), done), childOpts{args: []string{"-e", "a.com"}})
+			finishAndCheck(t, out, setDiff(allKeys(nJobs), done), childOpts{args: []string{"-e", "a.com"}})
 		})
 	}
 }
@@ -359,13 +359,13 @@ func testCrashPoints(t *testing.T) {
 // A redo interrupted after a commit is finished by the next plain run.
 func testCrashDuringRedo(t *testing.T) {
 	out := t.TempDir()
-	c1 := startChild(t, out, childOpts{n: nChecks, args: []string{"a.com"}})
+	c1 := startChild(t, out, childOpts{n: nJobs, args: []string{"a.com"}})
 	if code := c1.wait(); code != 0 {
 		t.Fatalf("first run exit %d", code)
 	}
 	ff := filepath.Join(t.TempDir(), "fault")
-	// Slow checks spread completions over several commit batches, so the first commit is partial.
-	c2 := startChild(t, out, childOpts{n: nChecks, delay: 30 * time.Millisecond, fault: "after-commit", faultFile: ff,
+	// Slow jobs spread completions over several commit batches, so the first commit is partial.
+	c2 := startChild(t, out, childOpts{n: nJobs, delay: 30 * time.Millisecond, fault: "after-commit", faultFile: ff,
 		args: []string{"-e", "a.com", "--redo", "fake", "--concurrency", "4"}})
 	c2.waitFault(ff)
 	c2.kill(syscall.SIGKILL)
@@ -375,10 +375,10 @@ func testCrashDuringRedo(t *testing.T) {
 		t.Fatalf("redo marker must survive the crash: %v", v)
 	}
 	done := committed(t, out)
-	if len(done) == 0 || len(done) == nChecks {
-		t.Fatalf("want a partial redo at the crash point, got %d of %d checks recorded", len(done), nChecks)
+	if len(done) == 0 || len(done) == nJobs {
+		t.Fatalf("want a partial redo at the crash point, got %d of %d checks recorded", len(done), nJobs)
 	}
-	finishAndCheck(t, out, setDiff(allKeys(nChecks), done), childOpts{args: []string{"-e", "a.com"}}) // no --redo
+	finishAndCheck(t, out, setDiff(allKeys(nJobs), done), childOpts{args: []string{"-e", "a.com"}}) // no --redo
 	db2 := openDB(t, filepath.Join(engDirOf(out), ".nyx", "state.db"))
 	if v := queryStrings(t, db2, "SELECT key FROM meta WHERE key='redo:fake'"); len(v) != 0 {
 		t.Errorf("redo marker should be cleared: %v", v)
@@ -396,7 +396,7 @@ func testSignals(t *testing.T) {
 			t.Run(fmt.Sprintf("%s human=%v", name, human), func(t *testing.T) {
 				t.Parallel()
 				out := t.TempDir()
-				c1 := startChild(t, out, childOpts{n: nChecks, delay: 60 * time.Millisecond, args: []string{"a.com", "--concurrency", "2"}, human: human})
+				c1 := startChild(t, out, childOpts{n: nJobs, delay: 60 * time.Millisecond, args: []string{"a.com", "--concurrency", "2"}, human: human})
 				waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
 				c1.kill(c.sig)
 				if code := c1.wait(); code != c.code {
@@ -408,13 +408,13 @@ func testSignals(t *testing.T) {
 				}
 				assertOutputsIntact(t, out)
 				done := committed(t, out)
-				if len(done) == 0 || len(done) == nChecks {
+				if len(done) == 0 || len(done) == nJobs {
 					t.Fatalf("expected a partial run, got %d recorded", len(done))
 				}
 				if _, err := os.Stat(filepath.Join(engDirOf(out), "scope.csv")); err != nil {
 					t.Error("outputs must be rendered on interrupt")
 				}
-				finishAndCheck(t, out, setDiff(allKeys(nChecks), done), childOpts{args: []string{"-e", "a.com"}})
+				finishAndCheck(t, out, setDiff(allKeys(nJobs), done), childOpts{args: []string{"-e", "a.com"}})
 			})
 		}
 	}
@@ -447,9 +447,9 @@ func testSignalsSecondExitsAtOnce(t *testing.T) {
 			t.Run(fmt.Sprintf("%s human=%v", name, human), func(t *testing.T) {
 				t.Parallel()
 				out := t.TempDir()
-				// The checks ignore the cancel and take a minute, so only the
+				// The jobs ignore the cancel and take a minute, so only the
 				// second signal can end the run soon.
-				c1 := startChild(t, out, childOpts{n: nChecks, delay: time.Minute, stubborn: true, human: human, args: []string{"a.com", "--concurrency", "2"}})
+				c1 := startChild(t, out, childOpts{n: nJobs, delay: time.Minute, stubborn: true, human: human, args: []string{"a.com", "--concurrency", "2"}})
 				waitFor(t, "the checks to start", func() bool { return len(c1.executed()) >= 2 })
 				c1.kill(c.first)
 				time.Sleep(200 * time.Millisecond)
@@ -506,7 +506,7 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 		t.Error("a first run wrote changes.csv")
 	}
 
-	c1 := startChild(t, out, childOpts{n: nChecks, hosts: true, delay: 60 * time.Millisecond, args: []string{"-e", "a.com", "--concurrency", "2"}})
+	c1 := startChild(t, out, childOpts{n: nJobs, hosts: true, delay: 60 * time.Millisecond, args: []string{"-e", "a.com", "--concurrency", "2"}})
 	waitFor(t, "some checks", func() bool { return len(c1.executed()) >= 6 })
 	c1.kill(syscall.SIGINT)
 	if code := c1.wait(); code != 130 {
@@ -514,8 +514,8 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 	}
 	assertOutputsIntact(t, out)
 	interrupted := changedHosts(t, out)
-	if len(interrupted) == 0 || len(interrupted) >= nChecks-3 {
-		t.Fatalf("the interrupted run listed %d new hostnames of %d", len(interrupted), nChecks-3)
+	if len(interrupted) == 0 || len(interrupted) >= nJobs-3 {
+		t.Fatalf("the interrupted run listed %d new hostnames of %d", len(interrupted), nJobs-3)
 	}
 	for _, h := range interrupted {
 		if slices.Contains(allKeys(3), h) {
@@ -523,7 +523,7 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 		}
 	}
 
-	c2 := startChild(t, out, childOpts{n: nChecks, hosts: true, args: []string{"-e", "a.com", "--concurrency", "2"}})
+	c2 := startChild(t, out, childOpts{n: nJobs, hosts: true, args: []string{"-e", "a.com", "--concurrency", "2"}})
 	if code := c2.wait(); code != 0 {
 		t.Fatalf("resumed run exit %d\n%s", code, c2.stderr.String())
 	}
@@ -534,7 +534,7 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 		}
 	}
 	all := sorted(append(slices.Clone(interrupted), resumed...))
-	if want := allKeys(nChecks)[3:]; !slices.Equal(all, want) {
+	if want := allKeys(nJobs)[3:]; !slices.Equal(all, want) {
 		t.Errorf("new hostnames across both runs\n got %v\nwant %v", all, want)
 	}
 }
@@ -544,8 +544,8 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 func testTimeoutInAChildProcess(t *testing.T) {
 	out := t.TempDir()
 	start := time.Now()
-	// Keep checks blocked well past the test so only cancellation can finish them.
-	c1 := startChild(t, out, childOpts{n: nChecks, delay: time.Hour, args: []string{"a.com", "--timeout", "3s"}})
+	// Keep jobs blocked well past the test so only cancellation can finish them.
+	c1 := startChild(t, out, childOpts{n: nJobs, delay: time.Hour, args: []string{"a.com", "--timeout", "3s"}})
 	code := c1.wait()
 	if code != 7 {
 		t.Fatalf("first run exit %d, want 7\nstdout %s\nstderr %s", code, c1.stdout.String(), c1.stderr.String())
@@ -554,7 +554,7 @@ func testTimeoutInAChildProcess(t *testing.T) {
 		t.Errorf("the run took %v for a 3s deadline", took)
 	}
 	env, ok := tryEnvelope(c1.stdout.String())
-	if !ok || !env.Meta.DeadlineExceeded || env.Meta.ChecksCancelled == 0 {
+	if !ok || !env.Meta.DeadlineExceeded || env.Meta.JobsCancelled == 0 {
 		t.Errorf("stdout is not the envelope of a run the deadline ended: %s", c1.stdout.String())
 	}
 	if !strings.Contains(c1.stderr.String(), `"code":"PARTIAL"`) {
@@ -564,5 +564,5 @@ func testTimeoutInAChildProcess(t *testing.T) {
 	if got := committed(t, out); len(got) != 0 {
 		t.Errorf("%d cancelled checks were recorded as done", len(got))
 	}
-	finishAndCheck(t, out, allKeys(nChecks), childOpts{args: []string{"-e", "a.com"}})
+	finishAndCheck(t, out, allKeys(nJobs), childOpts{args: []string{"-e", "a.com"}})
 }

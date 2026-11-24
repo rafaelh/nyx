@@ -31,9 +31,9 @@ func richEnvelope() report.Envelope {
 	return report.Envelope{
 		Data: report.Summary{
 			Counts:        []report.CountRow{{Category: "hosts", N: 12}, {Category: "open ports", N: 5}, {Category: "urls", N: 3400}},
-			FailedChecks:  []report.StageCount{{Stage: "asn", N: 2}},
-			Deferred:      []report.StageCount{{Stage: "shodan", N: 41}},
-			NotConfigured: []report.StageReason{{Stage: "ports", Reason: "passive-only"}},
+			FailedJobs:    []report.ProcedureCount{{Procedure: "asn", N: 2}},
+			Deferred:      []report.ProcedureCount{{Procedure: "shodan", N: 41}},
+			NotConfigured: []report.ProcedureReason{{Procedure: "ports", Reason: "passive-only"}},
 			Findings:      rows,
 			Candidates: []report.CandidateRow{
 				{Kind: "root", Value: "x.example.org", Sources: []string{"crtsh", "whoisxml", "securitytrails", "certspotter", "hackertarget"}, EvidenceCount: 12, Confidence: "high", Promote: "-d x.example.org"},
@@ -47,7 +47,7 @@ func richEnvelope() report.Envelope {
 				Findings: rows[:1],
 			},
 		},
-		Meta: report.Meta{DeadlineExceeded: true, ChecksCompleted: 700, ChecksCancelled: 20},
+		Meta: report.Meta{DeadlineExceeded: true, JobsCompleted: 700, JobsCancelled: 20},
 	}
 }
 
@@ -107,10 +107,10 @@ func TestSummaryTerminalHeadingWraps(t *testing.T) {
 func TestSummaryTerminalCounts(t *testing.T) {
 	t.Parallel()
 	env := report.Envelope{Data: report.Summary{
-		Counts:       []report.CountRow{{Category: "hosts", N: 5}, {Category: "open ports", N: 1234}, {Category: "urls", N: 12}, {Category: "a very long category label", N: 1}},
-		FailedChecks: []report.StageCount{{Stage: "asn", N: 7}, {Stage: "dns", N: 20}},
-		Deferred:     []report.StageCount{{Stage: "shodan", N: 100}},
-		Changes:      &report.Changes{Counts: []report.ChangeCount{{Kind: "hostname", Change: "new", N: 4000}}},
+		Counts:     []report.CountRow{{Category: "hosts", N: 5}, {Category: "open ports", N: 1234}, {Category: "urls", N: 12}, {Category: "a very long category label", N: 1}},
+		FailedJobs: []report.ProcedureCount{{Procedure: "asn", N: 7}, {Procedure: "dns", N: 20}},
+		Deferred:   []report.ProcedureCount{{Procedure: "shodan", N: 100}},
+		Changes:    &report.Changes{Counts: []report.ChangeCount{{Kind: "hostname", Change: "new", N: 4000}}},
 	}}
 	out := termSummary(palette.None, 100, env)
 	line := func(label string, labelWidth int, n string, numWidth int) string {
@@ -380,7 +380,7 @@ func TestSummaryTerminalOtherLinesWrap(t *testing.T) {
 		t.Errorf("the deadline line did not wrap with its continuation at 2:\n%s", text)
 	}
 	// A deadline line wider than the space wraps too.
-	narrow := report.Envelope{Data: report.Summary{}, Meta: report.Meta{DeadlineExceeded: true, ChecksCompleted: 700000000, ChecksCancelled: 20000000000}}
+	narrow := report.Envelope{Data: report.Summary{}, Meta: report.Meta{DeadlineExceeded: true, JobsCompleted: 700000000, JobsCancelled: 20000000000}}
 	for _, l := range linesOf(termSummary(palette.None, 60, narrow)) {
 		if cells(l) > 60 {
 			t.Errorf("%d cells in %q", cells(l), l)
@@ -455,12 +455,12 @@ func TestSummaryTerminalSanitises(t *testing.T) {
 		text := filler + evil + " " + filler + evil + filler
 		row := report.FindingRow{Severity: "high", Category: evil, Target: text, Detail: &text}
 		env := report.Envelope{Data: report.Summary{
-			Counts:       []report.CountRow{{Category: evil, N: 1}},
-			FailedChecks: []report.StageCount{{Stage: evil, N: 1}},
-			Findings:     []report.FindingRow{row},
-			Candidates:   []report.CandidateRow{{Value: text, Sources: []string{text, evil}, Promote: evil}},
-			Notes:        []string{text},
-			Changes:      &report.Changes{Findings: []report.FindingRow{row}},
+			Counts:     []report.CountRow{{Category: evil, N: 1}},
+			FailedJobs: []report.ProcedureCount{{Procedure: evil, N: 1}},
+			Findings:   []report.FindingRow{row},
+			Candidates: []report.CandidateRow{{Value: text, Sources: []string{text, evil}, Promote: evil}},
+			Notes:      []string{text},
+			Changes:    &report.Changes{Findings: []report.FindingRow{row}},
 		}}
 		for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
 			testkit.OnlyPaletteEscapes(t, d, termSummary(d, 60, env))

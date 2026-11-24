@@ -1,4 +1,4 @@
-// Package httpsrc has what every third-party HTTP source stage shares.
+// Package httpsrc has what every third-party HTTP source procedure shares.
 package httpsrc
 
 import (
@@ -36,8 +36,8 @@ func Crtsh(ctx context.Context, c egress.Clients, q url.Values) ([]byte, error) 
 // ErrNotFound lets sources distinguish a meaningful empty 404 from a retryable status failure.
 var ErrNotFound = errors.New("HTTP 404")
 
-// Get shares source error handling. Keyed 401/403/429 responses abort the stage; 404 returns
-// ErrNotFound. Truncated bodies and other non-200 responses fail the check for later retry.
+// Get shares source error handling. Keyed 401/403/429 responses abort the procedure; 404 returns
+// ErrNotFound. Truncated bodies and other non-200 responses fail the job for later retry.
 func Get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
 	return get(ctx, c, req, 0)
 }
@@ -74,7 +74,7 @@ func body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse, spent in
 	case req.KeySource != "" && (resp.Status == 401 || resp.Status == 403):
 		return nil, fmt.Errorf("HTTP %d (key rejected or not entitled to this endpoint): %w", resp.Status, run.ErrKeyRejected)
 	case req.KeySource != "" && resp.Status == 429:
-		return nil, fmt.Errorf("HTTP %d (rate limited or quota exhausted): %w", resp.Status, run.ErrAbortStage)
+		return nil, fmt.Errorf("HTTP %d (rate limited or quota exhausted): %w", resp.Status, run.ErrAbortProcedure)
 	case spent != 0 && resp.Status == spent:
 		return nil, fmt.Errorf("HTTP %d: %w", resp.Status, run.ErrQuota)
 	case resp.Status == 404:

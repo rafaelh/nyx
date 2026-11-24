@@ -149,7 +149,7 @@ func TestThreatRecon_TheOriginASIsCheckedAgainstASNDrop(t *testing.T) {
 // nyx help findings lists the two DROP types with the other finding types and their severities.
 func TestThreatHelp_FindingsListTheDropTypes(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, cli.DefaultDeps().Stages...)
+	h := newHarness(t, cli.DefaultDeps().Procedures...)
 	if code := h.execRoot("help", "findings"); code != 0 {
 		t.Fatalf("help findings: exit %d", code)
 	}
@@ -231,13 +231,13 @@ func TestThreatRecon_ARunUsesTheDataItStartedWith(t *testing.T) { // mutation ta
 	x.h.drop = dropListsAt(t, builtInAt, nil, nil)
 	writeDownloadedDrop(t, x.h, downloadedAt, []spamhaus.NetworkEntry{dropNet("203.0.113.7/32", "SBL7007", "arin")}, nil)
 	later := downloadedAt.Add(24 * time.Hour)
-	rewrite := &testkit.Stage{StageName: "rewrite", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "rewrite"}} },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	rewrite := &testkit.Procedure{ProcedureName: "rewrite", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: "rewrite"}} },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			writeDownloadedDrop(t, x.h, later, []spamhaus.NetworkEntry{dropNet("203.0.113.8/32", "SBL8008", "arin")}, nil)
 			return []run.Observation{{Kind: "hostname", Key: "late.example.com"}}, nil
 		}}
-	x.h.stages = append(x.h.stages, rewrite)
+	x.h.procedures = append(x.h.procedures, rewrite)
 	x.mustPassive()
 	if b, err := os.ReadFile(filepath.Join(threatDir(x.h), "spamhaus.jsonl")); err != nil || !strings.Contains(string(b), "SBL8008") {
 		t.Fatalf("the stage did not rewrite the downloaded copy (%v)", err)

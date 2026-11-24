@@ -15,32 +15,32 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// src provides editable observations per check under a real source name.
+// src provides editable observations per job under a real source name.
 type src struct {
-	*testkit.Stage
+	*testkit.Procedure
 	finds map[string][]run.Observation
 }
 
 func newSrc(name string, finds map[string][]run.Observation) *src {
 	s := &src{finds: finds}
-	s.Stage = &testkit.Stage{StageName: name, Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check {
-			var out []run.Check
+	s.Procedure = &testkit.Procedure{ProcedureName: name, Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job {
+			var out []run.Job
 			for _, k := range slices.Sorted(maps.Keys(s.finds)) {
-				out = append(out, run.Check{Key: k})
+				out = append(out, run.Job{Key: k})
 			}
 			return out
 		},
-		RunFn: func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+		RunFn: func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 			return s.finds[c.Key], nil
 		}}
 	return s
 }
 
-// realFamilies are the families the real stages name for their sources.
-var realFamilies = run.CandidateFamilies(cli.DefaultDeps().Stages)
+// realFamilies are the families the real procedures name for their sources.
+var realFamilies = run.CandidateFamilies(cli.DefaultDeps().Procedures)
 
-// CandidateSources gives fake stages the same evidence families as their real counterparts.
+// CandidateSources gives fake procedures the same evidence families as their real counterparts.
 func (*src) CandidateSources() map[string]string {
 	m := map[string]string{}
 	for _, s := range realFamilies.Sources() {
@@ -67,7 +67,7 @@ func block(v string) run.Observation {
 func finds(keyAndObs ...any) map[string][]run.Observation {
 	m := map[string][]run.Observation{}
 	for i := 0; i+1 < len(keyAndObs); i += 2 {
-		found, _ := keyAndObs[i+1].([]run.Observation) // nil: the check finds nothing
+		found, _ := keyAndObs[i+1].([]run.Observation) // nil: the job finds nothing
 		m[keyAndObs[i].(string)] = found
 	}
 	return m
@@ -163,7 +163,7 @@ func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
 	}
 }
 
-// Preserve rank while redo support is temporarily absent, including when another stage triggers
+// Preserve rank while redo support is temporarily absent, including when another procedure triggers
 // derivation first.
 func TestCandidates_NotCurrentAfterRedoKeepsTheRankItHadWhileSupported(t *testing.T) {
 	t.Parallel()
@@ -210,7 +210,7 @@ func TestCandidates_RootAwaitingRedoKeepsItsRankDespiteItsHostnames(t *testing.T
 	wantRow(t, r, "httpprobe;whoisxml", "2", "high")
 }
 
-// After a redo of a supporting stage that no longer finds the candidate, the
+// After a redo of a supporting procedure that no longer finds the candidate, the
 // candidate drops a level.
 func TestCandidates_RedoLowersALevel(t *testing.T) {
 	t.Parallel()
@@ -228,7 +228,7 @@ func TestCandidates_RedoLowersALevel(t *testing.T) {
 	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "whoisxml", "1", "medium")
 }
 
-// Confidence follows the evidence of every run: a stage that finds the
+// Confidence follows the evidence of every run: a procedure that finds the
 // candidate later raises it, with no redo.
 func TestCandidates_RecomputedOnEveryRun(t *testing.T) {
 	t.Parallel()
@@ -272,7 +272,7 @@ func TestCandidates_HostnameEvidenceRaisesItsRoot(t *testing.T) {
 	wantRow(t, rowOf(t, rows, "www.other.org"), "httpprobe", "1", "low")
 }
 
-// Evidence removes settings from support identity so changed check settings cannot inflate
+// Evidence removes settings from support identity so changed job settings cannot inflate
 // confidence.
 func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
 	t.Parallel()
@@ -284,7 +284,7 @@ func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
 	}
 	rows := h.table("a.com", "candidates.csv")
 	wantRow(t, rowOf(t, rows, "h1.other.org"), "httpprobe", "2", "low") // two keys, two pairs
-	wantRow(t, rowOf(t, rows, "h2.other.org"), "crtsh", "1", "low")     // two keys, one item, source named by the stage
+	wantRow(t, rowOf(t, rows, "h2.other.org"), "crtsh", "1", "low")     // two keys, one item, source named by the procedure
 }
 
 // A change to an evidence kind alone still re-derives the findings, with the
@@ -292,9 +292,9 @@ func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
 func TestCandidates_FindingsStillDerivedWhenOnlyEvidenceChanges(t *testing.T) {
 	t.Parallel()
 	spf := ""
-	posture := &testkit.Stage{StageName: "posture", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("p", 1) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	posture := &testkit.Procedure{ProcedureName: "posture", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("p", 1) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			return []run.Observation{obs("email_posture", "a.com", "mx", "mail.a.com", "spf", spf, "spf_records", 0,
 				"dmarc", "v=DMARC1; p=reject", "dmarc_policy", "reject")}, nil
 		}}
@@ -335,11 +335,11 @@ func highSet() []*src {
 
 func highHarness(t *testing.T) *harness {
 	t.Helper()
-	var stages []run.Stage
+	var procedures []run.Procedure
 	for _, s := range highSet() {
-		stages = append(stages, s)
+		procedures = append(procedures, s)
 	}
-	return newHarness(t, stages...)
+	return newHarness(t, procedures...)
 }
 
 // The console caps high-confidence candidates at 20 and includes promotion inputs and an
@@ -407,7 +407,7 @@ func TestCandidates_JSONEnvelope(t *testing.T) {
 	}
 }
 
-// Stage-declared and retired families remain grouped; undeclared sources stay independent.
+// Procedure-declared and retired families remain grouped; undeclared sources stay independent.
 func TestCandidates_FamiliesOfTheRealSources(t *testing.T) {
 	t.Parallel()
 	for source, want := range map[string]string{

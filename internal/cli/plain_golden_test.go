@@ -75,7 +75,7 @@ func goldenPlain(t *testing.T, name string, capture func(tune func(*harness)) (*
 	}
 }
 
-// noting is a stage that adds lines to the summary's notes.
+// noting is a procedure that adds lines to the summary's notes.
 type noting struct {
 	*src
 	notes []string
@@ -104,7 +104,7 @@ func newSummaryWorld(t *testing.T, tune func(*harness)) *summaryWorld {
 		shodan:  newSrc("shodan-host", finds()),
 	}
 	flaky := erring("flaky", 2, errors.New("source unavailable"))
-	spread := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1, 1, 1) })
+	spread := budgeted(2, func(run.View) []run.Job { return costed(1, 1, 1, 1, 1) })
 	notes := noting{src: newSrc("notes", finds()), notes: []string{
 		"shodan: 3 hosts were not looked up (quota)", "permutations: the list was cut at 1000 names"}}
 	w.h = newHarness(t, w.crtsh, w.otx, w.wayback, w.spots, w.shodan, flaky, spread, notes)
@@ -186,7 +186,7 @@ func TestPlain_SummaryEveryBlock(t *testing.T) {
 	})
 }
 
-// A run the deadline ended says so in the summary, with the failed checks beside it.
+// A run the deadline ended says so in the summary, with the failed jobs beside it.
 func TestPlain_SummaryDeadline(t *testing.T) {
 	t.Parallel()
 	goldenPlain(t, "summary-deadline", func(tune func(*harness)) (*harness, string) {
@@ -221,14 +221,14 @@ func newLogWorld(t *testing.T, tune func(*harness)) *harness {
 		obs("open_port", "198.51.100.5:22", "ip", "198.51.100.5", "port", 22, "banner", "SSH-2.0-OpenSSH_9.6"),
 		obs("open_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389, "banner", ""),
 		obs("email_posture", "a.com", "mx", "mail.a.com", "spf", "v=spf1 +all", "spf_all", "+all", "dmarc", "v=DMARC1; p=reject", "mta_sts", "present"))))
-	warner := &testkit.Stage{StageName: "warner", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+	warner := &testkit.Procedure{ProcedureName: "warner", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			v.Warn("quota is low")
 			v.Warn("%s", longWarning)
 			v.Warn("a warning with a line break\nand control characters\x07 that are sanitised away")
 			return testkit.Keys("w", 1)
 		}}
-	keyless := &testkit.Stage{StageName: "shodan", Kind: run.ThirdParty,
+	keyless := &testkit.Procedure{ProcedureName: "shodan", Kind: run.ThirdParty,
 		ConfiguredFn: func(run.Env) (bool, string) { return false, "no key" }}
 	failing := erring("flaky", 2, errors.New("source unavailable: HTTP 503"))
 	h := newHarness(t, crtsh, warner, failing, keyless)
@@ -244,7 +244,7 @@ func (h *harness) logRun(t *testing.T, args ...string) {
 	}
 }
 
-// Capture first-run logs plus the final error across all stage and finding states.
+// Capture first-run logs plus the final error across all procedure and finding states.
 func TestPlain_LogFirstRun(t *testing.T) {
 	t.Parallel()
 	goldenPlain(t, "log-first-run", func(tune func(*harness)) (*harness, string) {
@@ -254,7 +254,7 @@ func TestPlain_LogFirstRun(t *testing.T) {
 	})
 }
 
-// The log lines of a second run: stages whose checks were all completed before are done
+// The log lines of a second run: procedures whose jobs were all completed before are done
 // previously.
 func TestPlain_LogSecondRun(t *testing.T) {
 	t.Parallel()
@@ -266,7 +266,7 @@ func TestPlain_LogSecondRun(t *testing.T) {
 	})
 }
 
-// --debug adds a line for each failed check, ahead of the rest.
+// --debug adds a line for each failed job, ahead of the rest.
 func TestPlain_LogDebug(t *testing.T) {
 	t.Parallel()
 	goldenPlain(t, "log-debug", func(tune func(*harness)) (*harness, string) {

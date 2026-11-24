@@ -17,16 +17,16 @@ import (
 // nvdTurnsOn describes the NVD key's use by nyx cve.
 const nvdTurnsOn = "Increases cve requests from 5 per 30 seconds to 50"
 
-// keyTurnsOn describes stages requiring or optionally using a source's key, in that order.
+// keyTurnsOn describes procedures requiring or optionally using a source's key, in that order.
 // Optional-only keys, such as Cert Spotter's, are labelled accordingly. The text starts with a
 // capital letter.
-func keyTurnsOn(source string, stages []run.Stage) string {
+func keyTurnsOn(source string, procedures []run.Procedure) string {
 	if source == "nvd" {
 		return nvdTurnsOn
 	}
 	var needs, adds []string
-	for _, s := range stages {
-		switch stageHelps[s.Name()].key {
+	for _, s := range procedures {
+		switch procedureHelps[s.Name()].key {
 		case source:
 			needs = append(needs, s.Name())
 		case "(" + source + ")":
@@ -51,22 +51,22 @@ func keyTurnsOn(source string, stages []run.Stage) string {
 }
 
 // setupSources lists credentials with their enabled features.
-func setupSources(stages []run.Stage) []setup.Source {
+func setupSources(procedures []run.Procedure) []setup.Source {
 	var out []setup.Source
 	for _, name := range keycheck.Sources() {
-		out = append(out, setup.Source{Name: name, Turns: keyTurnsOn(name, stages)})
+		out = append(out, setup.Source{Name: name, Turns: keyTurnsOn(name, procedures)})
 	}
 	return out
 }
 
-// setupStages lists skippable stages in registry order with their help descriptions.
-func setupStages(stages []run.Stage) []setup.Stage {
-	var out []setup.Stage
-	for _, s := range stages {
+// setupProcedures lists skippable procedures in registry order with their help descriptions.
+func setupProcedures(procedures []run.Procedure) []setup.Procedure {
+	var out []setup.Procedure
+	for _, s := range procedures {
 		if slices.Contains(unskippable, s.Name()) {
 			continue
 		}
-		out = append(out, setup.Stage{Name: s.Name(), Does: stageHelps[s.Name()].does})
+		out = append(out, setup.Procedure{Name: s.Name(), Does: procedureHelps[s.Name()].does})
 	}
 	return out
 }

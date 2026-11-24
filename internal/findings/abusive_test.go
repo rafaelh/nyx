@@ -43,16 +43,16 @@ func newAbusiveWorld() *abusiveWorld {
 
 // host adds a current hostname and its A records. Whether it is in scope is the scope's decision.
 func (w *abusiveWorld) host(name string, addrs ...string) {
-	w.hosts = append(w.hosts, inventory.Host{Name: name, Stages: []string{"crtsh"}})
+	w.hosts = append(w.hosts, inventory.Host{Name: name, Producers: []string{"crtsh"}})
 	for _, a := range addrs {
 		w.res = append(w.res, inventory.Resolution{Name: name, Type: "A", Value: a})
 	}
 }
 
-// ipRec adds a current ip record that the stages observe.
-func (w *abusiveWorld) ipRec(addr string, stages ...string) {
+// ipRec adds a current ip record that the procedures observe.
+func (w *abusiveWorld) ipRec(addr string, procedures ...string) {
 	r := rec("ip", addr)
-	r.Stages = stages
+	r.Producers = procedures
 	w.recs["ip"] = append(w.recs["ip"], r)
 }
 
@@ -717,7 +717,7 @@ func TestDrop_IPv6AddressAndItsListsDate(t *testing.T) {
 	w := newAbusiveWorld()
 	w.drop = dropListsOf(t, []string{dropNetRow("0.0.0.0/0", "SBL40", "arin")},
 		[]string{dropNetRow("2001:db8::/32", "SBL10", "apnic"), dropNetRow("2001:db8:12::/48", "SBL11", "arin")}, nil)
-	w.hosts = append(w.hosts, inventory.Host{Name: "v6.example.com", Stages: []string{"crtsh"}})
+	w.hosts = append(w.hosts, inventory.Host{Name: "v6.example.com", Producers: []string{"crtsh"}})
 	w.res = append(w.res, inventory.Resolution{Name: "v6.example.com", Type: "AAAA", Value: "2001:db8:12::5"})
 	f := w.derive(t)["2001:db8:12::5"]
 	if f.Type != "drop-network" || f.Severity != "high" {

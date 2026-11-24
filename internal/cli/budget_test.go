@@ -12,28 +12,28 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// costed returns checks c0, c1, ... with the given costs.
-func costed(costs ...int) []run.Check {
-	var out []run.Check
+// costed returns jobs c0, c1, ... with the given costs.
+func costed(costs ...int) []run.Job {
+	var out []run.Job
 	for i, c := range costs {
-		out = append(out, run.Check{Key: fmt.Sprintf("c%d", i), Cost: c})
+		out = append(out, run.Job{Key: fmt.Sprintf("c%d", i), Cost: c})
 	}
 	return out
 }
 
-func budgeted(limit int, checks func(v run.View) []run.Check) *testkit.Budgeted {
-	return &testkit.Budgeted{Stage: &testkit.Stage{StageName: "budgeted", Kind: run.ThirdParty, ChecksFn: checks}, Limit: limit}
+func budgeted(limit int, jobs func(v run.View) []run.Job) *testkit.Budgeted {
+	return &testkit.Budgeted{Procedure: &testkit.Procedure{ProcedureName: "budgeted", Kind: run.ThirdParty, JobsFn: jobs}, Limit: limit}
 }
 
-// deferredOf is the summary event's count of deferred work for a stage.
-func deferredOf(t *testing.T, h *harness, stage string) int {
+// deferredOf is the summary event's count of deferred work for a procedure.
+func deferredOf(t *testing.T, h *harness, procedure string) int {
 	t.Helper()
 	sum := h.summaryEvent()
 	m, ok := sum["deferred"].(map[string]any)
 	if !ok {
 		t.Fatalf("summary has no deferred object: %v", sum)
 	}
-	n, _ := m[stage].(float64)
+	n, _ := m[procedure].(float64)
 	return int(n)
 }
 
@@ -47,11 +47,11 @@ func deferredBlock(t *testing.T, out string) string {
 	return out[i:]
 }
 
-// Overflowing checks and all later checks are deferred without attempts, failures or completion
+// Overflowing jobs and all later jobs are deferred without attempts, failures or completion
 // markers.
 func TestBudget_StopsAtFirstOverflow(t *testing.T) {
 	t.Parallel()
-	st := budgeted(3, func(run.View) []run.Check { return costed(1, 1, 1, 1, 1) })
+	st := budgeted(3, func(run.View) []run.Job { return costed(1, 1, 1, 1, 1) })
 	h := newHarness(t, st)
 	if code := h.exec("--json", "a.com"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
@@ -71,10 +71,10 @@ func TestBudget_StopsAtFirstOverflow(t *testing.T) {
 	}
 }
 
-// Stop at the first overflowing check even when cheaper later checks could fit.
-func TestBudget_CostsAddUpAndLaterChecksWait(t *testing.T) {
+// Stop at the first overflowing job even when cheaper later jobs could fit.
+func TestBudget_CostsAddUpAndLaterJobsWait(t *testing.T) {
 	t.Parallel()
-	st := budgeted(10, func(run.View) []run.Check { return costed(4, 4, 3, 1, 1) })
+	st := budgeted(10, func(run.View) []run.Job { return costed(4, 4, 3, 1, 1) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
 	if got := ran(st); !slices.Equal(got, []string{"c0", "c1"}) {
@@ -88,7 +88,7 @@ func TestBudget_CostsAddUpAndLaterChecksWait(t *testing.T) {
 // A cost of 0 counts as 1.
 func TestBudget_ZeroCostIsOne(t *testing.T) {
 	t.Parallel()
-	st := budgeted(2, func(run.View) []run.Check { return costed(0, 0, 0) })
+	st := budgeted(2, func(run.View) []run.Job { return costed(0, 0, 0) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
 	if got := ran(st); len(got) != 2 {
@@ -96,11 +96,11 @@ func TestBudget_ZeroCostIsOne(t *testing.T) {
 	}
 }
 
-// The first pending check of the run is taken even when it alone exceeds the
+// The first pending job of the run is taken even when it alone exceeds the
 // budget, so a run always makes progress.
-func TestBudget_FirstCheckAlwaysTaken(t *testing.T) {
+func TestBudget_FirstJobAlwaysTaken(t *testing.T) {
 	t.Parallel()
-	st := budgeted(3, func(run.View) []run.Check { return costed(10, 1) })
+	st := budgeted(3, func(run.View) []run.Job { return costed(10, 1) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
 	if got := ran(st); !slices.Equal(got, []string{"c0"}) {
@@ -109,18 +109,18 @@ func TestBudget_FirstCheckAlwaysTaken(t *testing.T) {
 	if n := deferredOf(t, h, "budgeted"); n != 1 {
 		t.Errorf("deferred = %d, want 1", n)
 	}
-	// And it is the next run's first check that goes next.
+	// And it is the next run's first job that goes next.
 	h.exec("--json", "-e", "a.com")
 	if got := ran(st); !slices.Equal(got, []string{"c0", "c1"}) {
 		t.Errorf("after the second run executed = %v", got)
 	}
 }
 
-// Completed checks cost nothing, so each run does the next slice of the work
+// Completed jobs cost nothing, so each run does the next slice of the work
 // and the last run defers nothing.
 func TestBudget_RemainderRunsNextTime(t *testing.T) {
 	t.Parallel()
-	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1, 1, 1) })
+	st := budgeted(2, func(run.View) []run.Job { return costed(1, 1, 1, 1, 1) })
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
 	want := [][]string{{"c0", "c1"}, {"c2", "c3"}, {"c4"}}
@@ -138,18 +138,18 @@ func TestBudget_RemainderRunsNextTime(t *testing.T) {
 			t.Errorf("run %d deferred = %d, want %d", i+1, n, wantDeferred[i])
 		}
 	}
-	// Nothing left: the stage has nothing to do and runs nothing.
+	// Nothing left: the procedure has nothing to do and runs nothing.
 	h.exec("--json", "-e", "a.com")
 	if got := ran(st); len(got) != 5 {
 		t.Errorf("a finished stage ran again: %v", got)
 	}
 }
 
-// The first-check budget exception applies once per run, not once per pass.
-func TestBudget_LaterPassDoesNotTakeAnotherOverflowingCheck(t *testing.T) {
+// The first-job budget exception applies once per run, not once per pass.
+func TestBudget_LaterPassDoesNotTakeAnotherOverflowingJob(t *testing.T) {
 	t.Parallel()
 	passes := 0
-	st := budgeted(3, func(run.View) []run.Check {
+	st := budgeted(3, func(run.View) []run.Job {
 		passes++
 		if passes == 1 {
 			return costed(10)
@@ -169,11 +169,11 @@ func TestBudget_LaterPassDoesNotTakeAnotherOverflowingCheck(t *testing.T) {
 	}
 }
 
-// A stage without a budget is not limited, however many checks it has.
-func TestBudget_UnbudgetedStageIsUnlimited(t *testing.T) {
+// A procedure without a budget is not limited, however many jobs it has.
+func TestBudget_UnbudgetedProcedureIsUnlimited(t *testing.T) {
 	t.Parallel()
-	plain := &testkit.Stage{StageName: "plain", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return costed(5, 5, 5) }}
-	h := newHarness(t, plain, budgeted(1, func(run.View) []run.Check { return nil }))
+	plain := &testkit.Procedure{ProcedureName: "plain", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return costed(5, 5, 5) }}
+	h := newHarness(t, plain, budgeted(1, func(run.View) []run.Job { return nil }))
 	h.exec("--json", "a.com")
 	if got := ran(plain); len(got) != 3 {
 		t.Errorf("executed = %v", got)
@@ -183,11 +183,11 @@ func TestBudget_UnbudgetedStageIsUnlimited(t *testing.T) {
 	}
 }
 
-// Failed checks still consume budget; deferred checks do not become failures.
-func TestBudget_FailedCheckSpendsBudgetDeferredAreNotFailures(t *testing.T) {
+// Failed jobs still consume budget; deferred jobs do not become failures.
+func TestBudget_FailedJobSpendsBudgetDeferredAreNotFailures(t *testing.T) {
 	t.Parallel()
-	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1) })
-	st.RunFn = func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	st := budgeted(2, func(run.View) []run.Job { return costed(1, 1, 1) })
+	st.RunFn = func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 		if c.Key == "c0" {
 			return nil, fmt.Errorf("transient")
 		}
@@ -204,10 +204,10 @@ func TestBudget_FailedCheckSpendsBudgetDeferredAreNotFailures(t *testing.T) {
 }
 
 // With nothing deferred the console says nothing about it; with something
-// deferred it lists each stage under its own heading.
+// deferred it lists each procedure under its own heading.
 func TestBudget_ConsoleBlock(t *testing.T) {
 	t.Parallel()
-	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1, 1) })
+	st := budgeted(2, func(run.View) []run.Job { return costed(1, 1, 1, 1) })
 	h := newHarness(t, st)
 	h.exec("a.com")
 	if block := deferredBlock(t, h.stdout.String()); !strings.Contains(block, "budgeted") || !strings.Contains(block, "2") {
@@ -219,15 +219,15 @@ func TestBudget_ConsoleBlock(t *testing.T) {
 	}
 }
 
-// Deferred checks retain earlier evidence through redo/retirement; rerun checks replace their
+// Deferred jobs retain earlier evidence through redo/retirement; rerun jobs replace their
 // evidence.
 func TestBudget_RedoKeepsDeferredHitsCurrent(t *testing.T) {
 	t.Parallel()
-	hit := func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {
+	hit := func(_ context.Context, c run.Job, _ egress.Clients) ([]run.Observation, error) {
 		return []run.Observation{obs("hostname", "host-"+c.Key+".a.com")}, nil
 	}
-	checks := func(run.View) []run.Check { return costed(1, 1, 1, 1) }
-	st := &retiringBudgeted{Budgeted: *budgeted(100, checks)}
+	jobs := func(run.View) []run.Job { return costed(1, 1, 1, 1) }
+	st := &retiringBudgeted{Budgeted: *budgeted(100, jobs)}
 	st.RunFn = hit
 	h := newHarness(t, st)
 	h.exec("--json", "a.com")
@@ -250,10 +250,10 @@ func TestBudget_RedoKeepsDeferredHitsCurrent(t *testing.T) {
 	}
 }
 
-// ran are the keys a fake stage has executed, sorted: workers run concurrently.
+// ran are the keys a fake procedure has executed, sorted: workers run concurrently.
 func ran(s interface{ Executed() []string }) []string { return sorted(s.Executed()) }
 
-// retiringBudgeted is a budgeted stage that also retires the checks it no longer yields.
+// retiringBudgeted is a budgeted procedure that also retires the jobs it no longer yields.
 type retiringBudgeted struct{ testkit.Budgeted }
 
-func (retiringBudgeted) RetiresUnlistedChecks() {}
+func (retiringBudgeted) RetiresUnlistedJobs() {}

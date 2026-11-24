@@ -23,7 +23,7 @@ func splitOriginTarget(target string) (host, addr string) {
 // originExposure compares candidate origins with the hostname's probed service. Matching
 // confirmation rules yield medium severity; other candidates remain possible at low severity,
 // including uncontactable ones. Pairs that stop qualifying are no longer derived.
-func (d *deriver) originExposure() []Finding {
+func (d *analysis) originExposure() []Finding {
 	pairs := origin.Pairs(d.in.Scope, d.in.Inv, d.vis, d.in.Records, d.in.Settings.OriginCheck.MaxCandidates)
 	if len(pairs) == 0 {
 		return nil

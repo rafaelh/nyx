@@ -16,7 +16,7 @@ import (
 // NO_COLOR.
 func helpOn(t *testing.T, d palette.Depth, cols int, args ...string) string {
 	t.Helper()
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	setTerminal(h, d, cols)
 	if code := h.execRoot(args...); code != 0 {
 		t.Fatalf("%v: exit %d, stderr %q", args, code, h.stderr.String())
@@ -147,13 +147,13 @@ func TestHelp_ParagraphsReflow(t *testing.T) {
 		t.Errorf("the footer was not re-flowed into the width: %d lines", len(recon))
 	}
 
-	const stagesFooter = "Third-party stages ask public sources and resolvers, and run under --passive. Target stages contact the target's own systems: " +
+	const proceduresFooter = "Third-party stages ask public sources and resolvers, and run under --passive. Target stages contact the target's own systems: " +
 		"they are skipped under --passive, and unless --authorised has confirmed, on this run or an earlier one, that you are authorised. " +
 		"A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in brackets is optional. " +
 		"--redo <stage> performs every check of one stage again, and --skip <stage> turns one off, except the stages marked *, which other stages' safety depends on."
-	stages := blockFrom(t, textLines(helpOn(t, palette.None, 80, "help", "stages")), "Third-party stages")
-	if joinedWords(stages) != stagesFooter || widest(stages) > 80 {
-		t.Errorf("stages footer: %q", stages)
+	procedures := blockFrom(t, textLines(helpOn(t, palette.None, 80, "help", "stages")), "Third-party stages")
+	if joinedWords(procedures) != proceduresFooter || widest(procedures) > 80 {
+		t.Errorf("stages footer: %q", procedures)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestHelp_ParagraphsReflow(t *testing.T) {
 func TestHelp_ValueListsWrapAfterCommas(t *testing.T) {
 	t.Parallel()
 	var names []string
-	for _, s := range defaultStageList() {
+	for _, s := range defaultProcedureList() {
 		names = append(names, s.Name())
 	}
 	check := func(screen []string, label, items string) {
@@ -397,8 +397,8 @@ func TestHelp_FindingsTopicTable(t *testing.T) {
 	}
 }
 
-// The stages table retains contact colours, wraps descriptions and marks required stages.
-func TestHelp_StagesTopicTable(t *testing.T) {
+// The procedures table retains contact colours, wraps descriptions and marks required procedures.
+func TestHelp_ProceduresTopicTable(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
 	got := helpOn(t, d, 80, "help", "stages")
@@ -436,8 +436,8 @@ func TestHelp_StagesTopicTable(t *testing.T) {
 			origin = append(origin, c[3])
 		}
 	}
-	if rows != len(defaultStageList()) {
-		t.Errorf("%d stage rows, want %d", rows, len(defaultStageList()))
+	if rows != len(defaultProcedureList()) {
+		t.Errorf("%d stage rows, want %d", rows, len(defaultProcedureList()))
 	}
 	if len(origin) < 2 || strings.Join(origin, " ") != "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site" {
 		t.Errorf("origincheck does not wrap within WHAT IT DOES: %q", origin)
@@ -454,7 +454,7 @@ func TestHelp_UncolouredTerminalsHaveNoEscapes(t *testing.T) {
 		for _, s := range helpScreens {
 			t.Run(mode.name+"/"+s.name, func(t *testing.T) {
 				t.Parallel()
-				h := newHarness(t, helpStages()...)
+				h := newHarness(t, helpProcedures()...)
 				h.stdoutTTY, h.stderrTTY = true, true
 				h.setenv("COLUMNS", "80")
 				for k, v := range mode.env {
@@ -514,7 +514,7 @@ func TestHelp_EverySequenceIsThePalettes(t *testing.T) {
 // Help follows the stream's own width when COLUMNS says nothing.
 func TestHelp_FollowsTheTerminalWidth(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	h.stdoutTTY, h.stdoutWidth = true, 70
 	h.setenv("NO_COLOR", "1")
 	if code := h.execRoot("help", "findings"); code != 0 {

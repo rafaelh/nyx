@@ -131,7 +131,7 @@ type Entry struct {
 // BodyMatches checks the unclaimed-resource fingerprint.
 func (e Entry) BodyMatches(body []byte) bool { return e.re != nil && e.re.Match(body) }
 
-// Hash identifies check-relevant fingerprint data so changing one entry reruns its checks
+// Hash identifies job-relevant fingerprint data so changing one entry reruns its jobs
 // without invalidating others.
 func (e Entry) Hash() string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%v|%s", e.Suffix, e.Provider, e.Service, e.Class, e.NXDomain, e.Body)))

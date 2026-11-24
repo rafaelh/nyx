@@ -26,7 +26,7 @@ func (w *world) host(name string, addrs ...string) {
 		w.d.Resolutions = append(w.d.Resolutions, inventory.Resolution{Name: name, Type: "A", Value: a})
 		w.d.IPs = append(w.d.IPs, ip(a))
 	}
-	w.d.Hosts = append(w.d.Hosts, inventory.Host{Name: name, Stages: []string{"crtsh"}})
+	w.d.Hosts = append(w.d.Hosts, inventory.Host{Name: name, Producers: []string{"crtsh"}})
 }
 
 func (w *world) cname(name, target string) {

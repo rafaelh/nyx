@@ -36,7 +36,7 @@ type portSrv struct {
 
 func (s *portSrv) Close() { s.ln.Close() }
 
-// pworld is the web world with the real ports stage in place of fakeports.
+// pworld is the web world with the real ports procedure in place of fakeports.
 type pworld struct {
 	*web
 	mu        sync.Mutex
@@ -47,8 +47,8 @@ type pworld struct {
 func newPorts(t *testing.T) *pworld {
 	t.Helper()
 	x := newWeb(t)
-	var ports run.Stage
-	for _, s := range defaultStageList() {
+	var ports run.Procedure
+	for _, s := range defaultProcedureList() {
 		if s.Name() == "ports" {
 			ports = s
 		}
@@ -56,12 +56,12 @@ func newPorts(t *testing.T) *pworld {
 	if ports == nil {
 		t.Fatal("the ports stage is not in the default registry")
 	}
-	stages := slices.DeleteFunc(slices.Clone(x.h.stages), func(s run.Stage) bool { return s.Name() == "fakeports" })
-	i := slices.IndexFunc(stages, func(s run.Stage) bool { return s.Name() == "crawl" })
+	procedures := slices.DeleteFunc(slices.Clone(x.h.procedures), func(s run.Procedure) bool { return s.Name() == "fakeports" })
+	i := slices.IndexFunc(procedures, func(s run.Procedure) bool { return s.Name() == "crawl" })
 	if i < 0 {
 		t.Fatal("no crawl stage")
 	}
-	x.h.stages = slices.Insert(stages, i+1, ports)
+	x.h.procedures = slices.Insert(procedures, i+1, ports)
 	// Connect and banner timeouts are short in the harness; a banner that arrives
 	// late in a test is still inside the wait.
 	x.h.eopts.BannerWait = 300 * time.Millisecond
@@ -166,10 +166,10 @@ func (p *pworld) sweep(ports []int, args ...string) {
 	p.mustRun(p.sweepArgs(ports, args)...)
 }
 
-// sweepPartial is sweep for a run in which n checks of one stage are meant to fail (see partialRun).
-func (p *pworld) sweepPartial(stage string, n int, ports []int, args ...string) failure {
+// sweepPartial is sweep for a run in which n jobs of one procedure are meant to fail (see partialRun).
+func (p *pworld) sweepPartial(procedure string, n int, ports []int, args ...string) failure {
 	p.t.Helper()
-	return p.partialRun(stage, n, p.sweepArgs(ports, args)...)
+	return p.partialRun(procedure, n, p.sweepArgs(ports, args)...)
 }
 
 // sweepArgs marks the ports open-able and puts them in a --ports list before args.
@@ -182,7 +182,7 @@ func (p *pworld) sweepArgs(ports []int, args []string) []string {
 	return append([]string{"--ports", strings.Join(list, ",")}, args...)
 }
 
-// keys are the check keys (and open_port keys) for each address on each port.
+// keys are the job keys (and open_port keys) for each address on each port.
 func portKeys(ips []string, ports []int) []string {
 	var out []string
 	for _, ip := range ips {
@@ -215,28 +215,28 @@ const hello = "HELLO\r\n"
 
 // --- registration ---
 
-// The stage runs after crawl (and after the Target stages that follow it), so a long sweep does not delay probing of hostnames.
+// The procedure runs after crawl (and after the Target procedures that follow it), so a long sweep does not delay probing of hostnames.
 func TestPorts_RegisteredAfterCrawl(t *testing.T) {
 	t.Parallel()
 	var names []string
-	for _, s := range defaultStageList() {
+	for _, s := range defaultProcedureList() {
 		names = append(names, s.Name())
 	}
 	n := len(names)
 	if n < 2 || names[n-1] != "ports" || slices.Index(names, "crawl") > n-2 || slices.Index(names, "crawl") < 0 {
 		t.Errorf("stage order ends %v, want ports last, after crawl", names[max(0, n-4):])
 	}
-	for _, s := range defaultStageList() {
+	for _, s := range defaultProcedureList() {
 		if s.Name() == "ports" && s.Contact() != run.Target {
 			t.Error("ports must be a Target stage, so passive mode and the ack gate it")
 		}
 	}
 }
 
-// Both flags are documented, and ports is a stage --redo accepts.
+// Both flags are documented, and ports is a procedure --redo accepts.
 func TestPorts_Help(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, defaultStageList()...)
+	h := newHarness(t, defaultProcedureList()...)
 	if code := h.exec("--help"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -246,14 +246,14 @@ func TestPorts_Help(t *testing.T) {
 			t.Errorf("help missing %q", want)
 		}
 	}
-	if row := stageRow(h.stagesHelp(), "ports"); !strings.Contains(row, "target") {
+	if row := procedureRow(h.proceduresHelp(), "ports"); !strings.Contains(row, "target") {
 		t.Errorf("help stages does not list ports as a target stage: %q", row)
 	}
 }
 
-// A stage that implements run.WorkerCounter gets that many workers; others get --concurrency.
+// A procedure that implements run.WorkerCounter gets that many workers; others get --concurrency.
 type withWorkers struct {
-	*testkit.Stage
+	*testkit.Procedure
 	n int
 }
 
@@ -261,12 +261,12 @@ func (w withWorkers) Workers(config.Settings) int { return w.n }
 
 func TestPorts_WorkerCounter(t *testing.T) {
 	t.Parallel()
-	slow := func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	slow := func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 		time.Sleep(60 * time.Millisecond)
 		return nil, nil
 	}
-	counted := &testkit.Stage{StageName: "counted", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("c", 12) }, RunFn: slow}
-	plain := &testkit.Stage{StageName: "plain", Kind: run.ThirdParty, ChecksFn: func(run.View) []run.Check { return testkit.Keys("p", 12) }, RunFn: slow}
+	counted := &testkit.Procedure{ProcedureName: "counted", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 12) }, RunFn: slow}
+	plain := &testkit.Procedure{ProcedureName: "plain", Kind: run.ThirdParty, JobsFn: func(run.View) []run.Job { return testkit.Keys("p", 12) }, RunFn: slow}
 	h := newHarness(t, withWorkers{counted, 5}, plain)
 	if code := h.exec("a.com", "--json", "--concurrency", "2"); code != 0 {
 		t.Fatal(h.stderr.String())
@@ -360,7 +360,7 @@ func TestPorts_UnknownOwnerSkippedThenChecked(t *testing.T) {
 	p.dns.Rcode(origin, int(mdns.RcodeServerFailure)) // the owner source is down
 	srv := p.serve("192.0.2.77", 8080, hello)
 
-	// The failed owner lookup is the run's one failed check; the held-back address is not.
+	// The failed owner lookup is the run's one failed job; the held-back address is not.
 	p.sweepPartial("ipowner", 1, []int{8080})
 	if srv.conns.Load() != 0 {
 		t.Fatal("an address of unknown owner was contacted")
@@ -414,7 +414,7 @@ func TestPorts_PortMajorOrder(t *testing.T) {
 	}
 }
 
-// Adding a port creates only the new checks.
+// Adding a port creates only the new jobs.
 func TestPorts_AddedPortChecksOnlyTheNewPort(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -433,7 +433,7 @@ func TestPorts_AddedPortChecksOnlyTheNewPort(t *testing.T) {
 	}
 }
 
-// --port-concurrency bounds the connects in flight; --concurrency still bounds other stages.
+// --port-concurrency bounds the connects in flight; --concurrency still bounds other procedures.
 func TestPorts_WorkerBounds(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -443,13 +443,13 @@ func TestPorts_WorkerBounds(t *testing.T) {
 		ports = append(ports, port)
 		p.serveSlow("203.0.113.250", port, hello, 120*time.Millisecond)
 	}
-	other := &testkit.Stage{StageName: "other", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return testkit.Keys("o", 8) },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	other := &testkit.Procedure{ProcedureName: "other", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("o", 8) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			time.Sleep(60 * time.Millisecond)
 			return nil, nil
 		}}
-	p.h.stages = append(p.h.stages, other)
+	p.h.procedures = append(p.h.procedures, other)
 	p.sweep(ports, "--concurrency", "2", "--port-concurrency", "4")
 
 	if got := p.peakConns(); got < 3 || got > 4 {
@@ -467,11 +467,11 @@ func TestPorts_Gates(t *testing.T) {
 	srv := p.serve("203.0.113.250", 8080, hello)
 
 	p.mustRun("--ports", "8080", "--passive")
-	if st, why := p.stageState("ports"); st != "not-configured" || why != "passive-only" {
+	if st, why := p.procedureState("ports"); st != "not-configured" || why != "passive-only" {
 		t.Errorf("passive: ports = %s (%s)", st, why)
 	}
 	p.mustRun("--ports", "")
-	if st, why := p.stageState("ports"); st != "not-configured" || why != "no ports" {
+	if st, why := p.procedureState("ports"); st != "not-configured" || why != "no ports" {
 		t.Errorf("no ports: ports = %s (%s)", st, why)
 	}
 	if srv.conns.Load() != 0 {
@@ -479,7 +479,7 @@ func TestPorts_Gates(t *testing.T) {
 	}
 }
 
-// --- Banners and completed checks ---
+// --- Banners and completed jobs ---
 
 func TestPorts_Banners(t *testing.T) {
 	t.Parallel()
@@ -531,8 +531,8 @@ func TestPorts_Banners(t *testing.T) {
 	}
 }
 
-// Closed/filtered outcomes complete checks and prevent retries.
-func TestPorts_CompletedChecksAreNotRetried(t *testing.T) {
+// Closed/filtered outcomes complete jobs and prevent retries.
+func TestPorts_CompletedJobsAreNotRetried(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
 	open := p.serve("203.0.113.250", 7001, hello)
@@ -584,29 +584,29 @@ func (refusedTCP) Connect(context.Context, netip.Addr, int) (egress.TCPResult, e
 	return egress.Refused{Reason: "test"}, nil
 }
 
-// refusingPorts hands the ports stage a TCP client that refuses while refuse is set.
+// refusingPorts hands the ports procedure a TCP client that refuses while refuse is set.
 type refusingPorts struct {
-	run.Stage
+	run.Procedure
 	refuse *atomic.Bool
 }
 
-func (r refusingPorts) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
+func (r refusingPorts) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 	if r.refuse.Load() {
 		e.TCP = refusedTCP{}
 	}
-	return r.Stage.Run(ctx, c, e)
+	return r.Procedure.Run(ctx, c, e)
 }
 
-// Checks are filtered by the same policy, so Refused is unexpected: a failure, retried next run.
-func TestPorts_RefusedIsAFailedCheckRetried(t *testing.T) {
+// Jobs are filtered by the same policy, so Refused is unexpected: a failure, retried next run.
+func TestPorts_RefusedIsAFailedJobRetried(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
 	srv := p.serve("203.0.113.250", 7001, hello)
 	var refuse atomic.Bool
 	refuse.Store(true)
-	for i, s := range p.h.stages {
+	for i, s := range p.h.procedures {
 		if s.Name() == "ports" {
-			p.h.stages[i] = refusingPorts{s, &refuse}
+			p.h.procedures[i] = refusingPorts{s, &refuse}
 		}
 	}
 	p.sweepPartial("ports", 1, []int{7001})
@@ -659,8 +659,8 @@ func TestPorts_ExclusionHidesAnOpenPortButNotTheView(t *testing.T) {
 	p.serve("203.0.113.7", 7001, hello)
 	p.serve("203.0.113.250", 7001, hello)
 	var seen atomic.Value
-	p.h.stages = append(p.h.stages, &testkit.Stage{StageName: "peek", Kind: run.ThirdParty,
-		ChecksFn: func(v run.View) []run.Check {
+	p.h.procedures = append(p.h.procedures, &testkit.Procedure{ProcedureName: "peek", Kind: run.ThirdParty,
+		JobsFn: func(v run.View) []run.Job {
 			var got []string
 			for _, op := range v.OpenPorts() {
 				got = append(got, op.Addr.String())

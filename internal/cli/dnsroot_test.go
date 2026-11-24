@@ -20,11 +20,11 @@ func runRoot(t *testing.T, w *world, extra ...string) {
 	}
 }
 
-// runRootPartial checks exit 7 and verifies the failed stage/count after partial output is
+// runRootPartial checks exit 7 and verifies the failed procedure/count after partial output is
 // written.
-func runRootPartial(t *testing.T, w *world, stage string, n int, extra ...string) failure {
+func runRootPartial(t *testing.T, w *world, procedure string, n int, extra ...string) failure {
 	t.Helper()
-	return w.h.partialFailed(w.run(rootArgs(extra)...), stage, n)
+	return w.h.partialFailed(w.run(rootArgs(extra)...), procedure, n)
 }
 
 func rootArgs(extra []string) []string {
@@ -307,9 +307,9 @@ func TestDNSRoot_RedoMarksVanishedRecords(t *testing.T) {
 	}
 }
 
-// One check per root and type, run under --passive; the checks are in the
+// One job per root and type, run under --passive; the jobs are in the
 // state database and no transfer is attempted.
-func TestDNSRoot_ChecksAndPassive(t *testing.T) {
+func TestDNSRoot_JobsAndPassive(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "MS=ms1")
@@ -381,7 +381,7 @@ func TestDNSRoot_ExcludedRootNotQueried(t *testing.T) {
 	}
 }
 
-// NODATA and NXDOMAIN complete a type's check with no rows; SERVFAIL fails
+// NODATA and NXDOMAIN complete a type's job with no rows; SERVFAIL fails
 // only that type, and only it is retried.
 func TestDNSRoot_Outcomes(t *testing.T) {
 	t.Parallel()
@@ -519,14 +519,14 @@ func TestDNSRoot_DomainInScopeHidesNotCurrentRow(t *testing.T) {
 	}
 }
 
-// Rows of the new types do not create wildcard checks: only A, AAAA and CNAME
+// Rows of the new types do not create wildcard jobs: only A, AAAA and CNAME
 // rows name zones.
-func TestDNSRoot_RowsCreateNoWildcardChecks(t *testing.T) {
+func TestDNSRoot_RowsCreateNoWildcardJobs(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	feed := &testkit.Stage{StageName: "feed", Kind: run.ThirdParty,
-		ChecksFn: func(run.View) []run.Check { return []run.Check{{Key: "x"}} },
-		RunFn: func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) {
+	feed := &testkit.Procedure{ProcedureName: "feed", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: "x"}} },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
 			var obs []run.Observation
 			for _, ty := range []string{"NS", "SOA", "TXT", "CAA"} {
 				obs = append(obs, resolutionObs("_a."+strings.ToLower(ty)+".example.com", ty, "v"))
@@ -534,7 +534,7 @@ func TestDNSRoot_RowsCreateNoWildcardChecks(t *testing.T) {
 			// A control: the same shape as a CNAME does name a zone.
 			return append(obs, resolutionObs("_c._ctl.example.com", "CNAME", "target.example.net")), nil
 		}}
-	w.h.stages = append(w.h.stages, feed)
+	w.h.procedures = append(w.h.procedures, feed)
 	runRoot(t, w)
 	done := w.h.completed(eng, "wildcard")
 	if !slices.Contains(done, "_ctl.example.com") {

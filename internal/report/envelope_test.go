@@ -20,9 +20,9 @@ func fixedEnvelope() report.Envelope {
 			Engagement:    "acme",
 			Directory:     "/tmp/acme",
 			Counts:        []report.CountRow{{Category: "hosts", N: 3}, {Category: "urls", N: 2}},
-			FailedChecks:  []report.StageCount{{Stage: "dns", N: 1}},
-			Deferred:      []report.StageCount{{Stage: "shodan", N: 4}},
-			NotConfigured: []report.StageReason{{Stage: "ports", Reason: "passive-only"}},
+			FailedJobs:    []report.ProcedureCount{{Procedure: "dns", N: 1}},
+			Deferred:      []report.ProcedureCount{{Procedure: "shodan", N: 4}},
+			NotConfigured: []report.ProcedureReason{{Procedure: "ports", Reason: "passive-only"}},
 			Findings: []report.FindingRow{
 				finding,
 				{Severity: "medium", Category: "banner", Target: "10.0.0.1:21"},
@@ -39,7 +39,7 @@ func fixedEnvelope() report.Envelope {
 				Findings: []report.FindingRow{finding},
 			},
 		},
-		Meta: report.Meta{Count: 1, DeadlineExceeded: true, ChecksCompleted: 5, ChecksCancelled: 2, Warnings: []string{"w"}},
+		Meta: report.Meta{Count: 1, DeadlineExceeded: true, JobsCompleted: 5, JobsCancelled: 2, Warnings: []string{"w"}},
 	}
 }
 
@@ -144,9 +144,9 @@ func secretEnvelope() report.Envelope {
 			Engagement:    s,
 			Directory:     s,
 			Counts:        []report.CountRow{{Category: s, N: 1}},
-			FailedChecks:  []report.StageCount{{Stage: s, N: 1}},
-			Deferred:      []report.StageCount{{Stage: s, N: 1}},
-			NotConfigured: []report.StageReason{{Stage: s, Reason: s}},
+			FailedJobs:    []report.ProcedureCount{{Procedure: s, N: 1}},
+			Deferred:      []report.ProcedureCount{{Procedure: s, N: 1}},
+			NotConfigured: []report.ProcedureReason{{Procedure: s, Reason: s}},
 			Findings:      []report.FindingRow{row, {Severity: s}},
 			Candidates: []report.CandidateRow{{
 				Kind: s, Value: s, Sources: []string{s, s}, EvidenceCount: 1, Confidence: s, Promote: s,
@@ -212,8 +212,8 @@ func TestEnvelope_MapDoesNotAlias(t *testing.T) {
 	orig := secretEnvelope()
 	cp := orig.Map(func(s string) string { return s })
 	cp.Data.Counts[0].Category = "x"
-	cp.Data.FailedChecks[0].Stage = "x"
-	cp.Data.Deferred[0].Stage = "x"
+	cp.Data.FailedJobs[0].Procedure = "x"
+	cp.Data.Deferred[0].Procedure = "x"
 	cp.Data.NotConfigured[0].Reason = "x"
 	cp.Data.Findings[0].Target = "x"
 	*cp.Data.Findings[0].Detail = "x"
