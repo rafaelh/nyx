@@ -42,22 +42,13 @@ prints the whole reference.
 - [Configuration and setup](docs/configuration.md): the config file, API keys, settings, `nyx setup`
 - [Passive boundary and authorisation](docs/passive-boundary.md): what targets and third parties
   receive, `--passive`, `--authorised`
-- [DNS and third parties](docs/dns.md): root records, SRV names, mail and SaaS dependencies,
-  shared name servers and mail hosts
-- [Web services](docs/web.md): web posture, TLS detail, JavaScript endpoints, web identifiers,
-  origin exposure
 - [Third-party sources](docs/sources.md): RDAP, Shodan per address, reverse IP, GitHub code search
-- [End-of-life software](docs/end-of-life.md)
 - [Abusive networks](docs/abusive-networks.md): Spamhaus DROP and ipapi.is data, and `nyx setup --update-threat-data`
-- [Built-in lists and per-run limits](docs/lists-and-limits.md)
 - [Ranked candidates](docs/candidates.md)
 - [Console and JSON](docs/console-and-json.md): the log, the summary, terminal layout, the `--json`
   envelope
 - [Output files and export](docs/output.md): the CSV and TXT files, `changes.csv`,
   `nyx recon export`
-- [CVE lookup](docs/cve.md): `nyx cve`
-- [IP lookup](docs/ip.md): `nyx ip`
-- [Exit codes and errors](docs/exit-codes.md)
 - [Migrating from the Python version](docs/migrating.md)
 
 # Credits

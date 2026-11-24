@@ -99,10 +99,9 @@ once. A new command needs only `AddCommand`, an `Example` and its help annotatio
 the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
 keys of the CVE record and of the `nyx cve` envelope, the keys of the `nyx ip` record and
 envelope, and the keys of the threat-data update's envelope are a stable interface**: adding one is
-compatible, renaming, removing or retyping one is a breaking change (`docs/exit-codes.md`
-and `docs/console-and-json.md`). Two changes broke this once each, deliberately and before the first
-release. The default `nyx cve` selection leaves out the `affected_products` and `references` lists
-and has their counts instead (`--fields all` has both). The recon envelope and export renamed their
+compatible, renaming, removing or retyping one is a breaking change (`docs/console-and-json.md`).
+Two changes broke this once each, deliberately and before the first release. The default `nyx cve`
+selection leaves out the `affected_products` and `references` lists and has their counts instead (`--fields all` has both). The recon envelope and export renamed their
 old keys after procedures and jobs: `failed_checks` became `failed_jobs`, `meta.checks_completed` and `meta.checks_cancelled`
 became `meta.jobs_completed` and `meta.jobs_cancelled`, the `stage` key of the `failed_jobs`,
 `deferred` and `not_configured` rows became `procedure`, and export's `stages` became `procedures`
@@ -209,8 +208,8 @@ when it has rows, and is removed once it has none.
   plus a `summary` event made from the envelope on stdout. `h.envelope()` parses stdout as the real
   envelope, and `h.partial` asserts an exit 7.
 - Doc tests check the user guide's wording: `docsText` and `docsSection` (`internal/cli/helpers_test.go`)
-  read `README.md` and `docs/*.md` as one text, and a few packages read their own page (the favicon
-  list in `docs/web.md`, the built-in lists in `docs/lists-and-limits.md`). Moving a sentence between
+  read `README.md` and `docs/*.md` as one text, and `docPage` (`internal/cli/threat_docs_test.go`) reads
+  one page. Moving a sentence between
   pages is fine; moving it out of the `## ` section a test names is not.
 - Every test calls `t.Parallel()` first. A run sees only the harness's environment: set a variable
   with `h.setenv`, never `t.Setenv` or `os.Setenv` (Go forbids `t.Setenv` in a parallel test). The

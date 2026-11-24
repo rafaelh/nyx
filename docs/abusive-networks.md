@@ -39,7 +39,7 @@ Spamhaus's SBL IDs, AS names and domains and ipapi.is's organisation names, scor
 are cleaned of anything that acts on a terminal, as other third-party text is.
 
 - **`nyx ip`** reports an address's matches in the `drop_networks`, `drop_asn`, `abusive_networks`
-  and `abusive_asn` keys (see [IP lookup](ip.md)). It is triage context for an address that is often
+  and `abusive_asn` keys. It is triage context for an address that is often
   untrusted, such as one seen in a log.
 - **Recon** checks the addresses of the engagement, which belong to the target, where a listed
   network is worth a look: the host may be compromised, shadow IT or on reallocated space, or at risk
@@ -223,7 +223,7 @@ exits 2 and says why (`INVALID_INPUT`).
 - A **source** has `source` (`spamhaus` or `ipapi.is`), `outcome` (`updated`, `current`, `skipped` or
   `failed`), `last_contacted` and `next_update` (RFC 3339 or `null`; `next_update` is set when
   skipped, and when failed after a response), `copyright` and `terms` (`null` for ipapi.is), and
-  `error` (`null`, or the five-key error of [Exit codes and errors](exit-codes.md#errors)).
+  `error` (`null`, or the five-key error).
 - A **list** has `list` (`drop_v4`, `drop_v6`, `asndrop`, `networks` or `asns`), `source`,
   `old_updated` and `new_updated`, `old_entries` and `entries`, and `added` and `removed`. The `old_*`
   keys describe the copy in use before the update and the others the copy in use after it, so they

@@ -69,31 +69,6 @@ func TestBuiltinWordlistAttribution(t *testing.T) {
 	}
 }
 
-// docs/lists-and-limits.md credits SecLists, says what a run costs, and gives the request
-// formula for the sensitive paths.
-func TestDocsStateListsAndVolume(t *testing.T) {
-	t.Parallel()
-	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "lists-and-limits.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(b)
-	s, err := load(t, nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"SecLists", "MIT",
-		fmt.Sprintf("%d lookups per root", len(s.WordlistWords)),
-		"services × entries", "sensitive_path_max_requests", "permutations.max_names",
-		fmt.Sprintf("%d entries", len(s.SensitivePathEntries)),
-	} {
-		if !strings.Contains(readme, want) {
-			t.Errorf("docs/lists-and-limits.md does not mention %q", want)
-		}
-	}
-}
-
 // sampleName encodes paths for fixtures and renames tilde/.DS_Store cases that Git would
 // otherwise ignore. This ensures fixtures exist after checkout, not only locally.
 func sampleName(path string) string {

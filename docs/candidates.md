@@ -18,9 +18,8 @@ family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), w
 results still count), registrant (`whoisxml`, `org-asn`, `rdap`) and reverse IP (`reverseip`).
 `httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other source.
 The web identifier family is `identifier-pivot`; the `sources` value is `identifier-pivot:<id>`, with
-the identifier that found the candidate, so each is a source of its own but they are one family
-(see [Web identifiers](web.md#pivoting-on-them)). Shared infrastructure is a family of two sources,
-`shared-ns` and `shared-mx` (see [Shared name servers and mail hosts](dns.md#shared-name-servers-and-mail-hosts)),
+the identifier that found the candidate, so each is a source of its own but they are one family. Shared infrastructure is a family of two sources,
+`shared-ns` and `shared-mx`,
 so a root found by both is still one family.
 
 The confidence follows from the families that agree:

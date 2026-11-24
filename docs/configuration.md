@@ -13,7 +13,7 @@
 - **Precedence:** flags override the file.
 - **API keys:** set only as `keys.<source>` in the file. There are no key flags, so keys never
   appear in shell history or process lists. Keys are redacted from all output and files.
-- **The NVD key:** `nyx cve` reads its key from `keys.nvd` in the file (see [CVE lookup](cve.md)).
+- **The NVD key:** `nyx cve` reads its key from `keys.nvd` in the file.
   `keys.nvd` is a valid key for every command.
 - **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos` and
   `github`. A procedure whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
@@ -34,12 +34,10 @@
   lookups included, until the key is fixed or removed; a 429 stops it for the run. `reverseip.max_domains`
   (`--reverseip-max-domains`, default 100, at least 1) is how many registrable domains one address may
   return before it is treated as shared hosting.
-- **Shared name servers.** `keys.securitytrails` also turns on `nsreverse` (see
-  [Shared name servers and mail hosts](dns.md#shared-name-servers-and-mail-hosts)). A rejected key (401 or
+- **Shared name servers.** `keys.securitytrails` also turns on `nsreverse`. A rejected key (401 or
   403) or a 429 stops it for the run. `nsreverse.max_domains` (`--nsreverse-max-domains`, default
   1000, at least 1) is how many domains one server may host before it is treated as shared hosting.
-- **Origin exposure.** `keys.securitytrails` also turns on `dnshistory` (see
-  [Origin exposure](web.md#origin-exposure)). `dnshistory.max_hosts` (`--dnshistory-max-hosts`, default
+- **Origin exposure.** `keys.securitytrails` also turns on `dnshistory`. `dnshistory.max_hosts` (`--dnshistory-max-hosts`, default
   200, at least 1) caps the hostnames it asks about in one run, and `origincheck.max_candidates`
   (`--origincheck-max-candidates`, default 5, at least 1) caps the candidate origins kept, and
   checked, for each hostname.
@@ -47,13 +45,12 @@
   [Shodan per address](sources.md#shodan-per-address)). `shodan.max_hosts` (`--shodan-max-hosts`, default 500,
   at least 1) caps the addresses it looks up in one run.
 - **JavaScript endpoints.** `jsparse.max_scripts` (`--jsparse-max-scripts`, default 50, at least 1)
-  caps the script files `jsparse` reads per origin (see [JavaScript endpoints](web.md#javascript-endpoints)).
-- **Web identifiers.** `keys.shodan` also turns on `identifier-pivot` (see
-  [Web identifiers](web.md#web-identifiers)). `identifier_pivot.max_queries` (`--identifier-pivot-max-queries`,
+  caps the script files `jsparse` reads per origin.
+- **Web identifiers.** `keys.shodan` also turns on `identifier-pivot`. `identifier_pivot.max_queries` (`--identifier-pivot-max-queries`,
   default 50, at least 1) caps the Shodan searches it sends in one run.
 - **End-of-life software.** `eol_warn_days` (`--eol-warn-days`, default 90, at least 0) is how many
   days before the end of a release cycle's security support the low `eol-approaching` finding is
-  reported; 0 turns it off (see [End-of-life software](end-of-life.md)).
+  reported; 0 turns it off.
 - **Settings:** all settings and their defaults are listed by `nyx recon --help`.
 
 Example `config.yaml` (a leading `~/` in `output_dir`, `wordlist` or `sensitive_paths` is your home
@@ -145,8 +142,7 @@ the bottom of the screen lists the keys each tab offers.
   set it exits 2 and says why. The update exits 0 when every source updated, was already current or
   was skipped (it sends a source nothing within an hour of its last answer), 7 when one source
   failed, 1 when both failed, and 130, 143 or 129 on a signal; with `--json` it writes one envelope
-  on exit 0 or 7. The details are on [Abusive networks](abusive-networks.md#updating-the-threat-data),
-  and the codes in [Exit codes](exit-codes.md#exit-codes).
+  on exit 0 or 7. The details are on [Abusive networks](abusive-networks.md#updating-the-threat-data).
 - **What it ignores.** The environment: what setup shows and saves is what nyx reads, as no setting
   or key comes from anywhere else.
 - **Exit codes.** For the editor, 0 after a save, a discard or no change. It exits 2, before drawing anything, when

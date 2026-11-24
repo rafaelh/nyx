@@ -25,7 +25,7 @@ import (
 const maxPivotHosts = 200
 
 // defaultFavicons excludes the empty file and common framework icons, which unrelated
-// installations share. docs/web.md lists the hashes.
+// installations share.
 var defaultFavicons = map[string]string{
 	"0":          "the empty file",
 	"116323821":  "Spring Boot",

@@ -52,9 +52,8 @@
 
 # Documentation gaps
 
-- **`docs/console-and-json.md` doesn't exist.** `README.md`, `docs/exit-codes.md`, `docs/cve.md`,
-  `docs/ip.md`, `docs/release-preparation.md` and `CLAUDE.md` link to it for the log, the summary,
-  terminal layout and the `--json` envelope. So no page documents the envelope's keys, including the
+- **`docs/console-and-json.md` doesn't exist.** `README.md`, `docs/release-preparation.md` and
+  `CLAUDE.md` link to it for the log, the summary, terminal layout and the `--json` envelope. So no page documents the envelope's keys, including the
   ones renamed after procedures and jobs (`failed_jobs`, `meta.jobs_completed`,
   `meta.jobs_cancelled` and the `procedure` key of its rows). The links to its
   `#terminal-layout` and `#the---json-envelope` anchors go nowhere either.

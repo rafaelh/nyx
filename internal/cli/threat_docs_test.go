@@ -55,15 +55,6 @@ func tableRow(text, cell string) string {
 // Keep Spamhaus credit beside documented matches/findings and in guide/README credits.
 func TestThreatDocs_CreditSpamhaus(t *testing.T) {
 	t.Parallel()
-	ip := docPage(t, "ip.md")
-	for _, key := range []string{"`drop_networks`", "`drop_asn`"} {
-		row := tableRow(ip, key)
-		if row == "" {
-			t.Errorf("docs/ip.md has no row for %s", key)
-		} else if !strings.Contains(strings.ToLower(row), "spamhaus") {
-			t.Errorf("docs/ip.md's row for %s does not name Spamhaus: %s", key, row)
-		}
-	}
 	row := strings.ToLower(tableRow(docPage(t, "output.md"), "`risk-abusive-network.csv`"))
 	for _, want := range []string{"spamhaus", "drop_networks", "drop_asn"} {
 		if !strings.Contains(row, want) {
@@ -148,36 +139,6 @@ func TestThreatDocs_PassiveBoundary(t *testing.T) {
 	}
 }
 
-// IP documentation names active downloaded data as well as built-in copies.
-func TestThreatDocs_IPPage(t *testing.T) {
-	t.Parallel()
-	ip := docPage(t, "ip.md")
-	if docUnit(ip, "download", "threat data") == "" {
-		t.Error("docs/ip.md does not say that nyx ip reads the downloaded threat data")
-	}
-	if docUnit(ip, "depend", "threat data") == "" {
-		t.Error("docs/ip.md does not say that the result depends on the threat data in use")
-	}
-	_, table, ok := strings.Cut(ip, "| Source | Gives |")
-	if !ok {
-		t.Fatal("docs/ip.md has no sources table")
-	}
-	_, table, _ = strings.Cut(table, "\n") // past the rest of the header row
-	var rows []string
-	for line := range strings.SplitSeq(table, "\n") {
-		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "|") {
-			break
-		}
-		rows = append(rows, line)
-	}
-	text := strings.ToLower(strings.Join(rows, "\n"))
-	for _, want := range []string{"spamhaus", "drop_networks", "built", "download"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the sources table of docs/ip.md lacks %q:\n%s", want, text)
-		}
-	}
-}
-
 // Document non-interactive updates, their exit codes and files separately from config editing.
 func TestThreatDocs_SetupPage(t *testing.T) {
 	t.Parallel()
@@ -228,28 +189,6 @@ func TestThreatDocs_SetupHelp(t *testing.T) {
 	}
 	if strings.Contains(text, "edits only the config file") {
 		t.Errorf("the description of nyx setup still says it edits only the config file:\n%s", text)
-	}
-}
-
-// The exit-code table gives the update's codes in the rows for 1, 2 and 7.
-func TestThreatDocs_ExitCodes(t *testing.T) {
-	t.Parallel()
-	exit, _ := docsSection(t, "## Exit codes")
-	if !strings.Contains(exit, "--update-threat-data") {
-		t.Error("the exit codes do not name --update-threat-data")
-	}
-	for _, code := range []string{"1", "2", "7"} {
-		var row string
-		for line := range strings.SplitSeq(exit, "\n") {
-			if strings.HasPrefix(line, "| "+code+" |") {
-				row = line
-			}
-		}
-		if row == "" {
-			t.Errorf("the exit codes have no row for %s", code)
-		} else if !strings.Contains(row, "update") && !strings.Contains(row, "threat") {
-			t.Errorf("the row for exit %s does not cover the update: %s", code, row)
-		}
 	}
 }
 

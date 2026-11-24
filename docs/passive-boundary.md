@@ -11,14 +11,12 @@ nyx limits what target-owned systems can receive. It sends only:
   while crawling, to each service's `/robots.txt` and `/sitemap.xml` and the same-host URLs they
   list (robots.txt is read, not obeyed), to the paths on the sensitive-path list, to same-site
   script files referenced by crawled pages (the URLs found inside a script are recorded, never
-  requested; see [JavaScript endpoints](web.md#javascript-endpoints)), and to one favicon per web
-  service: the same-host `<link rel="icon">` URL of its page, or `/favicon.ico` (see
-  [Web identifiers](web.md#web-identifiers)).
+  requested), and to one favicon per web
+  service: the same-host `<link rel="icon">` URL of its page, or `/favicon.ico`.
 
 - **One GET of `/` to an address it is already allowed to contact, with an in-scope hostname as
   the server name and the Host header.** The `origincheck` procedure sends it to see whether a
-  hostname behind a CDN or WAF is also served directly by its origin server (see
-  [Origin exposure](web.md#origin-exposure)). The address is one that may be port-checked: inside an
+  hostname behind a CDN or WAF is also served directly by its origin server. The address is one that may be port-checked: inside an
   in-scope netblock, or dedicated to the organisation, known, not excluded, and the current address
   of an in-scope hostname. It is asked in place of the CDN, so that the answer says what that address
   serves for the hostname; it is never an address nyx would not already handshake. One GET goes over
@@ -33,9 +31,9 @@ as that third party; an excluded host never is. Everything else comes from third
 GitHub's code search, public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage
 provider endpoints. Only hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
 reports that its free quota is spent, its procedure alone stops, the jobs it did not do are failed (the
-run exits 7, see [Exit codes](exit-codes.md#exit-codes)), and they are retried on the next run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
+run exits 7), and they are retried on the next run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
 addresses, for its reverse IP lookup (see [Reverse IP](sources.md#reverse-ip)); SecurityTrails also receives
-the hostnames behind a CDN or WAF, for their DNS history (see [Origin exposure](web.md#origin-exposure)); the
+the hostnames behind a CDN or WAF, for their DNS history; the
 target never does. The
 `otx` and `anubis` procedures no longer exist, because neither service answers an unkeyed client any
 more. An engagement that already holds their results keeps them, and a `skip` setting
@@ -90,15 +88,14 @@ resolvers: Shodan's InternetDB (`internetdb.shodan.io`), RIPEstat (`stat.ripe.ne
 registries' RDAP servers (`rdap.arin.net`, `rdap.db.ripe.net`, `rdap.apnic.net`, `rdap.lacnic.net` and
 `rdap.afrinic.net`), and the public DNS resolvers, for the Team Cymru TXT lookups, PTR names and
 the A and AAAA records of a hostname. A hostname you give is sent to the public resolvers, except a
-single-label name, which is never sent to one. An address that is not public (see
-[IP lookup](ip.md)) is never sent to any third party or public resolver, and a CIDR is looked
+single-label name, which is never sent to one. An address that is not public is never sent to any third party or public resolver, and a CIDR is looked
 up one address at a time.
 
 `nyx ip --active` also sends the address, and only the address, these requests: a TCP handshake to
 each port on its list, which reads what the service sends unprompted and sends nothing; a TLS
 handshake on each of a few TLS ports, which completes the handshake, sends no application data and
 neither trusts nor rejects the certificate; and one HTTP or HTTPS GET of `/` on each of a few web
-ports, with no redirect followed (see [IP lookup](ip.md) for the ports). It never sends
+ports, with no redirect followed. It never sends
 credentials, uses another method, or requests another path. It sends them to:
 
 - every public address that is not shared provider infrastructure (a CDN, SaaS, WAF or
@@ -156,4 +153,4 @@ is no prompt, on a terminal or anywhere else.
   on stderr.
 - The acknowledgement applies to recon only. `nyx ip` has no engagement to remember it in, and no
   `--authorised` flag: passing `--active` is the confirmation that you may connect to the addresses
-  you gave it (see [IP lookup](ip.md)). Without `--active` it never contacts them.
+  you gave it. Without `--active` it never contacts them.

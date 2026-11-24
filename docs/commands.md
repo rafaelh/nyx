@@ -8,10 +8,10 @@
   directory and the common settings (see [Setup](configuration.md#setup)). It needs a terminal.
   `nyx setup --update-threat-data` instead updates the threat data that recon and `nyx ip` check
   addresses against, needs no terminal, and exits.
-- **`nyx cve <CVE-ID>... [flags]`** looks CVEs up in the NVD by CVE ID (see [CVE lookup](cve.md)).
+- **`nyx cve <CVE-ID>... [flags]`** looks CVEs up in the NVD by CVE ID.
   It needs no engagement and no authorisation, and writes no files.
 - **`nyx ip <input>... [flags]`** looks up who runs an IP address, where it is, what it is called and
-  what is exposed on it, for each address, hostname or CIDR given (see [IP lookup](ip.md)). It
+  what is exposed on it, for each address, hostname or CIDR given. It
   needs no engagement and no key, writes no files, and by default sends nothing to the address.
   `nyx ip --active` also connects to it. Recon and `nyx cve` behave as they did before.
 - **`nyx completion bash|zsh`** prints a script that tab-completes nyx in that shell: the
@@ -28,7 +28,7 @@
 - **`--timeout <duration>`** is a recon flag: `nyx recon example.com --json --timeout 30m` stops by
   that deadline and exits 7, and a re-run carries on (see [Deadline](#deadline)). `export` makes no
   network calls and takes no `--timeout`. `nyx cve` and `nyx ip` take their own `--timeout`, the
-  deadline for the whole call (see [CVE lookup](cve.md) and [IP lookup](ip.md)).
+  deadline for the whole call.
 - **Help.** `nyx --help`, `nyx help` and a bare `nyx` print the whole reference: examples, every
   command but `completion` with its everyday flags and one example, the valid values of each fixed-set flag (the
   procedures, the export kinds) and the exit codes. The recon example in `nyx --help` and in
@@ -65,8 +65,7 @@
 - **Re-runs:** inputs and exclusions are added to those already stored for the engagement. Nothing
   is removed because you left it out of a later run.
 - **Resume:** a re-run performs only the jobs not yet done. Jobs that failed (a transient
-  error, not a negative result) are retried on later runs, and a run in which any job failed exits 7
-  (see [Exit codes](exit-codes.md#exit-codes)). An interrupted run resumes the same way, and so does one that a
+  error, not a negative result) are retried on later runs, and a run in which any job failed exits 7. An interrupted run resumes the same way, and so does one that a
   deadline stopped (see [Deadline](#deadline)).
 - **`--redo <procedure>`:** performs every job of one procedure again. `nyx help procedures` lists the procedures
   in run order, with whom each contacts, the key it needs and what it does.

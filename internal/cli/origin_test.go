@@ -741,7 +741,7 @@ func TestOrigin_DocsStateTheBoundary(t *testing.T) {
 		t.Errorf("the --passive procedure list does not name origincheck: %q", passive)
 	}
 	for _, want := range []string{"risk-origin-exposure.csv", "dnshistory.max_hosts", "origincheck.max_candidates", "a-historical",
-		"historical_first_seen", "hostnames for `dnshistory`"} {
+		"historical_first_seen"} {
 		if !strings.Contains(flat, strings.ToLower(want)) {
 			t.Errorf("the docs do not mention %q", want)
 		}

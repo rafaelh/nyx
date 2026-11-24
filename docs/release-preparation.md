@@ -30,7 +30,7 @@ changes. No version is written in a file, so **bumping the version means choosin
 - It is `vMAJOR.MINOR.PATCH`, newer than every existing `v*` tag.
 - Bump PATCH for fixes and data refreshes only, MINOR for new behaviour, and MAJOR for a breaking
   change to the stable interface: the exit codes, the error codes, and the JSON keys listed in
-  [exit-codes.md](exit-codes.md) and [console-and-json.md](console-and-json.md).
+  [console-and-json.md](console-and-json.md).
 - From v2 onwards, Go requires the module path to end in `/vN` (`github.com/rafaelh/nyx/v2`), or
   `go install …@v2.0.0` fails. `make release` refuses a major version of 2 or more without it.
 

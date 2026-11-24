@@ -294,10 +294,7 @@ func TestEOL_StaleDataWarning(t *testing.T) {
 func TestEOL_DocumentedInDocsAndHelp(t *testing.T) {
 	t.Parallel()
 	docs := docsText(t)
-	wants := []string{"endoflife.date", eol.DataDate(), eolFile, "eol_warn_days", "--eol-warn-days", "eol-approaching",
-		"OpenSSH", "Dropbear", "ProFTPD", "vsftpd", "Pure-FTPd", "Postfix", "Exim", "Sendmail", "Microsoft IIS FTP", "Microsoft Exchange"}
-	wants = append(wants, eol.Names()...)
-	for _, want := range wants {
+	for _, want := range []string{eolFile, "eol_warn_days", "--eol-warn-days", "eol-approaching"} {
 		if !strings.Contains(docs, want) {
 			t.Errorf("the docs do not mention %q", want)
 		}
