@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"go.yaml.in/yaml/v3"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/miekg/dns"
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // Expose query types without leaking the DNS library into procedures.

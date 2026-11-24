@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/cloudstorage"
+	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
 )
 
 // Cover provider reference formats across hosts and URLs.

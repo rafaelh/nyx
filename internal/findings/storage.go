@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
 )
 
 // References collects sorted, unique storage references from in-scope non-wildcard CNAME chains

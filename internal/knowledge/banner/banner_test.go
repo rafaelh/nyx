@@ -3,7 +3,7 @@ package banner_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/banner"
+	"github.com/rafaelh/nyx/internal/knowledge/banner"
 )
 
 // Recognise protocol-specific products/versions and distinguish distribution package builds.

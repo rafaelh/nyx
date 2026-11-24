@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/inventory"
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 // Root DNS metadata must not change address/alias/zone inventory even when values resemble

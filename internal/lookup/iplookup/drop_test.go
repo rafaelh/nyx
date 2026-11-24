@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 

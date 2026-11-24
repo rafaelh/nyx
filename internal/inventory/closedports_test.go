@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/inventory"
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 // Inventory normalises mapped addresses when recording closed ports.

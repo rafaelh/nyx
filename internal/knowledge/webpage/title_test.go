@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/webpage"
+	"github.com/rafaelh/nyx/internal/knowledge/webpage"
 	"golang.org/x/net/html"
 )
 

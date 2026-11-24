@@ -9,12 +9,12 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // maxHops is how many redirects a probe, the crawl or jsparse follows.

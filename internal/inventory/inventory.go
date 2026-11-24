@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 

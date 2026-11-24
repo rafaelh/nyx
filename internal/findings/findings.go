@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
 	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/store"
 	"github.com/rafaelh/nyx/internal/threatdata/abusive"

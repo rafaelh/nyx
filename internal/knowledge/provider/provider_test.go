@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 func pfx(s string) netip.Prefix { return netip.MustParsePrefix(s) }

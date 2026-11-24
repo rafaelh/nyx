@@ -12,7 +12,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // DNS scripts loopback answers for all fixture names.

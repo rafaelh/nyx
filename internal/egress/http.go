@@ -19,8 +19,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 

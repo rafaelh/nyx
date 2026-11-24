@@ -22,8 +22,8 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // IP tests build a complete loopback world with counting source, DNS and target fakes.

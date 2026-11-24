@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 )
 
 func TestNewRecord(t *testing.T) {

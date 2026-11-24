@@ -15,7 +15,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // IP input tests route all source/target traffic through counting fakes so any unexpected

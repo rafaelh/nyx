@@ -9,12 +9,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
-	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // urlsPerPage bounds recorded URLs relative to page budget, preventing calendars/faceted search

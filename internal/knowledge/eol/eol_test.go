@@ -154,11 +154,11 @@ func TestDataDate_IsADate(t *testing.T) {
 // The Makefile downloads exactly the products products.yaml lists, with curl and no Go code.
 func TestMakefile_DownloadsTheListedProducts(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile("../../Makefile")
+	b, err := os.ReadFile("../../../Makefile")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"eol-data:", "curl", "internal/eol/products.yaml", "internal/eol/DATE"} {
+	for _, want := range []string{"eol-data:", "curl", "internal/knowledge/eol/products.yaml", "internal/knowledge/eol/DATE"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("Makefile does not contain %q", want)
 		}

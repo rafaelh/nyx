@@ -13,7 +13,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // Reverse-IP tests run real procedures against loopback HackerTarget/SecurityTrails responses.

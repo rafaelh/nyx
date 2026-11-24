@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/weburl"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 )
 
 // readLists queues same-origin robots/sitemap URLs at depth one, using the page budget left

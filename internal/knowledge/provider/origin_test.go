@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 // CDN ASN evidence overrides dedicated-hosting ranges so CDN edges cannot become candidate

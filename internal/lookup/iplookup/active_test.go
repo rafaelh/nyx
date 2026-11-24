@@ -19,10 +19,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 func TestProbePorts(t *testing.T) {

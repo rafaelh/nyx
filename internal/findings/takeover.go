@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/cloudstorage"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
 )
 
 // evidence combines takeover signals into one finding per hostname or URL-only bucket target.

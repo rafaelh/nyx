@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 // Provider CNAME entries retain classification and takeover fingerprints.

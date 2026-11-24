@@ -3,7 +3,7 @@ package provider_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 func TestResult_SharedInfrastructure(t *testing.T) {

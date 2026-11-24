@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )

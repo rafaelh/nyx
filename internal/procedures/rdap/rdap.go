@@ -22,7 +22,7 @@ import (
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/orgname"
+	"github.com/rafaelh/nyx/internal/knowledge/orgname"
 	"github.com/rafaelh/nyx/internal/run"
 )
 

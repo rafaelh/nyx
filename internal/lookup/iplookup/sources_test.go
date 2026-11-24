@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 )
 
 // keysSet reports whether every key of the source holds a value (a non-null one).

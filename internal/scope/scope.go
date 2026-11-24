@@ -9,9 +9,9 @@ import (
 	"net/netip"
 	"slices"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/orgname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/orgname"
 )
 
 // Class is the scope classification of a hostname.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/eol"
+	"github.com/rafaelh/nyx/internal/knowledge/eol"
 )
 
 // End-of-life tests derive findings from stored web/banner versions and the current date.

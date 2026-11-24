@@ -16,7 +16,7 @@ make dist                       # dist/nyx-{darwin,linux}-{amd64,arm64}
 go test ./internal/cli/ -run 'TestPorts_' -count=1   # one package, tests matching a regex
 make lint                       # golangci-lint pinned in tools/go.mod; config in .golangci.yml
 make vuln                       # govulncheck pinned in tools/go.mod (contacts vuln.go.dev)
-make eol-data                   # refresh internal/eol/data from endoflife.date (needs curl, jq); review the diff
+make eol-data                   # refresh internal/knowledge/eol/data from endoflife.date (needs curl, jq); review the diff
 make threat-data                # refresh the built-in threat data (internal/threatdata/spamhaus/builtin.jsonl from spamhaus.org, internal/threatdata/abusive/snapshot.json from ipapi.is; needs curl); review the diff and update the five dates in docs/abusive-networks.md. ALLOW_SHRINK=1 lets through a list you reviewed that shrank to under half
 make release-prep               # update deps, eol-data and threat-data, then lint, vuln and test; leaves changes to review
 make release VERSION=vX.Y.Z     # tag, dist, verify the version stamp, push the tag and gh release create (docs/release-preparation.md)

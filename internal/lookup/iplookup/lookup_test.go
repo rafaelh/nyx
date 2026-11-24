@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // fakeHTTP records URLs and serves registered replies, using 404 for unexpected URLs.

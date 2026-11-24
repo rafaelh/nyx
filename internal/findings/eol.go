@@ -5,9 +5,9 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/banner"
-	"github.com/rafaelh/nyx/internal/eol"
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/banner"
+	"github.com/rafaelh/nyx/internal/knowledge/eol"
 )
 
 // eolSoftware checks captured web technologies and port-banner versions against

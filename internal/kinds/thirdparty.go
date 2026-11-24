@@ -3,7 +3,7 @@ package kinds
 import (
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/store"
 )
 

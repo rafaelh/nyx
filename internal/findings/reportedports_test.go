@@ -6,7 +6,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/inventory"
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 // Reported/confirmed risky ports share keys, allowing severity upgrades; confirmed closed ports

@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/weburl"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 )
 
 // endpointPattern finds absolute HTTP(S) URLs anywhere and complete quoted slash-prefixed

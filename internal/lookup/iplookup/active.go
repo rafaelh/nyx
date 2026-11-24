@@ -7,11 +7,11 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/provider"
-	"github.com/rafaelh/nyx/internal/webpage"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/webpage"
 )
 
 // commonPorts are the ports --active connects to on every contacted address, whatever InternetDB

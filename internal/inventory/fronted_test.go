@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/inventory"
-	"github.com/rafaelh/nyx/internal/provider"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 )
 
 func cname(d *inventory.Data, name, target string) {

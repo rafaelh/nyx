@@ -3,7 +3,7 @@ package web
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/weburl"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 )
 
 // Crawl limits version work but cannot inflate candidate evidence beyond the service identity.

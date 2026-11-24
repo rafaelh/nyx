@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	bannerparse "github.com/rafaelh/nyx/internal/banner"
 	"github.com/rafaelh/nyx/internal/kinds"
+	bannerparse "github.com/rafaelh/nyx/internal/knowledge/banner"
 	"github.com/rafaelh/nyx/internal/store"
 )
 

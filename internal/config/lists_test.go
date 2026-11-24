@@ -10,7 +10,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // The built-in wordlist is big enough to use without a list of one's own, and

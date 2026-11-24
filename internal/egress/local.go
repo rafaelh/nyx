@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"slices"
 
-	"github.com/rafaelh/nyx/internal/dnsname"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 )
 
 // ErrLocalTimeout is the error of a lookup that this machine's resolver did not answer in time.

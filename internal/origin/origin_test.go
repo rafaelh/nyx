@@ -8,8 +8,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/inventory"
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/origin"
-	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/scope"
 )
 

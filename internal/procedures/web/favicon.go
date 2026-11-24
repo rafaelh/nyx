@@ -13,7 +13,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/weburl"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 )
 
 // murmur3 is MurmurHash3 (x86, 32 bit).

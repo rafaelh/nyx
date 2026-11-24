@@ -53,16 +53,16 @@ clean:
 # Refresh product data and DATE from endoflife.date using curl and jq. Download to a file
 # first so failed requests cannot replace data with empty output. Sorted JSON keeps diffs
 # readable; review them before committing.
-EOL_PRODUCTS = $(shell sed -n 's/^- product: //p' internal/eol/products.yaml)
+EOL_PRODUCTS = $(shell sed -n 's/^- product: //p' internal/knowledge/eol/products.yaml)
 eol-data:
 	@set -e; for p in $(EOL_PRODUCTS); do \
-		echo "internal/eol/data/$$p.json"; \
-		curl -fsS --retry 3 -o internal/eol/data/$$p.json.raw "https://endoflife.date/api/$$p.json"; \
-		jq -S . internal/eol/data/$$p.json.raw > internal/eol/data/$$p.json.tmp; \
-		rm internal/eol/data/$$p.json.raw; \
-		mv internal/eol/data/$$p.json.tmp internal/eol/data/$$p.json; \
+		echo "internal/knowledge/eol/data/$$p.json"; \
+		curl -fsS --retry 3 -o internal/knowledge/eol/data/$$p.json.raw "https://endoflife.date/api/$$p.json"; \
+		jq -S . internal/knowledge/eol/data/$$p.json.raw > internal/knowledge/eol/data/$$p.json.tmp; \
+		rm internal/knowledge/eol/data/$$p.json.raw; \
+		mv internal/knowledge/eol/data/$$p.json.tmp internal/knowledge/eol/data/$$p.json; \
 	done; \
-	date -u +%Y-%m-%d > internal/eol/DATE
+	date -u +%Y-%m-%d > internal/knowledge/eol/DATE
 
 # Download five lists to temporary files, then validate and atomically replace each source's
 # embedded bundle. Failed downloads stop before refresh; temporary files are always removed.

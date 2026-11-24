@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/addrkind"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/knowledge/addrkind"
 	"github.com/rafaelh/nyx/internal/lookup/batch"
 )
 

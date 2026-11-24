@@ -54,7 +54,7 @@ Then review the changes before committing:
   code that nyx actually calls. A static binary carries the standard library of the toolchain that
   built it, so a standard library finding is fixed by installing the patched Go release and raising
   the `go` line in `go.mod` to it.
-- **End-of-life data.** Skim `internal/eol/data`. A cycle whose end date moved changes findings.
+- **End-of-life data.** Skim `internal/knowledge/eol/data`. A cycle whose end date moved changes findings.
 - **Threat data.** `make threat-data` prints each list's old and new date and the entries that
   changed. Copy the five dates into the table in
   [abusive-networks.md](abusive-networks.md#the-data-in-use).

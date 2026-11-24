@@ -9,8 +9,8 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/knowledge/webpage"
 	"github.com/rafaelh/nyx/internal/sanitize"
-	"github.com/rafaelh/nyx/internal/webpage"
 )
 
 // maxCopyrightRunes is the longest copyright line recorded.
