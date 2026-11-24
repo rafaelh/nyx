@@ -356,6 +356,9 @@ func (inv *invocation) execute(ctx context.Context) (err error) {
 		}
 	}()
 	root := newRoot(inv)
+	if isCompletionRequest(inv.args) {
+		return inv.complete(ctx, root)
+	}
 	sc := classify(inv.args, root)
 	if sc.err == nil && (sc.version || sc.help) {
 		// Only shared flags/version remain, so pre-scan has already resolved the

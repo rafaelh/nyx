@@ -18,6 +18,9 @@ says `local`, run `GOTOOLCHAIN=auto go install ...` instead. Set `CGO_ENABLED=0`
 Linux binary. From a clone, `make build` builds
 `./nyx`, `make dist` builds all four platforms and `make test` runs the tests.
 
+For tab completion, add `source <(nyx completion zsh)` to `~/.zshrc` (or
+`source <(nyx completion bash)` to `~/.bashrc`); see [Commands](docs/commands.md#commands).
+
 ## Quick start
 
 ```sh

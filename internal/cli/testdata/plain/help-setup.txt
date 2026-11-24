@@ -15,6 +15,10 @@ config file: spamhaus.jsonl and ipapi.json, each with a state file and a lock fi
 no source failed, 7 when one did, 1 when both did, 2 when there is nowhere to keep the data, and 130, 143 or
 129 on a signal.
 
+For tab completion of nyx's commands, flags and their values, add source <(nyx completion zsh) to ~/.zshrc
+(after compinit) or source <(nyx completion bash) to ~/.bashrc (with the bash-completion package); see
+nyx completion --help.
+
 Usage:
   nyx setup [flags]
 

@@ -91,7 +91,9 @@ the bottom of the screen lists the keys each tab offers.
   invalid one is not accepted. An empty value clears the setting, so its default applies. A relative
   `output_dir`, `wordlist` or `sensitive_paths` is saved as an absolute path, against the directory
   you ran setup from; `~/` and `~` are kept as typed. An unset `output_dir`, and any relative path
-  already in the file, is shown as resolving against the directory nyx is later run from.
+  already in the file, is shown as resolving against the directory nyx is later run from. When
+  `SHELL` is bash or zsh, the tab ends with the line to add to `~/.bashrc` or `~/.zshrc` for tab
+  completion (see [Commands](commands.md#commands)); `nyx setup --help` gives both.
 - **Skip tab.** Lists the stages that can be skipped, each with its one-line description (as in
   `nyx help stages`). A stage that runs is marked `[x]`; toggling it off adds it to the `skip`
   setting and shows it muted. Stages that cannot be skipped are not offered. An entry in the file that

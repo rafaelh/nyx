@@ -84,9 +84,11 @@ func testKey(ctx context.Context, opts egress.Options, source string, key config
 	return setup.TestResult{Status: setup.TestUnknown, Reason: r.Reason}
 }
 
-// Info includes config metadata and any missing threat-storage explanation.
+// Info includes config metadata, any missing threat-storage explanation and the tab-completion
+// line.
 func (b setupBackend) Info() setup.Info {
 	info := b.Store.Info()
+	info.Completion = b.completion
 	if b.dir == "" {
 		info.ThreatUnavailable = nowhereToKeepThreatData
 	}

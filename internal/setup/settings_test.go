@@ -226,3 +226,24 @@ func TestChanges_AKeyEnteredAndClearedAgainIsNoChange(t *testing.T) {
 		t.Errorf("header does not say so:\n%s", h.view())
 	}
 }
+
+// The Settings tab ends with the tab-completion line it is given, wrapped to the screen, and
+// shows none when there is none. The other tabs never show it.
+func TestSettingsTab_EndsWithTheCompletionLine(t *testing.T) {
+	t.Parallel()
+	const hint = "Tab completion: add source <(nyx completion zsh) to ~/.zshrc, after compinit"
+	for _, width := range []int{60, 120} {
+		b := newFake()
+		b.info.Completion = hint
+		h := newTH(t, b, atSize(width, 30))
+		h.goTo(1, len(SettingKeys)-1)
+		if got := flat(h.view()); !strings.Contains(got, hint) {
+			t.Errorf("width %d: the Settings tab lacks the line:\n%s", width, h.view())
+		}
+		h.goTo(0, 0)
+		mustNotHave(t, h.view(), "Tab completion")
+	}
+	h := newTH(t, newFake(), atSize(120, 30))
+	h.goTo(1, len(SettingKeys)-1)
+	mustNotHave(t, h.view(), "Tab completion")
+}

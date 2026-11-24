@@ -44,6 +44,9 @@ type Info struct {
 	// ThreatUnavailable explains why updates have no storage directory. The Threat data tab
 	// displays it and refuses updates while it is nonempty.
 	ThreatUnavailable string
+	// Completion is a line the Settings tab ends with on turning on tab completion; empty
+	// shows none.
+	Completion string
 }
 
 // ThreatList describes one active list for the Threat data tab.

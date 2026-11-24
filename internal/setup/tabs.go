@@ -169,6 +169,10 @@ func (m *model) settingItems() []item {
 		}
 		out = append(out, it)
 	}
+	if c := m.info.Completion; c != "" && len(out) > 0 {
+		last := &out[len(out)-1] // as threatFoot does: it scrolls with the last row
+		last.lines = append(append(last.lines, line{plain("")}), m.noteLines(roleHelp, c)...)
+	}
 	return out
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/palette"
 )
@@ -194,5 +195,20 @@ func TestFreeBlocks(t *testing.T) {
 	// Blocks written off a terminal are the lines they were made from.
 	if plain := plainHelp(freeBlocks(text, nil)); plain != text+"\n" {
 		t.Errorf("plain join %q, want %q", plain, text+"\n")
+	}
+}
+
+// Setup's tab-completion line names the startup file of a shell nyx completion supports, and is
+// empty for any other.
+func TestCompletionHint_FollowsTheShell(t *testing.T) {
+	t.Parallel()
+	for shell, want := range map[string]string{
+		"/bin/zsh": "source <(nyx completion zsh) to ~/.zshrc", "/opt/homebrew/bin/bash": "source <(nyx completion bash) to ~/.bashrc",
+		"/usr/bin/fish": "", "": "",
+	} {
+		got := completionHint(config.Env{"SHELL=" + shell})
+		if want == "" && got != "" || !strings.Contains(got, want) {
+			t.Errorf("SHELL=%s: %q, want one with %q", shell, got, want)
+		}
 	}
 }

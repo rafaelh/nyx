@@ -40,7 +40,11 @@ func newSetupCommand(inv *invocation) *cobra.Command {
 			"exits. It writes the downloaded copy, and nothing else, to the threat-data directory beside the default\n" +
 			"config file: spamhaus.jsonl and ipapi.json, each with a state file and a lock file. Its exit codes are 0 when\n" +
 			"no source failed, 7 when one did, 1 when both did, 2 when there is nowhere to keep the data, and 130, 143 or\n" +
-			"129 on a signal.",
+			"129 on a signal.\n" +
+			"\n" +
+			"For tab completion of nyx's commands, flags and their values, add source <(nyx completion zsh) to ~/.zshrc\n" +
+			"(after compinit) or source <(nyx completion bash) to ~/.bashrc (with the bash-completion package); see\n" +
+			"nyx completion --help.",
 		Example: "  nyx setup\n" +
 			"  nyx setup --config ./nyx.yaml\n" +
 			"  nyx setup --update-threat-data",
@@ -91,6 +95,7 @@ func (s *secrets) add(vs ...string) {
 type setupBackend struct {
 	*configedit.Store
 	threatKeeper // shared client options for credential tests and threat-list updates
+	completion   string // the Settings tab's tab-completion line, from completionHint
 }
 
 // Return only save reasons here; the editor displays the path separately.
@@ -169,7 +174,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	if d.WindowSize != nil {
 		w, h = d.WindowSize()
 	}
-	err := setup.Run(ctx, setupBackend{Store: store, threatKeeper: newThreatKeeper(d)}, setup.Options{
+	err := setup.Run(ctx, setupBackend{Store: store, threatKeeper: newThreatKeeper(d), completion: completionHint(d.Env)}, setup.Options{
 		In: d.Stdin, Out: inv.rawOut, Env: d.Env, Depth: inv.st.out.Depth, Width: w, Height: h,
 		Now:      func() time.Time { return d.Clock().In(d.Location) },
 		OnSecret: func(v string) { seen.add(v) },

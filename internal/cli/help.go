@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,6 +25,9 @@ const (
 	annotationNote = "nyx.note"
 	// annotationFooter supplies text after command flags.
 	annotationFooter = "nyx.footer"
+	// annotationNotInRoot keeps a command out of the root help; nyx help <command> still shows
+	// its own.
+	annotationNotInRoot = "nyx.notinroot"
 )
 
 // exitCodesLine is the last line of every help text.
@@ -39,7 +43,7 @@ func newRoot(inv *invocation) *cobra.Command {
 			"flags, and each command's own flags follow its name.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// A subcommand would otherwise bring cobra's completion command with it.
+		// nyx completion replaces cobra's own, which offers shells nyx does not support.
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
 	pf := root.PersistentFlags()
@@ -56,7 +60,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	recon.AddCommand(newExportCommand(inv))
 	help := newHelpCommand(inv, root)
 	stream := inv.helpStream()
-	root.AddCommand(recon, newCVECommand(inv), newIPCommand(inv), newSetupCommand(inv), help,
+	root.AddCommand(recon, newCVECommand(inv), newIPCommand(inv), newSetupCommand(inv), newCompletionCommand(inv, root), help,
 		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp, stream),
 		newTopic(inv, "stages", "The stages, in run order, and what each one contacts and does",
 			func(s layout.Stream) string { return stagesHelp(s, inv.d.Stages) }, stream))
@@ -405,7 +409,7 @@ func rootHelp(root *cobra.Command, s layout.Stream) string {
 
 // rootHelpBlocks are the blocks of rootHelp.
 func rootHelpBlocks(root *cobra.Command) []helpBlock {
-	cmds := runnable(root)
+	cmds := slices.DeleteFunc(runnable(root), func(c *cobra.Command) bool { return c.Annotations[annotationNotInRoot] != "" })
 	var b helpBuilder
 	b.heading("Examples:")
 	for _, c := range cmds {

@@ -461,13 +461,13 @@ func TestExport_HelpListsKinds(t *testing.T) {
 	if want := "Kinds accepted by --kind: " + strings.Join(append(names, "input", "exclusion"), ", "); !strings.Contains(e.stdout, want) {
 		t.Errorf("help does not list the kinds as %q:\n%s", want, e.stdout)
 	}
-	// export is the only command the root lists beside help: adding it brings no
-	// completion command.
+	// The root lists export, and adding a subcommand does not bring in Cobra's own
+	// completion command, which offers shells nyx does not support.
 	var root bytes.Buffer
 	d := h.deps()
 	d.Stdout = &root
 	if code := cli.Execute(context.Background(), []string{"--help"}, d); code != 0 || !strings.Contains(root.String(), "export") ||
-		strings.Contains(root.String(), "completion") {
+		strings.Contains(root.String(), "powershell") || strings.Contains(root.String(), "fish") {
 		t.Errorf("root help (exit %d):\n%s", code, root.String())
 	}
 }

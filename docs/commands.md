@@ -14,12 +14,23 @@
   what is exposed on it, for each address, hostname or CIDR given (see [IP lookup](ip.md)). It
   needs no engagement and no key, writes no files, and by default sends nothing to the address.
   `nyx ip --active` also connects to it. Recon and `nyx cve` behave as they did before.
+- **`nyx completion bash|zsh`** prints a script that tab-completes nyx in that shell: the
+  commands, the flags, the help topics, and the values a flag takes from a fixed list (the stages
+  for `--redo` and `--skip`, without the stages `--skip` refuses; the fields for `--fields`, ip's
+  active-only fields once `--active` is on the line; the kinds for `--kind`). Load it from your
+  shell's startup file with `source <(nyx completion zsh)` (zsh, after `compinit`) or
+  `source <(nyx completion bash)` (bash, with the bash-completion package), or save it as
+  `"${fpath[1]}/_nyx"` or `~/.local/share/bash-completion/completions/nyx`. The script asks nyx
+  for each completion, so it stays current when nyx is upgraded. Answering one reads no file and
+  contacts nothing; file and directory names are completed by the shell. Any other shell, or no
+  shell, exits 2. It is set up once, so the root help leaves it out: `nyx setup --help` and setup's
+  Settings tab say how to turn it on, and `nyx help completion` is its own help.
 - **`--timeout <duration>`** is a recon flag: `nyx recon example.com --json --timeout 30m` stops by
   that deadline and exits 7, and a re-run carries on (see [Deadline](#deadline)). `export` makes no
   network calls and takes no `--timeout`. `nyx cve` and `nyx ip` take their own `--timeout`, the
   deadline for the whole call (see [CVE lookup](cve.md) and [IP lookup](ip.md)).
 - **Help.** `nyx --help`, `nyx help` and a bare `nyx` print the whole reference: examples, every
-  command with its everyday flags and one example, the valid values of each fixed-set flag (the
+  command but `completion` with its everyday flags and one example, the valid values of each fixed-set flag (the
   stages, the export kinds) and the exit codes. The recon example in `nyx --help` and in
   `nyx recon --help` passes `--json` and `--timeout`, and the root help lists `--timeout` among
   recon's everyday flags. `nyx help <command>` (or `nyx <command> --help`, or `nyx <command> help`)
