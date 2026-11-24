@@ -3,7 +3,7 @@ package layout_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 func TestProtected(t *testing.T) {

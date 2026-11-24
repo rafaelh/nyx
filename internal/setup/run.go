@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // profile maps nyx's colour depth to the Program's.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 var allNames = []string{"id", "status", "published", "last_modified", "description", "cvss_version", "cvss_score",

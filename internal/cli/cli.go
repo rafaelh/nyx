@@ -23,9 +23,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/output"
-	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/procedures/asn"
 	"github.com/rafaelh/nyx/internal/procedures/dns"
 	"github.com/rafaelh/nyx/internal/procedures/dnshistory"
@@ -42,7 +40,9 @@ import (
 	"github.com/rafaelh/nyx/internal/procedures/web"
 	"github.com/rafaelh/nyx/internal/report"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 

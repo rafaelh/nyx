@@ -11,8 +11,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/palette"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/palette"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // failureWriter prints at most one error even when normal exit and a second signal race to

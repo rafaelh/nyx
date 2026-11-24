@@ -6,7 +6,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // Human partial errors list failed targets after retry guidance; JSON keeps the fixed error

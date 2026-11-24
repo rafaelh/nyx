@@ -3,8 +3,8 @@ package cli_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/term/palette"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 

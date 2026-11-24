@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // Column widths: the row marks, then the name.

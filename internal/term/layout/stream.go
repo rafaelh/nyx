@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 const (

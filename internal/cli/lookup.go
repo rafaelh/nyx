@@ -17,7 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/report"
-	"github.com/rafaelh/nyx/internal/shellquote"
+	"github.com/rafaelh/nyx/internal/term/shellquote"
 )
 
 // maxStdinLine is the longest line a lookup command reads from stdin.

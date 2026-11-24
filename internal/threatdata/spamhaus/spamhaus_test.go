@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 

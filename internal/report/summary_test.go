@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/report"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // writeSummary renders a non-terminal stream while varying the reported colour depth.

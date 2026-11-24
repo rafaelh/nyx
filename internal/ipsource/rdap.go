@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 const (

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/layout"
 	"github.com/rafaelh/nyx/internal/lookup/cve"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // Sheet previews palette entries and real log formatting for checking terminal themes. It uses

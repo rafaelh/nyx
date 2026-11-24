@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/shellquote"
+	"github.com/rafaelh/nyx/internal/term/shellquote"
 )
 
 // scan holds the pre-parser decision: usage error, help, version or normal Cobra handling.

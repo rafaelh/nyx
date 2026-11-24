@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 // Reserve frame rows for header, tabs, rule, notice and two shortcut lines.

@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/findings"
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // helpOn renders production help as a terminal at the chosen width/depth; None represents

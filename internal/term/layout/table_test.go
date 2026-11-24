@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 func stream(d palette.Depth, width int) layout.Stream {

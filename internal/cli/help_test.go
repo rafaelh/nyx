@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // proceduresHelp is the output of nyx help procedures.

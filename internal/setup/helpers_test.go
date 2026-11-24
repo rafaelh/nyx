@@ -12,7 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 // testPath is the config path the fake backend reports.

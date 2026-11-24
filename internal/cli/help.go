@@ -10,8 +10,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/rafaelh/nyx/internal/findings"
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // Command annotations supply help content so adding a command does not require a second command

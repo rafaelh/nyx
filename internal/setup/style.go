@@ -3,8 +3,8 @@ package setup
 import (
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // Screen roles use palette.Setup. Paired roles apply to the selected row first and other rows

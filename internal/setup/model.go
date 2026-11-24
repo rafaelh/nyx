@@ -14,7 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // The smallest terminal the UI draws in.

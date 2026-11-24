@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 func TestView_TooSmallShowsOnlyTheSizeMessage(t *testing.T) {

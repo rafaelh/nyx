@@ -23,8 +23,8 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/sanitize"
 	"github.com/rafaelh/nyx/internal/store"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // The kinds of the lines that are not records: the engagement's inputs and exclusions.

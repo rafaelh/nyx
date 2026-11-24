@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // Event drives console progress: run_start, procedure, found, count, warning and debug. Summary

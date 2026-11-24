@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // sgr is one SGR escape sequence.

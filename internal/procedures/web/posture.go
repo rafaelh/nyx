@@ -9,7 +9,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // hop stores response data for posture checks and shares one parsed page with title and

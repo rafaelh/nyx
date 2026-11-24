@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 func inColour(o *Options) { o.Depth = palette.TrueColor }

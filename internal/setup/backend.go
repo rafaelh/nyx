@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // Settings tab keys in display order. API keys use "keys.<source>" on a separate tab; skip has

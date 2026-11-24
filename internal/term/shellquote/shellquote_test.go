@@ -3,7 +3,7 @@ package shellquote_test
 import (
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/shellquote"
+	"github.com/rafaelh/nyx/internal/term/shellquote"
 )
 
 // Quote only shell-sensitive arguments while preserving argument boundaries.

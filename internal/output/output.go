@@ -18,9 +18,9 @@ import (
 	"github.com/rafaelh/nyx/internal/findings"
 	"github.com/rafaelh/nyx/internal/inventory"
 	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/sanitize"
 	"github.com/rafaelh/nyx/internal/scope"
 	"github.com/rafaelh/nyx/internal/store"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 // Format is TXT (plain list, current records only) or CSV (all records).

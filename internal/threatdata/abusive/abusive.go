@@ -34,7 +34,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 //go:embed snapshot.json

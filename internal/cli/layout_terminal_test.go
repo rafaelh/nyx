@@ -10,9 +10,9 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 

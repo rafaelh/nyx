@@ -3,7 +3,7 @@ package setup
 import (
 	"fmt"
 
-	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 // wrap limits text to w cells with rest-cell continuation indentation.

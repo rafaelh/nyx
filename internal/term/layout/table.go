@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // Cell contains styled spans and optional hard newlines within one column.

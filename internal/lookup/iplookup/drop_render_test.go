@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/palette"
+	"github.com/rafaelh/nyx/internal/term/palette"
 	"github.com/rafaelh/nyx/internal/threatdata/spamhaus"
 )
 

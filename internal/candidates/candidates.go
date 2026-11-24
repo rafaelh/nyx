@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/shellquote"
+	"github.com/rafaelh/nyx/internal/term/shellquote"
 )
 
 // Confidence indicates how strongly the evidence supports adding a candidate to scope.

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/layout"
-	"github.com/rafaelh/nyx/internal/palette"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/term/layout"
+	"github.com/rafaelh/nyx/internal/term/palette"
 )
 
 // procedureHelp supplies key requirements and purpose. Bracketed keys are optional; empty means

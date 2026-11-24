@@ -22,7 +22,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/rafaelh/nyx/internal/sanitize"
+	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
 //go:embed builtin.jsonl

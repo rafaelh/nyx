@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/term/layout"
 )
 
 func TestField_EditsAtTheCursor(t *testing.T) {
