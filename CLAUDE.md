@@ -99,13 +99,9 @@ once. A new command needs only `AddCommand`, an `Example` and its help annotatio
 the five keys of the JSON error, the keys of the recon `--json` envelope (`data` and `meta`), and the
 keys of the CVE record and of the `nyx cve` envelope, the keys of the `nyx ip` record and
 envelope, and the keys of the threat-data update's envelope are a stable interface**: adding one is
-compatible, renaming, removing or retyping one is a breaking change (`docs/console-and-json.md`).
-Two changes broke this once each, deliberately and before the first release. The default `nyx cve`
-selection leaves out the `affected_products` and `references` lists and has their counts instead (`--fields all` has both). The recon envelope and export renamed their
-old keys after procedures and jobs: `failed_checks` became `failed_jobs`, `meta.checks_completed` and `meta.checks_cancelled`
-became `meta.jobs_completed` and `meta.jobs_cancelled`, the `stage` key of the `failed_jobs`,
-`deferred` and `not_configured` rows became `procedure`, and export's `stages` became `procedures`
-(beside the new `analysis`).
+compatible, renaming, removing or retyping one is a breaking change.
+The default `nyx cve` selection leaves out the `affected_products` and `references` lists and has
+their counts (`affected_products_count`, `references_count`); `--fields all` has both.
 
 **Procedures** (`internal/run/procedure.go`) implement `Name/Contact/Sources/Configured/Jobs/Run`.
 A procedure is one concrete way of carrying out a technique, and a job is one resumable unit of work
