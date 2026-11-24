@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/cve"
 	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/lookup/cve"
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
@@ -28,7 +28,7 @@ type reply struct {
 }
 
 // cveTestdata is the cve tool's fixtures, found before any test changes directory.
-var cveTestdata, _ = filepath.Abs(filepath.Join("..", "cve", "testdata"))
+var cveTestdata, _ = filepath.Abs(filepath.Join("..", "lookup", "cve", "testdata"))
 
 // nvdFake serves fixtures/scripts and tracks IDs, keys and concurrent requests.
 type nvdFake struct {

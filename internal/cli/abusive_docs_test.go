@@ -9,9 +9,9 @@ import (
 
 	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/cli"
-	"github.com/rafaelh/nyx/internal/cve"
-	"github.com/rafaelh/nyx/internal/iplookup"
 	"github.com/rafaelh/nyx/internal/keycheck"
+	"github.com/rafaelh/nyx/internal/lookup/cve"
+	"github.com/rafaelh/nyx/internal/lookup/iplookup"
 	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
 )

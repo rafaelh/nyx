@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/cve"
+	"github.com/rafaelh/nyx/internal/lookup/cve"
 )
 
 // One worker panic fails only its ID, preserves result slots and respects the four-worker

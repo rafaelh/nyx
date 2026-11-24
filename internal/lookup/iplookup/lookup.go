@@ -10,9 +10,9 @@ import (
 
 	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/addrkind"
-	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/lookup/batch"
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 

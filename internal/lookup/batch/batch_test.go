@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/lookup/batch"
 )
 
 var cfg = batch.Config{

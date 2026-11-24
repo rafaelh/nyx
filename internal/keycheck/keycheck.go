@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/cve"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/lookup/cve"
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 

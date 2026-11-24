@@ -12,8 +12,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/cve"
-	"github.com/rafaelh/nyx/internal/iplookup"
+	"github.com/rafaelh/nyx/internal/lookup/cve"
+	"github.com/rafaelh/nyx/internal/lookup/iplookup"
 )
 
 // completionShells are the shells nyx completion writes a script for. Windows is not supported,

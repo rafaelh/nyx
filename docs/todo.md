@@ -26,7 +26,7 @@
     also reaches loopback once the attacker's address refuses connections. TCP port checks are
     safe, because `PortEligible` refuses an address with no known owner. HTTP doesn't use that
     check.
-  - Fix: mirror the `nyx ip --active` rule (`notContacted` in `internal/iplookup/active.go`). In
+  - Fix: mirror the `nyx ip --active` rule (`notContacted` in `internal/lookup/iplookup/active.go`). In
     `vetted`, or in `dialAddrs` for hostname targets, refuse any address `addrkind` doesn't classify
     as public, with "non-public address from public DNS". Keep allowing addresses inside a netblock
     or literal the user gave as in scope. Apply the same rule to `origincheck` pins and `RootAt`,
@@ -40,7 +40,7 @@
 # CI improvements/fixes
 
 - **Two tests fail every time on macOS** (seen on cd8a75e and later, 2026-11-23):
-  - `go test ./internal/iplookup/ -run 'TestActive_EndToEnd$' -count=10`: 10/10 fail with
+  - `go test ./internal/lookup/iplookup/ -run 'TestActive_EndToEnd$' -count=10`: 10/10 fail with
     "port 21 = no-answer, want closed" (and 3306). A connection to a closed loopback port times
     out instead of being refused, probably because of the local firewall.
   - `go test ./internal/cli/ -run 'TestSetup_FailedSaveKeepsTheEdits$' -count=5`: 5/5 fail. The

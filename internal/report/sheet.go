@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/cve"
 	"github.com/rafaelh/nyx/internal/layout"
+	"github.com/rafaelh/nyx/internal/lookup/cve"
 	"github.com/rafaelh/nyx/internal/palette"
 )
 

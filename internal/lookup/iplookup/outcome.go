@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/addrkind"
-	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/lookup/batch"
 )
 
 // InputResult records validation/resolution before address-source lookups.
@@ -91,7 +91,7 @@ type ErrorInput struct {
 // data and emits one error per failed input or distinct address. Addresses with no answered
 // source have no record. Quota failures are ignored for batch status.
 //
-// internal/batch chooses a shared error code when no records return and all failures agree;
+// internal/lookup/batch chooses a shared error code when no records return and all failures agree;
 // otherwise it uses PARTIAL. Address errors take the first failed source in record order. Retry
 // hints use retryable addresses and unresolved hostnames. Error inputs preserve the user's
 // original arguments once each; meta.errors identifies individual addresses. Counts may include

@@ -28,6 +28,6 @@
 //
 // Fields determines selected keys and required sources; Projected supplies JSON output.
 // Deadline and ProvisionalCount choose default timing. Outcome combines input and address
-// results through internal/batch, matching CVE command outcome rules. Render formats records
+// results through internal/lookup/batch, matching CVE command outcome rules. Render formats records
 // for people.
 package iplookup

@@ -1,8 +1,8 @@
 package cve
 
 import (
-	"github.com/rafaelh/nyx/internal/batch"
 	"github.com/rafaelh/nyx/internal/clierr"
+	"github.com/rafaelh/nyx/internal/lookup/batch"
 )
 
 // Result pairs one original argument with its record or failure.

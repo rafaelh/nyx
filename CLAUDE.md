@@ -68,7 +68,7 @@ the one place that picks the exit code and writes the error) → `internal/run.R
 `invocation` builds one `layout.Stream` (terminal, colour depth, width) for stdout and one for stderr,
 and the human renderers take a stream where they once took a depth.
 `nyx cve` skips the runner: `internal/cli/cve.go` (flags, stdin, the worker pool, the writing) →
-`internal/cve` (the CVE record and its field table, the NVD client with its sliding window, the human
+`internal/lookup/cve` (the CVE record and its field table, the NVD client with its sliding window, the human
 layout and the batch outcome), which reaches the NVD through `egress`'s third-party client.
 `nyx setup` skips it too: `internal/cli/setup.go` (the checks that exit 2, then the wiring) →
 `internal/setup` (the Bubble Tea model: tabs, text field, dialogs, change tracking; it does no I/O and
@@ -82,11 +82,11 @@ branch in `runSetup`, the output, the `--json` envelope and the exit code) → `
 (`Dir`, `Load`, the shared acceptance rules and `Update`, which reaches Spamhaus and ipapi.is
 through `egress`'s third-party client with no `Policy`). The Threat data tab uses the same `Update`
 through two more `setup.Backend` methods.
-`nyx ip` skips it too: `internal/cli/ip.go` (flags, stdin and the writing) → `internal/iplookup`
+`nyx ip` skips it too: `internal/cli/ip.go` (flags, stdin and the writing) → `internal/lookup/iplookup`
 (the inputs, the sources, active probing, the record and its field table, the outcome and the
 render), which reaches third parties and DNS through `egress` with no `Policy`, and the targets
 through one `egress.NewProbe` per contacted address. Its outcome rules are shared with `nyx cve`
-through `internal/batch`.
+through `internal/lookup/batch`.
 
 **Commands and errors.** `cli.Execute` alone picks the exit code and writes the error: a command
 returns an error and prints none. The error is a `clierr.Error` (code, message, hint, input,
