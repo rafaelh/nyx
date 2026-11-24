@@ -657,7 +657,8 @@ func scanString(r *sql.Rows) (s string, err error) {
 type Reader struct{ q querier }
 
 // Records includes current and non-current records. Current observations merge field by field
-// in procedure order, with later procedures winning. Unlisted procedures sort first.
+// in procedure order, with later procedures winning. Producers not in order (the analyses and the
+// guard) sort first, so a procedure wins a field it also sets.
 func (s *Store) Records(kind string, order []string) ([]Record, error) {
 	return Reader{s.db}.Records(kind, order)
 }

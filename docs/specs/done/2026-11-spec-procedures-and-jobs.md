@@ -78,6 +78,9 @@ and "derivers" must not appear at all; "check" and "checks" may appear only as B
 - the state database's table, column and index names.
 
 It does not cover docs/specs/ (finished specs or this one) or the third-party golang-* skills.
+A removed name quoted where it must be named (the deliberate-break notes, and tests that it is
+gone or echoed back as unknown input) and a target's DNS label `stage` are allowed. (amended by
+D17)
 
 ## Out of scope
 
@@ -378,6 +381,16 @@ change:
 5. The help topic, messages, events, fault point and goldens (D8–D11).
 6. The docs, package docs, CLAUDE.md, skills and CONTEXT.md (D14, D15), then the B5 search (D12).
 
+**D17. Quoted removed names and a target's DNS label pass the B5 search (user; settled after
+verification).** The 17 `stage`/`stages` hits left after the change stay: the old key names in
+the break notes of CLAUDE.md and docs/exit-codes.md, which D15 asks for; the tests of B1 and B3
+that assert the old names are gone or echoed as unknown input; and the fake target hostnames
+`*.stage.example.com` in `TestUnkeyed_NamesAreNormalised`. B5 is amended to allow them.
+
+**D18. CONTEXT.md keeps one definition of Procedure (user; settled after verification).** It
+keeps "an implementation of a **technique**, containing one or more **jobs**", which matches the
+`internal/run` package doc, and drops the second, step-by-step wording.
+
 ## Files
 
 - `internal/run/`:
@@ -490,15 +503,6 @@ renamed tests keep their assertions; only the words change.
 - `.claude/hooks/go-check.sh` runs gofmt, vet and lint after each Go edit.
 - Spec structure: `docs/specs/` and the `.claude/skills/spec-*` workflow.
 
-# Follow-ups
-
-- `docs/console-and-json.md` is linked from README.md, docs/exit-codes.md, docs/cve.md, docs/ip.md
-  and CLAUDE.md but does not exist, so the renamed envelope keys have no page that documents them.
-- CONTEXT.md defines **Procedure** twice, with two wordings. D15 rewords its analysis entry; which
-  procedure definition to keep is the author's call.
-- Engagements created before this change, the developer's own included, fail with
-  `no such table: jobs` (`UNEXPECTED_ERROR`). Delete or recreate them after upgrading.
-
 # Implementation
 
 ## Develop
@@ -591,7 +595,7 @@ docs/todo.md. It isn't fixed here.
 
 - Engagements created before this change fail with `no such table: jobs` (out of scope, as the spec
   says).
-- B5/D12 asks for zero `stage` hits; 17 remain, justified above.
+- B5/D12 asked for zero `stage` hits; 17 remain, justified above, and D17 accepts them.
 
 ## Simplify
 
@@ -630,3 +634,110 @@ Skipped:
   the cli test covers the real registry.
 - Renaming the `sr` receiver and the `c`/`chk` job variables: names only, spread over every
   procedure, and B5 doesn't ban them.
+
+# Verification
+
+## Result
+
+Checked against the diff from `a79fd35` to `bb59d05` (245 files; the working tree was clean), a
+build of `./cmd/nyx` run by hand, and `go test ./...`.
+
+- **Goal.** Met. `nyx help procedures` replaces `nyx help stages`, and the B5 search finds no
+  `stage`, `stages`, `deriver` or `derivers` in nyx's sense (see B5 below).
+- **B1.** Met. `nyx help procedures` prints the heading, the `PROCEDURE`, `CONTACT`, `KEY` and
+  `WHAT IT DOES` columns in registry order, the `*` marker on `providerranges`, `resolve`,
+  `wildcard` and `ipowner`, and the footer in the new words (its hard line breaks are the base's,
+  unchanged). `nyx help stages` exits 2 with `INVALID_INPUT`, `unknown command "stages"`, and lists
+  `procedures` among the commands, in both human and `--json` form. The root help, `nyx help` and
+  `nyx __complete help ""` offer `procedures`.
+- **B2.** Met. Checked by hand: the `--redo`, `--skip`, `--concurrency` and `--debug`
+  descriptions; the unknown-procedure errors for `--redo` and `--skip`, the cannot-be-skipped and
+  named-in-both errors with their hints; and the `Long` text of `completion` and `setup`. The
+  goldens carry `crtsh done (1 jobs, 0 failed)`, `2 jobs failed: flaky 2`,
+  `Stopped by the deadline: 3 jobs completed, 3 cancelled` and the `Failed jobs` heading. The
+  runner's warnings, the `--debug` failed-job line, the egress source message and rdap's
+  `unknown job` are reworded in the source. The setup Skip tab takes `Does` from the renamed help
+  entries. No help output of any command or topic says "stage", and its only "check"s are B4's
+  ("TCP ports to check", "checks addresses against", "the abusive-network check").
+- **B3.** Met. The envelope has `failed_jobs`, `meta.jobs_completed`, `meta.jobs_cancelled` and
+  `procedure` in the `failed_jobs`, `deferred` and `not_configured` rows. Export writes
+  `procedures` (always, `[]` when empty) and `analysis` (`omitempty`) in the order D5 gives;
+  `splitProducers` keeps only registry names in `procedures` and the `AnalysisNames()` name in
+  `analysis`, and export and `nyx help procedures` read the same registry (`Deps.Procedures`).
+  `docs/output.md` names all four analyses, what each produces, and the merge order. Analyses and
+  the guard write through `Store.Put`, which leaves no `jobs` row.
+- **B4.** Met. All 691 `check`/`checks` hits of the B5 search were read. Each is a verb, a test of
+  a value or fact (key checks, `CheckDate`/`CheckShrink`/`CheckEmpty`, the threat data's last
+  successful check, ownership and port checks, `checkFoo` test helpers that assert something),
+  config validation (`config.Check`, `TestCheck_*` in `config`, `configedit` and `keycheck`), the
+  path `internal/config/check_test.go`, a standard-library identifier (`CheckRedirect`,
+  `CheckSignature`), an external source's text (HackerTarget's `error check your search
+  parameter`, a WAF page's `security check`), or the release script's `run_check`/`check_version`.
+  None names a procedure's unit of work.
+- **B5.** Met in nyx's sense, but not to the letter. The search, run again here, prints 17
+  `stage`/`stages` hits and no `deriver`/`derivers`. All 17 are the ones `## Develop` lists: the
+  old key names quoted in the deliberate-break notes D15 asks for (CLAUDE.md, docs/exit-codes.md:
+  4), tests that assert the old names are gone or echoed as an unknown command (10), and a
+  HackerTarget fixture's `stage.example.com` hostnames, a DNS label (3, D13). B5 says "must not
+  appear at all", D15 asks for the old keys to be named, and the tests of B1 and B3 need them, so
+  the spec can't hold to the letter; the user hasn't recorded agreement to that, so it is listed
+  under Follow-ups.
+- **Out of scope.** Respected: no alias for `stages`, no schema bump or migration, no ATT&CK IDs,
+  no `nyx procedures` subcommand and no permanent B5 test.
+- **External facts.** All were marked confirmed. Re-confirmed live: `nyx help stages` exits 2
+  through the unknown-command path. The new schema names work (`go test ./internal/store/`).
+
+Tests: `go test ./...` passes apart from three tests that fail 20 of 20 times both here and on the
+base `a79fd35` (run in a scratch worktree), so they predate the change, and all three are already in
+`docs/todo.md`: `TestAbusiveDocs_GiveTheSnapshotDates` (named in `## Develop`), and
+`TestActive_EndToEnd` and `TestSetup_FailedSaveKeepsTheEdits` (not named there; both under
+"CI improvements/fixes" as failing on macOS).
+
+Changed in this step:
+
+- `docs/exit-codes.md`: the stability note said "The one exception so far" and then described a
+  second one ("The other is the vocabulary rename"). It now says "There are two exceptions so far.
+  The first is …".
+
+## Code review
+
+`/code-review high --fix` ran twice. The first run took the base commit as its target and reviewed
+`a79fd35`'s own changes, not this spec's: it moved `originOf` from `internal/procedures/web` to a
+new `weburl.OriginOf` (with its test) and reformatted the `## Architecture` entry of
+`docs/todo.md`. Neither touches a behaviour of this spec, so both were undone exactly (the saved
+diff reversed), and the review was run again on `git diff a79fd35`.
+
+The second run found no correctness bug. It checked `Put`/`apply`, `splitProducers` (`procedures`
+is `[]`, never `null`), the renamed optional interfaces, the event and field names between the
+runner and the console, and the fault point.
+
+- **Fixed.** The `store.Records` doc comment said "Unlisted procedures sort first". It now says that
+  producers not in the order (the analyses and the guard) sort first, so a procedure wins a field
+  it also sets. Comment only; it touches B3's merge rule as `docs/output.md` documents it (D15).
+- **Left unfixed.** The missing `docs/console-and-json.md`, which the envelope's renamed keys (B3)
+  would be documented on. It predates the change and is already in `docs/todo.md` under
+  "Documentation gaps".
+
+`go test ./...` still passes apart from the three tests that also fail on the base, and the B5
+search still gives 17 `stage`/`stages` hits (all justified above) and no `deriver`/`derivers`.
+
+# Follow-ups
+
+**Decisions:**
+
+1. B5's 17 remaining `stage`/`stages` hits are accepted, and B5 amended (D17).
+2. CONTEXT.md keeps the first definition of Procedure (D18).
+
+**Deferred work:**
+
+1. The missing `docs/console-and-json.md`: see `docs/todo.md`, "Documentation gaps".
+2. `TestAbusiveDocs_GiveTheSnapshotDates`, `TestActive_EndToEnd` and
+   `TestSetup_FailedSaveKeepsTheEdits`, which fail on the base too: see `docs/todo.md`,
+   "CI improvements/fixes".
+
+**Manual steps:**
+
+1. Delete or recreate any engagement made before this change, the developer's own included: it
+   fails with `no such table: jobs` (`UNEXPECTED_ERROR`). Remove its state with
+   `rm -rf <output_dir>/<engagement>/.nyx` (this loses its history), then run
+   `nyx recon -e <engagement> <inputs…>` again.

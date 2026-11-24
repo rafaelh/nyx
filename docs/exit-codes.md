@@ -104,9 +104,10 @@ CVE record and of the `nyx cve` envelope (see [CVE lookup](cve.md)), and the key
 `nyx ip` record and of its envelope (see [IP lookup](ip.md)), and the keys of the threat-data update's
 envelope (see [Abusive networks](abusive-networks.md#updating-the-threat-data)) are an interface: a
 new one may be added, but renaming, removing or retyping one is a breaking change. The wording of
-messages and hints may change. The one exception so far is that the default `nyx cve` record no
-longer has the lists `affected_products` and `references`, only their counts: that was a deliberate
-break, made once when `--limit` and `--match` were added, and `--fields all` still returns them.
+messages and hints may change. There are two exceptions so far. The first is that the default
+`nyx cve` record no longer has the lists `affected_products` and `references`, only their counts:
+that was a deliberate break, made once when `--limit` and `--match` were added, and `--fields all`
+still returns them.
 The other is the vocabulary rename made before the first release: the recon envelope's
 `failed_checks` became `failed_jobs`, `meta.checks_completed` and `meta.checks_cancelled` became
 `meta.jobs_completed` and `meta.jobs_cancelled`, the `stage` key of the rows of `failed_jobs`,

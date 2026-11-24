@@ -10,9 +10,6 @@ The following terms are used in this repository:
 
 - **Procedure** this is an implementation of a **technique**, containing one or more **jobs**.
 
-- **Procedure** specific, step-by-step actions taken to implement a techniques, performing one or
-  more **jobs**.
-
 - **Job** this is a unit of work performed as part of a **procedure**.
 
 - **Analysis** is a record nyx produces itself rather than one a procedure observes: findings,
