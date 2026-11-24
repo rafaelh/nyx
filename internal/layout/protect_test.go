@@ -29,12 +29,12 @@ func TestProtected(t *testing.T) {
 		"<someone@example.com>",
 		"[2001:db8::1]",
 		"example.com;",
-		// An address or a hostname with a port, as a risky port's target reads.
+		// Protect address/hostname targets carrying ports.
 		"198.51.100.7:21",
 		"[2001:db8::1]:3389",
 		"([2001:db8::1]:3389),",
 		"www.example.com:8443",
-		// Short and harmless, and pinned so nobody changes it by accident.
+		// Pin harmless short tokens that happen to match hostname syntax.
 		"e.g",
 		"2.4.41",
 	}

@@ -1,14 +1,10 @@
-// Command refresh rebuilds the built-in copies of the five threat-data lists from the files
-// `make threat-data` fetched: Spamhaus's DROP, DROPv6 and ASN-DROP (internal/spamhaus/builtin.jsonl,
-// a bundle) and ipapi.is's most abusive networks and ASNs (internal/abusive/snapshot.json). It makes
-// no request itself: curl fetches, and this program checks each list with the rules an update
-// applies, prints what was added, removed and changed, and replaces each source's file as a whole,
-// or not at all. It is a maintainer's tool, not part of the nyx binary.
+// Command refresh rebuilds embedded Spamhaus and ipapi.is data from files fetched by make
+// threat-data. It performs no network requests. Lists are validated with runtime update rules,
+// changes are printed and each source file is replaced atomically.
 //
-// It reads, from the -dir directory, drop_v4.json, drop_v6.json and asndrop.json (as Spamhaus
-// serves them) and networks.html and asns.html (ipapi.is's pages). A list dated no later than the
-// built-in copy is left as it is. -allow-shrink lets through a list that holds fewer than half the
-// entries of the built-in copy, for a maintainer who has reviewed it, and lifts no other rule.
+// -dir supplies drop_v4.json, drop_v6.json, asndrop.json, networks.html and asns.html. Lists no
+// newer than the embedded copy stay unchanged. -allow-shrink bypasses only the half-size
+// rejection for maintainer-reviewed data.
 package main
 
 import (

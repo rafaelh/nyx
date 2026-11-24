@@ -23,7 +23,7 @@ type cons struct {
 	log bytes.Buffer
 }
 
-// plainStream is a stream that is not a terminal: what a pipe or a file is.
+// plainStream models a pipe or file.
 func plainStream() layout.Stream { return layout.Stream{} }
 
 // termStream is a terminal of the given depth and width in cells.
@@ -58,8 +58,7 @@ func stripEscapes(s string) string {
 	return b.String()
 }
 
-// A plain line is HH:MM:SS | LEVEL | message with the level padded to 5, so
-// the message follows the first 19 characters, for every level.
+// Plain log prefixes align every message at cell 19 with five-character level padding.
 func TestLinePlain(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -114,8 +113,7 @@ func TestLineContinuation(t *testing.T) {
 	}
 }
 
-// The console writes a log line for each known event and nothing for an unknown one. There is
-// no error event: the error line is the CLI's, so an "error" event is unknown too.
+// Only known events render; final errors belong to the CLI, not an error event.
 func TestConsoleStreams(t *testing.T) {
 	t.Parallel()
 	c := plain(report.Info)
@@ -190,8 +188,7 @@ func TestConsoleMessageText(t *testing.T) {
 		t.Errorf("messages\n got %q\nwant %q", got, want)
 	}
 
-	// On a coloured terminal the only escapes are the chrome, the level badge and the state words
-	// (tested by name in TestConsoleStateWords); the header and count lines have none.
+	// Coloured logs restrict styling to designated chrome, badges and state words.
 	col := newCons(termStream(palette.TrueColor, 100), report.Info)
 	col.Emit(ev("run_start", map[string]any{"engagement": "eng", "scope": "1 roots", "passive": true, "authorised": true}))
 	col.Emit(ev("count", map[string]any{"category": "hosts", "n": 12}))
@@ -246,9 +243,7 @@ func TestConsoleFoundLines(t *testing.T) {
 	}
 }
 
-// Target-supplied escapes, titles, newlines and bidi controls never reach the log, on a stream that
-// is not a terminal and on a terminal at each width the text is wrapped to; one event makes the
-// lines its message needs and no more.
+// Clean target text before laying out exactly the lines required by one event.
 func TestConsoleSanitises(t *testing.T) {
 	t.Parallel()
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
@@ -324,8 +319,7 @@ func TestOnlyAndTee(t *testing.T) {
 	}
 }
 
-// The palette sheet has every entry of every table, a line per level and a continuation line,
-// through the formatter. Off a terminal it is the sheet of today.
+// Palette sheets include all entries and formatter examples while preserving plain output.
 func TestSheet(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {

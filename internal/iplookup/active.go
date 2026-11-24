@@ -30,8 +30,8 @@ var webPorts = []int{80, 443, 8000, 8080, 8443, 8888, 9443}
 // maxExtraPorts is the most ports beyond the common list that InternetDB adds.
 const maxExtraPorts = 64
 
-// probePorts is the common ports, then the extra ports (InternetDB's) that the list does not
-// hold, lowest first and at most maxExtraPorts of them.
+// probePorts tries common ports before sorted, unique InternetDB additions, capped at
+// maxExtraPorts.
 func probePorts(extra []int) []int {
 	out := slices.Clone(commonPorts)
 	var more []int
@@ -51,14 +51,14 @@ func tlsPort(p int) bool { return slices.Contains(tlsPorts, p) }
 
 func webPort(p int) bool { return slices.Contains(webPorts, p) }
 
-// contactInput is what decides whether --active contacts an address.
+// contactInput supplies discovery sources and ownership for active-contact decisions.
 type contactInput struct {
 	Addr  netip.Addr
 	Kind  addrkind.Kind
 	Found Found
-	// OwnerFailed is the failure of the owner lookup of a public address; nil when it answered.
+	// OwnerFailed preserves failed public ownership lookup; nil means it answered.
 	OwnerFailed *Failure
-	// Provider is what the provider data says of a public address.
+	// Provider supplies public-address hosting classification.
 	Provider provider.Result
 }
 
@@ -97,7 +97,7 @@ type probeJob struct {
 	TLS, Web bool
 }
 
-// probeOutcome is what the probe found. Failure is the first local failure, if any.
+// probeOutcome holds probe results and any first local failure.
 type probeOutcome struct {
 	Ports   []Port
 	TLS     []TLSEntry
@@ -113,8 +113,8 @@ type probeRun struct {
 	bad *Failure
 }
 
-// fail records the first failure of this machine, or a refusal. A call that ended (its deadline or
-// a signal) is no failure: the probe was not made.
+// fail retains the first local/policy failure. Context termination means the probe was
+// interrupted, not that the source failed.
 func (r *probeRun) fail(ctx context.Context, err error) {
 	if ctx.Err() != nil || timedOut(ctx, err) {
 		return
@@ -130,8 +130,8 @@ func (r *probeRun) set(f Failure) {
 	}
 }
 
-// runProbe scans the ports of the address, then makes the handshakes and requests on its open
-// ports. What a probe finds is a result; only a failure of this machine is a Failure.
+// runProbe checks ports, then performs TLS/HTTP probes on open ports. Remote responses are
+// results; only host-side failures produce Failure values.
 func runProbe(ctx context.Context, p egress.Probe, j probeJob) probeOutcome {
 	r := &probeRun{p: p, j: j}
 	ports := slices.Clone(j.Ports)
@@ -216,7 +216,6 @@ func (r *probeRun) handshakes(ctx context.Context, ports []int, open map[int]boo
 	return out
 }
 
-// handshake makes the handshake of one entry and records what it found.
 func (r *probeRun) handshake(ctx context.Context, e *TLSEntry) {
 	if ctx.Err() != nil {
 		return
@@ -248,7 +247,7 @@ func (r *probeRun) handshake(ctx context.Context, e *TLSEntry) {
 	}
 }
 
-// noServiceOutcome is the outcome of a handshake or request that nothing answered.
+// noServiceOutcome translates unanswered TLS/HTTP probes into result entries.
 func noServiceOutcome(reason string) string {
 	switch reason {
 	case egress.NoServiceTimeout:
@@ -310,7 +309,6 @@ func (r *probeRun) requests(ctx context.Context, ports []int, open map[int]bool)
 	return out
 }
 
-// fillWeb records a response: its status, Server header, page title and redirect.
 func fillWeb(e *WebEntry, v egress.Response) {
 	e.Outcome = OutcomeOK
 	status := v.Status

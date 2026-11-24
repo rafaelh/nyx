@@ -8,9 +8,8 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// helpStages are a few stages under their real names, so the stage list of the root and recon help
-// and the stages topic have target stages, unskippable stages and keyed stages without the golden
-// files changing whenever a stage is added to the registry.
+// helpStages supplies stable representative stage names so golden help does not change with
+// every registry addition.
 func helpStages() []run.Stage {
 	st := func(name string, kind run.Contact) run.Stage { return &testkit.Stage{StageName: name, Kind: kind} }
 	return []run.Stage{
@@ -35,8 +34,7 @@ var helpScreens = []struct {
 	{"stages", []string{"help", "stages"}},
 }
 
-// Off a terminal every help screen is the text nyx has always written, whatever the colour
-// variables say. The files hold that text, as captured before the help was laid out in blocks.
+// Plain help goldens preserve non-terminal text independently of colour environment variables.
 func TestHelp_PlainJoin(t *testing.T) {
 	t.Parallel()
 	for _, s := range helpScreens {

@@ -14,18 +14,16 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// wellKnownLabels are tried directly under every root even when the wordlist
-// lacks them: the names mail, voice and device-management clients look up. They
-// belong to the root checks only, never to a seed's permutations.
+// wellKnownLabels adds common mail, voice and device-management names to root checks even
+// without wordlist entries. Seed permutations do not query them separately.
 var wellKnownLabels = []string{"autodiscover", "lyncdiscover", "enterpriseenrollment", "enterpriseregistration", "mta-sts"}
 
 // wellKnownToken identifies wellKnownLabels in the root key, so a changed list
 // repeats the root checks.
 var wellKnownToken = config.ListHash(wellKnownLabels)
 
-// Permutations resolves permutations of the labels found by other stages plus a
-// wordlist. Only names that exist are emitted; resolve then does A/AAAA.
-// It never generates from its own output: see inventory.Seeds.
+// Permutations generates names from roots and other stages' discoveries, emitting names that
+// exist for resolve to query. inventory.Seeds prevents feedback from its own output.
 type Permutations struct{ base }
 
 // NewPermutations returns the permutations stage.
@@ -42,15 +40,11 @@ func (*Permutations) Configured(e run.Env) (bool, string) {
 // Budget is the most names the stage generates in one run.
 func (*Permutations) Budget(s config.Settings) int { return s.Permutations.MaxNames }
 
-// Checks yields a root check per input root and then a seed check per seed, each
-// in name order, so the budget reaches every root before any seed. A check costs
-// the names it will query. Both keys include the wordlist hash, and seed keys the
-// cap, so changing either redoes the work. The root key also carries a token of
-// the well-known labels, which only root checks query, so a change to them
-// repeats the root checks and no seed check. A root, or a seed whose parent, is a
-// zone already known to be a wildcard is not yielded: every name under it exists.
-// For the same reason a seed check leaves out each generated name directly under
-// a wildcard zone (the seed may be one itself, or a join may land under one).
+// Checks lists root checks before seed checks so the budget reaches each root first. Cost
+// equals queried names. Keys include the wordlist hash; seed keys also include the cap, and
+// root keys version the well-known labels. Changing these inputs reruns only affected checks.
+// Known wildcard zones and generated names directly beneath them are omitted because arbitrary
+// names already resolve there.
 func (p *Permutations) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		s := v.Settings()
@@ -96,11 +90,9 @@ func (p *Permutations) Checks(ctx context.Context, v run.View) iter.Seq2[run.Che
 	}
 }
 
-// Run queries each of the check's names once for A. A CNAME means
-// the name exists even if its chain dangles (NXDOMAIN), which is a takeover
-// candidate. Otherwise anything but NXDOMAIN means the name exists, except
-// SERVFAIL, which proves nothing. A timeout fails the whole check, which is
-// redone on the next run.
+// Run queries A once per generated name. A CNAME establishes existence even with a dangling
+// NXDOMAIN target. SERVFAIL proves nothing; other non-NXDOMAIN results establish existence.
+// Timeouts fail the whole check for retry next run.
 func (p *Permutations) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	var obs []run.Observation
 	for _, n := range c.Input.([]string) {
@@ -125,9 +117,8 @@ func rootNames(root string, words []string) []string {
 	return out
 }
 
-// seedNames are the names a seed check queries: the permutations of the seed's
-// label under its parent. Checks prices the check with their number, and Run
-// queries them, so the cost is exact.
+// seedNames is shared by cost calculation and execution so the budget matches the exact query
+// count.
 func seedNames(seed string, words []string, max int) []string {
 	label, parent, _ := strings.Cut(seed, ".")
 	var out []string

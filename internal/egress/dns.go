@@ -11,7 +11,7 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// Record types for Resolver.Query, so stages never import a DNS library.
+// Expose query types without leaking the DNS library into stages.
 const (
 	TypeA     = dns.TypeA
 	TypeAAAA  = dns.TypeAAAA
@@ -38,21 +38,19 @@ type Answer struct {
 	TTL               uint32
 }
 
-// CNAME is one link of an alias chain: Name is an alias of Target.
+// CNAME links an alias Name to Target.
 type CNAME struct{ Name, Target string }
 
-// DNSResult is the outcome of a DNS query. NXDOMAIN, NODATA and SERVFAIL are
-// results, not errors; only a failure to get any response is an error.
+// DNSResult preserves NXDOMAIN/NODATA/SERVFAIL as DNS responses. Only failure to receive a
+// response returns an error.
 type DNSResult struct {
 	RCode   int
 	Answers []Answer // CNAME records are reported in CNAMEs, not here (unless CNAME was queried)
-	// CNAMEs is the alias chain in answer order. It is populated for every
-	// rcode, so a chain ending in NXDOMAIN or NODATA is visible.
+	// CNAMEs retains the answer chain even for NXDOMAIN/NODATA, exposing dangling aliases.
 	CNAMEs []CNAME
 }
 
-// Addrs are the A and AAAA answers, unmapped. An answer that is not an address is
-// left out.
+// Addrs extracts unmapped A/AAAA answers and ignores invalid address values.
 func (r DNSResult) Addrs() []netip.Addr {
 	var out []netip.Addr
 	for _, a := range r.Answers {
@@ -66,7 +64,7 @@ func (r DNSResult) Addrs() []netip.Addr {
 	return out
 }
 
-// Resolver queries the fixed public resolver set. It has no zone-transfer API.
+// Resolver exposes fixed public DNS queries without zone transfers.
 type Resolver interface {
 	Query(ctx context.Context, name string, qtype uint16) (DNSResult, error)
 }
@@ -113,10 +111,9 @@ func (r *resolver) Query(ctx context.Context, name string, qtype uint16) (DNSRes
 	return DNSResult{}, fmt.Errorf("dns query %s %s: %w", name, dns.TypeToString[qtype], lastErr)
 }
 
-// exchange sends m to addr over c's network and reads the answer. Cancelling
-// ctx closes the connection, which ends a blocked read at once: the library
-// uses the context only to shorten the deadlines it sets, so without this a
-// cancelled lookup would wait out the client's timeout.
+// exchange closes the connection on cancellation to interrupt blocked DNS reads immediately.
+// The library otherwise uses context only to shorten deadlines and would wait until its
+// timeout.
 func exchange(ctx context.Context, c *dns.Client, m *dns.Msg, addr string) (*dns.Msg, error) {
 	conn, err := c.DialContext(ctx, addr)
 	if err != nil {
@@ -185,9 +182,8 @@ func rdata(rr dns.RR) string {
 	return rr.String()
 }
 
-// mailbox writes an SOA responsible-person name as an email address: the first
-// unescaped dot is the @, and an escaped dot in the local part is a plain dot
-// (`john\.doe.example.com` is john.doe@example.com).
+// mailbox converts an SOA responsible-person name to email form. The first unescaped dot
+// becomes @; escaped local-part dots stay dots, as in john.doe@example.com.
 func mailbox(mbox string) string {
 	mbox = strings.TrimSuffix(mbox, ".")
 	i, end := dns.NextLabel(mbox, 0)

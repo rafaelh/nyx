@@ -13,8 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/eol"
 )
 
-// End-of-life software: versions from Wappalyzer technologies and SSH, FTP and SMTP banners,
-// checked against the embedded table, derived on every run from the stored records and the date.
+// End-of-life tests derive findings from stored web/banner versions and the current date.
 
 const eolFile = "risk-eol-software.csv"
 
@@ -51,9 +50,8 @@ func day(t *testing.T, d string) time.Time {
 	return v
 }
 
-// Versions from the probe's technologies and from a port banner are findings in
-// risk-eol-software.csv, with the file's columns; a distribution build is one step lower; the
-// high and medium ones reach the summary; and open-ports.csv names the product and version.
+// Verify EOL file columns, distribution downgrades, headline selection and derived port
+// product/version fields.
 func TestEOL_FindingsFromTechnologiesAndBanners(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -113,8 +111,7 @@ func TestEOL_FindingsFromTechnologiesAndBanners(t *testing.T) {
 	}
 }
 
-// A service whose Server and X-Powered-By headers carry a distribution suffix, which Wappalyzer
-// leaves out of the version, is a distribution build: one step lower.
+// Recover distribution suffixes from headers when Wappalyzer returns only the upstream version.
 func TestEOL_DistributionBuildFromTheProbe(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -133,8 +130,8 @@ func TestEOL_DistributionBuildFromTheProbe(t *testing.T) {
 	}
 }
 
-// A banner nyx cannot name leaves product and version empty, and an engagement made before
-// the columns existed gains them on the next run with no contact.
+// Unknown banners leave version fields empty; old engagements gain derived columns without
+// contact.
 func TestEOL_PortColumnsOnAnExistingEngagement(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -173,9 +170,8 @@ func TestEOL_PortColumnsOnAnExistingEngagement(t *testing.T) {
 	}
 }
 
-// The date moves a finding with no contact: a version whose support ends soon is approaching,
-// and when the clock passes the end date it is end of life, including under --passive, which
-// reads the records kept from the earlier run.
+// Advancing the clock changes approaching findings to ended-support findings, including passive
+// reruns.
 func TestEOL_ClockMovesFindingsWithNoContact(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -294,8 +290,7 @@ func TestEOL_StaleDataWarning(t *testing.T) {
 	}
 }
 
-// The docs list the products and where the data came from and when, the banners nyx
-// recognises and the output file; --help and the findings topic list the setting and the types.
+// Keep product and data sources, recognised banners, output and finding settings documented.
 func TestEOL_DocumentedInDocsAndHelp(t *testing.T) {
 	t.Parallel()
 	docs := docsText(t)

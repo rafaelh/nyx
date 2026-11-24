@@ -1,7 +1,6 @@
-// Package egress is the only place nyx performs network I/O. Every request
-// to a target-owned system passes through the policy checks here, and the
-// package returns its own types so that nothing from net, net/http or
-// crypto/tls reaches the stages (see the import-boundary test).
+// Package egress owns nyx's network I/O and enforces target contact policy. It returns its own
+// result types so stage packages do not depend on net, net/http or crypto/tls; the boundary
+// test checks this separation.
 package egress
 
 import (
@@ -21,26 +20,24 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Policy is what egress enforces. The runner builds a new Policy whenever the
-// Scope changes. Egress never reads the store.
+// Policy contains contact rules rebuilt by the runner when scope changes. Egress does not read
+// stored state itself.
 type Policy struct {
 	Scope          *scope.Scope
 	Ack, Passive   bool
 	Ports          []int
 	SensitivePaths []string
-	// Scripts are the script URLs egress.Script may request: the normalised URLs
-	// of the script records the crawl made. Host scope, exclusion and port rules
-	// apply to each as to any target request.
+	// Scripts lists normalised script URLs recorded by crawling. Script requests also pass
+	// the usual host, exclusion and port checks.
 	Scripts map[string]bool
 	// Resolutions maps in-scope and excluded hostnames to their addresses.
 	Resolutions map[string][]netip.Addr
 	// Shared reports whether an address is shared provider infrastructure.
 	Shared func(netip.Addr) bool
-	// OwnerUnknown reports whether nothing is known about an address's owner.
-	// Port checks fail closed for such addresses, but unlike Shared it never
-	// widens what HTTP may do.
+	// OwnerUnknown prevents port checks when ownership is missing. It cannot relax HTTP
+	// rules the way known shared hosting can.
 	OwnerUnknown func(netip.Addr) bool
-	// Excluded is told about each address that triggered an exclusion at dial time.
+	// Excluded receives dial-time exclusion matches for recording.
 	Excluded func(value, reason string)
 }
 
@@ -57,8 +54,7 @@ func (p *Policy) reportExcluded(value, reason string) {
 	}
 }
 
-// portIneligible refuses an address that may not be port-checked (excluded, or neither inside an
-// in-scope netblock nor dedicated and known), reporting an excluded one.
+// portIneligible applies eligibility and reports exclusion-triggered refusals.
 func (p *Policy) portIneligible(a netip.Addr) (Refused, bool) {
 	ok, why, excluded := p.Scope.PortEligible(a, p.owner)
 	if ok {
@@ -74,8 +70,8 @@ func (p *Policy) portAllowed(port int, alsoWeb bool) bool {
 	return (alsoWeb && (port == 80 || port == 443)) || slices.Contains(p.Ports, port)
 }
 
-// targetRefusal is the gate shared by every target client: a policy must be
-// installed, the run must not be passive, and the operator must have acknowledged.
+// targetRefusal requires an installed policy, active mode and acknowledged target contact for
+// every target client.
 func (p *Policy) targetRefusal() (Refused, bool) {
 	switch {
 	case p == nil || p.Scope == nil:
@@ -88,49 +84,44 @@ func (p *Policy) targetRefusal() (Refused, bool) {
 	return Refused{}, false
 }
 
-// Options configure an Egress. The test hooks (ResolverAddrs, SourceBaseURLs,
-// DialMap) redirect traffic without changing any policy logic.
+// Options provides rates/timeouts and test routing hooks that preserve policy decisions.
 type Options struct {
 	ResolverAddrs []string // default: 1.1.1.1, 8.8.8.8, 9.9.9.9 on port 53
-	// SourceBaseURLs maps a source pattern, or an exact host (checked first), to a base URL.
+	// SourceBaseURLs checks exact hosts before wildcard source patterns when rebasing
+	// requests.
 	SourceBaseURLs map[string]string
 	DialMap        map[string]string // "ip:port" -> "host:port" actually dialled
-	// SourceRates sets the requests per second of a third-party source pattern, in place of
-	// RatePerSource.
+	// SourceRates overrides default pacing for declared source patterns.
 	SourceRates map[string]float64
-	// LocalResolverAddr, when set, is the "host:port" this machine's resolver is replaced with,
-	// for tests.
+	// LocalResolverAddr redirects machine DNS to a test host:port.
 	LocalResolverAddr string
 
 	DNSTimeout, ConnectTimeout, BannerWait, HTTPTimeout time.Duration
 
 	RateDNS, RatePerHost, RatePerSource float64
 
-	// RouteLookup decides whether this machine has a route to an address when a
-	// connect fails with ENETUNREACH, EHOSTUNREACH or EACCES. Default: a UDP
-	// connect, which sends nothing.
+	// RouteLookup distinguishes local routing failures after selected connect errors. The
+	// default UDP connect queries routing without sending a packet.
 	RouteLookup func(netip.Addr) error
 
-	// Now is the clock certificates are checked against. Default: time.Now.
+	// Now defaults to time.Now for certificate validity checks.
 	Now func() time.Time
 
-	// UserAgent is sent with every HTTP request, to a source and to a target
-	// alike: nyx/<version>. Default: DefaultUserAgent.
+	// UserAgent identifies source and target HTTP requests, defaulting to DefaultUserAgent.
 	UserAgent string
 
 	Keys     map[string]config.Secret
 	Redactor *config.Redactor // default: built from Keys
 }
 
-// WithSettings returns o with rates, keys and redactor taken from the settings.
+// WithSettings overlays configured rates, credentials and redaction.
 func (o Options) WithSettings(s config.Settings, r *config.Redactor) Options {
 	o.RateDNS, o.RatePerHost, o.RatePerSource = s.Rate.DNS, s.Rate.PerHost, s.Rate.PerSource
 	o.Keys, o.Redactor = s.Keys, r
 	return o
 }
 
-// Clients are the clients handed to a stage. HTTP and TCP are nil for stages
-// that do not contact target-owned systems.
+// Clients grants HTTP/TCP target access only to target-contacting stages.
 type Clients struct {
 	DNS        Resolver
 	ThirdParty ThirdPartyHTTP
@@ -179,7 +170,7 @@ func New(o Options) *Egress {
 	e := &Egress{
 		opts: o, hostLim: map[netip.Addr]*rate.Limiter{}, srcLim: map[string]*rate.Limiter{},
 		thirdParty: &http.Client{
-			// Four idle connections per host: nyx cve has four requests to the NVD in flight.
+			// Allow idle reuse across the CVE command's four concurrent requests.
 			Transport:     &http.Transport{Proxy: nil, MaxIdleConnsPerHost: 4},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
@@ -205,7 +196,7 @@ func (e *Egress) sourceLimiter(pattern string) *rate.Limiter {
 	return limiterFor(&e.mu, e.srcLim, pattern, r)
 }
 
-// limiterFor returns m's limiter for k, creating one at rate r on first use.
+// limiterFor lazily creates a keyed limiter at rate r.
 func limiterFor[K comparable](mu *sync.Mutex, m map[K]*rate.Limiter, k K, r float64) *rate.Limiter {
 	mu.Lock()
 	defer mu.Unlock()
@@ -217,8 +208,8 @@ func limiterFor[K comparable](mu *sync.Mutex, m map[K]*rate.Limiter, k K, r floa
 	return l
 }
 
-// wait waits for a token from l. A wait that would pass ctx's deadline is refused at once, with
-// an error that wraps context.DeadlineExceeded, so a caller can tell it from a network failure.
+// wait acquires a rate-limit token. A wait extending beyond ctx's deadline fails immediately
+// with a wrapped context.DeadlineExceeded, distinguishable from a network error.
 func wait(ctx context.Context, l *rate.Limiter) error {
 	err := l.Wait(ctx)
 	if err != nil && ctx.Err() == nil {
@@ -229,8 +220,8 @@ func wait(ctx context.Context, l *rate.Limiter) error {
 	return err
 }
 
-// Clients returns the clients for a stage. Target clients are only given to
-// stages that contact target-owned systems.
+// Clients selects source clients and grants target clients only when authorised by stage
+// contact type.
 func (e *Egress) Clients(target bool, sources []string) Clients {
 	c := Clients{
 		DNS:        &resolver{e: e},

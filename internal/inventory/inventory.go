@@ -1,8 +1,7 @@
-// Package inventory derives views from stored records that outputs, the
-// runner's View and the egress Policy all need: which names are wildcard-only,
-// what is shared provider infrastructure, which addresses may be port-checked.
-// Everything is computed on read from plain data, never stored, so a new
-// binary's provider data or a late-discovered name is reflected at once.
+// Package inventory derives shared views of stored records for output, stages and egress
+// policy. It identifies wildcard-only names, provider infrastructure and addresses eligible for
+// port checks. These views are recalculated from records so new discoveries and updated
+// provider data take effect immediately.
 package inventory
 
 import (
@@ -26,10 +25,9 @@ type Host struct {
 	Stages []string
 }
 
-// Resolution is one resolved row: Type is A, AAAA or CNAME. A and AAAA rows are
-// keyed to the queried name; a CNAME row's Name is the alias and Value its target.
-// An SRV row's Name is a service name, not a host, and its Value is "priority
-// weight port target"; it only says which ports an in-scope target advertises.
+// Resolution represents a DNS answer. A/AAAA rows associate the queried name with an address;
+// CNAME rows associate an alias with its target. SRV rows contain "priority weight port target"
+// and advertise ports only; their service names are not hostnames.
 type Resolution struct{ Name, Type, Value string }
 
 // Wildcard is a zone that answers for names that do not exist.
@@ -45,9 +43,8 @@ type IPHostname struct {
 	Hostname, Source string
 }
 
-// Registration is a netblock a registry registered to a registrant, found by
-// looking up one of the addresses inside it. Key is the record's key: the
-// registry and the registry's handle for the range.
+// Registration describes a registry's address allocation found by looking up an address within
+// it. Key combines the registry and its range handle.
 type Registration struct {
 	Key                  string
 	Start, End           netip.Addr
@@ -59,14 +56,14 @@ func (r Registration) Contains(a netip.Addr) bool {
 	return a.Compare(r.Start) >= 0 && a.Compare(r.End) <= 0
 }
 
-// ServerAddress is an address looked up for a name server or mail host. It is
-// not a resolution: it never makes the host resolved, probed or port-eligible.
+// ServerAddress supports name-server and mail-host ownership checks. It does not make the host
+// resolved, eligible for probing or eligible for port checks.
 type ServerAddress struct {
 	Host string
 	Addr netip.Addr
 }
 
-// Data is everything the Inventory is computed from.
+// Data supplies the records used to build an Inventory.
 type Data struct {
 	Hosts       []Host
 	Resolutions []Resolution
@@ -75,7 +72,7 @@ type Data struct {
 	Owners      map[netip.Addr]provider.Owner
 	Ranges      *provider.Ranges
 	IPHostnames []IPHostname
-	// ClosedPorts are the ports nyx's own handshake found closed (rejected).
+	// ClosedPorts contains ports rejected during nyx's own connection attempts.
 	ClosedPorts   []netip.AddrPort
 	Registrations []Registration
 	// ServerAddresses are the addresses of name servers and mail hosts, for SelfHosted only.
@@ -88,24 +85,23 @@ type ProviderHost struct {
 	Evidence                    string // cname, range or asn
 	CNAME                       string // the matching chain target, for cname evidence
 	Resolves                    bool
-	// Entry is the matched providers.yaml entry of cname evidence (its
-	// fingerprint says whether the host can be claimed); zero for range and asn evidence.
+	// Entry is the providers.yaml match for CNAME evidence. Its fingerprint indicates
+	// claimability. Range and ASN evidence leave it empty.
 	Entry provider.Entry
 }
 
-// IPRow is one address in ips.csv. Service is the provider's service where its
-// ranges name one, and otherwise the region they give.
+// IPRow represents an ips.csv row. Service uses the provider's service name when available,
+// otherwise its region.
 type IPRow struct {
 	IP                       netip.Addr
 	ASN                      int
 	Owner, Provider, Service string
 	InScope, PortEligible    bool
 	Hostnames                []string
-	// The registered netblock the address is inside, the registrant it is
-	// registered to and the registry that says so, when a lookup found them.
+	// Registry allocation containing this address, with its registrant and source registry.
 	Registrant, RegistrantNetblock, Registry string
-	// SRVPorts are the ports SRV records advertise for the address's in-scope
-	// hostnames, in order. They are reported only: nothing connects to them.
+	// SRVPorts lists advertised ports for in-scope hostnames. These are reported without
+	// connecting to them.
 	SRVPorts []uint16
 }
 
@@ -118,12 +114,12 @@ type Inventory struct {
 	srv  map[string][]uint16     // SRV target -> advertised ports
 	wo   map[string]bool
 	zone map[string]bool // zones with a current wildcard record
-	// cnameShared holds the addresses of names whose CNAME chain ends on a known provider.
+	// cnameShared marks addresses whose hostnames lead to a known provider through CNAMEs.
 	cnameShared map[netip.Addr]provider.Match
 
 	mu    sync.Mutex
 	class map[netip.Addr]provider.Result
-	regOf map[netip.Addr]int // see RegistrationOf: the index in regs, or -1
+	regOf map[netip.Addr]int // cached regs index, or -1 when no registration matches
 
 	closed map[netip.AddrPort]bool // ports nyx found closed, with unmapped addresses
 
@@ -131,18 +127,17 @@ type Inventory struct {
 
 	servers map[string][]netip.Addr // name server or mail host -> looked-up addresses
 
-	regs       []Registration // narrowest first: by start address, highest first
+	regs       []Registration // registrations ordered by descending start address for narrowest-match lookup
 	registrant sync.Once
 	byName     map[string]registrantInfo
 }
 
-// registrantInfo is what the candidate rule asks of a registrant name.
+// registrantInfo tracks the evidence needed to classify an organisation as a candidate.
 type registrantInfo struct {
 	ranges int  // distinct registered netblocks
-	shared bool // a recorded address inside one of them is shared provider infrastructure
+	shared bool // whether any recorded address in these ranges uses shared infrastructure
 }
 
-// New computes the inventory.
 func New(d Data, db *provider.DB) *Inventory {
 	i := &Inventory{d: d, db: db, addr: map[string][]netip.Addr{}, cn: map[string][]string{}, srv: map[string][]uint16{},
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
@@ -161,7 +156,7 @@ func New(d Data, db *provider.DB) *Inventory {
 		case "CNAME":
 			i.cn[r.Name] = append(i.cn[r.Name], r.Value)
 		case "SRV":
-			// Port 0, like a null target, is a service that is not offered.
+			// SRV port zero means the service is unavailable, like a null target.
 			if port, target, ok := dnsname.SRV(r.Value); ok && port != 0 {
 				i.srv[target] = append(i.srv[target], port)
 			}
@@ -179,8 +174,8 @@ func New(d Data, db *provider.DB) *Inventory {
 		wild[w.Zone] = w
 		i.zone[w.Zone] = true
 	}
-	// In name order, the first name to claim an address labels it, so the
-	// label is the same on every run.
+	// Choose the first hostname in sorted order so shared-address labels remain stable
+	// between runs.
 	for _, name := range slices.Sorted(maps.Keys(i.addr)) {
 		if m, ok := i.chainProvider(name); ok {
 			for _, a := range i.addr[name] {
@@ -198,9 +193,8 @@ func New(d Data, db *provider.DB) *Inventory {
 	return i
 }
 
-// chainProviders calls yield for each CNAME target on name's chain (up to 8
-// hops, following the first target) whose suffix matches a known provider,
-// until yield returns false.
+// chainProviders follows the first CNAME target for up to eight hops, yielding provider suffix
+// matches until the callback stops.
 func (i *Inventory) chainProviders(name string, yield func(target string, e provider.Entry) bool) {
 	cur := name
 	for range 8 {
@@ -217,7 +211,7 @@ func (i *Inventory) chainProviders(name string, yield func(target string, e prov
 	}
 }
 
-// chainProvider returns the first provider whose suffix matches a CNAME target on name's chain.
+// chainProvider finds the first provider match along a name's CNAME chain.
 func (i *Inventory) chainProvider(name string) (m provider.Match, ok bool) {
 	i.chainProviders(name, func(_ string, e provider.Entry) bool {
 		m, ok = e.Match, true
@@ -238,15 +232,14 @@ func (i *Inventory) matchesWildcard(name string, w Wildcard) bool {
 	return slices.ContainsFunc(w.Addrs, func(wa netip.Addr) bool { return slices.Contains(i.addr[name], wa.Unmap()) })
 }
 
-// Addrs maps each queried name to its A/AAAA addresses (unmapped). Callers
-// must not modify it.
+// Addrs maps queried names to unmapped A/AAAA addresses. Treat the map as read-only.
 func (i *Inventory) Addrs() map[string][]netip.Addr { return i.addr }
 
 // WildcardOnly is the set of names that resolve only because of a wildcard.
 func (i *Inventory) WildcardOnly() map[string]bool { return i.wo }
 
-// Representatives maps each wildcard zone to its smallest wildcard-only name
-// that is in scope and resolves, so the representative is always probeable.
+// Representatives chooses the alphabetically first resolving, in-scope wildcard-only name for
+// each zone, ensuring the representative can be probed.
 func (i *Inventory) Representatives(sc *scope.Scope) map[string]string {
 	reps := map[string]string{}
 	for name := range i.wo {
@@ -261,14 +254,13 @@ func (i *Inventory) Representatives(sc *scope.Scope) map[string]string {
 	return reps
 }
 
-// WildcardZone reports whether name is a zone known to answer for every name
-// beneath it. Names under one all "exist", so a generator has nothing to find there.
+// WildcardZone identifies zones that answer for arbitrary names. Generating more names directly
+// beneath them would not reveal distinct hosts.
 func (i *Inventory) WildcardZone(name string) bool { return i.zone[name] }
 
-// Seeds are the in-scope, non-wildcard-only hostnames that some stage other
-// than generator observes, whose parent name is also in scope (so an apex is
-// never split into a label and a public suffix) and is not a wildcard zone.
-// Names are never generated from the generator's own output.
+// Seeds selects in-scope names observed by stages other than the generator. It excludes
+// wildcard-only names and names whose parent is outside scope or a wildcard zone. This avoids
+// splitting an apex at its public suffix and feeding generated names back into discovery.
 func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 	var out []string
 	for _, h := range i.d.Hosts {
@@ -292,8 +284,8 @@ func (i *Inventory) result(a netip.Addr) provider.Result {
 		return r
 	}
 	r := i.db.Classify(a, i.d.Owners[a], i.d.Ranges)
-	// A CNAME into a provider is extra evidence: it makes an address shared
-	// even where ranges or ASNs call it dedicated (Heroku on EC2) or do not know it.
+	// A provider CNAME establishes shared hosting even when range or ASN data suggests
+	// dedicated hosting, as with Heroku on EC2.
 	if m, ok := i.cnameShared[a]; ok && !r.Shared {
 		r = provider.Result{Known: true, Shared: true, Provider: m.Provider, Service: m.Service, Evidence: "cname"}
 	}
@@ -301,8 +293,7 @@ func (i *Inventory) result(a netip.Addr) provider.Result {
 	return r
 }
 
-// RegistrationOf returns the narrowest registered netblock that holds the
-// address, looked up once per address.
+// RegistrationOf caches the narrowest registered range containing each address.
 func (i *Inventory) RegistrationOf(a netip.Addr) (Registration, bool) {
 	a = a.Unmap()
 	i.mu.Lock()
@@ -318,18 +309,17 @@ func (i *Inventory) RegistrationOf(a netip.Addr) (Registration, bool) {
 	return i.regs[n], true
 }
 
-// RegistrantCandidate reports whether a registrant name is a candidate
-// organisation: three or more distinct registered netblocks name it, no
-// recorded address inside any of them is shared provider infrastructure, and no
-// --org input of the scope matches the name by the word rule.
+// RegistrantCandidate requires at least three distinct registered ranges, no recorded
+// shared-provider address in those ranges, and no match to an --org input under orgname's word
+// rules.
 func (i *Inventory) RegistrantCandidate(sc *scope.Scope, name string) bool {
 	i.registrant.Do(i.indexRegistrants)
 	info := i.byName[name]
 	return info.ranges >= 3 && !info.shared && !sc.MatchesOrg(name)
 }
 
-// indexRegistrants counts each registrant's netblocks and finds the ones with a
-// shared address inside.
+// indexRegistrants counts distinct ranges per registrant and flags ranges containing shared
+// addresses.
 func (i *Inventory) indexRegistrants() {
 	i.byName = map[string]registrantInfo{}
 	seen := map[string]bool{}
@@ -370,12 +360,11 @@ func (i *Inventory) indexRegistrants() {
 	}
 }
 
-// SelfHosted reports whether a name server or mail host looks to be run by the
-// organisation itself, the one reason such a server says anything about who
-// else uses it: it is in scope, or AddressDecides it and an address looked up for
-// it is port-eligible (inside an in-scope netblock, or dedicated, of known owner
-// and used by an in-scope host). A server with no address on record is
-// self-hosted only by being in scope.
+// SelfHosted checks whether a mail host or name server appears to belong to the organisation,
+// making its other users useful evidence. In-scope servers qualify directly. Others need
+// AddressDecides and a port-eligible address: an in-scope netblock address, or a known
+// dedicated address used by an in-scope host. Without an address record, only in-scope servers
+// qualify.
 func (i *Inventory) SelfHosted(host string, sc *scope.Scope) bool {
 	host = dnsname.Normalise(host)
 	if sc.HostInScope(host) {
@@ -385,10 +374,9 @@ func (i *Inventory) SelfHosted(host string, sc *scope.Scope) bool {
 		slices.ContainsFunc(i.servers[host], func(a netip.Addr) bool { return i.PortEligible(a, sc) })
 }
 
-// AddressDecides reports whether a server's addresses decide SelfHosted, which is
-// what makes them worth looking up. They do not for a host in scope (self-hosted
-// whatever they are), an excluded one, or one on a known provider's domain
-// (managed DNS and mail, never self-hosted).
+// AddressDecides identifies servers that need address lookups for SelfHosted. In-scope servers
+// already qualify; excluded servers and known managed DNS/mail providers cannot qualify through
+// addresses.
 func AddressDecides(host string, sc *scope.Scope, db *provider.DB) bool {
 	if c := sc.ClassifyHost(host).Class; c == scope.InScope || c == scope.Excluded {
 		return false
@@ -400,26 +388,23 @@ func AddressDecides(host string, sc *scope.Scope, db *provider.DB) bool {
 // Shared reports whether the address is shared provider infrastructure.
 func (i *Inventory) Shared(a netip.Addr) bool { return i.result(a).Shared }
 
-// Owner is the origin AS that ip_owner gives the address; Known is false when it gives none.
+// Owner returns origin-AS information from ip_owner; Known is false when no record exists.
 func (i *Inventory) Owner(a netip.Addr) provider.Owner { return i.d.Owners[a.Unmap()] }
 
-// OwnerKnown reports whether anything is known about who owns the address: it
-// is in an in-scope netblock, has an owner record, or a provider range covers it.
+// OwnerKnown accepts addresses covered by an in-scope netblock, an owner record or a provider
+// range.
 func (i *Inventory) OwnerKnown(a netip.Addr, sc *scope.Scope) bool {
 	return sc.InScopeIP(a.Unmap()) || i.result(a).Known
 }
 
-// PortEligible reports whether the address may be port-checked. It is the one
-// decision behind the port sweep, open-port visibility and ips.csv's
-// port_eligible column; egress makes the same scope.PortEligible decision from
-// its Policy.
+// PortEligible shares the port-checking decision used by the sweep, open-port visibility and
+// ips.csv. Egress applies the same scope.PortEligible rules from its policy.
 func (i *Inventory) PortEligible(a netip.Addr, sc *scope.Scope) bool {
 	ok, _, _ := sc.PortEligible(a, i.owner)
 	return ok
 }
 
-// owner is the inventory's scope.Owner. PortEligible checks the netblocks
-// itself, so only the provider result is needed.
+// PortEligible checks netblocks itself; this callback only supplies provider ownership.
 func (i *Inventory) owner(a netip.Addr) (shared, known bool) {
 	r := i.result(a)
 	return r.Shared, r.Known
@@ -430,8 +415,8 @@ func (i *Inventory) PortClosed(ap netip.AddrPort) bool {
 	return i.closed[netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())]
 }
 
-// ProbeHostnames are the resolved in-scope, non-excluded names that are not
-// wildcard-only, plus one representative for each wildcard zone.
+// ProbeHostnames returns resolved in-scope names after exclusions, with one representative per
+// wildcard zone instead of every wildcard-only name.
 func (i *Inventory) ProbeHostnames(sc *scope.Scope) []string {
 	set := map[string]bool{}
 	for name, addrs := range i.addr {
@@ -445,9 +430,8 @@ func (i *Inventory) ProbeHostnames(sc *scope.Scope) []string {
 	return slices.Sorted(maps.Keys(set))
 }
 
-// ProviderHosts lists the in-scope names that are on shared provider
-// infrastructure, by CNAME suffix anywhere on the chain (resolving or not), and
-// by the provider range or ASN of their addresses.
+// ProviderHosts identifies in-scope names on shared infrastructure using CNAME suffixes,
+// address ranges or ASNs. CNAME evidence can identify dangling services too.
 func (i *Inventory) ProviderHosts(sc *scope.Scope) []ProviderHost {
 	names := map[string]bool{}
 	for _, h := range i.d.Hosts {
@@ -483,10 +467,8 @@ func (i *Inventory) ProviderHosts(sc *scope.Scope) []ProviderHost {
 	return out
 }
 
-// SaaSServed reports whether a host is served by a third-party SaaS platform:
-// a CNAME on its chain, the ASN of one of its addresses or an address range is
-// SaaS. host may be a name or an IP literal (such a service is judged by its
-// address alone).
+// SaaSServed identifies SaaS hosting through a CNAME chain, address range or ASN. IP literals
+// are classified using their address alone.
 func (i *Inventory) SaaSServed(host string) bool {
 	_, ok := i.served(host,
 		func(e provider.Entry) bool { return e.Class == provider.ClassSaaS },
@@ -494,10 +476,8 @@ func (i *Inventory) SaaSServed(host string) bool {
 	return ok
 }
 
-// ProviderServed reports whether a host is served by shared provider
-// infrastructure of any kind (CDN, SaaS or other): a known provider's CNAME
-// anywhere on its chain, or an address in shared provider space. It is wider
-// than SaaSServed. host may be a name or an IP literal (judged by its address).
+// ProviderServed identifies shared hosting of any class, including CDN and SaaS, using CNAMEs
+// or address ownership. IP literals use address evidence alone.
 func (i *Inventory) ProviderServed(host string) bool {
 	_, ok := i.served(host,
 		func(provider.Entry) bool { return true },
@@ -505,17 +485,16 @@ func (i *Inventory) ProviderServed(host string) bool {
 	return ok
 }
 
-// Fronted reports whether a host is behind a CDN or WAF, and the provider: a CNAME on its chain
-// matches an entry of class cdn or waf, or one of its addresses classifies as cdn.
+// Fronted identifies CDN/WAF hosting and its provider from a matching CNAME or CDN-classified
+// address.
 func (i *Inventory) Fronted(host string) (string, bool) {
 	return i.served(host,
 		func(e provider.Entry) bool { return e.Class == provider.ClassCDN || e.Class == provider.ClassWAF },
 		func(r provider.Result) bool { return r.Class == provider.ClassCDN && r.Provider != "" })
 }
 
-// served reports whether a CNAME entry on host's chain passes byCNAME or one
-// of its addresses passes byAddr, and the provider of the first that does; an
-// IP literal is judged by byAddr alone.
+// served returns the first provider accepted by the CNAME or address predicate. IP literals use
+// only byAddr.
 func (i *Inventory) served(host string, byCNAME func(provider.Entry) bool, byAddr func(provider.Result) bool) (string, bool) {
 	host = dnsname.Normalise(host)
 	if a, ok := input.IPLiteral(host); ok {
@@ -542,9 +521,8 @@ func (i *Inventory) served(host string, byCNAME func(provider.Entry) bool, byAdd
 	return "", false
 }
 
-// HostnamesByIP maps every known address to the sorted names, not excluded,
-// that resolve to it or that rDNS gave it: the hostnames column of ips.csv.
-// It is worked out once per scope; callers must not modify the map or its lists.
+// HostnamesByIP maps known addresses to sorted, non-excluded DNS and rDNS names for ips.csv. It
+// is cached per scope; treat the map and slices as read-only.
 func (i *Inventory) HostnamesByIP(sc *scope.Scope) map[netip.Addr][]string {
 	i.mu.Lock()
 	out, ok := i.hosts[sc]
@@ -562,7 +540,7 @@ func (i *Inventory) HostnamesByIP(sc *scope.Scope) map[netip.Addr][]string {
 	return out
 }
 
-// KnownAddrs are the addresses of HostnamesByIP, in address order.
+// KnownAddrs returns the sorted addresses indexed by HostnamesByIP.
 func (i *Inventory) KnownAddrs(sc *scope.Scope) []netip.Addr {
 	return slices.SortedFunc(maps.Keys(i.HostnamesByIP(sc)), netip.Addr.Compare)
 }
@@ -596,8 +574,8 @@ func (i *Inventory) namesByIP(sc *scope.Scope) map[netip.Addr]map[string]bool {
 	return byIP
 }
 
-// IPRows lists every known address with its owner, provider label and whether
-// it may be port-checked (the same decision egress makes).
+// IPRows adds ownership, provider labels and port eligibility to every known address, using the
+// same eligibility decision as egress.
 func (i *Inventory) IPRows(sc *scope.Scope) []IPRow {
 	hostnames := i.HostnamesByIP(sc)
 	rows := make([]IPRow, 0, len(hostnames))
@@ -630,8 +608,8 @@ func (i *Inventory) IPRows(sc *scope.Scope) []IPRow {
 	return rows
 }
 
-// srvPorts are the sorted, distinct ports that SRV records advertise for the
-// in-scope names. A target outside the scope says nothing about the address.
+// srvPorts collects sorted, distinct advertised ports for in-scope names. Out-of-scope SRV
+// targets do not contribute ports.
 func (i *Inventory) srvPorts(names []string, sc *scope.Scope) []uint16 {
 	var ports []uint16
 	for _, n := range names {
@@ -643,11 +621,10 @@ func (i *Inventory) srvPorts(names []string, sc *scope.Scope) []uint16 {
 	return slices.Compact(ports)
 }
 
-// rangeText is a registered range as one CIDR when it is one, and otherwise as
-// its two ends.
+// rangeText uses one CIDR when it exactly covers the registered range, otherwise its endpoints.
 func rangeText(start, end netip.Addr) string {
 	if t := input.RangeText(start, end); t != "" {
 		return t
 	}
-	return start.Unmap().String() + "-" + end.Unmap().String() // an invalid range keeps its two ends
+	return start.Unmap().String() + "-" + end.Unmap().String() // preserve endpoints when the range is invalid
 }

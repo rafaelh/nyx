@@ -12,18 +12,18 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Records returns the current records of a kind: View.Records of a stage, and the findings' reader.
+// Records adapts stage and findings readers to current-kind access.
 type Records func(kinds.Named) []store.Record
 
-// Pair is a candidate with what the check and the findings need to decide it: what the probe saw
-// of the fronted hostname's HTTPS service.
+// Pair includes a candidate and the fronted host's HTTPS probe data needed for checks and
+// findings.
 type Pair struct {
 	Candidate
 	Probe       Probe
 	CertSubject string // the subject of the certificate the probe saw
 }
 
-// Probed says the fronted host's HTTPS service has a 2xx status: no check is made before that.
+// Probed requires a 2xx HTTPS baseline before checking candidate origins.
 func (p Pair) Probed() bool { return p.Probe.Status >= 200 && p.Probe.Status < 300 }
 
 // Key is the key of the pair's origin_check record.
@@ -31,15 +31,15 @@ func (p Pair) Key() string {
 	return kinds.OriginCheck.Key(kinds.OriginCheckAttrs{Host: p.Host, Addr: p.Addr.String()})
 }
 
-// CheckKey is the key of the pair's check: the pair and a hash of the probe's title and certificate
-// subject, so that a change in either checks the pair again.
+// CheckKey includes the pair and a hash of the probed title/certificate subject so changes
+// trigger another origin check.
 func (p Pair) CheckKey() string {
 	sum := sha256.Sum256([]byte(p.Probe.Title + "\x00" + p.CertSubject))
 	return p.Key() + "|" + hex.EncodeToString(sum[:4])
 }
 
-// FrontedHosts are the in-scope hostnames that currently resolve to a CDN or WAF, in name order,
-// with their provider. They are the probe hostnames, so a wildcard zone is one name.
+// FrontedHosts returns sorted in-scope probe names on a CDN/WAF with provider labels, using one
+// representative per wildcard zone.
 func FrontedHosts(sc *scope.Scope, inv *inventory.Inventory) []Front {
 	var out []Front
 	for _, h := range inv.ProbeHostnames(sc) {
@@ -50,9 +50,8 @@ func FrontedHosts(sc *scope.Scope, inv *inventory.Inventory) []Front {
 	return out
 }
 
-// Pairs derives the candidates of every fronted hostname from the current records: the historical
-// addresses and the probed web services, with at most max candidates for each hostname. vis is
-// the caller's showing rules for sc and inv.
+// Pairs combines current DNS history and probed services into at most max candidates per
+// fronted host, using the caller's visibility rules.
 func Pairs(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility, records Records, max int) []Pair {
 	fronts := FrontedHosts(sc, inv)
 	if len(fronts) == 0 {
@@ -79,7 +78,7 @@ func Pairs(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility, rec
 	for i := range fronts {
 		fronts[i].Title = probes[fronts[i].Host].Title
 	}
-	// Candidates reads only a fronted host's history, and a fronted host is in scope.
+	// Only fronted in-scope hosts need history for candidate selection.
 	var hist []HistoricalAddr
 	for _, r := range records(kinds.HistoricalAddress) {
 		if !r.Current {
@@ -99,7 +98,7 @@ func Pairs(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility, rec
 	return out
 }
 
-// Answers are the current origin_check records, by pair key ("host|address").
+// Answers indexes current origin_check evidence by host/address pair.
 func Answers(records Records) map[string]Answer {
 	out := map[string]Answer{}
 	for _, r := range records(kinds.OriginCheck) {

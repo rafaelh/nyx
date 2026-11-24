@@ -11,8 +11,7 @@ import (
 // sgr is one SGR escape sequence.
 var sgr = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
-// paletteSequences are every SGR sequence the palette can write at depth d, from each of its
-// functions over each of its tables.
+// paletteSequences enumerates allowed SGR output across palette functions/tables at one depth.
 func paletteSequences(d palette.Depth) map[string]bool {
 	set := map[string]bool{}
 	add := func(s string) {
@@ -39,9 +38,8 @@ func paletteSequences(d palette.Depth) map[string]bool {
 	return set
 }
 
-// OnlyPaletteEscapes fails the test when out holds an escape byte that does not start a sequence
-// the palette writes at depth d, and when it holds any other control character or bidi override
-// besides the newline.
+// OnlyPaletteEscapes rejects escapes outside the selected palette depth, plus non-newline
+// controls and bidi overrides.
 func OnlyPaletteEscapes(t *testing.T, d palette.Depth, out string) {
 	t.Helper()
 	allowed := paletteSequences(d)

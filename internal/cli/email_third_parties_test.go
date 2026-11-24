@@ -29,8 +29,7 @@ func tpRows(w *world, mechanism string) map[string]map[string]string {
 
 func domains(rows map[string]map[string]string) []string { return slices.Sorted(maps.Keys(rows)) }
 
-// Every domain the SPF walk follows, and every a:, mx: and exists: argument at
-// any level, is a row; the depth counts from 0; macros are skipped.
+// SPF traversal records external lookup dependencies with depth while ignoring macros.
 func TestEmailThirdParties_SPFDepthAndMechanisms(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -167,8 +166,8 @@ func TestEmailThirdParties_DMARCInheritedFromOrganisationalDomain(t *testing.T) 
 	}
 }
 
-// An MX row uses the host's registrable domain; one in the scope is not listed,
-// nor is an address an MX record wrongly names.
+// MX dependencies use registrable domains and exclude internal hosts or malformed address
+// targets.
 func TestEmailThirdParties_MX(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -190,8 +189,7 @@ func TestEmailThirdParties_MX(t *testing.T) {
 	}
 }
 
-// A domain under another in-scope root is hidden, whether that root was given
-// with the first or added later, and a not-current row is hidden too.
+// Adding a covering root hides dependencies consistently, including non-current rows.
 func TestEmailThirdParties_DomainUnderInScopeRootIsHidden(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -259,8 +257,7 @@ func TestEmailThirdParties_CNAMEMechanism(t *testing.T) {
 	}
 }
 
-// A cname row whose hostname stops pointing at the platform goes not current
-// on --redo resolve, and still shows its root, mechanism and domain.
+// Redoing resolution retires removed SaaS dependencies while preserving identifying columns.
 func TestEmailThirdParties_CNAMERowGoesNotCurrent(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -347,8 +344,7 @@ func TestEmailThirdParties_FoundLineCountAndPassive(t *testing.T) {
 	}
 }
 
-// --redo email marks a third party the root no longer references as not current,
-// and the row still shows its root, mechanism and domain.
+// Redoing email retires removed dependencies while preserving identifying columns.
 func TestEmailThirdParties_RedoEmailRetires(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -493,8 +489,7 @@ func TestEmailMTASTS_ServfailFailsTheCheck(t *testing.T) {
 	}
 }
 
-// The check key gains a token, so an engagement from before re-runs its email
-// checks once; the policy file over HTTPS is never fetched.
+// Version old checks once for MTA-STS DNS support without fetching HTTPS policy files.
 func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)

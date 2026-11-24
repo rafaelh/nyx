@@ -217,9 +217,8 @@ func TestPromotedCandidate(t *testing.T) {
 	}
 }
 
-// An empty directory, or one whose creation was interrupted, is adopted as the
-// engagement. (A directory that is not an engagement is refused: see
-// TestEngagementErrors_ForeignDirectory.)
+// Empty or interrupted-creation directories are adoptable; foreign populated directories are
+// covered separately.
 func TestEngagementDirAdopted(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -382,8 +381,7 @@ func TestErrAbortStage(t *testing.T) {
 	}
 }
 
-// A stage whose check enumeration fails is counted as failed once per
-// run, and the run still terminates.
+// Count enumeration failure once and terminate rather than looping across passes.
 func TestEnumerationErrorTerminates(t *testing.T) {
 	t.Parallel()
 	st := &testkit.Stage{StageName: "enum", Kind: run.ThirdParty,
@@ -513,8 +511,7 @@ func TestRedoKeepsUnlistedChecksOnEnumerationError(t *testing.T) {
 	}
 }
 
-// A check key containing a configured key value is stored redacted, yet still
-// recognised as completed: within the run and on the next one.
+// Redacted secret-bearing check keys still support completion lookup within and across runs.
 func TestRedactedCheckKeyCompletes(t *testing.T) {
 	t.Parallel()
 	st := &testkit.Stage{StageName: "asnish", Kind: run.ThirdParty,
@@ -711,9 +708,7 @@ func TestNetblockGuard(t *testing.T) {
 	}
 }
 
-// A netblock is in scope for an input ASN when a stage that expands the input
-// ASNs observes it under that ASN's check, whatever the stage is called; another
-// stage's netblock is not, even one named asn.
+// ASN expansion depends on the marker interface and input check key, not the stage's name.
 func TestASNNetblocksComeFromTheExpandingStage(t *testing.T) {
 	t.Parallel()
 	announce := func(name, prefix string) *testkit.Stage {
@@ -828,8 +823,7 @@ func TestStageStatesAndFound(t *testing.T) {
 	}
 }
 
-// checkStageStates checks each stage's last state, reason and counts, and that
-// there is one line per state change: no consecutive duplicates for any stage.
+// checkStageStates verifies final states and rejects repeated identical state events.
 func checkStageStates(t *testing.T, evs []event) {
 	t.Helper()
 	want := map[string][2]string{ // state, reason
@@ -901,8 +895,8 @@ func checkStatesSummary(t *testing.T, evs []event) {
 		t.Fatalf("summaries: %d", len(sum))
 	}
 	totals := sum[0]["totals"].(map[string]any)
-	// 1.2.3.4 is neither in a netblock nor the address of an in-scope name, so
-	// its open port is not the target's and is not counted.
+	// This address has no scope relationship, so its open port must not contribute a target
+	// finding.
 	if totals["urls"] != float64(2) || totals["hosts"] != float64(1) || totals["open ports (confirmed)"] != float64(0) {
 		t.Errorf("totals = %v", totals)
 	}

@@ -12,9 +12,8 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// hop is one response of a probe's redirect chain, reduced to what posture
-// reads. Its page is parsed at most once, however many readers ask: the probe
-// takes the title from the same parse the directory-listing check uses.
+// hop stores response data for posture checks and shares one parsed page with title and
+// directory-listing readers.
 type hop struct {
 	https  bool
 	origin string              // scheme://host[:port], in Origin's form
@@ -35,7 +34,7 @@ func newHop(r egress.Response) *hop {
 	return h
 }
 
-// hopAt is a hop for a response to the request for url, with the given media type.
+// hopAt creates posture input for a URL/media-type pair.
 func hopAt(url, contentType string, header map[string][]string, body []byte) *hop {
 	return &hop{https: strings.HasPrefix(url, "https://"), origin: originOf(url), header: header, body: body, isHTML: contentType == "text/html"}
 }
@@ -52,17 +51,10 @@ func (h *hop) page() (page, bool) {
 	return h.pg, h.pgOK
 }
 
-// posture reads the web-configuration evidence out of the responses a probe
-// received, in order: chain[0] is the service's first response and the rest are
-// the redirects it followed. It reads only what those responses already carry.
-//
-//   - HSTS and version banners come from the first response. HSTS is judged only
-//     for a service answering over HTTPS.
-//   - Cookies come from every response in the chain. A cookie lacks HttpOnly
-//     whatever the scheme, and lacks Secure only if its response arrived over
-//     HTTPS. Only names are kept, never values.
-//   - A directory listing is read from the last page of the chain that the
-//     service's own origin served, not one a redirect led to elsewhere.
+// posture uses only already-received redirect-chain responses. The first response supplies HSTS
+// and version banners; HSTS applies only over HTTPS. All responses contribute cookie names and
+// HttpOnly state; Secure is judged only over HTTPS. Cookie values are discarded. Directory
+// evidence comes from the last same-origin page.
 func posture(host string, chain []*hop) kinds.WebPostureAttrs {
 	first := chain[0]
 	a := kinds.WebPostureAttrs{Host: host}
@@ -92,9 +84,8 @@ func posture(host string, chain []*hop) kinds.WebPostureAttrs {
 	return a
 }
 
-// parseSetCookie reads a Set-Cookie line: the cookie's sanitised name (never
-// its value) and whether its attributes include Secure and HttpOnly. A line
-// with no name=value pair is not a cookie.
+// parseSetCookie returns a sanitised cookie name and Secure/HttpOnly flags, discarding values.
+// Lines without name=value are ignored.
 func parseSetCookie(line string) (name string, secure, httpOnly, ok bool) {
 	pair, attrs, _ := strings.Cut(line, ";")
 	name, _, hasValue := strings.Cut(pair, "=")
@@ -114,14 +105,12 @@ func parseSetCookie(line string) (name string, secure, httpOnly, ok bool) {
 	return name, secure, httpOnly, true
 }
 
-// lastSameOrigin is the last response of the chain served by the origin the
-// chain began at.
+// lastSameOrigin selects the final response on the initial origin.
 func lastSameOrigin(chain []*hop) *hop {
 	return lastWhere(chain, func(h *hop) bool { return h.origin == chain[0].origin })
 }
 
-// lastWhere is the last response of the chain after the first that same accepts,
-// or the first.
+// lastWhere finds the final accepted redirect response, falling back to the first.
 func lastWhere(chain []*hop, same func(*hop) bool) *hop {
 	for i := len(chain) - 1; i > 0; i-- {
 		if same(chain[i]) {
@@ -133,8 +122,8 @@ func lastWhere(chain []*hop, same func(*hop) bool) *hop {
 
 const listingPrefix = "Index of /"
 
-// isDirectoryListing reports whether the response is an HTML page whose title,
-// or first heading, begins "Index of /", as the automatic listing of a web server does.
+// isDirectoryListing recognises automatic "Index of /" listings in HTML titles or first
+// headings.
 func (h *hop) isDirectoryListing() bool {
 	pg, ok := h.page()
 	if !ok {
@@ -146,9 +135,8 @@ func (h *hop) isDirectoryListing() bool {
 	return strings.HasPrefix(pg.title(), listingPrefix) || strings.HasPrefix(pg.firstText(isHeading), listingPrefix)
 }
 
-// versionHeaders are the Server and X-Powered-By values of the response that
-// carry a version, ";"-joined: a "/" followed by a digit ("Apache/2.4.41";
-// "nginx" and "ASP.NET" carry none).
+// versionHeaders keeps semicolon-joined Server/X-Powered-By values containing slash-digit
+// version syntax.
 func versionHeaders(h *hop) string {
 	var out []string
 	for _, name := range []string{"Server", "X-Powered-By"} {

@@ -65,7 +65,7 @@ func TestCrawl_FetchesAndRecords(t *testing.T) {
 			t.Errorf("%s must be recorded or ignored, never fetched", u)
 		}
 	}
-	// A script is not crawled as a page; the jsparse stage reads it once.
+	// Crawling records script references; jsparse fetches them separately.
 	if s.count("/app.js") != 1 {
 		t.Errorf("/app.js fetched %d times, want once (by jsparse, not the crawl)", s.count("/app.js"))
 	}
@@ -244,8 +244,8 @@ func TestCrawl_RootRedirectToAnotherOriginEndsTheCrawl(t *testing.T) {
 		}))
 	x.mustRun()
 
-	// The probe follows the redirect once, and so does its request for the icon,
-	// which the http service redirects the same way; the http service's crawl must not.
+	// Probe/icon redirects may follow to HTTPS, but the original HTTP-origin crawl must
+	// stay within its origin.
 	if s443.count("/landing") != 2 {
 		t.Errorf("/landing requested %d times, want 2 (the probe and its icon request only)", s443.count("/landing"))
 	}
@@ -290,8 +290,8 @@ func TestCrawl_SameOriginRedirectsAreFollowedAndOnlyHTMLIsParsed(t *testing.T) {
 	}
 }
 
-// robots.txt and the sitemaps are read for the URLs they list, which are crawled
-// as if the root linked to them. A Disallow is a path to visit, not a rule.
+// robots/sitemaps supply crawl paths; Disallow is discovery evidence rather than a crawl
+// prohibition.
 func TestCrawl_ReadsRobotsAndSitemaps(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)

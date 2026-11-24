@@ -11,11 +11,8 @@ import (
 	"testing"
 )
 
-// Shodan's view of each address. The tests drive cli.Execute with the real
-// shodan, shodan-host and ports stages. api.shodan.io is a fake that answers the
-// netblock search and one host lookup per address, and every address and port
-// the sweep may dial is mapped to a loopback listener, so nothing leaves the
-// machine and a listener's connection count says what was contacted.
+// Shodan tests use real stages, fake API responses and counted loopback port targets to expose
+// every request/connection.
 
 const (
 	appHost = "203.0.113.7" // a dedicated address app.example.com resolves to
@@ -199,8 +196,7 @@ func TestShodanHost_NotConfiguredWithoutKey(t *testing.T) {
 	}
 }
 
-// With a key, --passive shows what Shodan holds for each dedicated in-scope
-// address, and nothing is dialled.
+// Passive keyed Shodan lookups return dedicated-address data without target connections.
 func TestShodanHost_PassiveShowsOpenAndRiskyPorts(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -365,9 +361,8 @@ func TestShodanHost_RefreshedOnlyByRedo(t *testing.T) {
 
 // --- Netblocks ---
 
-// A complete netblock search records the ports it returns and its addresses
-// need no lookup. An address inside the block that it did not return needs none
-// either, since the search was complete.
+// Complete netblock searches cover returned and absent addresses without individual host
+// lookups.
 func TestShodanHost_CompleteNetblockSearchNeedsNoLookups(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -394,8 +389,8 @@ func TestShodanHost_CompleteNetblockSearchNeedsNoLookups(t *testing.T) {
 	}
 }
 
-// A search that stopped at its page cap leaves out addresses; those that are
-// known and dedicated are looked up one by one, and the summary says so.
+// Capped searches allow eligible missed addresses to be looked up individually and report the
+// truncation.
 func TestShodanHost_TruncatedSearchLooksUpWhatItMissed(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -426,8 +421,8 @@ func TestShodanHost_TruncatedSearchLooksUpWhatItMissed(t *testing.T) {
 	}
 }
 
-// An address a truncated search returned is not looked up, even when all it
-// returned for the address was a UDP service (which records no port).
+// Any returned address counts as covered, including UDP-only matches that create no port
+// report.
 func TestShodanHost_TruncatedSearchReturnedUDPOnly(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -604,8 +599,8 @@ func TestShodanHost_ClosedPortIsInNoCountOrFinding(t *testing.T) {
 
 // --- Active, then Shodan ---
 
-// A port checked before Shodan reported it, with no open record, is checked once
-// more; one nyx found open, and later runs, are not.
+// A later report allows one extra check for an unconfirmed port, never repeated checks for
+// already-open ports.
 func TestShodanHost_LateReportCostsOneExtraHandshake(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)

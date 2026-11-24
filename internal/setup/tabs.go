@@ -16,8 +16,7 @@ const (
 	bodyX = markW + nameW // where a row's value starts
 )
 
-// item is one selectable row of a tab as lines. cursor is where the field's cursor is, when the row
-// is being edited.
+// item holds one selectable tab row and an optional editing cursor position.
 type item struct {
 	lines  []line
 	cursor *cursorAt
@@ -25,7 +24,7 @@ type item struct {
 
 type cursorAt struct{ line, x int }
 
-// marks is the two characters before a row: the selection and whether it holds a change.
+// marks combines selection and unsaved-change indicators.
 func (m *model) marks(selected, changed bool) line {
 	l := line{plain(" "), plain(" ")}
 	if selected {
@@ -37,7 +36,7 @@ func (m *model) marks(selected, changed bool) line {
 	return l
 }
 
-// padded is s in role, then the spaces that make it w cells wide.
+// padded styles text and adds plain padding to w cells.
 func (m *model) padded(role, s string, w int) line {
 	return line{m.paint(role, s), plain(strings.Repeat(" ", max(w-layout.Measure(s), 0)))}
 }
@@ -58,7 +57,7 @@ func (m *model) items(t tabID) []item {
 	return nil
 }
 
-// editing is the field of the row being edited, if row i of tab t is it.
+// editing returns the active row's text field, if this row is being edited.
 func (m *model) editing(t tabID, i int) *field {
 	if m.mode == modeEdit && m.ed != nil && m.ed.tab == t && m.ed.row == i {
 		return m.ed.f
@@ -66,7 +65,7 @@ func (m *model) editing(t tabID, i int) *field {
 	return nil
 }
 
-// maskKey is how a key shows: not set, set (under twelve runes) or its last four runes.
+// maskKey shows unset/set or the final four runes when long enough.
 func maskKey(k string) string {
 	r := []rune(k)
 	switch {
@@ -83,7 +82,7 @@ func (m *model) head(selected, changed bool, name string) line {
 	return append(m.marks(selected, changed), m.padded(pick(selected, roleName, roleNameDim), name, nameW)...)
 }
 
-// note is a line of explanatory text under a row's value.
+// note supplies explanatory text beneath a value.
 func (m *model) note(text string) line { return line{plain(indent()), m.paint(roleHelp, text)} }
 
 func (m *model) keyItems() []item {
@@ -115,8 +114,8 @@ func (m *model) keyItems() []item {
 	return out
 }
 
-// keyStatus is what the row says of a key test, and the role it says it in: a test of this session,
-// else the file's record while it is shown, else "not tested" for a key with no record.
+// keyStatus prefers this session's result, then a visible saved result, then "not tested",
+// returning the text and its colour role.
 func (m *model) keyStatus(r *keyRow) (string, string) {
 	switch {
 	case r.testing():
@@ -173,8 +172,8 @@ func (m *model) settingItems() []item {
 	return out
 }
 
-// skipItems are the stages, each marked [x] while it runs and drawn faint once it is skipped, then
-// the entries of the list that are problems.
+// skipItems marks running stages [x], dims skipped stages and follows them with invalid skip
+// entries.
 func (m *model) skipItems() []item {
 	var out []item
 	nameCol := 0
@@ -204,9 +203,8 @@ func (m *model) skipItems() []item {
 	return out
 }
 
-// threatItems are the lists, each a line naming it with its source and date, a line with its count
-// and where the copy in use comes from, then its note and what the last update said of it. The
-// credit its source asks for, and why nothing can be updated, follow the last row.
+// threatItems formats each list's name, source, date, count, active copy, notes and latest
+// update result. Source credit and update-unavailable reasons follow the list.
 func (m *model) threatItems() []item {
 	out := make([]item, 0, len(m.threat))
 	for i, r := range m.threat {
@@ -246,7 +244,7 @@ func (m *model) threatItems() []item {
 	return out
 }
 
-// threatRole is the role an update's word on a list is drawn in.
+// threatRole styles each list's update status.
 func threatRole(o ThreatOutcome) string {
 	switch o {
 	case ThreatUpdated:
@@ -260,8 +258,8 @@ func threatRole(o ThreatOutcome) string {
 	return roleHelp
 }
 
-// threatFoot is the lines under the last list: the copyright line and terms link of the first list
-// that carries them, then why the data cannot be updated, when it cannot.
+// threatFoot shows the first available copyright/terms credit, then any reason updates are
+// unavailable.
 func (m *model) threatFoot() []line {
 	var out []line
 	if i := slices.IndexFunc(m.threat, func(r threatEntry) bool { return r.list.Copyright != "" || r.list.Terms != "" }); i >= 0 {
@@ -280,7 +278,7 @@ func (m *model) threatFoot() []line {
 	return out
 }
 
-// noteLines lays a note under a row out in role, in at most two lines, indented past the row marks.
+// noteLines wraps notes into at most two lines beyond row indicators.
 func (m *model) noteLines(role, text string) []line {
 	lines := wrap(m.text(text), m.width-markW, 0)
 	if len(lines) > 2 {
@@ -295,10 +293,10 @@ func (m *model) noteLines(role, text string) []line {
 
 func indent() string { return strings.Repeat(" ", bodyX) }
 
-// bodyHeight is the number of lines the active tab's rows may take: one fewer while the notice has two.
+// bodyHeight reserves an extra row for two-line notices.
 func (m *model) bodyHeight() int { return max(m.height-chromeLines-max(len(m.notice)-1, 0), 1) }
 
-// fixScroll keeps the selection on the screen: the first row shown moves only as far as it must.
+// fixScroll moves only enough to keep selection visible.
 func (m *model) fixScroll() {
 	n := m.rows(m.tab)
 	m.sel[m.tab] = max(0, min(m.sel[m.tab], max(n-1, 0)))

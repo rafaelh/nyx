@@ -98,11 +98,8 @@ var (
 	}
 )
 
-// A candidate is an address whose owner is known and that is not provider infrastructure, and that
-// is a historical address of the host or the current address of a sibling: another in-scope,
-// non-wildcard-only host, not itself behind a CDN or WAF, whose certificate names the fronted host
-// or whose non-empty title equals the fronted host's. Historical addresses come first, most
-// recent first, then siblings in name order; a candidate found two ways has both.
+// Candidate tests cover dedicated history/sibling evidence, history recency, sibling ordering
+// and combined discovery methods.
 func TestCandidates_SelectionAndOrder(t *testing.T) {
 	t.Parallel()
 	inv, sc := standard().build()
@@ -190,8 +187,8 @@ func TestCandidates_CapKeepsTheFirst(t *testing.T) {
 	}
 }
 
-// A sibling matches on a title only when the title is not empty and is not one a CDN, a WAF or a
-// default server page shows: every host on the same default page would match otherwise.
+// Reject empty/default titles to avoid treating unrelated default pages as common-origin
+// evidence.
 func TestCandidates_TitleMatchNeedsARealTitle(t *testing.T) {
 	t.Parallel()
 	inv, sc := standard().build()

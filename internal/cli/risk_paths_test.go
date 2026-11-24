@@ -135,8 +135,7 @@ func TestSensitivePaths_TransientFailureRetried(t *testing.T) {
 	}
 }
 
-// Company hosts behind CDNs, on PaaS and by IP literal are requested; hosts
-// served by third-party SaaS (by CNAME, and an apex by address range) are not.
+// Sensitive paths apply to target CDN/PaaS/IP services but skip third-party SaaS hosting.
 func TestSensitivePaths_WhichServicesAreRequested(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
@@ -216,9 +215,7 @@ func TestSensitivePaths_HitNeedsCurrentService(t *testing.T) {
 	}
 }
 
-// Editing an entry's signature retires the old check, so its hit stops
-// being current instead of staying a finding at its old evidence; the other
-// entries are not requested again.
+// Matcher edits retire stale hits and rerun only affected entries.
 func TestSensitivePaths_EditedEntrySupersedesOldHit(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "sensitive-paths")

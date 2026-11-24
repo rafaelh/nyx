@@ -12,14 +12,9 @@ import (
 	"testing"
 )
 
-// Historical DNS and origin exposure. The tests drive cli.Execute with the real dnshistory and
-// origincheck stages. A SecurityTrails fake answers history lookups; every address a candidate
-// origin could have is mapped to a loopback server (or a closed port), so nothing leaves the machine.
-//
-// The standard world: www.example.com is a CNAME to Fastly and answers 200 "Acme Corp" from the CDN
-// at 203.0.113.10. origin.example.com is a sibling at 203.0.113.20 (owner known, dedicated), whose
-// certificate names www.example.com and whose page is titled "Origin Server" for its own name; for
-// the Host www.example.com it serves the Acme Corp page, so it is the exposed origin.
+// Origin tests use real stages with loopback history and target servers. www.example.com is
+// Fastly-fronted; its dedicated sibling presents a matching certificate and serves the same
+// site when requested as www. This supplies both candidate and confirmation evidence.
 
 const (
 	cdnAddr      = "203.0.113.10"
@@ -38,9 +33,8 @@ func siteBody(title string) string {
 
 type histRec struct{ addr, first, last string }
 
-// stHistory is api.securitytrails.com's DNS history: /v1/history/<host>/dns/a and /aaaa. The key is
-// checked, the subdomain list of a root is empty (so the subdomain source does not fail the run)
-// and every other path is a 404.
+// stHistory validates history requests/keys, serves empty subdomain results and rejects
+// unrelated paths.
 type stHistory struct {
 	mu      sync.Mutex
 	records map[string][]histRec // "host/a" or "host/aaaa"
@@ -246,8 +240,7 @@ func (x *oworld) wantRow(addr, severity, foundBy, confirmedBy, confirmed, curren
 	}
 }
 
-// wwwGets counts the requests that reached a server for Host www.example.com, which only an
-// origin check sends there (the probe asks a server for its own name).
+// wwwGets distinguishes origin checks from normal probes through the Host header.
 func wwwGets(s *site, scheme string) int {
 	n := 0
 	for _, r := range s.requests() {
@@ -265,9 +258,8 @@ func (x *oworld) historicalOrigin() *site {
 
 // --- the standard cases ---
 
-// A historical address is a row in resolutions.csv and ips.csv, is contacted once it is in a netblock,
-// and when it answers with the fronted host's own title it is a confirmed medium finding with a
-// `+` line, the row's provider, how it was found and what confirmed it.
+// Historical addresses become confirmed origins only when contact is eligible and their
+// responses match the fronted site.
 func TestOrigin_HistoricalOriginConfirmedByTitle(t *testing.T) {
 	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
@@ -359,9 +351,8 @@ func TestOrigin_ProbeRecordsBodyLength(t *testing.T) {
 	}
 }
 
-// A sibling is found by its certificate, by its title, or both; the exposure is confirmed by the
-// title the origin answers with, or by the same status, a similar body and a certificate that names
-// the host. A certificate that names the host is not enough by itself.
+// Candidate discovery and confirmation use separate evidence; a matching certificate alone
+// cannot confirm exposure.
 func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
 	t.Parallel()
 	t.Run("by certificate, confirmed by status, size and certificate", func(t *testing.T) {
@@ -413,9 +404,7 @@ func TestOrigin_SiblingFoundByCertificateAndByTitle(t *testing.T) {
 
 // --- candidates that may not be contacted ---
 
-// An address that may not be contacted is reported as a possible origin, and nothing is sent to it:
-// not the check, not a probe, not a port check. A historical address is an address in ips.csv and
-// no more, whatever it is a historical address of.
+// Uncontactable historical candidates remain possible origins without triggering other probes.
 func TestOrigin_UncontactableCandidateIsPossibleAndNeverContacted(t *testing.T) {
 	t.Parallel()
 	x := newOriginWorld(t, func(o *originOpts) { o.noSibling = true })
@@ -476,8 +465,7 @@ func TestOrigin_NoCheckBeforeTheProbeHasA2xx(t *testing.T) {
 	}
 }
 
-// If the title the probe saw changes, the pair is checked again, and what the new check finds is
-// what counts: the origin no longer carries the new title, so it is confirmed by size instead.
+// Baseline title changes version the check and replace confirmation evidence.
 func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 	t.Parallel()
 	x := newOriginWorld(t)
@@ -498,8 +486,7 @@ func TestOrigin_ChangedTitleChecksAgain(t *testing.T) {
 	x.wantRow(siblingAddr, "medium", "sibling-certificate", "status-body-certificate", "yes", "true")
 }
 
-// The check is one GET per scheme. It falls back to HTTP on 80 only when nothing answers on 443,
-// not when 443 answers or fails the TLS handshake.
+// Fallback to HTTP occurs only when HTTPS gives no answer, not after a TLS failure.
 func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T) *oworld {
@@ -559,8 +546,8 @@ func TestOrigin_HTTPFallbackOnlyWhenNothingAnswersOn443(t *testing.T) {
 
 // --- findings that stop being current ---
 
-// A finding is marked not current when the pair no longer qualifies: the hostname is no longer behind
-// a CDN or WAF, the address becomes provider infrastructure, or the sibling no longer matches.
+// Retire findings when fronting, dedicated ownership or sibling evidence no longer qualifies
+// the pair.
 func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
 	t.Parallel()
 	t.Run("the hostname is no longer behind a CDN or WAF", func(t *testing.T) {
@@ -600,8 +587,7 @@ func TestOrigin_FindingGoesNotCurrent(t *testing.T) {
 	})
 }
 
-// When --redo origincheck gets an answer that no longer confirms, the row stays current (its key
-// does not change) but is a possible origin: low, not confirmed.
+// Redo can downgrade confirmation while preserving the current pair's row/key.
 func TestOrigin_RedoThatFailsToConfirmLeavesAPossibleOrigin(t *testing.T) {
 	t.Parallel()
 	x := newOriginWorld(t)
@@ -645,8 +631,7 @@ func TestOrigin_NoKeyLeavesSiblingCandidatesOnly(t *testing.T) {
 	}
 }
 
-// dnshistory asks hostnames in name order up to dnshistory.max_hosts per run, the rest are deferred
-// and counted in the summary, and a later run asks the next ones.
+// DNS history budgets sorted hosts across runs and reports deferred work.
 func TestDNSHistory_CapAndDeferredCount(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -734,8 +719,7 @@ func TestOrigin_Help(t *testing.T) {
 	}
 }
 
-// The docs state the one new request the target can receive, and why, and list origincheck among
-// the stages --passive skips, the new file and the settings.
+// Document origin requests, passive skipping, output and settings together.
 func TestOrigin_DocsStateTheBoundary(t *testing.T) {
 	t.Parallel()
 	docs := docsText(t)

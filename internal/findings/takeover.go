@@ -10,8 +10,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// evidence collects every kind of takeover evidence for one target (a hostname,
-// or a bucket only a URL references), so it forms one finding.
+// evidence combines takeover signals into one finding per hostname or URL-only bucket target.
 type evidence struct {
 	types   map[string]bool
 	details []string
@@ -88,9 +87,9 @@ func (d *deriver) httpTakeovers(ev evidenceSet) {
 	}
 }
 
-// missingStorage: an attributed bucket or account that does not exist. Evidence
-// goes to each hostname whose CNAME names it; a bucket only URLs name is its own
-// finding, low when every reference is a plain link.
+// missingStorage finds absent attributed buckets/accounts. CNAME references produce findings
+// for their hostnames; URL-only references produce a bucket finding, downgraded to low when all
+// are plain links.
 func (d *deriver) missingStorage(ev evidenceSet) {
 	refs := d.references()
 	missing := d.missingResources()
@@ -137,9 +136,8 @@ func (d *deriver) missingStorage(ev evidenceSet) {
 	}
 }
 
-// refKey is the storage key whose absence makes a reference claimable: the
-// bucket, or for Azure the account. A missing container in an existing account
-// is not: only the account's owner can create it.
+// refKey identifies the claimable resource: a bucket, or an Azure account. A missing Azure
+// container alone is not claimable by outsiders.
 func refKey(ref cloudstorage.Reference) string {
 	if ref.Provider != cloudstorage.Azure {
 		return cloudstorage.Key(ref.Provider, ref.Name, "")

@@ -308,8 +308,7 @@ func TestRender_WebHostsThatAreIPv6AreBracketed(t *testing.T) {
 	}
 }
 
-// The abusive keys read as one line to each match, none when nothing matches, and unknown when Team
-// Cymru failed to give the AS.
+// Abuse sections distinguish matching entries, no matches and unknown origin AS.
 func TestRender_AbusiveSections(t *testing.T) {
 	t.Parallel()
 	nets := []abusive.NetworkMatch{
@@ -387,7 +386,7 @@ none
 	}
 }
 
-// Text from the snapshot is cleaned of anything that would act on a terminal, as every other value is.
+// Clean snapshot text before terminal display, like other external data.
 func TestRender_AbusiveTextIsSanitised(t *testing.T) {
 	t.Parallel()
 	r := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public",
@@ -408,7 +407,7 @@ func lines(s string) []string {
 	return out
 }
 
-// countLines is how many rendered lines end in the word, as a value of its own.
+// countLines counts standalone final-word values in rendered lines.
 func countLines(s, word string) int {
 	n := 0
 	for _, l := range lines(s) {
@@ -419,9 +418,7 @@ func countLines(s, word string) int {
 	return n
 }
 
-// The DROP keys name Spamhaus and read as one line to each match, in order: a network with its
-// CIDR, SBL ID, RIR and its list's date, and the AS with its number, name, country, domain, RIR
-// and its list's date.
+// DROP sections label Spamhaus and include ordered source details/dates.
 func TestRender_DropSections(t *testing.T) {
 	t.Parallel()
 	nets := []spamhaus.NetworkMatch{
@@ -495,8 +492,7 @@ func TestRender_DropEmptyAndUnknown(t *testing.T) {
 	}
 }
 
-// Text from the DROP lists is cleaned of anything that would act on a terminal, as every other
-// value is.
+// Clean DROP metadata before display, like other source text.
 func TestRender_DropTextIsSanitised(t *testing.T) {
 	t.Parallel()
 	r := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public",

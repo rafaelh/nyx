@@ -249,8 +249,7 @@ func TestRangeCIDRs(t *testing.T) {
 	}
 }
 
-// Every problem is reported, each under the name of the argument it came from
-// with the value as given.
+// Validation reports every problem under its original argument/value.
 func TestParseProblemsNameTheirArgument(t *testing.T) {
 	t.Parallel()
 	_, err := input.Parse(input.Raw{
@@ -277,8 +276,7 @@ func TestParseProblemsNameTheirArgument(t *testing.T) {
 	}
 }
 
-// RangeText is the one text of a registered range: the CIDR when the range is exactly one, else
-// "start-end", and "" for a range that is not valid.
+// Range formatting uses an exact CIDR, endpoint pair or empty text for invalid ranges.
 func TestRangeText(t *testing.T) {
 	t.Parallel()
 	a := netip.MustParseAddr

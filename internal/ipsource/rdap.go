@@ -29,12 +29,11 @@ var errTruncated = errors.New("response was larger than the 10 MiB limit")
 // Registry is one of the five regional internet registries.
 type Registry struct {
 	Name, Host string
-	// Base is the registry's service URL, as the bootstrap file gives it.
+	// Base is the registry service URL from bootstrap data.
 	Base string
-	// Search is whether an organisation search returns the organisation's
-	// netblocks and autonomous systems. ARIN does, with a second request for the
-	// entity, and APNIC does in the search result. RIPE, LACNIC and AFRINIC
-	// return the entity alone, so they are not asked.
+	// Search marks registries returning allocations for organisation searches. ARIN needs
+	// an entity follow-up; APNIC includes them directly. Entity-only registries are
+	// skipped.
 	Search bool
 }
 
@@ -58,8 +57,7 @@ func RegistryByHost(host string) (Registry, bool) {
 	return registries[i], true
 }
 
-// RDAPHosts is every host an RDAP lookup may contact: IANA's bootstrap host,
-// then the five registries'. It is the source list of a caller that does them.
+// RDAPHosts lists IANA bootstrap and five registries for callers' source allowlists.
 func RDAPHosts() []string {
 	out := []string{BootstrapHost}
 	for _, r := range registries {
@@ -80,11 +78,8 @@ type Registration struct {
 	Handle string
 }
 
-// Bootstrap holds IANA's bootstrap file for each address family, which says
-// which registry holds an address. The caller owns it and passes it to every
-// Lookup, so each file is fetched once however many addresses are looked up.
-// A file that could not be had is remembered with its error and not asked for
-// again. The zero value is ready to use, and it is safe for concurrent use.
+// Bootstrap caches IANA's address-family registry maps across Lookup calls, including fetch
+// failures. The zero value is usable and concurrent calls are safe.
 type Bootstrap struct {
 	v4, v6 bootCache
 }
@@ -103,7 +98,7 @@ type bootEntry struct {
 	url    string
 }
 
-// serviceURL is the registry URL that holds the address: the longest matching prefix's.
+// serviceURL chooses the registry service with the longest matching bootstrap prefix.
 func (b *bootFile) serviceURL(a netip.Addr) (string, bool) {
 	best, bits := "", -1
 	for _, e := range b.entries {
@@ -164,8 +159,8 @@ func fetchBootstrap(ctx context.Context, c egress.ThirdPartyHTTP, v4 bool) (*boo
 	return b, nil
 }
 
-// get fetches a URL that answers 200 with a body. A 429 is a *RateLimitedError
-// for host, and any other status or a truncated body an error.
+// get requires a complete 200 response. A 429 becomes RateLimitedError for the host; other
+// statuses and truncated bodies are errors.
 func get(ctx context.Context, c egress.ThirdPartyHTTP, host, u string) ([]byte, error) {
 	resp, err := c.Do(ctx, egress.ThirdPartyRequest{Method: "GET", URL: u, Accept: RDAPAccept})
 	switch {
@@ -181,16 +176,10 @@ func get(ctx context.Context, c egress.ThirdPartyHTTP, host, u string) ([]byte, 
 	return resp.Body, nil
 }
 
-// Lookup asks the registry that holds addr for the netblock it is registered
-// in, finding the registry from the bootstrap file and following a referral
-// (up to three, each to one of the five registries). found is false when
-// nothing can be recorded: no registry holds the address, the registry answers
-// 404, or the answer cannot be used. Of those, the referral problems and an
-// answer with no usable range are also described to warn; the others are
-// plainly "not registered". warn may be nil.
-//
-// A 429 from the bootstrap host or a registry is a *RateLimitedError naming
-// that host. Any other failure is an error.
+// Lookup selects the registry through IANA bootstrap and follows up to three approved registry
+// referrals. Missing allocations, 404s and unusable answers return found=false; referral/range
+// problems also call warn when supplied. Rate limits return a host-specific RateLimitedError;
+// other request failures return errors.
 func Lookup(ctx context.Context, c egress.ThirdPartyHTTP, b *Bootstrap, addr netip.Addr, warn func(string)) (reg Registration, found bool, err error) {
 	if warn == nil {
 		warn = func(string) {}
@@ -222,8 +211,8 @@ func Lookup(ctx context.Context, c egress.ThirdPartyHTTP, b *Bootstrap, addr net
 	start, e1 := netip.ParseAddr(ans.StartAddress)
 	end, e2 := netip.ParseAddr(ans.EndAddress)
 	start, end = start.Unmap(), end.Unmap()
-	// A range of mixed families, or one that leaves out the address asked about,
-	// would answer later addresses it says nothing about.
+	// Reject ranges that cannot describe the queried address; caching them would
+	// misclassify later addresses.
 	a := addr.Unmap()
 	if e1 != nil || e2 != nil || start.Is4() != end.Is4() || a.Compare(start) < 0 || a.Compare(end) > 0 {
 		warn(fmt.Sprintf("rdap: %s (%s) gave no address range for %s", registry.Name, registry.Host, addr))
@@ -246,10 +235,9 @@ func Lookup(ctx context.Context, c egress.ThirdPartyHTTP, b *Bootstrap, addr net
 	return Registration{Start: start, End: end, Registrant: registrant, Registry: registry.Name, Handle: handle}, true, nil
 }
 
-// follow requests the URL and follows a referral by hand, up to maxHops times,
-// to one of the five registries. It returns the body of the answer and the
-// registry that gave it. The body is nil for a lookup that completes with
-// nothing: a 404, a referral to another host or too many referrals.
+// follow handles up to maxHops referrals among the five registries. A 404, unapproved host or
+// excess referrals completes with nil body; otherwise it returns data and the responding
+// registry.
 func follow(ctx context.Context, c egress.ThirdPartyHTTP, addr netip.Addr, u string, warn func(string)) ([]byte, Registry, error) {
 	for hop := 0; ; hop++ {
 		host := ""
@@ -294,8 +282,7 @@ func follow(ctx context.Context, c egress.ThirdPartyHTTP, addr netip.Addr, u str
 	}
 }
 
-// Entity is the part of an RDAP entity the registrant needs: its roles and its
-// vCard.
+// Entity retains only registrant roles and vCard data from RDAP.
 type Entity struct {
 	Roles []string        `json:"roles"`
 	VCard json.RawMessage `json:"vcardArray"`
@@ -304,10 +291,10 @@ type Entity struct {
 // Is reports whether the entity has the role.
 func (e Entity) Is(role string) bool { return slices.Contains(e.Roles, role) }
 
-// Name is the entity's formatted name (the fn of its vCard), cleaned for display.
+// Name is the cleaned vCard formatted name.
 func (e Entity) Name() string { return VCardName(e.VCard) }
 
-// VCardName is the formatted name (the fn) of a vCard, cleaned for display, or "".
+// VCardName extracts and cleans fn, returning "" if absent.
 func VCardName(vcard json.RawMessage) string {
 	var card []json.RawMessage
 	if json.Unmarshal(vcard, &card) != nil || len(card) < 2 {

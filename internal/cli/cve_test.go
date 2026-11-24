@@ -30,9 +30,7 @@ type reply struct {
 // cveTestdata is the cve tool's fixtures, found before any test changes directory.
 var cveTestdata, _ = filepath.Abs(filepath.Join("..", "cve", "testdata"))
 
-// nvdFake stands in for the NVD: it serves canned entries, answers by script
-// where one is set (repeating the script's last reply), counts the requests it
-// has in flight, and records each request's cveId and apiKey header.
+// nvdFake serves fixtures/scripts and tracks IDs, keys and concurrent requests.
 type nvdFake struct {
 	t   *testing.T
 	srv *httptest.Server
@@ -149,7 +147,7 @@ func (f *nvdFake) apiKeys() []string {
 	return slices.Clone(f.keys)
 }
 
-// loadFixture is the cve tool's fixture name, as served and as decoded.
+// loadFixture returns fixture source data and its decoded CVE entry.
 func loadFixture(t *testing.T, name string) ([]byte, cve.Entry) {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(cveTestdata, name))
@@ -163,7 +161,7 @@ func loadFixture(t *testing.T, name string) ([]byte, cve.Entry) {
 	return b, e
 }
 
-// unitJSON is the record of a fixture as the unit tests of the record encode it.
+// unitJSON encodes fixtures using the record unit tests' expected representation.
 func unitJSON(t *testing.T, fixture string) string {
 	t.Helper()
 	_, e := loadFixture(t, fixture)
@@ -181,22 +179,20 @@ func defaultFieldNames() []string {
 	return slices.DeleteFunc(cve.FieldNames(), func(n string) bool { return n == "affected_products" || n == "references" })
 }
 
-// withCounts is the JSON of a record whose lists are empty with a count in front
-// of each, as every field of it is written.
+// withCounts adds ordered count fields before empty list fields in expected JSON.
 func withCounts(record string) string {
 	return strings.NewReplacer(`"affected_products":[]`, `"affected_products_count":{"total":0},"affected_products":[]`,
 		`"references":[]`, `"references_count":{"total":0},"references":[]`).Replace(record)
 }
 
-// withoutLists is the JSON of a record whose lists are empty as it is written
-// when the lists are left out: a count in place of each.
+// withoutLists replaces omitted list contents with their counts in expected JSON.
 func withoutLists(record string) string {
 	return strings.NewReplacer(`"affected_products":[]`, `"affected_products_count":{"total":0}`,
 		`"references":[]`, `"references_count":{"total":0}`).Replace(record)
 }
 
-// unitText is the records of fixtures as the cve tool lays them out, at depth None, for a
-// --fields value; "" here is the default, which --fields "" is not.
+// unitText renders fixture records with plain CVE formatting; empty fields here selects
+// defaults.
 func unitText(t *testing.T, spec string, fixtures ...string) string {
 	t.Helper()
 	var recs []cve.Record
@@ -413,8 +409,7 @@ func TestCVE_DashWithOtherArguments(t *testing.T) {
 	}
 }
 
-// A bare nyx cve, or - with no IDs on stdin, exits 2 with the hint nyx --help
-// and does not print the help.
+// Missing IDs return a usage error and help hint without printing help itself.
 func TestCVE_NoIDs(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -439,8 +434,7 @@ func TestCVE_NoIDs(t *testing.T) {
 	}
 }
 
-// A malformed ID becomes an INVALID_INPUT entry under its argument as given,
-// the valid IDs are still fetched, and the NVD never sees the bad one.
+// Invalid IDs stay local while valid IDs are fetched and returned.
 func TestCVE_MalformedAmongValid(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -468,8 +462,7 @@ func TestCVE_MalformedAmongValid(t *testing.T) {
 	}
 }
 
-// A stdin that is never closed ends at the deadline, as a timeout, and the
-// call returns.
+// Open stdin cannot block past the lookup deadline.
 func TestCVE_StdinNeverClosed(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -508,8 +501,7 @@ func TestCVE_ProblemsTogether(t *testing.T) {
 	}
 }
 
-// A bad --limit and a bad --match are reported with every other problem, in the one
-// error, before stdin is read or the NVD is asked.
+// Collect invalid list filters with all other problems before reading stdin or contacting NVD.
 func TestCVE_LimitAndMatchProblemsTogether(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -641,8 +633,7 @@ func TestCVE_AllRateLimited(t *testing.T) {
 	}
 }
 
-// The envelope is compact, always has errors and warnings, and each entry has
-// the five keys of the error format with the argument as given.
+// JSON always includes ordered envelope/error keys and preserves original input arguments.
 func TestCVE_Envelope(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -792,8 +783,7 @@ func TestCVE_KeySources(t *testing.T) {
 	}
 }
 
-// The configuration is read as recon reads it: a bad file or setting is a
-// usage error, and a missing default file is not.
+// CVE uses recon's config validation, including optional default files.
 func TestCVE_Configuration(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -844,8 +834,8 @@ func TestCVE_ReconAcceptsKeysNVD(t *testing.T) {
 
 const secretKey = "sekrit-nvd-key-0123"
 
-// The key never appears in the output: on success, on a refused key, on a
-// usage error, and on an NVD message that echoes it, in either mode and with --debug.
+// Keys stay redacted across success, refusal, validation and echoed-source errors in both
+// output modes.
 func TestCVE_KeyNeverPrinted(t *testing.T) {
 	t.Parallel()
 	for _, source := range []string{"default file", "--config"} {
@@ -882,10 +872,8 @@ func TestCVE_KeyNeverPrinted(t *testing.T) {
 	}
 }
 
-// Unkeyed, five requests go at once and the sixth, whose slot in the window
-// is past the deadline, fails at once as a transient rate limit; with a key
-// all six go. The deadline is far inside the 30 second window, and the time limit far
-// short of the deadline, so only waiting for the deadline can fail it on a busy machine.
+// An unkeyed sixth request cannot fit the rolling window and fails immediately. A keyed batch
+// admits all six. Timing bounds distinguish immediate refusal from waiting for the deadline.
 func TestCVE_Pacing(t *testing.T) {
 	t.Parallel()
 	ids := make([]string, 6)
@@ -925,8 +913,8 @@ func TestCVE_Pacing(t *testing.T) {
 	if !f.transient || !strings.HasPrefix(f.hint, "after ") || !strings.HasSuffix(f.hint, ", run: nyx cve "+late+" --json --timeout 20s") {
 		t.Errorf("error %+v", f)
 	}
-	// Running the hint's command, once the window has room, gets the rest. Each call has its own
-	// window, so here it has room at once.
+	// Each invocation gets a fresh window, so executing the retry hint can immediately
+	// fetch remaining IDs.
 	_, cmd, _ := strings.Cut(f.hint, "run: nyx ")
 	if code := h.execRoot(strings.Fields(cmd)...); code != 0 || !slices.Equal(h.cveEnvelope().ids(), []string{late}) {
 		t.Errorf("the hint's command: exit %d, %s", code, h.stdout.String())
@@ -1062,8 +1050,7 @@ func TestCVE_Debug(t *testing.T) {
 	}
 }
 
-// A signal while a request is in flight ends the call as interrupted, with
-// nothing on stdout and the key in neither stream.
+// Mid-request signals discard output and redact credentials from both streams.
 func TestCVE_Signal(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -1090,9 +1077,8 @@ func TestCVE_Signal(t *testing.T) {
 	}
 }
 
-// A signal after one ID has its record and while another's request is in
-// flight still ends the call as interrupted, with nothing on stdout: the
-// record is not written as a partial result.
+// A signal discards buffered lookup output even after some IDs succeeded, returning INTERRUPTED
+// with empty stdout.
 func TestCVE_SignalAfterARecord(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -1147,8 +1133,7 @@ func TestCVE_TouchesNothing(t *testing.T) { //nolint:paralleltest // it changes 
 	cwd()
 }
 
-// The root help lists cve with its flags, an example that passes --json and
-// the field names; nyx help cve is nyx cve --help.
+// Root and command help expose CVE fields, flags and JSON examples consistently.
 func TestCVE_Help(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -1212,8 +1197,7 @@ func TestCVE_Help(t *testing.T) {
 	}
 }
 
-// checkFlagLines checks the help's lines for --fields, --limit and --match: --fields describes the new
-// default and none of the three reads as if it had one.
+// checkFlagLines verifies field/default wording for --fields, --limit and --match.
 func checkFlagLines(t *testing.T, help string) {
 	t.Helper()
 	for l := range strings.SplitSeq(help, "\n") {
@@ -1230,8 +1214,7 @@ func checkFlagLines(t *testing.T, help string) {
 	}
 }
 
-// The NVD key never reaches the human output, whole or in part, even inside a long word
-// that a terminal's layout breaks or split by a character that cleaning removes.
+// Cleaning and terminal wrapping cannot expose full keys or partial key fragments.
 func TestCVE_HumanOutputRedactsTheKey(t *testing.T) {
 	t.Parallel()
 	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"
@@ -1272,7 +1255,7 @@ const (
 	tippedRefs     = "References (--fields references to show)"
 )
 
-// recordOf is a record of data as its keys and their JSON.
+// recordOf indexes record JSON by field name.
 func recordOf(t *testing.T, raw json.RawMessage) map[string]json.RawMessage {
 	t.Helper()
 	var m map[string]json.RawMessage
@@ -1282,7 +1265,7 @@ func recordOf(t *testing.T, raw json.RawMessage) map[string]json.RawMessage {
 	return m
 }
 
-// listOf is the entries of a list key of a record.
+// listOf extracts list entries from record JSON.
 func listOf(t *testing.T, rec map[string]json.RawMessage, key string) []json.RawMessage {
 	t.Helper()
 	var l []json.RawMessage
@@ -1292,8 +1275,7 @@ func listOf(t *testing.T, rec map[string]json.RawMessage, key string) []json.Raw
 	return l
 }
 
-// The default has every field but the two lists, with the number of entries of each, and
-// is no longer for a record with long lists than for one with an entry in each.
+// Default output size depends on list counts, not list contents.
 func TestCVE_DefaultDoesNotGrowWithTheLists(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -1342,8 +1324,7 @@ func TestCVE_DefaultDoesNotGrowWithTheLists(t *testing.T) {
 	}
 }
 
-// The counts can be named like any field, a list brings its count, all has every
-// field and an empty --fields has the id alone.
+// List fields imply counts; all selects everything and empty --fields retains only id.
 func TestCVE_FieldsWithCounts(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -1382,9 +1363,8 @@ func TestCVE_FieldsWithCounts(t *testing.T) {
 	}
 }
 
-// A hint on how to see the lists is in meta.hint under --json and, in human mode, the flag
-// after the heading of each list it names whose count is shown, with nothing on stderr; it
-// says nothing when there is nothing to list.
+// Only omitted nonempty lists produce expansion hints, in JSON metadata or human section
+// headings.
 func TestCVE_ListHint(t *testing.T) {
 	t.Parallel()
 	both, products, refs := []string{"affected_products", "references"}, []string{"affected_products"}, []string{"references"}
@@ -1439,8 +1419,7 @@ func checkJSONHint(t *testing.T, h *harness, name, want string) {
 	}
 }
 
-// checkHumanHint checks that each of the lists tips, and no other, has its flag after its
-// heading on stdout, and that nothing is said on stderr.
+// checkHumanHint verifies only the expected list headings carry flags, with no stderr output.
 func checkHumanHint(t *testing.T, h *harness, name string, tips []string) {
 	t.Helper()
 	out := h.stdout.String()
@@ -1460,8 +1439,7 @@ func checkHumanHint(t *testing.T, h *harness, name string, tips []string) {
 	}
 }
 
-// A batch with a failure still says how to see the lists of the records that came
-// back; with no record back there is nothing to say.
+// Partial batches still include list-expansion hints for returned records.
 func TestCVE_ListHintInABatch(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -1653,8 +1631,7 @@ func TestCVE_BadMatch(t *testing.T) {
 	}
 }
 
-// A --match that matches nothing never removes a record: every ID the NVD holds is returned, the exit code and
-// meta.count are as without it, and the list says that nothing matched, which is not that the NVD listed none.
+// A no-match filter empties list contents without removing the CVE or changing lookup success.
 func TestCVE_MatchNeverRemovesARecord(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -1788,7 +1765,7 @@ func TestCVE_MatchedKeyIsMasked(t *testing.T) {
 		nvd.mu.Unlock()
 		nvd.script("CVE-2024-0503", reply{status: 503, header: map[string]string{"Retry-After": "0"}})
 		f := h.partialOf(h.cveRun(jsonMode, "CVE-2024-0503", "CVE-2024-1000", "--fields", "references", "--match", key), jsonMode, []string{"CVE-2024-0503"}, true)
-		// The NVD's text is data under --json, as it is without --match; human mode masks it.
+		// JSON preserves original source text while human rendering applies masking.
 		all := h.stderr.String()
 		if !jsonMode {
 			all += h.stdout.String()

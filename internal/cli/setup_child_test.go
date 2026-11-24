@@ -9,9 +9,8 @@ import (
 	"github.com/rafaelh/nyx/internal/cli"
 )
 
-// setupChildMain runs nyx setup in a child process on the terminal it was given, as the real
-// binary would, with the signals the real main subscribes to. NYX_TEST_PANIC_FILE makes asking for
-// the working directory panic, which forces a panic inside the editor.
+// setupChildMain uses real signal handling on the supplied terminal. NYX_TEST_PANIC_FILE
+// injects an editor panic through working-directory lookup.
 func setupChildMain() int {
 	d := cli.DefaultDeps()
 	d.Signals = cli.NotifySignals()

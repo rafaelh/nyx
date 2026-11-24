@@ -13,15 +13,12 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// abusiveNetworks derives one finding for each checked address that Spamhaus's DROP lists or the
-// ipapi.is snapshot list, by its network or by the AS that announces it. It sends nothing and
-// reads only the evidence, so it is derived under --passive too, and data rebuilt into a new
-// binary or updated by the user changes the findings on the next run with no request.
+// abusiveNetworks matches eligible addresses against local DROP and abuse lists without
+// requests, including in passive runs. Updating lists changes findings on the next run.
 //
-// The checked addresses are those of the in-scope hostnames (a shared provider's and a
-// wildcard-only name's included) and those of the current ip records inside an in-scope netblock
-// that more than DNS history names, less any an exclusion refuses. A candidate's address outside
-// the netblocks is never checked: only an in-scope name brings an address in.
+// Eligible addresses belong to in-scope hostnames, including shared/wildcard hosts, or are
+// current non-history-only IPs inside in-scope netblocks. Exclusions apply. Candidate-only
+// addresses outside those netblocks do not qualify.
 func (d *deriver) abusiveNetworks() []Finding {
 	snap, drop := d.in.Abusive, d.in.Drop
 	if snap == nil && drop == nil {
@@ -124,8 +121,8 @@ func (d *deriver) netblockOwners() map[string]int {
 	return units
 }
 
-// originAS is the origin AS of the address, or 0 when none is known: its unit's netblock_owner for
-// an address inside an in-scope netblock, its own ip_owner otherwise.
+// originAS uses netblock_owner for addresses inside scope netblocks and ip_owner otherwise.
+// Zero means no known announcing AS.
 func (d *deriver) originAS(units map[string]int, a netip.Addr) int {
 	if unit, ok := d.in.Scope.OwnerUnit(a); ok {
 		return units[unit.String()]
@@ -133,8 +130,7 @@ func (d *deriver) originAS(units map[string]int, a netip.Addr) int {
 	return d.in.Inv.Owner(a).ASN
 }
 
-// abusiveMatches are what the lists say of one address: the DROP or DROPv6 entries that hold it,
-// the ASN-DROP entry of its origin AS, and the same two from the ipapi.is snapshot.
+// abusiveMatches groups network and ASN matches from Spamhaus and ipapi.is for one address.
 type abusiveMatches struct {
 	dropNets []spamhaus.NetworkMatch
 	dropASN  []spamhaus.ASNMatch
@@ -146,10 +142,9 @@ func (m abusiveMatches) none() bool {
 	return len(m.dropNets) == 0 && len(m.dropASN) == 0 && len(m.nets) == 0 && len(m.asn) == 0
 }
 
-// abusiveFinding builds the finding of an address with at least one match. Matches carry the
-// lists' text sanitised already. The rank is left out: it says nothing of this address. The first
-// match of the strongest list names the finding, which is one whatever its type, so a type that
-// rises or falls as the data changes is the same finding.
+// abusiveFinding uses the strongest match to name one finding per address. Its stable key lets
+// severity changes update the same finding. Match text is already sanitised; list rank is
+// omitted because it does not describe this address.
 func abusiveFinding(a netip.Addr, hostnames []string, m abusiveMatches) Finding {
 	dropNetworks, dropASNs := make([]string, 0, len(m.dropNets)), make([]string, 0, len(m.dropASN))
 	networks, asns := make([]string, 0, len(m.nets)), make([]string, 0, len(m.asn))
@@ -197,7 +192,7 @@ func abusiveFinding(a netip.Addr, hostnames []string, m abusiveMatches) Finding 
 			"networks_updated": netDate, "asns_updated": asnDate, "entry": entry, "org": org})
 }
 
-// rirText is a registry as a cell of the risk file reads it, in parentheses, or "" when blank.
+// rirText formats an optional registry in parentheses without empty punctuation.
 func rirText(rir string) string {
 	if rir == "" {
 		return ""
@@ -215,12 +210,12 @@ func joinNonBlank(parts []string, sep string) string {
 	return strings.Join(slices.DeleteFunc(slices.Clone(parts), func(s string) bool { return s == "" }), sep)
 }
 
-// entryText is a match as a cell of the risk file reads it.
+// entryText formats a match for a risk-file cell.
 func entryText(entry, tag string, score float64, org, typ string) string {
 	return fmt.Sprintf("%s %s %s%% %s (%s)", entry, tag, abusive.ScoreText(score), org, typ)
 }
 
-// entryDetail is a match as the finding's detail reads it, with the date of its list.
+// entryDetail formats match details with the source-list date.
 func entryDetail(entry, tag string, score float64, org, typ, updated string) string {
 	return fmt.Sprintf("%s (%s, %s%%, %s, %s, list of %s)", entry, tag, abusive.ScoreText(score), org, typ, updated)
 }

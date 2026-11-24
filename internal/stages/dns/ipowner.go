@@ -36,9 +36,8 @@ func (*IPOwner) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 	}
 }
 
-// Run looks up the origin AS, then the AS holder. An address Cymru does not
-// know (NXDOMAIN) is a completed check with no owner; any other failure is
-// transient, and leaves the owner unknown.
+// Run resolves the announcing AS and holder. Unknown Cymru addresses complete without
+// ownership; other failures remain retryable and leave ownership unknown.
 func (o *IPOwner) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	addr := c.Input.(netip.Addr)
 	owner, found, err := ipsource.Origin(ctx, e.DNS, addr)

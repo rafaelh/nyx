@@ -25,7 +25,7 @@ const (
 	dropASNDate = "2026-10-02T00:00:01Z"
 )
 
-// dropFile is a list as Spamhaus serves it: its rows, then its metadata line.
+// dropFile writes source rows followed by metadata.
 func dropFile(at time.Time, rows []string) []byte {
 	var b strings.Builder
 	for _, r := range rows {
@@ -36,8 +36,7 @@ func dropFile(at time.Time, rows []string) []byte {
 	return []byte(b.String())
 }
 
-// testDrop are the lists the lookups are checked against: 8.8.4.4 is in a /24 inside a /16 (whose
-// RIR is null), pub6 in an IPv6 /32, and AS15169 (the populated owner) is in ASN-DROP.
+// testDrop covers nested IPv4 ranges, IPv6, missing RIR and a listed populated ASN.
 func testDrop(t *testing.T) *spamhaus.Lists {
 	t.Helper()
 	l4, err := spamhaus.ParseDrop(dropFile(dropV4Time, []string{
@@ -72,9 +71,7 @@ func dropWorld(t *testing.T, spec string) *world {
 	return w
 }
 
-// drop_networks needs no request: every DROP entry that holds the address, the most specific
-// first, each with its list's date, an empty RIR as "". The address always answers, and nothing
-// is asked of anyone.
+// Network-only DROP selection answers locally with ordered entries and dates, without requests.
 func TestDrop_NetworksNeedNoRequest(t *testing.T) {
 	t.Parallel()
 	w := dropWorld(t, "drop_networks")
@@ -112,9 +109,8 @@ func TestDrop_NetworksNeedNoRequest(t *testing.T) {
 	}
 }
 
-// drop_asn is the ASN-DROP entry of the origin AS Team Cymru gives, sharing that lookup with
-// abusive_asn: [] when the AS is not listed or Team Cymru knows no owner, and null with Team
-// Cymru's failure when the origin lookup failed.
+// ASN-DROP shares Cymru with abuse matching and distinguishes no match/owner from failed
+// ownership lookup.
 func TestDrop_ASNFollowsTheOriginAS(t *testing.T) {
 	t.Parallel()
 	t.Run("listed", func(t *testing.T) {

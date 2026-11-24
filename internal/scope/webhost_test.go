@@ -7,9 +7,8 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// The one function that decides whether a web service or URL host
-// is shown. An IP literal is in scope iff it is inside an in-scope netblock and
-// not excluded; a name iff it classifies as in scope.
+// Web visibility uses hostname classification or non-excluded literal netblock membership
+// consistently.
 func TestWebHostInScope(t *testing.T) {
 	t.Parallel()
 	s := scope.New(scope.Config{

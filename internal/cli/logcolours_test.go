@@ -242,7 +242,7 @@ func TestLog_Levels(t *testing.T) {
 	if count("result for w000 was truncated") != 1 || count("quota: quota spent or key rejected; 2 checks will be retried next run") != 1 {
 		t.Errorf("Warnf and quota warnings: %q", warns)
 	}
-	// A stage whose every check failed is shown as failed, at ERROR.
+	// A completely failed stage uses ERROR severity.
 	if msgs := h.logMsgs("ERROR"); len(msgs) != 2 || !strings.HasPrefix(msgs[0], "quota          failed") || !strings.HasPrefix(msgs[1], "failing        failed") {
 		t.Errorf("ERROR lines = %q", msgs)
 	}
@@ -261,8 +261,8 @@ func TestLog_Levels(t *testing.T) {
 	}
 }
 
-// A check that fails among several: the rest complete, the stage line and the
-// summary count it, and its line appears only with --debug, as DEBUG.
+// An isolated failed check is counted while others succeed; details appear only in debug
+// output.
 func TestLog_FailedCheckIsDebugOnly(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, failingCheck("boom"))
@@ -513,9 +513,7 @@ func TestLog_FoundLinesPlain(t *testing.T) {
 	}
 }
 
-// The badge has the palette's style at each depth, an unknown severity gets the DEBUG style, and
-// on a terminal the + takes the success colour and the category the info colour. Every escape in a
-// coloured line is one the palette writes.
+// Found-event styles use palette-only escapes with DEBUG fallback for unknown severity.
 func TestLog_FoundLinesColoured(t *testing.T) {
 	t.Parallel()
 	st := finder("s", obs("hostname", "www.a.com"), findingObs("h", "high"), findingObs("m", "medium"), findingObs("l", "low"), findingObs("w", "weird"))
@@ -542,7 +540,7 @@ func TestLog_FoundLinesColoured(t *testing.T) {
 		}
 		testkit.OnlyPaletteEscapes(t, d, out)
 	}
-	// The DEBUG style is what an unknown severity takes (24-bit values).
+	// Unknown severity uses the DEBUG style.
 	h := newHarness(t, st)
 	colourAt(t, h, palette.TrueColor)
 	h.exec("a.com")
@@ -584,9 +582,7 @@ func TestLog_Summary(t *testing.T) {
 		t.Errorf("summary:\n%s", out)
 	}
 
-	// On a coloured terminal every heading is bold in the info colour with a rule beneath it, the
-	// findings are a table with a bold header in the timestamp colour, and the only other style is
-	// the badge.
+	// Terminal summary headings/tables use semantic palette roles plus finding badges.
 	d := palette.TrueColor
 	h = newHarness(t, someFindings(), failingCheck("boom"))
 	colourAt(t, h, d)
@@ -693,8 +689,8 @@ func TestLog_ColourDepth(t *testing.T) {
 	}
 }
 
-// Under --json stdout is the one envelope with or without --debug and --quiet, warnings are in
-// meta.warnings with no flag, and stderr carries only DEBUG lines and the error.
+// JSON stdout stays one envelope; warnings remain metadata and stderr contains only debug/error
+// lines.
 func TestLog_JSON(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
@@ -741,7 +737,7 @@ func TestLog_JSON(t *testing.T) {
 			t.Errorf("%v: the key leaked", args)
 		}
 	}
-	// stderr under --json --debug is coloured by the same rule as any stream.
+	// JSON debug stderr follows ordinary stream colour detection.
 	h := newHarness(t, mk()...)
 	colourAt(t, h, palette.TrueColor)
 	h.exec("a.com", "--json", "--debug")
@@ -755,9 +751,8 @@ func TestLog_JSON(t *testing.T) {
 	}
 }
 
-// Target-supplied text and secrets never reach either stream as an escape or a key, wherever the
-// layout breaks a line. On a terminal the long warning wraps (hard-broken, as it has no spaces) and
-// on a stream that is not one it stays on a single line.
+// Clean/redact before wrapping so neither control sequences nor secret fragments reach either
+// stream.
 func TestLog_MessageHandling(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
@@ -831,8 +826,8 @@ func TestLog_MessageHandling(t *testing.T) {
 	}
 }
 
-// assertLongWarning checks the 800-character warning in out: on one line when indent is 0, and
-// otherwise with every character on lines of its own, wrapped at the message column indent.
+// assertLongWarning verifies every character survives an 800-character warning's expected
+// wrapping.
 func assertLongWarning(t *testing.T, out, long string, indent int) {
 	t.Helper()
 	ws := 0
@@ -853,8 +848,7 @@ func assertLongWarning(t *testing.T, out, long string, indent int) {
 	}
 }
 
-// assertLogLayout checks that every line of stderr is a log line, a line of a wrapped message
-// (starting at the message column indent, when the stream wraps) or part of the closing error.
+// assertLogLayout accepts only log prefixes, aligned continuations and closing error lines.
 func assertLogLayout(t *testing.T, stderr string, indent int) {
 	t.Helper()
 	for l := range strings.SplitSeq(strings.TrimSpace(stderr), "\n") {
@@ -926,8 +920,8 @@ func TestLog_Palette(t *testing.T) {
 	if !strings.Contains(col, esc) || !strings.Contains(stripSGR(col), "\n"+strings.Repeat(" ", 21)+"continued") {
 		t.Errorf("coloured sheet:\n%q", col)
 	}
-	// The sheet on a coloured terminal also shows the layout: its heading, the sample table, a CVE
-	// bar for each severity, a stage line for each state, found lines and a line that wraps.
+	// Terminal palette previews exercise tables, badges, stage states, findings and
+	// wrapping.
 	d := palette.TrueColor
 	for _, want := range []string{
 		"\n" + d.BoldText(palette.Semantic, "info", "layout") + "\n",
@@ -957,8 +951,7 @@ func TestLog_Palette(t *testing.T) {
 	}
 }
 
-// --help describes the new flags and the streams they write to, and not the
-// removed one; the docs, not --help, describes the console in full.
+// Help exposes current flags and their streams; full console behaviour belongs in the guide.
 func TestLog_Help(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())

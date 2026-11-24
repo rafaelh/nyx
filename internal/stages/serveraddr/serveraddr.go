@@ -1,8 +1,5 @@
-// Package serveraddr looks up the addresses of the name servers and mail hosts
-// that dnsroot and email find, so that inventory.SelfHosted can tell whether the
-// organisation runs them itself. The public resolvers are asked, never the host,
-// and the answers are kept as server_address records that nothing deciding
-// contact reads.
+// Package serveraddr resolves DNS/mail servers for SelfHosted attribution through public DNS.
+// Its server_address records cannot grant target contact or probe eligibility.
 package serveraddr
 
 import (
@@ -19,16 +16,13 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// KeyToken ends the key of every check that looks up server addresses: a check
-// made before they were looked up does not have it, so an engagement from before
-// makes it again, once.
+// KeyToken versions parent checks so older engagements collect server addresses once after
+// upgrading.
 const KeyToken = "|addrs"
 
-// Observations returns a server_address observation for each A and AAAA record
-// of a name server or mail host whose addresses inventory.AddressDecides; nothing
-// is looked up for any other host, or for an address. The lookup is best-effort:
-// a SERVFAIL or a timeout gives no addresses, so a server whose domain is broken
-// cannot fail the check that found it. The only error is a cancelled context.
+// Observations resolves only servers whose addresses can affect inventory.AddressDecides.
+// Timeout/SERVFAIL produces no addresses without failing the parent check. Context cancellation
+// is the only returned error.
 func Observations(ctx context.Context, e egress.Clients, sc *scope.Scope, host string) ([]run.Observation, error) {
 	host = dnsname.Normalise(host)
 	if host == "" {

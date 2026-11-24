@@ -19,10 +19,8 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// Recon's abusive-network check: which addresses are flagged, the origin AS of netblock addresses
-// and what a rebuilt snapshot does to an engagement already run. The snapshots are the built-in
-// copy of ipapi.is's lists for the test (the harness's abusive, which Deps.ThreatBuiltIn carries):
-// the addresses of the tests are not on the real lists.
+// Recon tests use supplied threat snapshots because fixture addresses do not occur in the real
+// lists.
 
 const abusiveFile = "risk-abusive-network.csv"
 
@@ -40,8 +38,7 @@ func abSnapshot(nets []abusive.NetworkEntry, asns []abusive.ASNEntry) *abusive.S
 	return abSnapshotOn("2026-11-21", "2026-11-20", nets, asns)
 }
 
-// abSnapshotOn is abSnapshot with its lists dated as given (YYYY-MM-DD). Each list states the
-// number of entries it holds.
+// abSnapshotOn fixes both list dates and accurate stated counts.
 func abSnapshotOn(netsDate, asnsDate string, nets []abusive.NetworkEntry, asns []abusive.ASNEntry) *abusive.Snapshot {
 	return abusive.Load(abusive.Snapshot{
 		Nets: abusive.List[abusive.NetworkEntry]{Updated: netsDate, Stated: len(nets), Entries: nets},
@@ -100,7 +97,7 @@ func (x *abWorld) originQueries() []string {
 	return out
 }
 
-// originFor is the query names of the addresses (the first address of each unit asked).
+// originFor lists queried ownership-unit first-address names.
 func originFor(addrs ...string) []string {
 	var out []string
 	for _, a := range addrs {
@@ -110,7 +107,7 @@ func originFor(addrs ...string) []string {
 	return out
 }
 
-// flagged is the address and severity of every current row of the risk file, sorted.
+// flagged extracts sorted current address/severity pairs from the risk file.
 func (x *abWorld) flagged() []string {
 	var out []string
 	for _, r := range current(x.table(eng, abusiveFile)) {
@@ -125,8 +122,7 @@ func (x *abWorld) row(addr string) map[string]string {
 	return find(current(x.table(eng, abusiveFile)), "ip", addr)
 }
 
-// A recon run flags the addresses of in-scope names (a shared provider's too) and the netblock
-// addresses that a PTR answer names, never an excluded address nor one that only DNS history names.
+// Include in-scope hostname/netblock addresses, but reject excluded and history-only addresses.
 func TestAbusiveRecon_WhichAddressesAreFlagged(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -193,8 +189,7 @@ func summaryFindingsOf(h *harness) []map[string]any {
 	return out
 }
 
-// Team Cymru is asked once for each /24 (IPv4) or /48 (IPv6) of netblock addresses, or once for a
-// netblock that is smaller, and this is a third-party lookup, so it happens under --passive.
+// Netblock ownership queries are grouped by routing unit and remain available in passive mode.
 func TestAbusiveRecon_OriginIsAskedOncePerUnit(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -242,9 +237,7 @@ func TestAbusiveRecon_OriginIsAskedOncePerUnit(t *testing.T) {
 	}
 }
 
-// A netblock address whose origin Team Cymru does not know has its checks completed with no AS,
-// and the network matches still come out. A failure leaves the check to be retried on the next run,
-// and only that one.
+// Unknown AS ownership completes empty; transient failures retry only the affected check.
 func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -301,10 +294,8 @@ func TestAbusiveRecon_OriginFailuresAndRetries(t *testing.T) {
 	}
 }
 
-// The AS Team Cymru gives a unit is used only for the abusive check, and a match, of ipapi.is's
-// lists or of Spamhaus's DROP lists, changes only the finding: provider classification, ips.csv,
-// port eligibility, the candidates and what is sent are exactly what they are without it, whatever
-// the lists hold.
+// Threat matches can change findings without changing provider labels, contact eligibility or
+// candidate classification.
 func TestAbusiveRecon_InformationOnly(t *testing.T) { // mutation target
 	t.Parallel()
 	build := func(snap *abusive.Snapshot, drop *spamhaus.Lists, args ...string) *abWorld {
@@ -381,8 +372,8 @@ func TestAbusiveRecon_InformationOnly(t *testing.T) { // mutation target
 	}
 }
 
-// netblockUnchanged checks that the netblock's addresses in ips.csv are an in-scope netblock's, with
-// no provider and eligible for ports, whatever Team Cymru gave or the lists hold.
+// netblockUnchanged verifies netblock ownership/contact classification independently of threat
+// matches.
 func (x *abWorld) netblockUnchanged() {
 	x.t.Helper()
 	for _, r := range x.table(eng, "ips.csv") {
@@ -397,8 +388,7 @@ func (x *abWorld) netblockUnchanged() {
 // randomLabel is the first label of a wildcard probe: a random name under an in-scope domain.
 var randomLabel = regexp.MustCompile(`^[0-9a-f]{16}\.`)
 
-// namesAsked are the names the world's DNS server was asked about, sorted, without the random
-// names of the wildcard probes, which differ from run to run.
+// namesAsked returns sorted queries without random wildcard probes, making runs comparable.
 func namesAsked(x *abWorld) []string {
 	return slices.DeleteFunc(dnsNames(x.dns), randomLabel.MatchString)
 }
@@ -415,7 +405,7 @@ func (x *abWorld) sent() []string {
 	return out
 }
 
-// candidateKeys are the keys of the candidate_rank observations of the engagement, sorted.
+// candidateKeys returns sorted stored candidate-rank keys.
 func (x *abWorld) candidateKeys() []string {
 	var out []string
 	for k, a := range x.obsAttrs(eng, kinds.CandidateRank.Name()) {
@@ -425,9 +415,8 @@ func (x *abWorld) candidateKeys() []string {
 	return out
 }
 
-// checkRebuiltRows checks the risk file after the run with snapshot B: the dropped address's row is
-// not current, the kept one keeps its first_seen and takes the new detail, the risen one is a
-// network match and the new one is current.
+// checkRebuiltRows verifies removed, retained, escalated and newly added findings after
+// replacing the snapshot.
 func checkRebuiltRows(t *testing.T, rows []map[string]string, firstSeen string) {
 	t.Helper()
 	byIP := func(ip string) map[string]string { return find(rows, "ip", ip) }
@@ -446,10 +435,8 @@ func checkRebuiltRows(t *testing.T, rows []map[string]string, firstSeen string) 
 	}
 }
 
-// A run after the snapshot changed gains and loses findings with no request: a dropped address's
-// finding stays on record, not current; a new address's is found and announced; a kept address's
-// detail follows the new snapshot and is not new; low to medium is announced as a rise and is not in
-// changes.csv.
+// Rebuilt data updates findings without network contact, preserving history and announcing only
+// new findings or severity increases.
 func TestAbusiveRecon_ARebuiltSnapshotReachesAnOldEngagement(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -466,8 +453,7 @@ func TestAbusiveRecon_ARebuiltSnapshotReachesAnOldEngagement(t *testing.T) {
 		abNet(10, "203.0.113.1", "203.0.113.1", "High", 70, "Drop Org", "isp"),
 		abNet(11, "203.0.113.2", "203.0.113.2", "High", 71, "Kept Org", "isp"),
 	}, []abusive.ASNEntry{abASN(12, 64998, "Elevated", 40, "Bad AS", "unknown")})
-	// B: 203.0.113.1 is gone from the lists (and AS 64998 is no longer listed), .2 stays with new
-	// details, .3 gains a network entry (low to medium) and .4 is newly listed.
+	// Snapshot B removes .1, updates .2, escalates .3 and adds .4.
 	snapB := abSnapshot([]abusive.NetworkEntry{
 		abNet(21, "203.0.113.2", "203.0.113.2", "Very High", 99, "Kept Org Renamed", "hosting"),
 		abNet(22, "203.0.113.3", "203.0.113.3", "High", 60, "Rise Org", "isp"),

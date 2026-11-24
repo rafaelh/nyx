@@ -15,8 +15,8 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// blocking is a stage with n checks that wait until the context ends, and quick checks q0, q1... that
-// finish at once. Its checks never fail.
+// blocking combines context-blocked and immediately successful checks without returning check
+// errors.
 func blocking(name string, quick, blocked int) *testkit.Stage {
 	return &testkit.Stage{StageName: name, Kind: run.ThirdParty,
 		ChecksFn: func(run.View) []run.Check {
@@ -86,8 +86,7 @@ func TestTimeout_IsNotASetting(t *testing.T) {
 	}
 }
 
-// With a deadline, the checks that are cut are neither done nor failed, the run ends by the deadline
-// with its files written, and the next run does exactly what was left.
+// Deadline-cancelled checks stay pending without failure counts and resume exactly once later.
 func TestTimeout_CutChecksAreNeitherDoneNorFailed(t *testing.T) {
 	t.Parallel()
 	st := blocking("slow", 2, 4)
@@ -146,8 +145,8 @@ func TestTimeout_FinishedBeforeTheDeadlineIsUnaffected(t *testing.T) {
 	}
 }
 
-// Checks waiting on a rate limiter when the timer fires are cancelled, not failed: a context
-// deadline would make the limiter fail them early.
+// Timer cancellation keeps rate-limit waits from failing early as they would under a context
+// deadline.
 func TestTimeout_CheckWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -166,8 +165,8 @@ func TestTimeout_CheckWaitingOnTheLimiterIsNotAFailure(t *testing.T) {
 	}
 }
 
-// A deadline during enumeration must not sweep: a Retiring stage that has listed only some of its
-// checks keeps the evidence of the checks it never got to list.
+// Interrupted enumeration cannot retire unlisted checks because the stage never finished
+// declaring its valid keys.
 func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 	t.Parallel()
 	listed := []string{"c0", "c1"}
@@ -183,8 +182,8 @@ func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 	if got := h.lines("a.com", "subdomains.txt"); !slices.Contains(got, "c0.a.com") || !slices.Contains(got, "c1.a.com") {
 		t.Fatalf("first run found %q, want c0 and c1", got)
 	}
-	// Second run: only c0 is listed, then enumeration blocks until the deadline. c1 is unlisted, but
-	// the run never finished listing, so its evidence must stay.
+	// Block after c0 so c1 remains unlisted solely because enumeration was interrupted;
+	// preserve its evidence.
 	listed = []string{"c0"}
 	st.block = true
 	if code := h.exec("-e", "a.com", "--json", "--timeout", "400ms"); code != 7 {
@@ -194,8 +193,7 @@ func TestTimeout_CutEnumerationKeepsEarlierEvidence(t *testing.T) {
 		t.Errorf("evidence of an unlisted check was retired by a cut enumeration: %q", got)
 	}
 
-	// The same for a redo that is pending when the enumeration is cut: the sweep that follows a redo
-	// would forget what the checks it never listed found.
+	// Pending redo sweeps also wait for complete enumeration before removing evidence.
 	if code := h.exec("-e", "a.com", "--json", "--redo", "retiring", "--timeout", "400ms"); code != 7 {
 		t.Fatalf("redo run: exit %d\n%s", code, h.stderr.String())
 	}

@@ -20,15 +20,12 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// maxPivotHosts is the most hosts a search may return for its result to be
-// recorded. An identifier that more hosts share is a template, a plugin or a
-// framework default, and says nothing about who runs them.
+// maxPivotHosts rejects widely shared identifiers as likely template, plugin or framework
+// defaults rather than ownership evidence.
 const maxPivotHosts = 200
 
-// defaultFavicons are the favicon hashes that are not pivoted: the empty file,
-// which a server with no icon may answer with, and the default icons of common
-// frameworks, which every installation that has not changed them shares. The
-// docs/web.md lists them.
+// defaultFavicons excludes the empty file and common framework icons, which unrelated
+// installations share. docs/web.md lists the hashes.
 var defaultFavicons = map[string]string{
 	"0":          "the empty file",
 	"116323821":  "Spring Boot",
@@ -36,23 +33,14 @@ var defaultFavicons = map[string]string{
 	"-297069493": "Apache Tomcat",
 }
 
-// Pivot is the identifier-pivot stage: for each analytics ID, pixel ID or favicon
-// hash seen on an in-scope web service that no SaaS platform serves, one Shodan
-// search for the hosts that show the same identifier. Copyright lines are never
-// searched, and neither are the favicon hashes in defaultFavicons.
+// Pivot searches Shodan once per non-SaaS analytics ID, pixel ID or non-default favicon.
+// Copyright is not searched. It reads one result page, recording in-scope names, external
+// candidate roots and addresses without granting contact permission.
 //
-// A hostname on a returned host is recorded when it is under an in-scope root,
-// and otherwise gives its registrable domain as a candidate root. A returned
-// address is recorded as an ip and classified like any other; it is never
-// contacted unless the scope says it may be. Only the first page of results is
-// read.
-//
-// The check key is the identifier alone: it carries no scope, so a hostname
-// under a root promoted later is recorded only as that candidate root until
-// --redo identifier-pivot (a search spends a query credit, and a key with the
-// scope in it would spend one per identifier on every change). The stage is
-// budgeted by identifier_pivot.max_queries. It is third-party contact, so it runs
-// under --passive, over the identifiers earlier runs recorded.
+// Keys contain the identifier, not scope, to avoid spending credits on every scope change.
+// Reclassification after root promotion requires --redo identifier-pivot.
+// identifier_pivot.max_queries budgets searches; passive runs can search identifiers saved
+// earlier.
 type Pivot struct{ shodanAPI }
 
 // NewPivot returns the identifier-pivot stage.
@@ -60,8 +48,7 @@ func NewPivot() *Pivot { return &Pivot{} }
 
 func (*Pivot) Name() string { return "identifier-pivot" }
 
-// CandidateSources puts every identifier in one family: its sources are
-// "identifier-pivot:<id>" (see Evidence).
+// CandidateSources groups all identifier-pivot:<id> sources into one evidence family.
 func (*Pivot) CandidateSources() map[string]string {
 	return map[string]string{"identifier-pivot": candidates.WebIdentifier}
 }
@@ -69,27 +56,22 @@ func (*Pivot) CandidateSources() map[string]string {
 // Budget is identifier_pivot.max_queries: each check is one search.
 func (*Pivot) Budget(s config.Settings) int { return s.IdentifierPivot.MaxQueries }
 
-// Evidence is what a candidate a search found rests on: the identifier it was
-// found by, in the source ("identifier-pivot:G-ABC123"), so that the sources column
-// says which. CandidateSources names the part before the colon, so every
-// identifier is one family however many found the candidate.
+// Evidence includes the identifier in its source label for display. CandidateSources groups all
+// such suffixes into one family so multiple identifiers do not appear independent.
 func (*Pivot) Evidence(checkKey string) (source, item string) {
 	_, id, _ := strings.Cut(checkKey, "|")
 	return "identifier-pivot:" + id, id
 }
 
-// pivotInput is the Check.Input: the identifier and its Shodan search. The scope
-// travels in it so that Run can tell a hostname under an in-scope root from any
-// other name.
+// pivotInput carries the identifier, search query and scope used to classify returned names.
 type pivotInput struct {
 	id, query string
 	sc        *scope.Scope
 }
 
-// Checks yields, in key order, one check per distinct identifier on a shown web
-// service that no SaaS platform serves. A SaaS platform's identifier is the
-// platform's, not the organisation's. The test is the one the web posture
-// findings use, so the two cannot disagree.
+// Checks emits one sorted check per identifier on a visible, non-SaaS service. SaaS identifiers
+// belong to the platform, so they cannot support organisation pivots. The hosting test matches
+// web-posture findings.
 func (*Pivot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		pivotable := map[string]bool{} // the service keys
@@ -122,9 +104,8 @@ func (*Pivot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 	}
 }
 
-// Run reads the first page of the search. More than maxPivotHosts hosts records
-// nothing and warns. A 401, 403 or 429 aborts the stage (httpsrc), and so does a
-// 402: no credits are left, and the searches not yet sent wait for the next run.
+// Run checks the first search page, discarding oversized results with a warning. Key
+// refusal/rate limits and exhausted-credit 402 responses abort the stage for later retry.
 func (*Pivot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(pivotInput)
 	q := url.Values{"query": {in.query}, "page": {"1"}}

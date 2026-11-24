@@ -6,11 +6,10 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// The discovery kinds (addresses, owners, wildcards, resolutions) and which of
-// them are counted.
+// Pin discovery-kind counting and event roles.
 func TestDiscoveryKinds(t *testing.T) {
 	t.Parallel()
-	want := map[string]string{ // name to category; one with a category and not printed is only counted
+	want := map[string]string{ // category mapping; unprinted categories count without events
 		"ip": "ips", "unresolved": "unresolved names",
 		"wildcard": "", "ip_owner": "", "ip_hostname": "", "provider_range": "", "resolution": "",
 	}

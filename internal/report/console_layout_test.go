@@ -13,7 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// logPrefix is the timestamp, level and separators of a line of the stream at the given level.
+// logPrefix builds the stream's timestamp, level and separators.
 func logPrefix(s layout.Stream, l report.Level) string {
 	return report.Line(s, noon, l, "")
 }
@@ -23,9 +23,8 @@ func cells(s string) int { return layout.Measure(s) }
 
 var depths = []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16}
 
-// A message wider than the space after the prefix wraps on a terminal, with each continuation
-// line at the message column: 19 cells uncoloured and 21 coloured. No line is wider than the
-// layout width and the words come back in order.
+// Terminal log wrapping preserves word order and aligns continuations after plain/coloured
+// prefixes.
 func TestLineWrapsOnATerminal(t *testing.T) {
 	t.Parallel()
 	words := make([]string, 60)
@@ -79,8 +78,7 @@ func TestLineNeverWrapsOffATerminal(t *testing.T) {
 	}
 }
 
-// A hostname longer than the space left is kept whole, so the line runs past the width, and a word
-// that is not protected is broken at the width.
+// Protected hostnames may overflow while ordinary long words split at width.
 func TestLineProtectedAndBrokenWords(t *testing.T) {
 	t.Parallel()
 	s := termStream(palette.None, 60)
@@ -175,8 +173,7 @@ func TestConsoleFoundLineWraps(t *testing.T) {
 	}
 }
 
-// On a coloured terminal the state word of a stage line has its colour, and nothing else in the
-// message does; the level badge is INFO for running, done and not-configured alike.
+// Stage state words alone gain semantic message colour; non-failing state levels remain INFO.
 func TestConsoleStateWords(t *testing.T) {
 	t.Parallel()
 	for _, d := range depths {
@@ -213,8 +210,7 @@ func TestConsoleStateWords(t *testing.T) {
 	}
 }
 
-// The + of a found line is success. The category is info when the line has the form
-// category: value, and a line with its own text colours only the +.
+// Found messages style + and default categories, leaving custom message text plain.
 func TestConsoleFoundColours(t *testing.T) {
 	t.Parallel()
 	for _, d := range depths {
@@ -245,8 +241,7 @@ func TestConsoleFoundColours(t *testing.T) {
 	}
 }
 
-// Every escape in what a terminal console writes is one the palette can produce at its depth, for
-// every kind of event, and the text of an event adds none.
+// Console escapes come exclusively from the selected palette, never event text.
 func TestConsoleWritesOnlyPaletteSequences(t *testing.T) {
 	t.Parallel()
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"
@@ -273,8 +268,7 @@ func TestConsoleWritesOnlyPaletteSequences(t *testing.T) {
 	}
 }
 
-// A log line holds no escape from target text at the points where wrapping breaks it: a control
-// sequence and a bidi override placed so that each falls at or beside a break are removed first.
+// Remove controls before wrapping even when they fall at line boundaries.
 func TestConsoleTextAtWrapPoints(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
@@ -290,9 +284,8 @@ func TestConsoleTextAtWrapPoints(t *testing.T) {
 	}
 }
 
-// A configured key is redacted by the console itself, after sanitising joins back a key that a
-// control character split, so no emitter in front is needed; and a key inside a long word that is
-// broken at the width never appears whole, nor does any 8-character piece of it.
+// Console redaction works without an upstream emitter and masks keys rejoined by cleaning or
+// embedded in wrapped words.
 func TestConsoleRedactsAfterSanitising(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"

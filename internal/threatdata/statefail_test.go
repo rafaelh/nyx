@@ -13,9 +13,8 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// lockAfterRenames is a Rename that puts each data file in place and then, once both sources'
-// files are in place (or after ten seconds), makes the directory read-only, so the state write
-// that follows each rename fails.
+// lockAfterRenames makes storage read-only after both replacements so following state-file
+// writes fail deterministically.
 func lockAfterRenames(t *testing.T, dir string) func(oldpath, newpath string) error {
 	t.Helper()
 	var (
@@ -47,9 +46,8 @@ func lockAfterRenames(t *testing.T, dir string) func(oldpath, newpath string) er
 	}
 }
 
-// A download put in place whose check then can't be recorded still fails its source with
-// UNEXPECTED_ERROR, but the source reports its lists as they are after the update, as the new
-// copy is in use, and its reason says the data was replaced and only the check wasn't recorded.
+// State-write failure still reports newly active data accurately and distinguishes replacement
+// success from check-record failure.
 func TestUpdate_StateWriteFailsAfterTheDataIsStored(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {
@@ -80,7 +78,7 @@ func TestUpdate_StateWriteFailsAfterTheDataIsStored(t *testing.T) {
 		t.Errorf("Spamhaus's credit %q, %q; want the new copy's %q, %q", s.Copyright, s.Terms, newCopyright, terms)
 	}
 
-	// Each list is described as it is after the update. Its outcome is not what this pins.
+	// Check resulting active-list metadata independently of outcome status.
 	want := []threatdata.ListResult{
 		{List: spamhaus.ListV4, Source: threatdata.Spamhaus, OldUpdated: stamp(d1), NewUpdated: stamp(d2), OldEntries: 80, Entries: 87, Added: 10, Removed: 3},
 		{List: spamhaus.ListV6, Source: threatdata.Spamhaus, OldUpdated: stamp(d1), NewUpdated: stamp(d2), OldEntries: 20, Entries: 20},
@@ -96,7 +94,7 @@ func TestUpdate_StateWriteFailsAfterTheDataIsStored(t *testing.T) {
 		t.Errorf("lists (outcomes left out)\n%+v\nwant\n%+v", got, want)
 	}
 
-	// The new copy is what a reader now uses.
+	// Readers already use the newly installed copy.
 	s := w.load(now)
 	if len(s.Warnings) != 0 {
 		t.Errorf("warnings after the update: %v", s.Warnings)

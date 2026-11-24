@@ -7,8 +7,7 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// The parse decisions the main tests leave open: what counts as missing, which control characters
-// refuse a list, and which text the parser never reads.
+// Cover missing values, control rejection and ignored text beyond the main parsing cases.
 func TestParse_Decisions(t *testing.T) {
 	t.Parallel()
 	r1 := `{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":"arin"}`

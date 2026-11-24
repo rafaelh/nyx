@@ -87,9 +87,7 @@ func TestSourceMiddleWildcard(t *testing.T) {
 	}
 }
 
-// A source host is contacted even when it is a candidate (a storage account a
-// redirect recorded, say); an excluded or in-scope host that matches a source
-// is still refused.
+// Declared sources may be candidates, but in-scope/excluded source hosts remain refused.
 func TestCandidateSourceIsContacted(t *testing.T) {
 	t.Parallel()
 	rec := newRecorder(t)

@@ -1,15 +1,12 @@
-# Built-in sensitive paths. Each is requested once per live web service.
-# Every entry needs a signature (an RE2 over the first 1 MiB of the body) and/or magic
-# (a hex body prefix) so a catch-all site that answers 200 to everything is not flagged,
-# and an explicit severity. status defaults to 200.
+# Each path is checked once per eligible live service. Body regexes (first 1 MiB) or
+# hexadecimal prefixes distinguish exposures from generic 200 pages. Severity is explicit;
+# status defaults to 200.
 #
-# Requests are made entry by entry in severity order (high, medium, low) and, within a
-# severity, in the order of this file, so put the most telling entries first.
+# Requests follow severity, then file order, so earlier entries get budget first.
 #
-# The first 23 entries are the list as it was when the check keys were first recorded;
-# their signature, magic and status must never change (a test pins them), or every
-# engagement would request them again and strand its earlier hits. New entries go
-# at the end of their severity group.
+# The first 23 entries have stored check hashes pinned by tests. Editing their matchers
+# creates new checks and leaves earlier hits under old keys. New entries are appended
+# within their severity group.
 - path: '/.git/config'
   signature: '\[core\]'
   severity: high

@@ -80,7 +80,7 @@ func (p *pty) output() string {
 	return p.out.String()
 }
 
-// termios is the terminal's settings, as the slave side reports them.
+// termios reads settings from the pseudo-terminal's slave side.
 func (p *pty) termios() unix.Termios {
 	p.t.Helper()
 	tio, err := unix.IoctlGetTermios(int(p.slave.Fd()), unix.TCGETS)
@@ -109,8 +109,7 @@ type setupOnPTY struct {
 	done   chan struct{}
 }
 
-// startSetup starts the test binary as nyx setup, with the terminal as its stdin, stdout and
-// stderr, and waits until it has taken the terminal and drawn.
+// startSetup waits for a real child editor to acquire and draw on its pseudo-terminal.
 func startSetup(t *testing.T, config string, extraEnv ...string) *setupOnPTY {
 	t.Helper()
 	p := openPTY(t)
@@ -146,8 +145,8 @@ func (s *setupOnPTY) exit() int {
 	return s.cmd.ProcessState.ExitCode()
 }
 
-// restored checks that the terminal is as it was before setup started: the same settings, the
-// alternate screen left and the cursor shown after the last draw.
+// restored verifies original terminal settings, alternate-screen exit and visible cursor after
+// the final draw.
 func (s *setupOnPTY) restored() {
 	s.t.Helper()
 	if after := s.pty.termios(); after != s.before {
@@ -172,10 +171,8 @@ func (s *setupOnPTY) after() string {
 // ptyEdit is the key presses that enter a key on the second row of the Keys tab.
 var ptyEdit = []string{keyDown, keyEnter, "pty-key-0123456789", keyEnter}
 
-// Setup run on a terminal: it exits 0 after a save, a discard and a quit, the file is as the user
-// left it, and the terminal is returned as it was found. A signal ends it with its own code and
-// leaves the file; the error is written after the terminal is back. So are a second signal while
-// a save is stuck, and a panic inside the editor.
+// Real-terminal tests cover save/discard/quit, signals and panics, ensuring terminal
+// restoration precedes error output.
 func testSetupOnAPty(t *testing.T) {
 	t.Run("save", testPTYSave)
 	t.Run("discard", testPTYDiscard)
@@ -252,8 +249,7 @@ func testPTYSignal(t *testing.T, sig syscall.Signal, want int, name string) {
 	}
 }
 
-// A save that never finishes holds the editor; a second signal exits at once, and the terminal is
-// given back before the error is written.
+// A second signal must restore the terminal and exit even while a save is stuck.
 func testPTYSecondSignal(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nyx.yaml")
 	faultFile := filepath.Join(t.TempDir(), "fault")

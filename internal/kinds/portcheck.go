@@ -1,7 +1,7 @@
 package kinds
 
-// PortCheck is what nyx's handshake found for a port a third party reported
-// and nyx did not find open, keyed by address and port.
+// PortCheck records nyx's result for a third-party-reported port it did not find open, keyed by
+// address and port.
 var PortCheck = define[PortCheckAttrs](Kind{Name: "port_check"})
 
 // The port_check results.

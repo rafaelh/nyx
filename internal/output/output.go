@@ -1,6 +1,5 @@
-// Package output renders the engagement's TXT and CSV files from the store.
-// Files are written to .nyx/tmp and renamed into place, so a reader never
-// sees a truncated file.
+// Package output renders TXT/CSV files through temporary files in .nyx/tmp, then renames them
+// into place so readers never see partial output.
 package output
 
 import (
@@ -48,39 +47,34 @@ type Snapshot struct {
 	Inv     *inventory.Inventory
 	// ASNNetblocks maps an in-scope netblock to the "AS<n>" input it came from.
 	ASNNetblocks map[string]string
-	// Vis decides which records are shown, for Scope and Inv; Render makes one
-	// if it is nil. A caller that counts the same records passes its own, so
-	// the files and the totals agree and each host is decided once.
+	// Vis keeps file filtering consistent with caller counts and caches host decisions.
+	// Render creates one from Scope and Inv when nil.
 	Vis *kinds.Visibility
-	// Storage is the storage Attribution derived with the findings, which the
-	// findings files are written from.
+	// Storage shares attribution from finding derivation with finding-file rendering.
 	Storage map[string]findings.StorageAttr
-	// Changes are what changed since the run started (see changes.csv).
+	// Changes compares current output with the run's starting baseline.
 	Changes []Change
 }
 
-// File is a registry entry. CSV files get the columns Columns followed by
-// current, first_seen and last_seen.
+// File defines output columns; CSV adds current, first_seen and last_seen automatically.
 type File struct {
 	Name    string
 	Format  Format
 	Columns []string
 	Rows    func(Snapshot) []Row
-	// Order, if set, sorts the rows instead of their cells.
+	// Order overrides the default cell-based row sort.
 	Order func(a, b Row) int
 }
 
-// Render writes every file via .nyx/tmp and renames it into dir. With fsync, each file reaches the
-// disk before it is renamed, so a power loss cannot leave a renamed but empty file. On macOS that
-// costs a full flush of the drive's cache per file, so tests turn it off.
+// Render atomically replaces files through .nyx/tmp. fsync saves data before rename to avoid
+// empty output after power loss. Tests disable it because macOS flushes the drive cache for
+// each file.
 func Render(dir string, files []File, snap Snapshot, fsync bool) error {
 	return NewWriter(dir, fsync).Render(files, snap)
 }
 
-// Writer renders the files of one engagement again and again (a run renders after every pass),
-// and rewrites only the files whose contents changed since it last wrote them. What it last wrote
-// is kept in memory rather than compared with the files on disk, so the first render of every
-// process writes every file.
+// Writer remembers rendered contents and rewrites only changed files across passes. The cache
+// is in memory, so a new process writes every file on its first render.
 type Writer struct {
 	dir   string
 	fsync bool
@@ -107,7 +101,7 @@ func (w *Writer) Render(files []File, snap Snapshot) error {
 	return nil
 }
 
-// Sweep removes stale temporary files left by an interrupted render.
+// Sweep removes temporary files left by interrupted rendering.
 func Sweep(dir string) error {
 	tmp := filepath.Join(dir, ".nyx", "tmp")
 	entries, err := os.ReadDir(tmp)
@@ -125,10 +119,8 @@ func Sweep(dir string) error {
 	return nil
 }
 
-// renderFile writes f, or removes it when it would have no rows (a TXT file
-// lists only current rows), so an empty file is never left in the engagement.
-// This is deliberate: a file with only a header row tells the operator nothing,
-// so a file's presence is itself the signal that there is something to read.
+// renderFile removes files with no data rows, including TXT files without current records. File
+// presence therefore means there is something to read.
 func (w *Writer) renderFile(tmp string, f File, snap Snapshot) error {
 	rows := f.Rows(snap)
 	if f.Format == TXT {
@@ -160,12 +152,12 @@ func (w *Writer) renderFile(tmp string, f File, snap Snapshot) error {
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	if last, ok := w.wrote[f.Name]; ok && last == sum {
-		// Unchanged since this Writer wrote it, unless someone has removed it since.
+		// Reuse cached contents only while the destination still exists.
 		if _, err := os.Lstat(filepath.Join(w.dir, f.Name)); err == nil {
 			return nil
 		}
 	}
-	delete(w.wrote, f.Name) // a failed write leaves the file as it was, which may not be sum
+	delete(w.wrote, f.Name) // Discard the proposed hash after a failed write because disk content may differ.
 	if err := writeAtomic(w.dir, tmp, f.Name, buf.Bytes(), w.fsync); err != nil {
 		return err
 	}
@@ -173,7 +165,7 @@ func (w *Writer) renderFile(tmp string, f File, snap Snapshot) error {
 	return nil
 }
 
-// listedRows are the rows a TXT file lists: the current ones with a value.
+// listedRows selects current nonempty TXT values.
 func listedRows(rows []Row) []Row {
 	var listed []Row
 	for _, r := range rows {
@@ -184,8 +176,7 @@ func listedRows(rows []Row) []Row {
 	return listed
 }
 
-// writeCSV writes a header of columns followed by current, first_seen and last_seen, then one
-// record per row with its cells made safe for a spreadsheet.
+// writeCSV adds record metadata columns and spreadsheet-safe cells to each data row.
 func writeCSV(buf *bytes.Buffer, columns []string, rows []Row) error {
 	w := csv.NewWriter(buf)
 	if err := w.Write(append(append([]string(nil), columns...), "current", "first_seen", "last_seen")); err != nil {
@@ -205,8 +196,8 @@ func writeCSV(buf *bytes.Buffer, columns []string, rows []Row) error {
 	return w.Error()
 }
 
-// writeAtomic writes data to name in tmp, syncing it when fsync is set, then renames it to name
-// in dir, so a reader never sees a part-written file.
+// writeAtomic writes to tmp, optionally syncs, then renames into dir so readers see a complete
+// file.
 func writeAtomic(dir, tmp, name string, data []byte, fsync bool) error {
 	tmpPath := filepath.Join(tmp, name)
 	out, err := os.Create(tmpPath)
@@ -235,8 +226,8 @@ func writeAtomic(dir, tmp, name string, data []byte, fsync bool) error {
 	return os.Rename(tmpPath, filepath.Join(dir, name))
 }
 
-// csvSafe sanitises s, then neutralises spreadsheet formulas. Sanitising
-// first means a leading control character cannot hide a formula prefix.
+// csvSafe cleans text before neutralising spreadsheet formulas so control prefixes cannot
+// conceal formulas.
 func csvSafe(s string) string {
 	s = sanitize.Text(s)
 	if s != "" && strings.ContainsRune("=+-@", rune(s[0])) {
@@ -245,9 +236,8 @@ func csvSafe(s string) string {
 	return s
 }
 
-// Default returns the registered files: scope, candidates and excluded, then
-// the DNS files, the web files, open-ports.csv, email-posture.csv, the
-// findings files and changes.csv.
+// Default registers entity, DNS, web, port, email, finding and comparison output files in
+// display order.
 func Default() []File {
 	files := []File{
 		{Name: "scope.csv", Format: CSV, Columns: []string{"type", "value", "source"}, Rows: scopeRows},
@@ -277,10 +267,8 @@ var webServiceColumns = []string{"url", "host", "port", "scheme", "status", "tit
 	"final_url", "tls_subject", "tls_sans", "tls_issuer", "tls_expiry", "tls_version", "tls_cipher", "tls_trust",
 	"hsts", "insecure_cookies", "directory_listing", "version_disclosure", "analytics_ids", "pixel_ids", "favicon_hash", "copyright"}
 
-// webServiceCells are a web service's cells, in webServiceColumns order. p is
-// the service's posture evidence, or nil for a service probed before posture
-// was recorded (its posture cells are blank until httpprobe is redone). ids are
-// the service's identifier cells (see identifierCells).
+// webServiceCells follows webServiceColumns order. Nil posture leaves its cells blank for older
+// engagements until httpprobe is redone. ids supplies identifier cells.
 func webServiceCells(key string, a kinds.WebServiceAttrs, p *kinds.WebPostureAttrs, ids [4]string) []string {
 	cells := []string{key, a.Host, strconv.Itoa(a.Port), a.Scheme, strconv.Itoa(a.Status), a.Title, a.Server, a.Technologies,
 		a.Redirect, a.FinalURL, a.TLSSubject, a.TLSSANs, a.TLSIssuer, a.TLSExpiry, a.TLSVersion, a.TLSCipher, kinds.TLSTrust(a)}
@@ -296,10 +284,8 @@ func webServiceCells(key string, a kinds.WebServiceAttrs, p *kinds.WebPostureAtt
 	return append(cells, ids[:]...)
 }
 
-// identifierCells are, for each web service, the analytics_ids, pixel_ids,
-// favicon_hash and copyright cells: the values of its current web_identifier
-// records of that type, sorted and joined with ";". A record that is not current
-// has no attributes, so a service whose identifiers are all gone has blank cells.
+// identifierCells groups current identifiers by service, sorting and semicolon-joining each
+// type. Gone identifiers have no attributes and leave blank cells.
 func identifierCells(s Snapshot) map[string][4]string {
 	cols := map[string]int{kinds.IdentifierAnalytics: 0, kinds.IdentifierPixel: 1, kinds.IdentifierFavicon: 2, kinds.IdentifierCopyright: 3}
 	values := map[string]*[4][]string{}
@@ -337,8 +323,7 @@ func yesNo(b bool) string {
 	return "no"
 }
 
-// insecureCookies lists each cookie lacking a flag with the flags it lacks:
-// "sid(secure)(httponly)", ";"-joined, sorted by name.
+// insecureCookies sorts cookie names with their missing flags and joins them with semicolons.
 func insecureCookies(p kinds.WebPostureAttrs) string {
 	lacks := map[string]string{}
 	for n := range strings.SplitSeq(p.CookiesNoSecure, ";") {
@@ -355,8 +340,7 @@ func insecureCookies(p kinds.WebPostureAttrs) string {
 	return strings.Join(out, ";")
 }
 
-// vis is the snapshot's Visibility. Render always sets one; a file's Rows
-// called on its own (in a test) gets a new one.
+// vis reuses render visibility, constructing it only for direct Rows calls in tests.
 func (s Snapshot) vis() *kinds.Visibility {
 	if s.Vis != nil {
 		return s.Vis
@@ -367,7 +351,7 @@ func (s Snapshot) vis() *kinds.Visibility {
 func webServiceRows(s Snapshot) []Row {
 	var rows []Row
 	vis := s.vis()
-	// A posture record belongs to the service of the same key and is read while it is current.
+	// Posture shares the service key and contributes only while current.
 	posture := map[string]*kinds.WebPostureAttrs{}
 	for _, r := range s.of(kinds.WebPosture) {
 		if r.Current {
@@ -415,16 +399,15 @@ func scopeRows(s Snapshot) []Row {
 	return rows
 }
 
-// of is the records of a kind, current or not.
+// of returns all records of a kind, including history.
 func (s Snapshot) of(k kinds.Named) []store.Record { return s.Records[k.Name()] }
 
 func recordRow(r store.Record, cells ...string) Row {
 	return Row{Cells: cells, Current: r.Current, FirstSeen: r.FirstSeen, LastSeen: r.LastSeen}
 }
 
-// excludedRows lists the values the summary counts as excluded, once each. A
-// value carried by several records is listed from the first current one, so
-// the row is current exactly when the summary counts it.
+// excludedRows deduplicates values as excluded.csv and summary counts do. It prefers a current
+// record so row currency agrees with the count.
 func excludedRows(s Snapshot) []Row {
 	var rows []Row
 	at := map[string]int{} // value -> index in rows
@@ -454,8 +437,8 @@ func excludedRows(s Snapshot) []Row {
 	return rows
 }
 
-// inScopeHostRows lists the in-scope hostnames that exist only because of a
-// wildcard (wildcard-excluded.txt), or all the others (subdomains.txt).
+// inScopeHostRows separates wildcard-only names from ordinary in-scope hostnames for the two
+// TXT lists.
 func inScopeHostRows(wildcardOnly bool) func(Snapshot) []Row {
 	return func(s Snapshot) []Row {
 		var rows []Row
@@ -477,21 +460,17 @@ func unresolvedRows(s Snapshot) []Row {
 	return rows
 }
 
-// resolutionRows merges nyx's own DNS answers with the records third parties
-// reported, by key. source is "resolve" for a record nyx's lookup holds,
-// the reporting source for a claim alone, and both, joined with ";", when both
-// hold it. A record nyx holds takes its dates and currency from nyx. A
-// historical address (type A-historical or AAAA-historical, source dnshistory)
-// follows, with the dates its source gave in the last two columns, which every
-// other row leaves blank. It is a kind of its own, so it never shares a key
-// with an answer.
+// resolutionRows merges confirmed answers and third-party claims by key. source lists resolve,
+// the claimant or both. Confirmed answers supply dates and current status when available.
+// Historical addresses follow as separate rows with source dates in extra columns; their
+// separate kind prevents merging with current answers.
 func resolutionRows(s Snapshot) []Row {
 	var rows []Row
 	at := map[string]int{}
 	for _, r := range s.of(kinds.Resolution) {
-		a := kinds.Resolution.Attrs(r) // one no longer current has its attributes from its key
-		// self_hosted is on a current NS row only: a row no longer current has lost its
-		// attributes, and says nothing of who runs the server today.
+		a := kinds.Resolution.Attrs(r) // recover retired-record identity from its key
+		// Only current NS rows can identify self-hosted servers; old rows have no
+		// attributes describing today's ownership.
 		selfHosted := ""
 		if a.Type == "NS" && r.Current {
 			selfHosted = yesNo(s.Inv.SelfHosted(a.Value, s.Scope))
@@ -518,8 +497,8 @@ func resolutionRows(s Snapshot) []Row {
 	return rows
 }
 
-// derivedRows builds rows computed from the inventory. Each is dated by the
-// record of kind k whose key is the row's first cell, or today if there is none.
+// derivedRows dates inventory-derived rows from their matching source record, falling back to
+// today.
 func derivedRows(s Snapshot, k kinds.Named, cells [][]string) []Row {
 	seen := map[string]store.Record{}
 	for _, r := range s.of(k) {

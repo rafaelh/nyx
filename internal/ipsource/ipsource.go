@@ -1,29 +1,18 @@
-// Package ipsource asks the third-party sources that say who runs an IP
-// address and what else points at it: Team Cymru's DNS service for the origin
-// AS and its holder, the regional internet registries' RDAP service for the
-// registered netblock and its registrant, and HackerTarget's reverse IP lookup.
+// Package ipsource shares Cymru, RDAP and HackerTarget request/parsing rules between recon and
+// nyx ip. It has no engagement state; callers provide paced egress clients. Sources are third
+// parties, never the queried address.
 //
-// It has no engagement state and does not import internal/run, so a command
-// that has no engagement (nyx ip) and the recon stages that do share one copy
-// of each source's request and reply rules. Every request goes through the
-// egress clients its caller passes in; the package does no network I/O of its
-// own, and its sources are third parties, never the address asked about.
-//
-// A spent allowance is ErrQuota. The recon stages wrap it into run.ErrQuota so
-// that a stage stops; a command that asks each address in turn latches the
-// source instead. Callers pace their requests: egress does, per source host.
+// ErrQuota lets recon abort a stage and IP lookups stop later calls to the affected host.
 package ipsource
 
 import "errors"
 
-// ErrQuota says a source refused the request because its allowance is spent: a
-// 429, or HackerTarget's "API count exceeded" reply. Errors that wrap it can
-// be told apart with errors.Is.
+// ErrQuota identifies spent source allowances, including 429 and HackerTarget text replies.
+// Wrapping preserves errors.Is matching.
 var ErrQuota = errors.New("quota spent")
 
-// RateLimitedError is a 429 from one host. It matches ErrQuota with errors.Is,
-// and names the host so a caller can stop asking that host only (the registries
-// each have their own allowance).
+// RateLimitedError names the host returning 429 and matches ErrQuota, allowing per-registry
+// rather than global suppression.
 type RateLimitedError struct {
 	Host string
 }

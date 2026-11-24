@@ -90,8 +90,7 @@ func exportKinds() []string {
 	return append(names, exportInput, exportExclusion)
 }
 
-// exportLine is one exported record. The fields are written in this order. An
-// entity kind has a Scope and any other kind has Shown.
+// exportLine defines ordered export fields. Entities carry Scope; other kinds carry Shown.
 type exportLine struct {
 	Kind      string         `json:"kind"`
 	Key       string         `json:"key"`
@@ -113,8 +112,8 @@ type exportInputLine struct {
 	Added string `json:"added"`
 }
 
-// runExport checks every value, reporting all problems in one usage error,
-// then writes the snapshot unless a signal arrived while it was read.
+// runExport validates inputs before reading/writing a snapshot, discarding output on
+// interruption.
 func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *exportOptions) error {
 	probs := inv.problems()
 	if o.engagement == "" {
@@ -139,9 +138,8 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 			probs.Add("output", o.output, "the directory of --output does not exist: "+filepath.Dir(o.output), "")
 		}
 	}
-	// The directory is probed before it is opened, so the error says what is wrong with it: a
-	// directory that is not an engagement is a usage problem, reported with any other, and one
-	// that does not exist is not found once nothing else is wrong.
+	// Probe before opening: foreign directories join other validation problems; missing
+	// engagements become NOT_FOUND once validation passes.
 	absent, probeErr := probeEngagement(probs, settings.OutputDir, name, o.engagement)
 	if err := probs.Err(); err != nil {
 		return err
@@ -170,10 +168,9 @@ func runExport(ctx context.Context, inv *invocation, cmd *cobra.Command, o *expo
 	return writeExport(o.output, inv.d.Stdout, data, !inv.d.NoFsync)
 }
 
-// exportSnapshot reads the engagement in one read transaction and returns the
-// JSON lines to write, inputs and exclusions first and then the records in
-// kind and key order, each classified as a run would. Each line is encoded as
-// it is built, so the cleaned copy of a record's attributes is not kept.
+// exportSnapshot reads one consistent transaction, writing inputs and exclusions before records
+// sorted by kind and key. Classification matches a run. Each row is encoded immediately so
+// cleaned attribute copies do not accumulate.
 func exportSnapshot(db *store.ReadOnly, stages []run.Stage, o *exportOptions, red *config.Redactor) ([]byte, error) {
 	var out, exclusions bytes.Buffer
 	x := &exporter{o: o, stages: stages, red: red, enc: lineEncoder(&out), excl: lineEncoder(&exclusions)}
@@ -193,8 +190,7 @@ func exportSnapshot(db *store.ReadOnly, stages []run.Stage, o *exportOptions, re
 	return out.Bytes(), err
 }
 
-// exporter encodes the lines of one snapshot: records and inputs to enc, and
-// exclusions to excl, which is written after the inputs.
+// exporter writes ordered inputs/records and buffers exclusions until inputs are complete.
 type exporter struct {
 	o         *exportOptions
 	stages    []run.Stage // the registry, in order
@@ -227,8 +223,7 @@ func (x *exporter) inputs(rows []store.Input) error {
 	return nil
 }
 
-// records encodes the records of every wanted kind, in kind and key order,
-// classified by the scope built from the snapshot.
+// records exports selected kinds in kind/key order with snapshot-derived scope classification.
 func (x *exporter) records(r store.Reader, rows []store.Input) error {
 	var wanted []kinds.Kind
 	for _, k := range kinds.All() {
@@ -292,8 +287,7 @@ func lineEncoder(w io.Writer) *json.Encoder {
 	return enc
 }
 
-// snapshotSource gives run.BuildScope the records of one snapshot, merged in
-// the registry's stage order.
+// snapshotSource supplies snapshot records merged in registry order to BuildScope.
 type snapshotSource struct {
 	r     store.Reader
 	order []string
@@ -324,11 +318,11 @@ func (s *snapshotSource) Observations(k kinds.Named, stage string) ([]store.ObsR
 	return s.r.Observations(k.Name(), stage)
 }
 
-// cleanText is target-supplied text as the console shows it, with any API key masked.
+// cleanText sanitises display text and masks API keys.
 func cleanText(s string, red *config.Redactor) string { return red.Redact(sanitize.Text(s)) }
 
-// cleanAttrs sanitises and redacts every string in a record's attributes. A
-// record that is not current has none, and is written as {}.
+// cleanAttrs cleans/redacts attribute strings. Non-current records have no attributes and
+// encode as {}.
 func cleanAttrs(attrs map[string]any, red *config.Redactor) map[string]any {
 	out := make(map[string]any, len(attrs))
 	for k, v := range attrs {
@@ -353,10 +347,9 @@ func cleanValue(v any, red *config.Redactor) any {
 	return v
 }
 
-// writeExport writes data to stdout, or to the file path, which it
-// replaces by renaming a complete temporary file beside it into place. A file
-// it replaces keeps its permissions; a new one gets the umask's, as any file
-// the shell creates would. With fsync, the file reaches the disk before the rename.
+// writeExport writes stdout or atomically replaces a file through a neighbouring temporary
+// file. Replacements keep permissions; new files use the umask. When enabled, fsync precedes
+// rename.
 func writeExport(path string, stdout io.Writer, data []byte, fsync bool) (err error) {
 	if path == "" {
 		if _, err := stdout.Write(data); err != nil {
@@ -393,9 +386,7 @@ func writeExport(path string, stdout io.Writer, data []byte, fsync bool) (err er
 	return os.Rename(tmp.Name(), path)
 }
 
-// createBeside creates a new temporary file in path's directory. Unlike
-// os.CreateTemp, whose files are 0600 whatever the umask, it creates with 0666
-// so the umask decides the mode.
+// createBeside uses mode 0666 plus umask for new export files; os.CreateTemp would force 0600.
 func createBeside(path string) (*os.File, error) {
 	for range 100 {
 		name := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp-"+strconv.FormatUint(rand.Uint64(), 36))

@@ -139,8 +139,7 @@ func TestStore_SaveFixesCaseVariants(t *testing.T) {
 	}
 }
 
-// Every key and path is stored exactly as entered, whatever characters it holds, and a run reads
-// back what setup showed.
+// Round-trip entered values without changing characters or what recon reads.
 func TestStore_SaveRoundTripsAwkwardKeysAndPaths(t *testing.T) {
 	t.Parallel()
 	awkward := []string{

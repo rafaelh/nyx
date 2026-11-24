@@ -66,8 +66,8 @@ func TestKeyRoundTrip(t *testing.T) {
 	}
 }
 
-// The stored key of each category is pinned byte for byte: a changed key would make every stored
-// finding of the category a new one, and the old one gone.
+// Pin stored finding keys because changing them would report existing findings as removed and
+// new.
 func TestKeyFormats(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -92,8 +92,7 @@ func TestKeyFormats(t *testing.T) {
 	}
 }
 
-// A new finding's found line is the finding kind's Found: it is listed as "finding <category>"
-// with its target and severity, and with its category's text when it has one.
+// Finding events include category, target, severity and optional category-specific text.
 func TestFindingFound(t *testing.T) {
 	t.Parallel()
 	k, _ := kinds.Get(kinds.Finding.Name())

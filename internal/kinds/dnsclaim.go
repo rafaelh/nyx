@@ -1,14 +1,13 @@
 package kinds
 
-// DNSClaim is a DNS record a third party says exists, as opposed to a Resolution,
-// which nyx's own lookup found. It is a separate kind so that no reader of
-// resolutions (the inventory, the scope, the egress policy) can mistake one for
-// the other: a claim is shown in resolutions.csv and decides nothing.
+// DNSClaim records a third party's reported DNS answer. It appears in resolutions.csv but
+// cannot establish resolution, scope or permission to contact a target; those use nyx's own
+// Resolution records.
 var DNSClaim = defineJoined(Kind{Name: "dns_claim", Change: "resolution"},
 	func(a *DNSClaimAttrs) []*string { return []*string{&a.Name, &a.Type, &a.Value} })
 
-// DNSClaimAttrs: one A, AAAA, CNAME, MX or NS record and who reported it. The
-// record's key is "name|TYPE|value", the same as a Resolution of the record.
+// DNSClaimAttrs describes a reported A, AAAA, CNAME, MX or NS answer and its source. Keys use
+// "name|TYPE|value", matching Resolution keys.
 type DNSClaimAttrs struct {
 	Name   string `json:"name"`
 	Type   string `json:"type"`

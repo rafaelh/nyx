@@ -7,53 +7,40 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// Cell is the content of one table cell: spans laid out in the cell's column.
-// A cell may hold "\n" for several lines.
+// Cell contains styled spans and optional hard newlines within one column.
 type Cell = []Span
 
 // Column describes one column of a Table.
 type Column struct {
 	// Header is the column's heading text.
 	Header string
-	// Wrap is how the column's cells break when the column is narrower than a cell.
-	// None never wraps and the column never shrinks.
+	// Wrap controls cell line-breaking. None preserves natural width without shrinking.
 	Wrap Mode
-	// Shrink orders the columns that give up width when the table is too wide:
-	// 1 shrinks first, then 2 and so on. 0 means the column never shrinks.
+	// Shrink sets column reduction priority, lowest positive value first. Zero preserves a
+	// column's natural width.
 	Shrink int
 }
 
-// Table is rows of left-aligned cells under a header row, laid out to fit a
-// stream's width.
+// Table aligns cell rows beneath headers within the stream's available width.
 type Table struct {
 	Columns []Column
 	Rows    [][]Cell
 	// Indent is the number of spaces before each line. It counts against the width.
 	Indent int
-	// Bordered draws a box around the table and a border under the header, with
-	// each column separated by a vertical border and one space either side.
-	// Without it columns are separated by two spaces and trailing spaces are trimmed.
+	// Bordered adds a box, header rule and vertical separators with one-space padding.
+	// Plain tables use two-space column gaps and trim line endings.
 	Bordered bool
 }
 
-// minShrink is the narrowest a wrapping column shrinks to, unless it is already
-// narrower or holds a word that cannot be broken.
+// minShrink sets the normal wrapping floor; wider protected tokens can raise it.
 const minShrink = 10
 
-// Render lays the table out for s as lines each ending in "\n", or "" when it has
-// no rows, in which case the caller writes no heading either.
+// Render aligns all rows using widths measured across headers and cells. Oversized tables
+// shrink columns in Shrink order, no narrower than ten cells or their widest unbreakable token.
+// Tables may exceed width when tokens cannot fit.
 //
-// Column widths are decided once from every row, so the columns line up. A
-// column's natural width is its widest cell, header included. When the table is
-// wider than the stream, the wrapping columns shrink in Shrink order, each only as
-// far as needed and no narrower than its floor: the larger of 10 and the widest
-// unbreakable token in it (a protected word or a Keep span). A table that still
-// does not fit runs past the width.
-//
-// The header row is bold, in the muted colour; uncoloured it is plain.
-// Borders are box-drawing characters in the chrome SEPARATOR colour when the
-// stream is coloured, and ASCII (- | +) when it is not. At no depth other than
-// None is any other escape written, and at None there is no escape byte at all.
+// Headers are bold/muted with colour. Borders use palette separators or plain ASCII; colour
+// depth None emits no escapes. Empty tables return "" so callers can omit the heading too.
 func (t Table) Render(s Stream) string {
 	if len(t.Rows) == 0 || len(t.Columns) == 0 {
 		return ""
@@ -93,7 +80,6 @@ func (t Table) Render(s Stream) string {
 	return out.String()
 }
 
-// widths decides each column's width from every row (the header is rows[0]).
 func (t Table) widths(rows [][]Cell, avail int) []int {
 	n := len(t.Columns)
 	w := make([]int, n)
@@ -141,8 +127,7 @@ func sum(xs []int) int {
 	return t
 }
 
-// rowLines lays one row out: each cell wrapped to its column, padded to the
-// column's width, and the cells joined.
+// rowLines wraps and pads each cell before joining aligned columns.
 func (t Table) rowLines(s Stream, row []Cell, widths []int, ch chrome) []string {
 	cells := make([][]string, len(row))
 	height := 1
@@ -181,7 +166,7 @@ func (t Table) rowLines(s Stream, row []Cell, widths []int, ch chrome) []string 
 	return out
 }
 
-// chrome is the rule and border characters of a stream, in the colour it shows.
+// chrome chooses plain or styled rule/border characters.
 type chrome struct {
 	style                              func(string) string
 	horiz                              string
@@ -197,7 +182,7 @@ func newChrome(s Stream) chrome {
 	return chrome{style, "-", "|", "+", "+", "+", "+", "+", "+", "+", "+", "+"}
 }
 
-// border is the top (0), header (1) or bottom (2) border for columns of the widths.
+// border selects top, header or bottom table geometry for measured column widths.
 func (c chrome) border(widths []int, which int) string {
 	left, mid, right := c.tl, c.tm, c.tr
 	switch which {
@@ -218,9 +203,8 @@ func (c chrome) border(widths []int, which int) string {
 	return c.style(b.String())
 }
 
-// Rule is a horizontal rule width cells wide, or the stream's width when width is
-// not positive: ─ in the chrome SEPARATOR colour on a coloured stream, - with no
-// colour otherwise.
+// Rule uses the requested cell width, falling back to stream width. Coloured output uses a
+// palette-styled line; plain output uses hyphens.
 func Rule(s Stream, width int) string {
 	if width <= 0 {
 		width = s.Cols()
@@ -229,11 +213,9 @@ func Rule(s Stream, width int) string {
 	return c.style(strings.Repeat(c.horiz, width))
 }
 
-// Heading lays a heading out as lines (without line ends) at the stream's width,
-// in the heading style: bold in the palette's semantic info colour, and plain
-// text when the stream has no colour. after follows the text, in its own styles.
-// A heading wider than the width wraps at spaces, and its continuation lines
-// start at column 0. With rule, a full width Rule follows the last line.
+// Heading wraps text at spaces with unindented continuations, appending styled after spans.
+// Terminal colour uses bold info styling; plain output has no styling. rule adds a full-width
+// line below.
 func Heading(s Stream, text string, rule bool, after ...Span) []string {
 	style := func(x string) string { return s.Depth.BoldText(palette.Semantic, "info", x) }
 	lines := Wrap(append([]Span{{Text: text, Style: style}}, after...), s.Cols(), 0, 0, Spaces)

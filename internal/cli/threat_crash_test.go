@@ -17,13 +17,10 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// The update in a child process: killed at its fault points, and ended by each signal. Each test
-// gives the child a downloaded copy of both sources, dated d1, and checks that it is still the copy
-// in use afterwards, byte for byte.
+// Child-process kill/signal tests preserve both downloaded source copies byte for byte.
 
-// threatChildMain runs nyx in a child process as the real binary would, with the signals main
-// subscribes to, its two hosts at the fakes the parent gives, and a built-in copy dated by the
-// parent, so that both read the same one.
+// threatChildMain shares fake endpoints, built-ins and real signal handling with its parent
+// test.
 func threatChildMain() int {
 	base, err := strconv.ParseInt(os.Getenv("NYX_TEST_THREAT_BASE"), 10, 64) //nolint:forbidigo // the parent's settings for this child process
 	if err != nil {
@@ -45,8 +42,7 @@ func threatChildMain() int {
 	return cli.Execute(context.Background(), strings.Split(os.Getenv("NYX_TEST_ARGS"), "\x1f"), d) //nolint:forbidigo // as above
 }
 
-// threatChild is a world for an update in a child process: a config directory, fakes for the two
-// hosts, and the dates of the copies.
+// threatChild supplies config storage, source fakes and fixed dates for update subprocesses.
 type threatChild struct {
 	t          *testing.T
 	cfg        string // the child's XDG_CONFIG_HOME
@@ -80,8 +76,7 @@ type threatProc struct {
 	exited chan struct{}
 }
 
-// start starts nyx setup --update-threat-data in a child process, with fault, when set, as its
-// fault point. Only the subtests of TestChildProcesses call it.
+// start launches a fault-injected update only inside the isolated TestChildProcesses group.
 func (c *threatChild) start(fault, faultFile string) *threatProc {
 	c.t.Helper()
 	ch := &threatProc{child: &child{t: c.t, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}}
@@ -119,8 +114,7 @@ func (p *threatProc) done() bool {
 	}
 }
 
-// untouched checks that both sources' downloaded copies are as they were, and that they are the
-// copies in use: no temporary file the update left is read.
+// untouched verifies original source bytes remain active and temporary downloads are ignored.
 func (c *threatChild) untouched() {
 	c.t.Helper()
 	for name, b := range c.before {
@@ -161,8 +155,8 @@ func tdTemporary(dir, source string) []string {
 	return matches
 }
 
-// waitFaultOrExit waits for the child to reach its fault point, failing the test when it exits
-// first or does not get there in time.
+// waitFaultOrExit fails if the child exits or times out before reaching the expected
+// checkpoint.
 func waitFaultOrExit(t *testing.T, ch *threatProc, file string) {
 	t.Helper()
 	deadline := time.After(30 * time.Second)
@@ -193,10 +187,8 @@ func waitExit(t *testing.T, ch *threatProc) int {
 	return ch.cmd.ProcessState.ExitCode()
 }
 
-// A kill -9 at either fault point of either source leaves each source with its previous copy, which
-// stays the copy in use. Only the source under test is answered: the other's first request is held,
-// so it never reaches a fault point. At the first point the source's response is already recorded;
-// at the second its new copy is in a temporary file, which nothing reads.
+// Hold the other source while killing at response/write checkpoints. Existing copies stay
+// active even after a response was recorded or new bytes reached a temporary file.
 func testThreatCrashPoints(t *testing.T) {
 	for _, point := range []string{"threat-after-response", "threat-before-rename"} {
 		for _, source := range []string{threatdata.Spamhaus, threatdata.Ipapi} {
@@ -234,8 +226,7 @@ func testThreatCrashPoints(t *testing.T) {
 	}
 }
 
-// Each signal ends an update in flight with its own exit code and one INTERRUPTED error, an empty
-// stdout and both previous copies in use.
+// Signals interrupt in-flight updates without stdout or replacing either active copy.
 func testThreatSignals(t *testing.T) {
 	for name, s := range map[string]struct {
 		sig  syscall.Signal

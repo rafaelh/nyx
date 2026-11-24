@@ -127,8 +127,7 @@ func TestRepresentativeIsProbeable(t *testing.T) {
 	}
 }
 
-// Only names seen by a stage other than permutations are seeds, and none
-// directly under a wildcard zone: every name there exists, so permuting it finds nothing.
+// Generator-only and direct wildcard-child names cannot seed further permutations.
 func TestSeeds(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
@@ -320,8 +319,8 @@ func TestSharedFromRanges(t *testing.T) {
 	}
 }
 
-// Outputs are stable: when names CNAMEd to different providers share an
-// address, the address's label comes from the first such name, on every run.
+// Sorted hostname precedence keeps labels stable when different provider CNAMEs share an
+// address.
 func TestCNAMESharedLabelIsStable(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
@@ -406,8 +405,8 @@ func TestIPRows_RegistrationIsTheNarrowestRange(t *testing.T) {
 	}
 }
 
-// A registrant is a candidate organisation on three distinct netblocks, unless
-// a shared address is inside one of them or an --org input matches its name.
+// Registrant candidates need three allocations without shared-host evidence or matching --org
+// inputs.
 func TestRegistrantCandidate(t *testing.T) {
 	t.Parallel()
 	ranges := []inventory.Registration{

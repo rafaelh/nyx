@@ -22,8 +22,8 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// now is the clock of these tests. The built-in copies they use are their own (d0, 20 days
-// earlier), never the embedded ones, whose dates move with each refresh.
+// Use fixed d0 built-ins rather than moving embedded dates for deterministic update
+// comparisons.
 var (
 	now = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	d0  = now.AddDate(0, 0, -20) // the built-in copies' date
@@ -31,10 +31,10 @@ var (
 	d2  = d0.AddDate(0, 0, 2)    // a download, newer than both
 )
 
-// day is t's UTC date as ipapi.is lists are dated.
+// day formats a UTC source day.
 func day(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 
-// stamp is t as a Spamhaus list's date is written.
+// stamp formats a Spamhaus source timestamp.
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // The credit the generated Spamhaus files carry, as Spamhaus's own do.
@@ -106,7 +106,7 @@ func dropFile(row func(int) string, date time.Time, from, n int) []byte {
 	return file(append(rows(row, from, n), metaLine(date, n))...)
 }
 
-// bundle is a downloaded Spamhaus copy as nyx keeps it: each file after its marker line.
+// bundle preserves downloaded list bytes and markers.
 func bundle(v4, v6, asn []byte) []byte { return spamhaus.Bundle(v4, v6, asn) }
 
 // netEntry and asEntry are entry i of a generated ipapi.is list, in the snapshot format.
@@ -139,7 +139,7 @@ func snapshot(netsDate string, nFrom, nn int, asnsDate string, aFrom, an int) ab
 	return s
 }
 
-// ipapiFile is a downloaded ipapi.is copy as nyx keeps it: the snapshot file's JSON.
+// ipapiFile builds downloaded snapshot JSON.
 func ipapiFile(t *testing.T, s abusive.Snapshot) []byte {
 	t.Helper()
 	b, err := json.Marshal(s)
@@ -149,7 +149,7 @@ func ipapiFile(t *testing.T, s abusive.Snapshot) []byte {
 	return b
 }
 
-// headerOrg is the organisation column's header as ipapi.is spells it.
+// headerOrg selects the source's organisation-column spelling.
 const headerOrg = "Organization" //nolint:misspell // the page's own spelling
 
 func pageDate(d string) string {
@@ -303,8 +303,7 @@ func unchanged(t *testing.T, path string, before fileSnap) {
 	}
 }
 
-// reply is a fake host's answer to one path. gate, when set, holds the answer until it is closed;
-// stall holds it for that long. Either ends early when the request does.
+// reply can gate or delay one response, always releasing early on request cancellation.
 type reply struct {
 	status int
 	header map[string]string
@@ -443,17 +442,15 @@ func (r *recorder) urls() []string {
 	return out
 }
 
-// failing is a client whose every request fails with err, as egress reports a request that got no
-// response.
+// failing simulates transport failure without an HTTP response.
 type failing struct{ err error }
 
 func (f failing) Do(context.Context, egress.ThirdPartyRequest) (egress.ThirdPartyResponse, error) {
 	return egress.ThirdPartyResponse{}, f.err
 }
 
-// world is a threat-data directory, a fake for each host, and the built-in copies an update
-// compares against. Its client is egress's third-party client, pointed at the fakes, with the
-// harness's 1 s HTTP timeout and no wait between requests.
+// world combines update storage, fixed built-ins and loopback source fakes with short timeouts
+// and no pacing waits.
 type world struct {
 	t        *testing.T
 	dir      string

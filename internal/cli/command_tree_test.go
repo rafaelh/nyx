@@ -29,8 +29,7 @@ func emptyDir(t *testing.T) func() {
 	}
 }
 
-// A call in the form nyx took before it had commands exits 2 with the caller's
-// own arguments as the hint, recon inserted, and does nothing else.
+// Legacy invocations fail without work and suggest the original arguments with recon inserted.
 func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) { //nolint:paralleltest // it changes the working directory, which a parallel test cannot
 	cases := []struct {
 		args     []string
@@ -63,10 +62,7 @@ func TestTree_OldFormCallsGetTheCorrectedCommand(t *testing.T) { //nolint:parall
 	}
 }
 
-// oldFormInMode is an old-form call and its hint in JSON mode or not: --json
-// is added when jsonMode asks for it. ok is false for a call that already
-// passes --json when jsonMode does not, as the call is in JSON mode whatever
-// jsonMode says.
+// oldFormInMode adds JSON mode only where consistent with the original invocation.
 func oldFormInMode(args []string, hint string, jsonMode bool) (_ []string, _ string, ok bool) {
 	switch {
 	case slices.Contains(args, "--json"):
@@ -77,9 +73,8 @@ func oldFormInMode(args []string, hint string, jsonMode bool) (_ []string, _ str
 	return args, hint, true
 }
 
-// checkOldFormCall checks that an old-form call is a usage error with the
-// corrected command as its hint, names the argument under --json, touches
-// nothing, and gives the same error when repeated.
+// checkOldFormCall verifies correction hints, error input, repeatability and absence of side
+// effects.
 func checkOldFormCall(t *testing.T, args []string, hint, argument string, jsonMode bool) {
 	t.Helper()
 	h := newHarness(t, noop())
@@ -184,9 +179,7 @@ func lastLine(s string) string {
 	return lines[len(lines)-1]
 }
 
-// The root help is the whole reference: examples that pass --json (nyx setup's is the exception), every
-// command with its everyday flags, an example and the values of its fixed-set
-// flags, and the exit codes; recon's tuning settings are only in recon's own.
+// Root help includes command essentials and JSON examples; recon tuning remains in recon help.
 func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, defaultStageList()...)
@@ -230,7 +223,7 @@ func TestTree_RootHelpIsTheWholeReference(t *testing.T) {
 			t.Errorf("the root help lacks %q", want)
 		}
 	}
-	// The stages --skip refuses are named as such.
+	// Help identifies stages that cannot be skipped.
 	if !strings.Contains(help, "resolve, wildcard, ipowner, providerranges") {
 		t.Error("the root help does not name the stages --skip refuses")
 	}

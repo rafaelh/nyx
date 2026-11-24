@@ -10,11 +10,10 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// eolSoftware derives the end-of-life findings: a version nyx already captured (a Wappalyzer
-// technology of a shown web service, or the version in the banner of a shown open port) whose
-// release cycle's security support has ended (medium, type eol) or ends within eol_warn_days
-// (low, type eol-approaching). A version that is a distribution build, or that only Shodan's
-// report of a port names, is one step lower. A version that matches no cycle is no finding.
+// eolSoftware checks captured web technologies and port-banner versions against
+// security-support dates. Ended support is medium severity; approaching expiry is low.
+// Distribution builds and third-party-only versions are downgraded one level. Unmatched release
+// cycles produce no finding.
 func (d *deriver) eolSoftware() []Finding {
 	// With a window of 0 the horizon is today, which the eol case already takes.
 	horizon, ok := d.horizon(d.in.Settings.EOLWarnDays)
@@ -34,9 +33,8 @@ type eolAssessor struct {
 	out     []Finding
 }
 
-// add assesses one product and version seen at a target: a web service's URL, or the
-// address and port of a banner (port is the zero value for a web service). A sighting
-// known only from a third party's report is unconfirmed.
+// add evaluates a product/version on a service URL or port. A zero port denotes a web service;
+// third-party-only sightings are unconfirmed.
 func (a *eolAssessor) add(target string, port netip.AddrPort, product, version string, distro, unconfirmed bool) {
 	cycle, end, ok := eol.Lookup(product, version)
 	if !ok {
@@ -88,9 +86,8 @@ func (a *eolAssessor) webServices() {
 	}
 }
 
-// ports assesses the banner of each shown port. A port nyx opened is read from its own
-// banner. A port only Shodan reports, or one whose banner named no version that Shodan's
-// does, is read from Shodan's and is unconfirmed.
+// ports prefers nyx's banner for confirmed ports, falling back to Shodan when it supplies a
+// version nyx did not capture. Shodan-only versions remain unconfirmed.
 func (a *eolAssessor) ports() {
 	p := a.d.portIndex()
 	for addr, banner := range p.open {
@@ -118,10 +115,9 @@ func (a *eolAssessor) portBanner(addr netip.AddrPort, stored string, unconfirmed
 	return true
 }
 
-// headerDistro reports whether a header value names version as a distribution build. Wappalyzer
-// reports only the number (2.4.41 from "Apache/2.4.41 (Ubuntu)", 7.4.3 from
-// "PHP/7.4.3-4ubuntu2.19"), so the word of a value that carries the version is read, with the
-// parenthesised words that follow it.
+// headerDistro recovers distribution context lost by Wappalyzer's numeric version. It checks
+// the word containing the version and following parentheses, such as Apache's "(Ubuntu)"
+// suffix.
 func headerDistro(version string, values []string) bool {
 	for _, v := range values {
 		words := strings.Fields(v)

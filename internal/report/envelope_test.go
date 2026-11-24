@@ -64,8 +64,7 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 	}
 }
 
-// A run that found nothing has every key: [] for each list, null for a first
-// run's changes. The zero Envelope has that shape too.
+// Empty and zero-value envelopes retain complete keys, empty lists and null first-run changes.
 func TestEnvelope_ZeroValueShape(t *testing.T) {
 	t.Parallel()
 	out := encode(t, report.Envelope{})
@@ -108,8 +107,7 @@ func TestEnvelope_WriteLeavesTheValueAlone(t *testing.T) {
 	}
 }
 
-// Characters that encoding/json escapes by default are written as they are,
-// and the line is valid JSON that reads back.
+// Unescaped HTML-sensitive characters must still round-trip as valid JSON.
 func TestEnvelope_DoesNotEscapeHTML(t *testing.T) {
 	t.Parallel()
 	env := report.Envelope{Meta: report.Meta{Warnings: []string{"a <b> & c > d"}}}
@@ -188,7 +186,7 @@ func TestEnvelope_MapMasksEveryString(t *testing.T) {
 	}
 }
 
-// encode is the envelope as WriteEnvelope writes it.
+// encode applies WriteEnvelope's output format.
 func encode(t *testing.T, env report.Envelope) string {
 	t.Helper()
 	var buf bytes.Buffer

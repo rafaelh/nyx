@@ -1,5 +1,4 @@
-// Package sanitize strips target-supplied text of anything that could act on
-// a terminal or viewer rather than display as text.
+// Package sanitize removes display controls from target text before terminal/viewer output.
 package sanitize
 
 import (
@@ -13,14 +12,13 @@ var (
 	ansiOSC = regexp.MustCompile(`\x1b\][^\x07\x1b]*(\x07|\x1b\\)?`)
 )
 
-// lineBreaks are the characters Line turns into spaces, so that words either side stay apart.
+// lineBreaks preserves word boundaries when Line removes line endings.
 var lineBreaks = strings.NewReplacer("\n", " ", "\r", " ")
 
-// Line is Text on one line: newlines and returns become spaces as well as tabs.
+// Line also replaces line breaks with spaces for single-line display.
 func Line(s string) string { return Text(lineBreaks.Replace(s)) }
 
-// Text removes terminal escape sequences, control characters and bidi
-// overrides, and turns tabs into spaces.
+// Text removes terminal escapes, controls and bidi overrides, replacing tabs with spaces.
 func Text(s string) string {
 	if strings.IndexByte(s, 0x1b) >= 0 { // every escape sequence starts with ESC
 		s = ansiOSC.ReplaceAllString(s, "")

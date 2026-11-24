@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// dirty makes one unsaved change: the concurrency setting.
+// dirty changes concurrency to create unsaved state.
 func dirty(h *th) {
 	h.t.Helper()
 	h.goTo(1, 1)
@@ -132,7 +132,7 @@ func TestSave_FailureKeepsEditsAndShowsTheReasonAndPath(t *testing.T) {
 	if h.m.quitting {
 		t.Error("quit after a failed save")
 	}
-	// The same from the quit dialog: setup stays open.
+	// Conflict cancellation from quit also leaves the editor open.
 	h.press("q", "s")
 	if h.m.quitting {
 		t.Fatal("quit after a failed save from the dialog")
@@ -156,7 +156,7 @@ func TestSave_AfterSuccessTheSavedStateIsTheBaseline(t *testing.T) {
 	if len(b.saves) != 1 {
 		t.Errorf("saves = %d", len(b.saves))
 	}
-	// A second change is saved against the new snapshot.
+	// Subsequent saves use the refreshed snapshot token.
 	b2 := newFake()
 	h2 := newTH(t, b2)
 	dirty(h2)
@@ -237,7 +237,7 @@ func TestConflict_NeverWritesWithoutTheDialog(t *testing.T) {
 	b := conflictBackend()
 	h := newTH(t, b)
 	dirty(h)
-	// Every way of saving ends in the dialog, and Overwrite waits for o.
+	// All save paths require an explicit overwrite choice after conflict.
 	h.press("ctrl+s")
 	for _, k := range []string{"s", "enter", "x", "q", "ctrl+s", "ctrl+c", "d"} {
 		h.press(k)
@@ -247,7 +247,7 @@ func TestConflict_NeverWritesWithoutTheDialog(t *testing.T) {
 	}
 	h2 := newTH(t, b)
 	dirty(h2)
-	h2.press("q", "s") // the quit dialog's save meets the conflict
+	h2.press("q", "s") // conflict reached while saving from quit
 	mustHave(t, h2.view(), "changed on disk")
 	if h2.m.quitting {
 		t.Fatal("quit with the save in conflict")

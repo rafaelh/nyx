@@ -11,17 +11,15 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// The sources here need a key. A 401, 403 or 429 aborts the stage (httpsrc.Get),
-// a 404 means the source has nothing for the root, and a body that is not the
-// shape the parser expects is an error, never an empty result.
+// Keyed sources abort on 401/403/429, return empty for 404 and reject unexpected body shapes as
+// retryable failures.
 
 // --- Censys (certificate search) ---
 
 // censysPageSize is the most results the Platform API returns per page.
 const censysPageSize = 100
 
-// censys searches the certificates whose names fall under the root and follows
-// the page tokens, in.pages at most. The personal access token is the key.
+// censys paginates certificate-name searches up to in.pages using a personal access token.
 func censys(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
 	var names []string
 	token := ""
@@ -76,9 +74,8 @@ func censys(ctx context.Context, in rootInput, c egress.Clients) (result, error)
 
 // --- Chaos (ProjectDiscovery) ---
 
-// chaos reads the root's whole subdomain list, which the service answers in one
-// response, so in.pages is part of the check but never reached. The key is sent
-// as it is, with no scheme.
+// chaos returns a whole list in one response, so its page cap never binds. It sends the key
+// without an authentication scheme prefix.
 func chaos(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
 	body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{
 		Method: "GET", URL: "https://dns.projectdiscovery.io/dns/" + url.PathEscape(in.root) + "/subdomains",

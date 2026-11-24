@@ -16,8 +16,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// Wildcard probes each parent zone with two random labels. It records the zone's
-// answers; whether a name is wildcard-only is computed on read (inventory).
+// Wildcard records responses to two random names per zone. inventory later determines which
+// real names are wildcard-only.
 type Wildcard struct {
 	base
 	label func() string
@@ -50,8 +50,8 @@ func (*Wildcard) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 		}
 		for _, rec := range v.Records(kinds.Resolution) {
 			a := kinds.Resolution.Attrs(rec)
-			// Only the types that say a name exists as a host name a zone; the
-			// root records (NS, SOA, TXT, CAA) and service names (SRV) belong to a zone already known.
+			// Only host-resolution types introduce wildcard zones. Root records and
+			// SRV names already belong to known zones.
 			if a.Type != "A" && a.Type != "AAAA" && a.Type != "CNAME" {
 				continue
 			}
@@ -73,8 +73,8 @@ func (*Wildcard) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 	}
 }
 
-// Run queries two random labels under the zone, for A and AAAA. If any answer,
-// it records the zone's addresses and the first CNAME target.
+// Run probes random A/AAAA names and records any wildcard addresses plus the first CNAME
+// target.
 func (w *Wildcard) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	zone := c.Key
 	var addrs []netip.Addr
@@ -103,9 +103,8 @@ func (w *Wildcard) Run(ctx context.Context, c run.Check, e egress.Clients) ([]ru
 			addrs = append(addrs, res.Addrs()...)
 		}
 	}
-	// A failed probe proves nothing: recording "no wildcard" would let every
-	// name under a real wildcard through, so unless another probe answered, the
-	// check fails and is retried next run.
+	// A failed probe cannot establish the absence of a wildcard. Without another successful
+	// answer, retry rather than allowing arbitrary wildcard names through.
 	if !answered {
 		return nil, servfail
 	}

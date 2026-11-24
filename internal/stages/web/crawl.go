@@ -16,14 +16,12 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// urlsPerPage caps the URLs one crawl records at this many per page allowed, so
-// a calendar or faceted search cannot flood urls.csv.
+// urlsPerPage bounds recorded URLs relative to page budget, preventing calendars/faceted search
+// from flooding output.
 const urlsPerPage = 20
 
-// Crawl is the crawl stage: a breadth-first walk of one web service's own
-// pages with GET only. It never submits a form and never leaves the service's
-// origin. robots.txt and sitemap.xml are read for the URLs they list; robots.txt
-// is not obeyed.
+// Crawl performs a breadth-first GET-only walk within one service origin. It reads robots.txt
+// and sitemaps as URL sources without applying robots exclusion rules or submitting forms.
 type Crawl struct{}
 
 // NewCrawl returns the crawl stage.
@@ -44,9 +42,8 @@ func (*Crawl) Configured(e run.Env) (bool, string) {
 	return true, ""
 }
 
-// Evidence is what a candidate the crawl found rests on: the crawl, and the
-// service it crawled. The check key also carries the limits, which must not
-// count as another piece of support when they change.
+// Evidence identifies the crawled service independently of limit-bearing check keys, so limit
+// changes do not count as new candidate support.
 func (*Crawl) Evidence(checkKey string) (source, item string) {
 	item, _, _ = strings.Cut(checkKey, "|")
 	return "crawl", item
@@ -60,8 +57,8 @@ type crawlInput struct {
 	origin, start string
 }
 
-// Checks yields one check per current web service whose host is still in
-// scope. The key carries the limits, so changing them creates new checks.
+// Checks versions each in-scope current service by crawl limits so changing limits creates new
+// work.
 func (*Crawl) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		set := v.Settings().Crawl
@@ -115,8 +112,7 @@ type storageRef struct {
 	via       string // "link" for an <a> or <area>, else "asset"
 }
 
-// Run crawls one service. Only an error on the root page fails the check; any
-// other page that cannot be fetched is skipped.
+// Run fails only when the root fetch errors; other page failures are skipped.
 func (*Crawl) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := chk.Input.(crawlInput)
 	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, hosts: map[string]bool{}, storage: map[string]*storageRef{}, scripts: map[string]bool{}, ids: newIdentifierSet(in.origin, in.host, newObsSet())}
@@ -160,10 +156,9 @@ func (*Crawl) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.O
 	return c.observations(), nil
 }
 
-// fetchPage GETs one page and follows same-origin redirects, each a GET that
-// counts toward the page limit. scan is true if a page answered on this
-// origin; it is false if nothing answered or the page redirected to another
-// origin, which is recorded and not requested.
+// fetchPage follows same-origin redirects, charging each GET to the page limit. External
+// redirects are recorded without fetching. scan is true only when a page answered on this
+// origin.
 func (c *crawler) fetchPage(req egress.Request, page string) (resp egress.Response, scan bool, err error) {
 	for hop := 0; ; hop++ {
 		c.gets++
@@ -254,17 +249,15 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 	}
 }
 
-// scriptRef notes a script a page loads, whatever host it is on. It is recorded
-// so that the jsparse stage can read the ones on in-scope hosts; nothing is
-// requested here.
+// scriptRef records loaded script URLs, including external hosts, without fetching them.
+// jsparse later selects in-scope scripts.
 func (c *crawler) scriptRef(abs string) {
 	if len(c.scripts) < urlsPerPage*c.in.pages {
 		c.scripts[abs] = true
 	}
 }
 
-// enqueue queues a URL to be fetched at depth if it is on this origin, within
-// the depth and page limits, not a static asset and not already seen.
+// enqueue admits unseen, non-static same-origin URLs within depth/page limits.
 func (c *crawler) enqueue(abs string, depth int) {
 	if depth > c.in.depth || originOf(abs) != c.in.origin || c.visited[abs] || len(c.queue)+c.gets >= c.in.pages {
 		return
@@ -276,8 +269,8 @@ func (c *crawler) enqueue(abs string, depth int) {
 	c.queue = append(c.queue, queued{abs, depth})
 }
 
-// storageRef records a link or asset that names a cloud-storage bucket, wherever
-// it points: the host being off-scope does not make it uninteresting. No request is made.
+// storageRef records cloud references even outside scope because they may attribute storage to
+// the target. It sends no request.
 func (c *crawler) storageRef(abs, tag, page string) {
 	if page == "" {
 		return
@@ -301,8 +294,8 @@ func (c *crawler) storageRef(abs, tag, page string) {
 	c.storageKeys = append(c.storageKeys, key)
 }
 
-// record notes a URL whose host is in scope (up to the cap) and, if the host is
-// another in-scope name, the hostname. Off-scope hosts are ignored.
+// record saves in-scope URLs within the cap and different in-scope hostname references,
+// ignoring external hosts.
 func (c *crawler) record(abs string) {
 	if _, seen := c.recorded[abs]; seen { // its host was handled when it was first recorded
 		return
@@ -352,8 +345,7 @@ func originOf(abs string) string {
 	return u.Scheme + "://" + egress.HostPort(u.Scheme, strings.ToLower(u.Hostname()), u.Port())
 }
 
-// storageObservation is the storage_ref observation of a reference, keyed by
-// the page and the URL it references.
+// storageObservation keys a reference by its source page and destination URL.
 func storageObservation(r storageRef) run.Observation {
 	return kinds.StorageRef.Obs(r.page+"|"+r.url, kinds.StorageRefAttrs{
 		Provider: r.ref.Provider, Name: r.ref.Name, Container: r.ref.Container, Object: r.ref.Object,

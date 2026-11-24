@@ -1,9 +1,8 @@
 package cli
 
-// nyx setup --update-threat-data: setup's one non-interactive use. It updates the five threat-data
-// lists (Spamhaus's three DROP lists and ipapi.is's two abuse lists) through threatdata.Update,
-// writes one line per list (or, under --json, one envelope) and ends with the outcome of the two
-// sources. It reads no config file and needs no terminal.
+// The non-interactive setup update refreshes five threat-data lists through threatdata.Update.
+// It writes per-list results or one JSON envelope and returns the combined source outcome. It
+// requires neither config nor a terminal.
 
 import (
 	"context"
@@ -25,9 +24,8 @@ const updateThreatDataFlag = "update-threat-data"
 // nowhereToKeepThreatData is why there is no threat-data directory.
 const nowhereToKeepThreatData = "nowhere to keep threat data: neither XDG_CONFIG_HOME nor HOME is set"
 
-// threatKeeper is what the update and the setup tab need to read and update the threat data: the
-// directory it is kept in, the built-in copies, the clock, and the options of the client that asks
-// the two sources.
+// threatKeeper shares the update directory, built-ins, clock and source client options between
+// setup's UI and command.
 type threatKeeper struct {
 	dir     string
 	builtIn *threatdata.BuiltIn
@@ -40,8 +38,8 @@ func newThreatKeeper(d Deps) threatKeeper {
 	return threatKeeper{dir: threatdata.Dir(d.Env), builtIn: d.ThreatBuiltIn, clock: d.Clock, noFsync: d.NoFsync, egress: d.Egress}
 }
 
-// update runs one update. Its client is third-party only, with no policy, no keys and no host but
-// the two sources'.
+// update uses an unkeyed third-party client restricted to the two source hosts, without target
+// policy.
 func (k threatKeeper) update(ctx context.Context) threatdata.Result {
 	o := k.egress
 	o.Keys, o.Redactor = nil, config.NewRedactor()
@@ -53,9 +51,8 @@ func (k threatKeeper) update(ctx context.Context) threatdata.Result {
 // load is the lists in use now.
 func (k threatKeeper) load() threatdata.Set { return k.builtIn.Load(k.dir, k.clock()) }
 
-// runThreatUpdate is nyx setup --update-threat-data: it updates both sources, writes the result
-// and ends with the error their outcome calls for. A signal ends it with the signal's error and
-// nothing written, though each source then holds its previous copy or its complete new one.
+// runThreatUpdate updates both sources and writes their combined result. Signals return without
+// output; atomic source writes leave each bundle complete.
 func runThreatUpdate(ctx context.Context, inv *invocation) error {
 	k := newThreatKeeper(inv.d)
 	if k.dir == "" {
@@ -75,10 +72,9 @@ func runThreatUpdate(ctx context.Context, inv *invocation) error {
 	})
 }
 
-// threatOutcome is the error an update ends with: nil when no source failed, PARTIAL when one did,
-// and when both did, an error that covers them with their code if they share one, else
-// UPSTREAM_ERROR. Each failed source is one of its targets, which the human error writes. It is
-// transient when any failure was a network failure, a timeout or a 429.
+// threatOutcome returns nil, PARTIAL for one failed source, or a shared code/UPSTREAM_ERROR
+// when both fail. Failed sources become targets. Network, timeout or rate-limit failures make
+// the outcome transient.
 func threatOutcome(res threatdata.Result, jsonMode bool) *clierr.Error {
 	var failed []threatdata.SourceResult
 	for _, s := range res.Sources {
@@ -122,8 +118,7 @@ func sourceNames(rs []threatdata.SourceResult) []string {
 	return names
 }
 
-// threatHint says when each failed source can next be updated: an hour after it last answered, or
-// now when it sent no response.
+// threatHint derives retry times from each failed source's last response.
 func threatHint(failed []threatdata.SourceResult) string {
 	parts := make([]string, len(failed))
 	for i, s := range failed {
@@ -132,7 +127,7 @@ func threatHint(failed []threatdata.SourceResult) string {
 	return strings.Join(parts, "; ")
 }
 
-// nextUpdate is "after <time>" for a source that sent a response, and "now" for one that did not.
+// nextUpdate formats cooldown timing, allowing immediate retry when no response arrived.
 func nextUpdate(s threatdata.SourceResult) string {
 	if s.NextUpdate.IsZero() {
 		return "now"
@@ -140,10 +135,10 @@ func nextUpdate(s threatdata.SourceResult) string {
 	return "after " + threatTime(s.NextUpdate)
 }
 
-// threatTime is t as the update writes every time: RFC 3339, in UTC.
+// threatTime formats update timestamps as UTC RFC3339.
 func threatTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
-// optionalTime is t as the envelope gives it, or nil when it is not set.
+// optionalTime formats known timestamps and returns nil for unset ones.
 func optionalTime(t time.Time) *string {
 	if t.IsZero() {
 		return nil
@@ -190,14 +185,13 @@ type threatList struct {
 	Removed    int    `json:"removed"`
 }
 
-// threatSourceError is the error of a failed source as the envelope gives it, in a source and in
-// meta.errors.
+// threatSourceError builds the same source error for result fields and meta.errors.
 func threatSourceError(s threatdata.SourceResult, red *config.Redactor) errorLine {
 	return newErrorLine(&clierr.Error{Code: s.Code, Message: s.Reason, Hint: "can be updated " + nextUpdate(s),
 		Input: s.Source, Transient: s.Transient}, red)
 }
 
-// writeThreatEnvelope writes the update's envelope: one JSON object on one line.
+// writeThreatEnvelope emits one compact JSON update result.
 func writeThreatEnvelope(w io.Writer, res threatdata.Result) error {
 	red := config.NewRedactor()
 	env := threatEnvelope{Meta: threatMeta{Errors: []errorLine{}, Warnings: []string{}}}
@@ -223,9 +217,8 @@ func writeThreatEnvelope(w io.Writer, res threatdata.Result) error {
 	return lineEncoder(w).Encode(env)
 }
 
-// listStatus is what a list that was not replaced says: already current, skipped (and when it was
-// last contacted and can next be updated) or failed (and why). For a list that was replaced it is
-// empty.
+// listStatus explains unchanged lists: current, skipped with cooldown times, or failed with a
+// reason. Replaced lists return "".
 func listStatus(l threatdata.ListResult, source threatdata.SourceResult) string {
 	switch l.Outcome {
 	case threatdata.Current:
@@ -239,12 +232,11 @@ func listStatus(l threatdata.ListResult, source threatdata.SourceResult) string 
 	return ""
 }
 
-// listChange is how a replaced list changed: "(+5, -2)".
+// listChange formats added/removed counts for a replaced list.
 func listChange(l threatdata.ListResult) string { return fmt.Sprintf("(+%d, -%d)", l.Added, l.Removed) }
 
-// writeThreatLines writes one line per list, the source and list in columns, and then Spamhaus's
-// credit. A replaced list gives its old and new date, its entries and what was added and removed;
-// any other gives its date and entries, then why it was not replaced.
+// writeThreatLines prints old/new dates and counts for replaced lists, or status for unchanged
+// ones, followed by Spamhaus credit.
 func writeThreatLines(w io.Writer, res threatdata.Result) error {
 	sources := map[string]threatdata.SourceResult{}
 	for _, s := range res.Sources {
@@ -273,13 +265,9 @@ func writeThreatLines(w io.Writer, res threatdata.Result) error {
 	return err
 }
 
-// loadThreat reads the threat data a command checks addresses against, once, from the threat-data
-// directory and the built-in copies. read says whether the command reads a source (threatdata.Spamhaus
-// or threatdata.Ipapi); a source it doesn't read gives no warning and no hint.
-//
-// A downloaded copy that is unreadable is a warning event, which prints even under --quiet and goes
-// to meta.warnings under --json. A stale source is a warning in the envelope under --json, whatever
-// --quiet says, and otherwise a hint that Execute writes once the command has returned.
+// loadThreat reads active lists once, warning only for sources the command uses. Invalid
+// downloads always emit warnings, including --quiet. Staleness goes to JSON warnings or a
+// deferred human hint printed by Execute.
 func (inv *invocation) loadThreat(em report.Emitter, warnings *report.Warnings, read func(source string) bool) threatdata.Set {
 	set := newThreatKeeper(inv.d).load()
 	for _, w := range set.Warnings {

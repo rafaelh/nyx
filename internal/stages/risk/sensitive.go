@@ -13,10 +13,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// SensitivePaths is the sensitive-paths stage: each configured path is requested
-// once per live web service, except services third-party SaaS platforms serve.
-// Only a response matching the entry's signature is recorded, and
-// its body is never stored.
+// SensitivePaths checks configured paths on live non-SaaS services. It stores matching exposure
+// evidence without response bodies.
 type SensitivePaths struct{}
 
 // NewSensitivePaths returns the sensitive-paths stage.
@@ -27,7 +25,7 @@ func (*SensitivePaths) Contact() run.Contact              { return run.Target }
 func (*SensitivePaths) Sources() []string                 { return nil }
 func (*SensitivePaths) Configured(run.Env) (bool, string) { return true, "" }
 
-// RetiresUnlistedChecks: a check of an edited entry supersedes the old one's evidence.
+// RetiresUnlistedChecks replaces evidence from edited path entries.
 func (*SensitivePaths) RetiresUnlistedChecks() {}
 
 type pathInput struct {
@@ -40,11 +38,9 @@ type pathInput struct {
 // Budget is the most requests the stage sends in one run.
 func (*SensitivePaths) Budget(s config.Settings) int { return s.SensitivePathMaxRequests }
 
-// Checks yields (service, entry) checks entry by entry in severity order (the
-// list order within a severity), then by service, so the budget gives every
-// service its highest-severity paths first and consecutive requests go to
-// different hosts. The key hashes the entry's signature, magic and status; the
-// egress index is the entry's position in the configured list.
+// Checks visits paths by severity then list order, cycling services for each path. This
+// prioritises high-risk coverage and spreads requests across hosts. Keys hash response
+// matchers; egress indexes the original list position.
 func (*SensitivePaths) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		var svcs []pathInput
@@ -73,8 +69,8 @@ func (*SensitivePaths) Checks(ctx context.Context, v run.View) iter.Seq2[run.Che
 	}
 }
 
-// Run requests the path. A response with the expected status and signature is a
-// sensitive_hit; no match, no service or a refusal complete with nothing.
+// Run stores sensitive_hit only for the expected status and matcher. Nonmatches, missing
+// services and policy refusals complete without evidence.
 func (*SensitivePaths) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(pathInput)
 	res, err := e.HTTP.Get(ctx, egress.SensitivePath(in.svc, in.index))
@@ -96,9 +92,8 @@ func (*SensitivePaths) Run(ctx context.Context, c run.Check, e egress.Clients) (
 	})}, nil
 }
 
-// bodySize is the size of the response: its Content-Length when the body may
-// have been cut at egress.MaxTargetBody, else the body's length. A cut body
-// without a usable Content-Length is "<cap>+".
+// bodySize prefers Content-Length for capped bodies when valid, otherwise reports the read
+// length with "+" for unknown totals.
 func bodySize(r egress.Response) kinds.Size {
 	if len(r.Body) < egress.MaxTargetBody {
 		return kinds.SizeOf(int64(len(r.Body)))

@@ -48,8 +48,7 @@ func keysOf(t *testing.T, raw json.RawMessage) []string {
 	return keys
 }
 
-// envelope is the envelope the last call wrote to stdout: exactly one compact line with the keys of
-// the interface in order, and nothing else.
+// envelope parses one compact stdout line and verifies ordered interface keys.
 func (h *harness) envelope() report.Envelope {
 	h.t.Helper()
 	line := h.stdout.String()
@@ -78,8 +77,7 @@ func (h *harness) envelope() report.Envelope {
 	return env
 }
 
-// A run that found nothing still has every key: an empty list for each list, null for the changes of
-// a first run, and the counts of the run.
+// Empty runs still emit all keys, empty lists and null first-run changes.
 func TestEnvelope_EveryKeyOnEveryRun(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -123,8 +121,7 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 	}
 }
 
-// There are no event lines on stdout, and stderr is empty on success; --debug adds only DEBUG lines to
-// stderr and leaves stdout as it was.
+// JSON output stays event-free; --debug adds only stderr debug lines.
 func TestEnvelope_NoEventLinesAndDebugOnlyAddsDebugLines(t *testing.T) {
 	t.Parallel()
 	run1 := func(extra ...string) (stdout, stderr string) {
@@ -265,8 +262,7 @@ func TestEnvelope_CandidatesAreCappedAndSourcesAreAList(t *testing.T) {
 	}
 }
 
-// A re-run says what changed since the one before: the counts by kind and change, and the new
-// findings. A first run has no changes to compare.
+// Subsequent runs report changes; first runs have no comparison baseline.
 func TestEnvelope_ChangesSinceTheLastRun(t *testing.T) {
 	t.Parallel()
 	hosts := []string{"www.a.com"}
@@ -324,8 +320,7 @@ func TestEnvelope_StdoutIsEmptyOnOtherExits(t *testing.T) {
 	h.failed(h.exec("-e", "a.com", "--json"), 1, true)
 }
 
-// A finding's text comes from the target or a source, so the envelope strips terminal escapes from it
-// and masks any key value in it, as it does a warning.
+// Sanitise and redact target/source text in findings and envelope warnings.
 func TestEnvelope_FindingTextIsStrippedAndMasked(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"
@@ -358,8 +353,7 @@ type noteStage struct {
 
 func (s noteStage) Notes(run.View) []string { return []string{s.text} }
 
-// A stage's note reaches the envelope without passing the store or the log, so the envelope itself
-// strips terminal escapes from it and masks any key value in it.
+// Stage notes bypass store/log cleaning, so the envelope must clean and redact them itself.
 func TestEnvelope_NotesAreStrippedAndMasked(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"

@@ -35,8 +35,7 @@ var sourcePatterns = []string{
 	"s3.amazonaws.com", "s3.*.amazonaws.com", "storage.googleapis.com", "*.blob.core.windows.net",
 }
 
-// riskStages are the risk stages. Worlds leave them out unless a test asks for
-// them: sensitive-paths alone sends a score of requests to every web service.
+// Worlds omit risk stages by default to avoid unrelated sensitive-path traffic.
 var riskStages = []string{"email", "storage", "takeover", "sensitive-paths"}
 
 const noSuchBucketXML = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>`
@@ -99,17 +98,13 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 		}
 		return nil
 	}}
-	// The real ports stage sweeps every eligible address on every listed port, and
-	// only the ports tests map those connects to local listeners; the others
-	// leave it out so nothing they run can reach the network.
+	// Only port tests install all sweep destinations, so other worlds omit the real sweep.
 	stages := slices.DeleteFunc(cli.DefaultDeps().Stages, func(s run.Stage) bool {
 		return s.Name() == "ports" || slices.Contains(riskStages, s.Name()) && !slices.Contains(keep, s.Name())
 	})
 	w.h = newHarness(t, append(stages, w.probe)...)
-	// Worlds run the real permutations stage. Most tests are not about it, so they
-	// use a short list (the one the binary shipped with before the list grew)
-	// rather than the built-in thousands of words; a test of the built-in list
-	// clears this, and --wordlist overrides it.
+	// Use a small permutation list for unrelated tests; explicit wordlists and
+	// built-in-list tests override it.
 	words, err := filepath.Abs(filepath.Join("testdata", "words-default.txt"))
 	if err != nil {
 		t.Fatal(err)
@@ -132,9 +127,8 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 		}
 		w.serve(p, h)
 	}
-	// A source that answers 404 fails its check, which now makes the run partial (exit 7). So that
-	// a test is about what it names and not about the sources it ignores, each source that fails a
-	// check on a 404 answers with an empty result until the test sets its own handler.
+	// Default source fakes return successful empty results so unrelated 404 failures cannot
+	// make focused tests partial.
 	w.crtsh(nil, nil)
 	w.waybackURLs()
 	w.commonCrawl("CC-MAIN-2026-01")
@@ -142,9 +136,7 @@ func newWorldWith(t *testing.T, keep ...string) *world {
 	return w
 }
 
-// serve starts a fake HTTP server for a source host (a source pattern, or an
-// exact host such as a storage region or an Azure account) that logs each
-// request, body included, and returns its request log.
+// serve installs a source handler and records complete requests, including bodies.
 func (w *world) serve(host string, h http.HandlerFunc) *source {
 	s := &source{h: h}
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
@@ -370,9 +362,8 @@ func (w *world) anywhere(eng, s string) []string {
 	return hits
 }
 
-// resetOnClose is a listener whose connections end with a reset when this side closes them,
-// as httptest.Server.Close does to the idle keep-alive connections a run leaves. Ending with a
-// FIN would leave each in TIME-WAIT for a minute, holding its port.
+// resetOnClose avoids retaining fixture ports in TIME-WAIT, matching httptest's reset-on-close
+// cleanup.
 type resetOnClose struct{ net.Listener }
 
 func (l resetOnClose) Accept() (net.Conn, error) {

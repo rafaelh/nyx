@@ -11,8 +11,7 @@ import (
 	"time"
 )
 
-// perfOut, if set, is a directory the engagement's output files are copied to after each run
-// (as first/ and second/), to compare the files two builds write.
+// perfOut optionally saves each run's output for comparisons between builds.
 var perfOut = flag.String("perf-out", "", "copy the perf engagement's output files to this directory")
 
 // keepOutputs copies the engagement's output files to perfOut/sub.
@@ -57,11 +56,8 @@ func copyFile(t *testing.T, src, dst string) {
 	}
 }
 
-// TestPerfLargeEngagement runs the real passive stages over a large world, for profiling a run's
-// own costs (the store, the scope build, the derivers and the render) rather than the network.
-// It is built only with the perf tag:
-//
-//	go test -tags perf ./internal/cli -run TestPerfLargeEngagement -count=1 -v -cpuprofile cpu.out
+// TestPerfLargeEngagement profiles local processing with real passive stages and fake sources.
+// Enable the perf tag and use -cpuprofile to capture a profile.
 func TestPerfLargeEngagement(t *testing.T) {
 	t.Parallel()
 	const hosts, urls = 20000, 5000

@@ -9,7 +9,7 @@ import (
 func TestSettingsTab_ShowsFileValueOrDefaultAndTheRelativeExample(t *testing.T) {
 	t.Parallel()
 	b := newFake()
-	b.snap.Settings["concurrency"] = Value{Text: "16", Set: true, Default: "8"} // the file said 0x10
+	b.snap.Settings["concurrency"] = Value{Text: "16", Set: true, Default: "8"} // original YAML used hexadecimal syntax
 	b.snap.Settings["wordlist"] = Value{Text: "words.txt", Set: true, Default: "built-in (1000 words)",
 		Relative: "Relative: resolves against the directory nyx runs from, e.g. /work/words.txt"}
 	h := newTH(t, b)
@@ -70,7 +70,7 @@ func TestSettingsTab_ARejectedValueIsShownAndNotAccepted(t *testing.T) {
 	if h.m.changes() != 0 {
 		t.Error("a rejected value counted as a change")
 	}
-	// The field stays open to be fixed; esc leaves the value as it was.
+	// Invalid edits remain open for correction; Escape preserves the previous value.
 	h.press("esc")
 	mustNotHave(t, lineFor(h.view(), "concurrency"), "abc")
 	h.press("ctrl+s")
@@ -130,7 +130,7 @@ func TestSettingsTab_AnInvalidValueBlocksSavingUntilFixedOrCleared(t *testing.T)
 			f := h.view()
 			mustHave(t, f, "Settings!", "concurrency: must be a whole number")
 			h.goTo(1, 4)
-			h.press("x") // some other change, so there is something to save
+			h.press("x") // create another unsaved field to exercise saving
 			h.press("ctrl+s")
 			if n, _, _ := b.counts(); n != 0 {
 				t.Fatal("saved with an invalid row")
@@ -161,7 +161,7 @@ func TestSettingsTab_AFixedRowIsRewrittenEvenWhenTheValueIsTheSame(t *testing.T)
 	b := newFake()
 	b.snap.Settings["concurrency"] = Value{Text: "9", Set: true, Default: "8", Problem: "concurrency is set twice in the file, as Concurrency and concurrency"}
 	h := newTH(t, b)
-	h.press("tab", "down", "enter", "enter") // accept the same value again
+	h.press("tab", "down", "enter", "enter") // confirm without changing decoded value
 	h.press("ctrl+s")
 	if len(b.saves) != 1 || b.save(t, 0).Set["concurrency"] != "9" {
 		t.Fatalf("saved %+v: both variants must collapse to one entry", b.saves)
@@ -186,7 +186,7 @@ func TestChanges_ChangingAValueBackIsNoChange(t *testing.T) {
 	if h.m.changes() != 0 {
 		t.Errorf("changed and changed back is %d changes", h.m.changes())
 	}
-	// Clearing an unset value and re-entering a cleared one are no change either.
+	// No-op clears and equivalent re-entry do not mark the file changed.
 	h.goTo(1, 2)
 	h.press("x")
 	if h.m.changes() != 0 {

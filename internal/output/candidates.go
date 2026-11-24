@@ -11,19 +11,17 @@ import (
 
 var candidateColumns = []string{"type", "value", "sources", "evidence_count", "confidence"}
 
-// Positions of the cells the sort reads, found by name so that a column moved
-// or added in candidateColumns cannot leave the sort reading the wrong one.
+// Find sort-column indexes by name so reordering candidateColumns cannot silently change the
+// sort.
 var (
 	candidateValue = slices.Index(candidateColumns, "value")
 	candidateCount = slices.Index(candidateColumns, "evidence_count")
 	candidateLevel = slices.Index(candidateColumns, "confidence")
 )
 
-// candidateRows lists the records of kinds.CandidateKinds the summary counts as
-// candidates: both ask the snapshot's Visibility. Each row carries the rank the
-// runner derived for it, and the currency and dates of the candidate itself. A
-// candidate with no rank yet (a Snapshot built without the derivation) is listed
-// with no sources and the lowest confidence.
+// candidateRows uses the snapshot's Visibility to match summary candidates. It combines derived
+// ranks with the candidate's own dates and current status. Missing derivation yields low
+// confidence and no sources.
 func candidateRows(s Snapshot) []Row {
 	ranks := map[string]kinds.CandidateRankAttrs{}
 	for _, r := range s.of(kinds.CandidateRank) {
@@ -48,9 +46,8 @@ func candidateRows(s Snapshot) []Row {
 	return rows
 }
 
-// candidateOrder sorts candidates.csv: high confidence first, then more
-// evidence, then by value. A row that is not current is last, and shows the
-// confidence it last had.
+// candidateOrder sorts current rows first, then confidence, evidence count and value.
+// Non-current rows retain their last confidence.
 func candidateOrder(a, b Row) int {
 	entry := func(r Row) candidates.Entry {
 		n, _ := strconv.Atoi(r.Cells[candidateCount])

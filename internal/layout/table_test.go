@@ -80,8 +80,7 @@ func TestTable_HeaderStyle(t *testing.T) {
 	}
 }
 
-// Topic tables: box-drawing characters in the SEPARATOR colour when coloured, ASCII
-// with no colour otherwise, and the header after a border of its own.
+// Topic tables use styled box borders or plain ASCII with a separate header rule.
 func TestTable_Bordered(t *testing.T) {
 	t.Parallel()
 	tb := layout.Table{
@@ -191,8 +190,7 @@ func TestTable_ShrinkOrder(t *testing.T) {
 	}
 }
 
-// Wide enough content that every wrapping column is at its floor: the table runs
-// past the width, which is allowed, and the columns still line up.
+// When all columns reach minimum widths, allow overflow while preserving alignment.
 func TestTable_AtTheFloors(t *testing.T) {
 	t.Parallel()
 	target := "aaaa bbbb cccc dddd eeee ffff gggg"
@@ -216,8 +214,8 @@ func TestTable_AtTheFloors(t *testing.T) {
 	}
 }
 
-// A column's floor is the widest word it cannot break: a 40-cell URL in TARGET
-// at 80 columns leaves TARGET at 40 and keeps DETAIL lined up in every row.
+// Protected URLs set column floors, preventing narrow layouts from splitting targets or
+// misaligning details.
 func TestTable_FloorOfProtectedWord(t *testing.T) {
 	t.Parallel()
 	url := "https://www.example.com/path/to/thing/ab" // 40 cells

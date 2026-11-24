@@ -15,8 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// src is a fake stage named after a real source. Each of its check keys finds
-// the observations listed under that key; a test edits finds between runs.
+// src provides editable observations per check under a real source name.
 type src struct {
 	*testkit.Stage
 	finds map[string][]run.Observation
@@ -41,9 +40,7 @@ func newSrc(name string, finds map[string][]run.Observation) *src {
 // realFamilies are the families the real stages name for their sources.
 var realFamilies = run.CandidateFamilies(cli.DefaultDeps().Stages)
 
-// CandidateSources names every real source with its family, so that a fake
-// named after a real source, or reporting one through Evidence, counts in that
-// source's family.
+// CandidateSources gives fake stages the same evidence families as their real counterparts.
 func (*src) CandidateSources() map[string]string {
 	m := map[string]string{}
 	for _, s := range realFamilies.Sources() {
@@ -52,9 +49,7 @@ func (*src) CandidateSources() map[string]string {
 	return m
 }
 
-// pivot is a stage whose check keys are "<source>:<item>|<settings>": like a
-// stage that reports the mechanism that found a candidate, and whose key
-// carries a setting, it says so through Evidence.
+// pivot simulates setting-bearing keys while Evidence separates stable source/item identity.
 type pivot struct{ *src }
 
 func (pivot) Evidence(key string) (source, item string) {
@@ -168,11 +163,8 @@ func TestCandidates_NotCurrentSortsLastWithLastConfidence(t *testing.T) {
 	}
 }
 
-// A redo forgets the checks of its stage before they run again. When another
-// stage does work first, the ranks are derived in between; a candidate whose
-// only support is the redone stage keeps the rank it had, so that if the stage
-// then no longer finds it, the row shows the confidence it last had while
-// supported, not an empty one.
+// Preserve rank while redo support is temporarily absent, including when another stage triggers
+// derivation first.
 func TestCandidates_NotCurrentAfterRedoKeepsTheRankItHadWhileSupported(t *testing.T) {
 	t.Parallel()
 	early := newSrc("asn", finds("k1", nil))
@@ -195,9 +187,7 @@ func TestCandidates_NotCurrentAfterRedoKeepsTheRankItHadWhileSupported(t *testin
 	wantRow(t, r, "whoisxml", "1", "medium")
 }
 
-// The same holds for a root that a hostname under it also supports: the
-// hostname's evidence does not make the root current, so while the redone
-// stage is pending the root keeps the rank it had with both.
+// Inherited hostname evidence does not replace a root's pending direct support during redo.
 func TestCandidates_RootAwaitingRedoKeepsItsRankDespiteItsHostnames(t *testing.T) {
 	t.Parallel()
 	early := newSrc("asn", finds("k1", nil))
@@ -256,8 +246,7 @@ func TestCandidates_RecomputedOnEveryRun(t *testing.T) {
 	wantRow(t, rowOf(t, h.table("a.com", "candidates.csv"), "x.org"), "certspotter;whoisxml", "2", "high")
 }
 
-// Without --org there is no registrant match: the same evidence is only as
-// strong as the number of families that agree.
+// Without --org, registrant evidence receives no organisation-match confidence boost.
 func TestCandidates_NoOrgInput(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, newSrc("whoisxml", finds("Acme", list(root("x.org")))))
@@ -283,9 +272,8 @@ func TestCandidates_HostnameEvidenceRaisesItsRoot(t *testing.T) {
 	wantRow(t, rowOf(t, rows, "www.other.org"), "httpprobe", "1", "low")
 }
 
-// A stage reports the source and the item of its check through Evidence, so a
-// setting in the key cannot count one piece of support twice; without it the
-// stage name and the whole key are the source and the item.
+// Evidence removes settings from support identity so changed check settings cannot inflate
+// confidence.
 func TestCandidates_EvidencerSetsSourceAndItem(t *testing.T) {
 	t.Parallel()
 	probe := newSrc("httpprobe", finds("a.com:80", list(host("h1.other.org")), "a.com:443", list(host("h1.other.org"))))
@@ -354,8 +342,8 @@ func highHarness(t *testing.T) *harness {
 	return newHarness(t, stages...)
 }
 
-// The console lists up to 20 high candidates with the input that promotes each,
-// then how many more there are. Medium and low candidates are not listed.
+// The console caps high-confidence candidates at 20 and includes promotion inputs and an
+// overflow count.
 func TestCandidates_ConsoleSummary(t *testing.T) {
 	t.Parallel()
 	h := highHarness(t)
@@ -379,8 +367,8 @@ func TestCandidates_ConsoleSummary(t *testing.T) {
 	}
 }
 
-// --json lists the first 20 high candidates in the envelope, best first, with their total and each
-// one's sources as a list; the rest are in candidates.csv.
+// JSON preserves ranked candidate order, source lists and total count while capping displayed
+// entries.
 func TestCandidates_JSONEnvelope(t *testing.T) {
 	t.Parallel()
 	h := highHarness(t)
@@ -419,8 +407,7 @@ func TestCandidates_JSONEnvelope(t *testing.T) {
 	}
 }
 
-// Each stage names the family of the sources it finds candidates under; a
-// source no longer run keeps its family, and any other is a family of its own.
+// Stage-declared and retired families remain grouped; undeclared sources stay independent.
 func TestCandidates_FamiliesOfTheRealSources(t *testing.T) {
 	t.Parallel()
 	for source, want := range map[string]string{
@@ -441,8 +428,7 @@ func TestCandidates_FamiliesOfTheRealSources(t *testing.T) {
 	}
 }
 
-// The docs list every source a stage names for the sources column, so a
-// stage that names a new one without documenting it fails here.
+// New candidate sources need documentation so sources-column values stay discoverable.
 func TestCandidates_DocsListEverySource(t *testing.T) {
 	t.Parallel()
 	docs := docsText(t)

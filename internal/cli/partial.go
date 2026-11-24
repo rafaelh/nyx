@@ -26,14 +26,10 @@ func sumCounts(counts []report.StageCount) int {
 	return n
 }
 
-// partialError is the PARTIAL error of a run that wrote its result but did not finish its work: the
-// deadline stopped it (timeout is the --timeout text as the caller typed it), or checks failed. It
-// returns nil for a run that did all its work.
-//
-// The hint is the caller's own call without --redo, which carries on where the run stopped. When the
-// deadline ended a run in which no check succeeded, repeating the call would go no further, so the
-// hint says to raise --timeout and the error is not transient. A failure that is only a refused key
-// is not transient either: waiting does not cure it.
+// partialError reports deadline-limited or failed work after results are written, or nil for a
+// complete run. Its retry hint preserves the original invocation without --redo. If a deadline
+// allowed no successes, the hint asks for a longer timeout and the error is non-transient.
+// Failures caused solely by rejected keys are also non-transient.
 func partialError(args []string, timeout string, deadline bool, res run.Result) *clierr.Error {
 	failed := sumCounts(res.Summary.FailedChecks)
 	if !deadline && failed == 0 {

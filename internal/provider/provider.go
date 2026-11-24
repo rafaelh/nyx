@@ -1,6 +1,5 @@
-// Package provider recognises shared provider infrastructure (AWS, Azure,
-// GCP, CDNs, SaaS platforms, shared hosting) from CNAME suffixes, provider
-// address ranges and origin ASNs. Classification is pure and computed on read.
+// Package provider identifies shared infrastructure from CNAME suffixes, provider ranges and
+// origin ASNs. Classification is pure and recalculated when read.
 package provider
 
 import (
@@ -39,8 +38,7 @@ type Range struct {
 	Provider, Service, Region string
 }
 
-// Ranges indexes provider ranges by prefix, so finding the ranges that cover an
-// address costs one map lookup per distinct prefix length, not a scan of them all.
+// Ranges indexes prefixes by length, avoiding full scans when matching addresses.
 type Ranges struct {
 	all          []Range
 	idx          map[netip.Prefix][]int // masked prefix -> positions in all
@@ -86,12 +84,9 @@ func (x *Ranges) covering(a netip.Addr) []*Range {
 	return out
 }
 
-// Result is what is known about an address. Evidence is "range" or "asn".
-// Class is the class of the providers.yaml entry that matched ("saas", "cdn",
-// "hyperscaler" or "shared-hosting"), and for an address matched by a published
-// range it is "cdn" for a CDN's ranges and empty otherwise. Region is the
-// region a range publisher gives, where it does. An address two providers'
-// ranges cover has their names (and services and regions) joined with ";".
+// Result describes provider classification, evidence type, service, region and class. Published
+// CDN ranges use class cdn; other ranges may leave it blank. Overlapping providers' names,
+// services and regions are semicolon-joined.
 type Result struct {
 	Known, Shared     bool
 	Provider, Service string
@@ -106,27 +101,25 @@ const ClassSaaS = "saas"
 // ClassCDN marks an address served by a content delivery network.
 const ClassCDN = "cdn"
 
-// ClassHyperscaler marks an address of a cloud whose machines are dedicated to a customer. By ASN
-// alone it is Shared, as recon treats it, but it is not SharedInfrastructure.
+// ClassHyperscaler marks customer-dedicated cloud machines. ASN-only recon treats them as
+// Shared conservatively, but they are not SharedInfrastructure.
 const ClassHyperscaler = "hyperscaler"
 
 // ClassSharedHosting marks an address of a host that serves many customers' sites from one
 // address.
 const ClassSharedHosting = "shared-hosting"
 
-// ClassWAF marks a CNAME entry of a web application firewall that fronts a site. An asn entry
-// given this class must be shared, as cdn is.
+// ClassWAF identifies fronting firewalls. ASN entries in this class are shared like CDN
+// entries.
 const ClassWAF = "waf"
 
-// SharedInfrastructure reports whether the address belongs to a provider that serves many
-// customers from it (a CDN, SaaS, WAF or shared-hosting provider, or a built-in range of one): it
-// is Shared and not a hyperscaler's. A cloud address is Shared by recon's rule yet is not shared
-// infrastructure, since a machine there is one customer's.
+// SharedInfrastructure identifies multi-customer CDN/SaaS/WAF/hosting addresses. Hyperscalers
+// are excluded: recon's conservative Shared flag alone does not mean a cloud machine serves
+// several customers.
 func (r Result) SharedInfrastructure() bool { return r.Shared && r.Class != ClassHyperscaler }
 
-// Entry is a matched CNAME entry of providers.yaml. NXDomain says a chain that
-// dangles into it can be claimed; Body, an RE2 regex, matches the page an
-// unclaimed resource serves.
+// Entry is a provider CNAME match. NXDomain marks claimable dangling chains; Body matches
+// unclaimed-resource responses.
 type Entry struct {
 	Match
 	Suffix, Class string
@@ -135,17 +128,17 @@ type Entry struct {
 	re            *regexp.Regexp
 }
 
-// BodyMatches reports whether body is what the entry's unclaimed resource serves.
+// BodyMatches checks the unclaimed-resource fingerprint.
 func (e Entry) BodyMatches(body []byte) bool { return e.re != nil && e.re.Match(body) }
 
-// Hash is a short stable identifier of everything about the entry that changes
-// what a check for it does, so an edited fingerprint is re-checked and others are not.
+// Hash identifies check-relevant fingerprint data so changing one entry reruns its checks
+// without invalidating others.
 func (e Entry) Hash() string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%v|%s", e.Suffix, e.Provider, e.Service, e.Class, e.NXDomain, e.Body)))
 	return hex.EncodeToString(sum[:4])
 }
 
-// addrRange is a static address range of a provider (a SaaS reached by apex A records).
+// addrRange identifies static provider ranges, including apex-addressed SaaS.
 type addrRange struct {
 	prefix netip.Prefix
 	Match
@@ -242,15 +235,13 @@ func Parse(b []byte) (*DB, error) {
 	return db, nil
 }
 
-// CNAMEEntry returns the entry of the provider hosting a CNAME target, matching on label
-// boundaries.
+// CNAMEEntry resolves provider suffixes at DNS label boundaries.
 func (db *DB) CNAMEEntry(target string) (Entry, bool) {
 	return longestSuffix(db.cnames, dnsname.Normalise(target))
 }
 
-// longestSuffix returns the value of the longest key of m that name is, or is under. Each
-// shorter suffix is tried in turn, so a specific service wins over its provider's generic
-// domain.
+// longestSuffix prefers service-specific matches over generic provider domains by trying
+// successively shorter name suffixes.
 func longestSuffix[V any](m map[string]V, name string) (V, bool) {
 	for {
 		if v, ok := m[name]; ok {
@@ -274,13 +265,12 @@ func (db *DB) staticRange(a netip.Addr) (addrRange, bool) {
 	return addrRange{}, false
 }
 
-// rangeRule settles one provider's ranges that cover an address. rs is never
-// empty and is in the order the ranges were recorded. It fills in only Shared,
-// Service, Region and Class: classifyRanges sets the rest.
+// rangeRule resolves one provider's nonempty, source-ordered ranges. It fills Shared, Service,
+// Region and Class; classifyRanges supplies the rest.
 type rangeRule func(rs []*Range) Result
 
-// rangeRules say, for each provider whose published ranges are fetched, what
-// being inside one of them means. A provider with no rule here is ignored.
+// rangeRules defines the meaning of each supported provider's published ranges. Unlisted
+// providers are ignored.
 var rangeRules = map[string]rangeRule{
 	"aws":          awsRule,
 	"gcp":          wholeListRule(true, ""),
@@ -291,23 +281,21 @@ var rangeRules = map[string]rangeRule{
 	"oracle":       oracleRule,
 }
 
-// HasRangeRule reports whether a provider's published ranges mean anything to
-// Classify. A provider whose ranges are fetched needs one, or they are ignored.
+// HasRangeRule checks whether fetched ranges have classification logic; unsupported publishers
+// are ignored.
 func HasRangeRule(provider string) bool {
 	_, ok := rangeRules[provider]
 	return ok
 }
 
-// wholeListRule: every address in the provider's ranges is shared infrastructure
-// (a customer's own machine when shared is false). The service is not reported,
-// since the list does not discriminate by it.
+// wholeListRule classifies all provider ranges alike. It omits service because the list does
+// not distinguish services.
 func wholeListRule(shared bool, class string) rangeRule {
 	return func(rs []*Range) Result { return Result{Shared: shared, Region: rs[0].Region, Class: class} }
 }
 
-// awsRule: an address is a dedicated VM only if an EC2 range proves it. A range
-// of any other service makes it shared, and one only in the AMAZON superset
-// fails closed. A CloudFront range is a CDN's edge, so it carries class cdn.
+// awsRule requires EC2 range evidence for dedicated hosting. Other services imply shared
+// hosting; AMAZON alone fails closed. CloudFront additionally sets class cdn.
 func awsRule(rs []*Range) Result {
 	var ec2, amazon *Range
 	for _, r := range rs {
@@ -328,10 +316,8 @@ func awsRule(rs []*Range) Result {
 	return Result{Shared: true, Region: amazon.Region}
 }
 
-// oracleRule: a range tagged OSN (Oracle services) or OBJECT_STORAGE is shared
-// and the rest are dedicated. An address in both kinds is shared. The range
-// reported is the first by service, then region, whatever order they were
-// recorded in.
+// oracleRule treats OSN and OBJECT_STORAGE as shared and other ranges as dedicated, preferring
+// shared on overlap. Reporting sorts by service then region for stable results.
 func oracleRule(rs []*Range) Result {
 	slices.SortFunc(rs, func(a, b *Range) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Region, b.Region))
@@ -346,12 +332,9 @@ func oracleRule(rs []*Range) Result {
 	return Result{Shared: shared, Service: pick.Service, Region: pick.Region}
 }
 
-// classifyRanges settles an address from the ranges that cover it. Each
-// provider first settles its own ranges by its own rule, so an EC2 range still
-// wins over the AMAZON superset that also covers it. Across providers the names
-// are joined with ";" in name order and the address is shared if any provider's
-// result is: it fails closed. ok is false when no range of a known provider
-// covers the address.
+// classifyRanges applies each provider's overlap rules before merging providers in name order.
+// Any shared result makes the address shared, failing closed. No recognised covering range
+// returns ok=false.
 func classifyRanges(covering []*Range) (res Result, ok bool) {
 	by := map[string][]*Range{}
 	for _, r := range covering {
@@ -382,18 +365,14 @@ func classifyRanges(covering []*Range) (res Result, ok bool) {
 	return res, true
 }
 
-// Classify says what is known about an address from the provider ranges and
-// its owner. An address is Known if its owner is, or a range covers it. A
-// published range takes precedence over the owner's ASN, which is the fallback
-// when the list is missing, except that an owner whose ASN is a CDN keeps the
-// address shared inside a dedicated provider's list. Each provider's own rule says what its ranges
-// mean (see rangeRules); hyperscaler addresses with no range to prove
-// otherwise, and Azure (no ranges), fail closed.
+// Classify prefers published ranges over ASN fallback, but a CDN ASN keeps an address shared
+// even inside a dedicated provider range. Ownership or a matching range makes the address
+// Known. Hyperscaler ASN-only matches, including Azure without ranges, fail closed.
 func (db *DB) Classify(a netip.Addr, owner Owner, ranges *Ranges) Result {
 	a = a.Unmap()
 	if res, ok := classifyRanges(ranges.covering(a)); ok {
-		// A dedicated provider's list can hold a CDN's edge space (Linode's covers Akamai's). An
-		// address whose origin AS is a CDN is the CDN's, whatever list covers it.
+		// A dedicated-hosting list can include CDN space, such as Akamai within Linode
+		// ranges. CDN origin-AS evidence takes precedence.
 		if r, ok := db.asnResult(owner); ok && !res.Shared && r.Class == ClassCDN {
 			return r
 		}
@@ -408,7 +387,7 @@ func (db *DB) Classify(a netip.Addr, owner Owner, ranges *Ranges) Result {
 	return Result{Known: owner.Known}
 }
 
-// asnResult is what the owner's ASN says of an address: shared, if the ASN is a listed provider's.
+// asnResult classifies known provider ASNs as shared fallback evidence.
 func (db *DB) asnResult(owner Owner) (Result, bool) {
 	p, ok := db.asns[owner.ASN]
 	if !owner.Known || !ok {
@@ -417,8 +396,7 @@ func (db *DB) asnResult(owner Owner) (Result, bool) {
 	return Result{Known: true, Shared: true, Provider: p.provider, Evidence: "asn", Class: p.class}, true
 }
 
-// Verification returns the platform a root TXT record is a domain-ownership
-// verification for: the value starts with a listed prefix, in any case.
+// Verification identifies TXT ownership platforms by case-insensitive prefix.
 func (db *DB) Verification(value string) (string, bool) {
 	v := strings.ToLower(strings.TrimSpace(value))
 	for _, t := range db.txt {
@@ -429,8 +407,7 @@ func (db *DB) Verification(value string) (string, bool) {
 	return "", false
 }
 
-// DomainOwner returns the provider that operates a domain, such as a managed
-// DNS service for its name servers, matching on label boundaries.
+// DomainOwner labels managed dependencies by suffix, respecting DNS label boundaries.
 func (db *DB) DomainOwner(name string) (string, bool) {
 	return longestSuffix(db.domains, dnsname.Normalise(name))
 }

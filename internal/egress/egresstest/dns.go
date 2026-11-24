@@ -1,5 +1,5 @@
-// Package egresstest is a fake DNS server for tests. It lives under
-// internal/egress so the passive-boundary test allows its use of net and miekg/dns.
+// Package egresstest supplies fake DNS servers inside egress's network-import boundary for
+// tests.
 package egresstest
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// DNS is a scriptable authoritative-for-everything DNS server on loopback.
+// DNS scripts loopback answers for all fixture names.
 type DNS struct {
 	Addr string
 
@@ -59,7 +59,7 @@ type wildcard struct {
 	cname string
 }
 
-// NewDNS starts a server that is shut down when the test ends.
+// NewDNS registers server cleanup with the test.
 func NewDNS(tb testing.TB) *DNS {
 	tb.Helper()
 	d := &DNS{
@@ -82,7 +82,7 @@ func NewDNS(tb testing.TB) *DNS {
 	return d
 }
 
-// A makes name resolve to the addresses (IPv4 answer A queries, IPv6 answer AAAA).
+// A supplies family-appropriate address answers for A/AAAA queries.
 func (d *DNS) A(name string, addrs ...string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -98,42 +98,42 @@ func (d *DNS) CNAME(name, target string) {
 	d.cnames[dnsname.Normalise(name)] = dnsname.Normalise(target)
 }
 
-// Rcode forces a response code for every query for name.
+// Rcode overrides all query types for name.
 func (d *DNS) Rcode(name string, rcode int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.rcodes[dnsname.Normalise(name)] = rcode
 }
 
-// ClearRcode removes the response code forced for name by Rcode.
+// ClearRcode restores normal answer handling for name.
 func (d *DNS) ClearRcode(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.rcodes, dnsname.Normalise(name))
 }
 
-// RcodeSuffix forces a response code for every name under suffix.
+// RcodeSuffix overrides all names beneath a suffix.
 func (d *DNS) RcodeSuffix(suffix string, rcode int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.sufRcode[dnsname.Normalise(suffix)] = rcode
 }
 
-// Drop makes the server not answer queries for name (a client timeout).
+// Drop simulates unanswered queries.
 func (d *DNS) Drop(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.drop[dnsname.Normalise(name)] = true
 }
 
-// Undrop makes the server answer queries for name again.
+// Undrop restores replies after a timeout simulation.
 func (d *DNS) Undrop(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.drop, dnsname.Normalise(name))
 }
 
-// Wildcard makes every otherwise-unknown direct child of zone resolve to the addresses.
+// Wildcard resolves otherwise unknown direct children of zone.
 func (d *DNS) Wildcard(zone string, addrs ...string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -144,14 +144,14 @@ func (d *DNS) Wildcard(zone string, addrs ...string) {
 	d.wild[dnsname.Normalise(zone)] = w
 }
 
-// WildcardCNAME makes every otherwise-unknown direct child of zone an alias of target.
+// WildcardCNAME aliases otherwise unknown direct children of zone.
 func (d *DNS) WildcardCNAME(zone, target string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.wild[dnsname.Normalise(zone)] = wildcard{cname: dnsname.Normalise(target)}
 }
 
-// PTR makes the reverse name of addr answer with hostname.
+// PTR configures reverse lookup for addr.
 func (d *DNS) PTR(addr, hostname string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -166,45 +166,42 @@ func (d *DNS) TXT(name, text string) {
 	d.txt[dnsname.Normalise(name)] = append(d.txt[dnsname.Normalise(name)], text)
 }
 
-// MX makes name answer MX queries with a mail exchanger. host "." is a null MX.
+// MX accepts ordinary mail hosts or "." for null MX.
 func (d *DNS) MX(name string, pref int, host string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.mx[dnsname.Normalise(name)] = append(d.mx[dnsname.Normalise(name)], mxRecord{uint16(pref), host})
 }
 
-// NS makes name answer NS queries with a name server.
+// NS configures authoritative-server fixtures.
 func (d *DNS) NS(name, host string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.ns[dnsname.Normalise(name)] = append(d.ns[dnsname.Normalise(name)], dnsname.Normalise(host))
 }
 
-// SOA makes name answer SOA queries. rname is in DNS form, so an escaped dot in
-// the local part is written `john\.doe.example.com`.
+// SOA accepts DNS-form responsible mailboxes, including escaped local-part dots.
 func (d *DNS) SOA(name, mname, rname string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.soa[dnsname.Normalise(name)] = soaRecord{dnsname.Normalise(mname), rname}
 }
 
-// CAA makes name answer CAA queries with a record.
+// CAA configures certificate-authority fixtures.
 func (d *DNS) CAA(name string, flags int, tag, value string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.caa[dnsname.Normalise(name)] = append(d.caa[dnsname.Normalise(name)], caaRecord{uint8(flags), tag, value})
 }
 
-// SRV makes name answer SRV queries with a service record. target "." is the
-// null target, meaning the service is not offered.
+// SRV accepts "." as the unavailable-service target.
 func (d *DNS) SRV(name string, priority, weight, port int, target string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.srv[dnsname.Normalise(name)] = append(d.srv[dnsname.Normalise(name)], srvRecord{uint16(priority), uint16(weight), uint16(port), target})
 }
 
-// RcodeType forces a response code for queries of one type ("TXT", "NS", ...)
-// for name, leaving its other types alone.
+// RcodeType overrides one name/type pair without changing other answers.
 func (d *DNS) RcodeType(name, qtype string, rcode int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -218,7 +215,7 @@ func (d *DNS) ClearRcodeType(name, qtype string) {
 	delete(d.typeRC, dnsname.Normalise(name)+"|"+qtype)
 }
 
-// ClearRoot removes the NS, SOA, TXT and CAA records of name.
+// ClearRoot removes root metadata while preserving host-resolution fixtures.
 func (d *DNS) ClearRoot(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -229,14 +226,14 @@ func (d *DNS) ClearRoot(name string) {
 	delete(d.caa, n)
 }
 
-// Count is how many queries of the type ("A", "AAAA", "PTR", "TXT", "MX", "NS", "SOA", "CAA", "SRV") were made for name.
+// Count tracks requests by name and DNS type.
 func (d *DNS) Count(name, qtype string) int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.queries[dnsname.Normalise(name)+"|"+qtype]
 }
 
-// Queried lists the names queried with the type, sorted.
+// Queried returns sorted names queried for one type.
 func (d *DNS) Queried(qtype string) []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -284,7 +281,8 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	dropped := d.drop[name]
 	m := new(mdns.Msg)
 	m.SetReply(r)
-	m.RecursionAvailable = true // a recursive resolver says so; Go's resolver reads an empty answer without it as a lame referral
+	m.RecursionAvailable = true // Mark recursion availability so Go accepts empty answers rather than treating them as lame
+	// referrals.
 	if !dropped {
 		d.answer(m, name, q.Qtype)
 	}
@@ -295,7 +293,6 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	_ = w.WriteMsg(m)
 }
 
-// rrHeader is the header of an answer record for name.
 func rrHeader(name string, t uint16) mdns.RR_Header {
 	return mdns.RR_Header{Name: mdns.Fqdn(name), Rrtype: t, Class: mdns.ClassINET, Ttl: 60}
 }
@@ -321,8 +318,7 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16) {
 	m.Answer = append(m.Answer, d.records(cur, qtype, wild)...)
 }
 
-// forcedRcode is the rcode set for name, for name and qtype, or for a suffix name is under,
-// checked in that order.
+// forcedRcode prefers name overrides, then name/type, then suffix matches.
 func (d *DNS) forcedRcode(name string, qtype uint16) (int, bool) {
 	if rc, ok := d.rcodes[name]; ok {
 		return rc, true
@@ -338,8 +334,7 @@ func (d *DNS) forcedRcode(name string, qtype uint16) (int, bool) {
 	return 0, false
 }
 
-// followCNAMEs appends the CNAME chain from name (explicit or from a wildcard), at most 8 hops,
-// to m and returns the name the chain ends at.
+// followCNAMEs appends up to eight explicit/wildcard CNAME hops and returns the final name.
 func (d *DNS) followCNAMEs(m *mdns.Msg, name string) string {
 	cur := name
 	for range 8 {
@@ -358,7 +353,7 @@ func (d *DNS) followCNAMEs(m *mdns.Msg, name string) string {
 	return cur
 }
 
-// records are the qtype records of the known name cur. A non-nil wild gives its addresses.
+// records selects answers for the current name/type, using wild addresses for wildcard replies.
 func (d *DNS) records(cur string, qtype uint16, wild *wildcard) []mdns.RR {
 	h := rrHeader(cur, qtype)
 	var rrs []mdns.RR
@@ -402,7 +397,7 @@ func (d *DNS) records(cur string, qtype uint16, wild *wildcard) []mdns.RR {
 	return rrs
 }
 
-// addrRecords are the A (or AAAA) records for the IPv4 (or IPv6) addresses among addrs.
+// addrRecords filters addresses to the requested A/AAAA family.
 func addrRecords(h mdns.RR_Header, qtype uint16, addrs []netip.Addr) []mdns.RR {
 	var rrs []mdns.RR
 	for _, a := range addrs {
@@ -415,7 +410,7 @@ func addrRecords(h mdns.RR_Header, qtype uint16, addrs []netip.Addr) []mdns.RR {
 	return rrs
 }
 
-// rootOrFqdn is host as a fully qualified name, leaving the root "." (a null MX or SRV target) alone.
+// rootOrFqdn qualifies hostnames while preserving "." for null MX/SRV targets.
 func rootOrFqdn(host string) string {
 	if host == "." {
 		return host

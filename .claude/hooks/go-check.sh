@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# PostToolUse hook: format and check a Go file after Claude edits it.
+# Format and check Go edits after Claude's file-writing tools run.
 #
-# - gofmt rewrites the file in place (silent on success).
-# - go vet type-checks the edited file's package.
-# - golangci-lint, the version pinned in tools/go.mod (run with go tool, so
-#   nothing needs installing), lints that package, reporting only issues on
-#   lines changed since HEAD so pre-existing findings don't block every edit.
+# gofmt updates the file; vet and the pinned linter check its package.
+# Lint reports changed lines only so existing findings do not block unrelated edits.
 #
-# Exit 2 sends stderr back to Claude so it can fix the problem.
+# Exit 2 returns diagnostics to Claude for correction.
 set -uo pipefail
 
 file=$(jq -r '.tool_input.file_path // empty')
@@ -19,12 +16,12 @@ errors=""
 
 if ! out=$(gofmt -w "$file" 2>&1); then
   errors+="gofmt failed on $file:"$'\n'"$out"$'\n'
-  # A syntax error will also fail vet and lint with the same message.
+  # Stop here to avoid repeating syntax errors through vet and lint.
   printf '%s' "$errors" >&2
   exit 2
 fi
 
-# Portable: BSD realpath (macOS) has no --relative-to.
+# Resolve relatively without GNU-only realpath flags, for macOS compatibility.
 pkg="./$(dirname "${file#"$PWD"/}")"
 
 if ! out=$(go vet "$pkg" 2>&1); then

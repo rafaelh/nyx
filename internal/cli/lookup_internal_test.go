@@ -6,8 +6,8 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// The retry command repeats the named flags the caller set, as typed and in the order named,
-// after --json; a bool flag only when true. Each argument is quoted for a shell.
+// Retry commands preserve explicit flag text/order, include true boolean flags only and
+// shell-quote each argument.
 func TestRetryCommand(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

@@ -14,31 +14,25 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// maxListedCandidates is how many candidates the summary lists; the rest are in
-// candidates.csv only.
+// maxListedCandidates limits the console list; candidates.csv contains the rest.
 const maxListedCandidates = 20
 
-// Result is what a run reports when it has rendered its files: the summary, and the
-// counts the caller decides the outcome from. The number of failed checks is the sum of
-// Summary.FailedChecks.
-//
-// Completed is the checks that ran and finished in this run, whether they succeeded or
-// failed (Succeeded is the ones that did). A check the context ended while it ran is
-// neither completed nor failed: it is Cancelled, per stage in registry order, and runs
-// on the next run. A check a stage abandoned without running it is failed, and in
-// neither count. KeyRejected is the failed checks a rejected key caused.
+// Result contains the rendered summary and counters used to decide the command's outcome.
+// Completed includes checks that returned successfully or with an error; Succeeded counts only
+// successes. Cancelled checks are retried next run and are counted separately, by stage. Checks
+// abandoned after a stage abort count as failures without being completed. Summary.FailedChecks
+// holds the failure totals.
 type Result struct {
 	Summary   report.Summary
 	Completed int
 	Succeeded int
 	Cancelled []report.StageCount
-	// KeyRejected is how many of the failed checks a refused API key caused: the check
-	// that met the refusal, and each check its stage then abandoned.
+	// KeyRejected counts failures caused by a rejected API key, including checks abandoned
+	// after the rejection.
 	KeyRejected int
 }
 
-// result builds the Result from what the run has counted and stored. The category
-// counts are those of the last render.
+// result builds the outcome using run counters and the last render's category totals.
 func (r *Runner) result() Result {
 	res := Result{}
 	r.mu.Lock()
@@ -83,8 +77,7 @@ func (r *Runner) result() Result {
 	return res
 }
 
-// notConfigured lists, in registry order, each stage whose gate is closed when the run
-// ends, and why.
+// notConfigured lists blocked stages and their reasons in registry order.
 func (r *Runner) notConfigured() []report.StageReason {
 	out := []report.StageReason{}
 	for _, s := range r.cfg.Stages {
@@ -95,8 +88,8 @@ func (r *Runner) notConfigured() []report.StageReason {
 	return out
 }
 
-// rankedCandidates are the candidates the summary lists (candidates.Listed),
-// each with the input that promotes it.
+// rankedCandidates builds the summary list with the scope input needed to promote each
+// candidate.
 func (r *Runner) rankedCandidates() []report.CandidateRow {
 	recs, _ := r.currentRecords(kinds.CandidateRank)
 	ranked := make([]candidates.Ranked, len(recs))
@@ -113,9 +106,8 @@ func (r *Runner) rankedCandidates() []report.CandidateRow {
 	return rows
 }
 
-// changesSummary is the summary's changes: how many of each kind changed in each way, and the
-// findings of high or medium severity that are new. It is nil on a first run, which has no
-// changes to count.
+// changesSummary counts changes by kind and lists new high- or medium-severity findings. It
+// returns nil on a first run.
 func (r *Runner) changesSummary(recs []store.Record) *report.Changes {
 	if r.base == nil {
 		return nil
@@ -144,8 +136,7 @@ func (r *Runner) changesSummary(recs []store.Record) *report.Changes {
 	return &report.Changes{Counts: counts, Findings: headlineRows(fresh)}
 }
 
-// headlineRows are the findings of high or medium severity among recs, as the summary
-// lists them.
+// headlineRows formats high- and medium-severity findings for the summary.
 func headlineRows(recs []store.Record) []report.FindingRow {
 	listed := []report.FindingRow{}
 	for _, f := range findings.Headline(recs) {

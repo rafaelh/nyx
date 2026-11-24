@@ -16,11 +16,10 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 )
 
-// Host is the NVD's API host, the one host nyx cve contacts.
+// Host restricts CVE lookups to NVD's API endpoint.
 const Host = "services.nvd.nist.gov"
 
-// The NVD's published rate limits: requests per rolling window, without and
-// with an API key.
+// NVD rolling-window request limits for unkeyed and keyed calls.
 const (
 	rateWindow     = 30 * time.Second
 	rateWithoutKey = 5
@@ -32,35 +31,33 @@ const (
 	maxRequestWait = 120 * time.Second
 )
 
-// The hints of the failures whose hint does not depend on the call.
+// Shared failure hints independent of invocation arguments.
 const (
 	hintNotFound   = "check the ID; the NVD lists only published CVEs"
 	hintRetryLater = "retry later"
 	hintNoKey      = "; or set keys.nvd in the config file for 50 requests per 30s"
 )
 
-// Config is what a Client needs.
+// Config supplies NVD client dependencies.
 type Config struct {
 	HTTP egress.ThirdPartyHTTP
-	// Keyed is whether the requests carry an API key, which egress attaches as
-	// the key of the "nvd" source.
+	// Keyed selects authenticated rate limits; egress attaches the NVD key.
 	Keyed bool
-	// AuthHint is the hint of a refused key: where the key came from.
+	// AuthHint explains where rejected credentials were configured.
 	AuthHint string
 	// Debug, when set, receives one line per attempt.
 	Debug func(msg string)
 }
 
-// Client looks up one CVE ID at a time. One Client serves a whole batch, so
-// every request shares its window.
+// Client shares one rate window across all requests and retries in a batch.
 type Client struct {
 	cfg     Config
 	win     *window
-	backoff time.Duration // the wait before the first retry; it doubles for each one after
+	backoff time.Duration // initial retry delay, doubled on each retry
 	stop    atomic.Bool   // set by the first refused key
 }
 
-// NewClient returns a Client paced to the NVD's limit for cfg.Keyed.
+// NewClient selects NVD pacing from keyed status.
 func NewClient(cfg Config) *Client {
 	n := rateWithoutKey
 	if cfg.Keyed {
@@ -69,8 +66,8 @@ func NewClient(cfg Config) *Client {
 	return &Client{cfg: cfg, win: newWindow(n, rateWindow, time.Now), backoff: time.Second}
 }
 
-// Failure is why the lookup of one ID failed: its error (without an input),
-// and how long to wait before a retry may succeed, 0 when that is not known.
+// Failure describes one failed lookup and any known retry delay. Its error omits the input so
+// callers can attach the original argument.
 type Failure struct {
 	Err  *clierr.Error
 	Wait time.Duration
@@ -78,15 +75,14 @@ type Failure struct {
 
 func (f *Failure) Error() string { return f.Err.Message }
 
-// Get looks up one CVE ID, retrying transient failures within ctx's deadline.
-// Its error is a *Failure, or ctx's error when ctx was cancelled by anything
-// but its deadline.
+// Get retries transient CVE lookup failures within ctx's deadline. It returns *Failure, except
+// external cancellation returns the context error directly.
 func (c *Client) Get(ctx context.Context, id string) (Record, error) {
 	for attempt := 1; ; attempt++ {
 		if c.stop.Load() {
 			return Record{}, c.refused()
 		}
-		// Past the deadline, the window is not why the ID goes unsent.
+		// After expiry, report timeout rather than an unavailable window slot.
 		if deadline, has := ctx.Deadline(); ctx.Err() != nil || has && !time.Now().Before(deadline) {
 			c.debugf("nvd %s attempt %d: not sent, the call has ended", id, attempt)
 			return Record{}, ended(ctx)
@@ -135,26 +131,25 @@ func (c *Client) Get(ctx context.Context, id string) (Record, error) {
 	}
 }
 
-// attempted is how one request ended: a record, a failure (and whether the
-// client retries it), or a context that ended while it was in flight.
+// attempted captures a request's record, retryable failure or interrupted context.
 type attempted struct {
 	rec        Record
 	fail       *clierr.Error
 	status     string // what the NVD answered, for --debug
 	retry      bool
-	rateLimit  bool   // a rate-limit answer: its retry, past the deadline, is RATE_LIMITED
+	rateLimit  bool   // an unfittable rate-limit retry remains RATE_LIMITED
 	retryAfter string // the answer's Retry-After header
 	ended      bool
 }
 
-// attempt sends one request for id and classifies the answer.
+// attempt makes and classifies one request.
 func (c *Client) attempt(ctx context.Context, id string) attempted {
 	req := egress.ThirdPartyRequest{Method: "GET", URL: "https://" + Host + "/rest/json/cves/2.0?cveId=" + id, Accept: "application/json"}
 	if c.cfg.Keyed {
 		req.KeySource, req.KeyHeader = "nvd", "apiKey"
 	}
 	if deadline, ok := ctx.Deadline(); ok {
-		// The invocation's deadline governs the request, not egress's default timeout.
+		// Use the invocation deadline rather than the default egress timeout.
 		req.Timeout = max(min(time.Until(deadline), maxRequestWait), time.Millisecond)
 	}
 	resp, err := c.cfg.HTTP.Do(ctx, req)
@@ -193,28 +188,27 @@ func (c *Client) attempt(ctx context.Context, id string) attempted {
 		return upstream(true, true)
 	case s >= 500:
 		return upstream(true, false)
-	default: // a 404 that does not name the key is a refused parameter, never "not found"
+	default: // NVD also uses 404 for rejected parameters, so it cannot establish missing IDs
 		return upstream(false, false)
 	}
 	return a
 }
 
-// Answer is what an NVD answer other than a 200 says about the request.
+// Answer classifies non-200 NVD responses.
 type Answer int
 
 const (
-	// Other is any answer that says nothing about the key or the rate.
+	// Other covers responses unrelated to credentials or rate limits.
 	Other Answer = iota
-	// KeyRefused is an answer that refuses the API key: a 401, or a 403 or 404 naming the apiKey.
+	// KeyRefused covers 401 and key-specific 403/404 responses.
 	KeyRefused
-	// RateLimited is an answer that refuses the request for its rate: a 429, or a 403 that does
-	// not name the key.
+	// RateLimited covers 429 and non-key 403 responses.
 	RateLimited
 )
 
-// Meaning is what the NVD's answer to a request means. message is the answer's "message" header
-// and body its body, either of which may name the key. A 404 that does not name the key is
-// Other, never "not found": the NVD answers a refused parameter that way.
+// Meaning classifies an NVD response using its status, message header and body. Either text can
+// mention a rejected key. A key-unrelated 404 is Other, since NVD also uses 404 for rejected
+// parameters.
 func Meaning(status int, message string, body []byte) Answer {
 	named := func() bool { return strings.Contains(strings.ToLower(message+" "+string(body)), "apikey") }
 	switch {
@@ -226,8 +220,7 @@ func Meaning(status int, message string, body []byte) Answer {
 	return Other
 }
 
-// decode reads a 200's body: the record, or not found when the NVD holds no
-// entry for the ID.
+// decode handles successful bodies, including a valid response with no matching ID.
 func decode(resp egress.ThirdPartyResponse) (Record, *clierr.Error) {
 	if resp.Truncated {
 		return Record{}, &clierr.Error{Code: clierr.UpstreamError, Message: "the NVD's answer was cut off at 10 MiB"}
@@ -242,13 +235,12 @@ func decode(resp egress.ThirdPartyResponse) (Record, *clierr.Error) {
 	return FromNVD(&body.Vulnerabilities[0].CVE), nil
 }
 
-// refused is the failure of a refused key, the same for the ID whose request
-// the NVD refused and for every ID not yet sent.
+// refused shares the key-rejection failure across the refused request and unsent IDs.
 func (c *Client) refused() *Failure {
 	return &Failure{Err: &clierr.Error{Code: clierr.AuthFailed, Message: "the NVD refused the API key", Hint: c.cfg.AuthHint}}
 }
 
-// rateLimited is a transient rate limit that may succeed after wait.
+// rateLimited supplies a retryable error with wait guidance.
 func (c *Client) rateLimited(msg string, wait time.Duration) *Failure {
 	hint := "retry after " + batch.Seconds(wait)
 	if !c.cfg.Keyed {
@@ -257,8 +249,7 @@ func (c *Client) rateLimited(msg string, wait time.Duration) *Failure {
 	return &Failure{Err: &clierr.Error{Code: clierr.RateLimited, Message: msg, Hint: hint, Transient: true}, Wait: wait}
 }
 
-// exhausted is the failure of a retried answer once its attempts are spent.
-// Only a rate limit's wait is known.
+// exhausted reports the final failed attempt, preserving known rate-limit wait time.
 func (c *Client) exhausted(a attempted, d time.Duration) *Failure {
 	if a.rateLimit {
 		return c.rateLimited(a.fail.Message, d)
@@ -266,8 +257,8 @@ func (c *Client) exhausted(a attempted, d time.Duration) *Failure {
 	return &Failure{Err: a.fail}
 }
 
-// retryPastDeadline is the failure of an answer whose retry, after d, would
-// be after the deadline: a rate limit for a rate-limit answer, else a timeout.
+// retryPastDeadline reports rate limiting or timeout when the next retry cannot fit before the
+// deadline.
 func (c *Client) retryPastDeadline(a attempted, d time.Duration) *Failure {
 	if a.rateLimit {
 		return c.rateLimited(a.fail.Message+", and its retry is due after the deadline", d)
@@ -276,8 +267,8 @@ func (c *Client) retryPastDeadline(a attempted, d time.Duration) *Failure {
 		Hint: "retry after " + batch.Seconds(d) + ", or " + batch.HintTimeout, Transient: true}, Wait: d}
 }
 
-// ended is the error of a context that ended: a cancel (a signal) as itself,
-// and its deadline, passed even before its timer fires, as a timeout.
+// ended preserves cancellation errors and maps expired deadlines to timeout, even before their
+// timers fire.
 func ended(ctx context.Context) error {
 	if err := ctx.Err(); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return err
@@ -285,9 +276,8 @@ func ended(ctx context.Context) error {
 	return &Failure{Err: &clierr.Error{Code: clierr.Timeout, Message: "no answer from the NVD before the deadline", Hint: batch.HintTimeout, Transient: true}}
 }
 
-// retryDelay is the wait before a retry: Retry-After when it is a whole
-// number of seconds, else the backoff, doubling for each attempt, uniform in
-// [d/2, 3d/2) so concurrent retries do not arrive together.
+// retryDelay uses an integer Retry-After value when present. Otherwise it doubles the backoff
+// per attempt and adds jitter in [d/2, 3d/2) to spread concurrent retries.
 func (c *Client) retryDelay(retryAfter string, attempt int) time.Duration {
 	if n, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && n >= 0 {
 		return time.Duration(n) * time.Second
@@ -302,10 +292,9 @@ func (c *Client) debugf(format string, args ...any) {
 	}
 }
 
-// These types decode the NVD CVE API 2.0. They are never shown to callers:
-// what callers see is the Record.
+// These private types decode NVD CVE API 2.0; callers receive Record instead.
 
-// response is the NVD's envelope around the entries that match a query.
+// response models NVD's query-result envelope.
 type response struct {
 	Vulnerabilities []vulnerability `json:"vulnerabilities"`
 }
@@ -314,7 +303,7 @@ type vulnerability struct {
 	CVE Entry `json:"cve"`
 }
 
-// Entry is an NVD entry: the NVD's own JSON object for one CVE.
+// Entry models the original NVD object for one CVE.
 type Entry struct {
 	ID               string          `json:"id"`
 	SourceIdentifier string          `json:"sourceIdentifier"`
@@ -334,7 +323,7 @@ type LangString struct {
 	Value string `json:"value"`
 }
 
-// Metrics holds every CVSS score in the entry, by CVSS version.
+// Metrics groups available scores by CVSS version.
 type Metrics struct {
 	CVSSMetricV40 []CVSSMetric `json:"cvssMetricV40"`
 	CVSSMetricV31 []CVSSMetric `json:"cvssMetricV31"`
@@ -342,9 +331,8 @@ type Metrics struct {
 	CVSSMetricV2  []CVSSMetric `json:"cvssMetricV2"`
 }
 
-// CVSSMetric is one CVSS score. Type is Primary, published by the NVD itself,
-// or Secondary. Version 2 keeps its severity here as BaseSeverity; later
-// versions keep it in CVSSData.
+// CVSSMetric holds a score and its Primary/Secondary source type. CVSS v2 stores severity in
+// BaseSeverity; later versions use CVSSData.
 type CVSSMetric struct {
 	Source       string    `json:"source"`
 	Type         string    `json:"type"`
@@ -352,7 +340,7 @@ type CVSSMetric struct {
 	CVSSData     *CVSSData `json:"cvssData"`
 }
 
-// CVSSData is a score's data. Version 2 has no BaseSeverity here.
+// CVSSData holds version-specific score fields; v2 stores severity outside it.
 type CVSSData struct {
 	Version      string  `json:"version"`
 	VectorString string  `json:"vectorString"`
@@ -372,8 +360,7 @@ type Configuration struct {
 	Nodes []Node `json:"nodes"`
 }
 
-// Node is a configuration node; its CPE matches and child nodes combine by
-// Operator.
+// Node combines child nodes and CPE matches using its Operator.
 type Node struct {
 	Operator string     `json:"operator"`
 	Negate   bool       `json:"negate"`
@@ -381,7 +368,7 @@ type Node struct {
 	Nodes    []Node     `json:"nodes"`
 }
 
-// CPEMatch is one CPE match of a node, with its version bounds.
+// CPEMatch retains affected-version boundaries for one configuration match.
 type CPEMatch struct {
 	Vulnerable            bool   `json:"vulnerable"`
 	Criteria              string `json:"criteria"` // a CPE 2.3 formatted string

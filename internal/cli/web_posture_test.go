@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// Web posture: what the probe's own responses say about HSTS, cookie flags,
-// directory listings and version banners. Nothing is requested beyond the probe.
+// Posture uses already-probed responses without extra requests.
 
 const listingPage = `<html><head><title>Index of /</title></head><body><h1>Index of /</h1><pre></pre></body></html>`
 
@@ -101,8 +100,8 @@ func TestWebPosture_ColumnsAndFindingsFromLoopbackServices(t *testing.T) {
 	}
 }
 
-// The listing that counts is the last page of the service's own origin: a
-// listing a redirect leads to on another host is that host's, not this one's.
+// Directory evidence belongs to the last same-origin page, not an external redirect
+// destination.
 func TestWebPosture_RedirectChainDecidesWhatIsRead(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -196,8 +195,7 @@ func (x *web) switchable(t *testing.T) (*postureSite, *site) {
 	return p, s
 }
 
-// An engagement probed before posture was recorded has none of it: the columns
-// are blank and there are no findings until httpprobe is redone.
+// Older engagements leave posture unknown until httpprobe is redone.
 func TestWebPosture_ExistingEngagementGainsPostureOnlyAfterRedo(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)

@@ -14,21 +14,16 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// Output that is not written to a terminal is what scripts and saved logs read, so its bytes are
-// pinned here: each test below captures the output of a fixture-driven run on streams that are
-// not terminals and compares it with a file under testdata/plain. Every capture is made twice,
-// the second time with colour variables set, which must change nothing off a terminal.
-//
-// To rewrite the files after a deliberate change to that output:
-//
-//	go test ./internal/cli/ -run 'TestPlain_' -update-plain
+// Plain-output goldens pin bytes consumed by scripts and saved logs. Each capture runs with
+// default and colour-rich environments, which must agree off-terminal. Update intentional
+// changes with go test ./internal/cli/ -run 'TestPlain_' -update-plain.
 var updatePlain = flag.Bool("update-plain", false, "rewrite the files under testdata/plain instead of comparing with them")
 
 // outPlaceholder stands for the harness's temporary output directory in a golden file.
 const outPlaceholder = "<OUTPUT-DIR>"
 
-// colourVariants are the environments a capture is made in: the harness's own, and one that would
-// turn on the richest colour on a terminal.
+// colourVariants compares normal output with an environment requesting the richest terminal
+// colour.
 var colourVariants = []struct {
 	name string
 	env  map[string]string
@@ -37,11 +32,9 @@ var colourVariants = []struct {
 	{"COLORTERM=truecolor and TERM=xterm-256color", map[string]string{"COLORTERM": "truecolor", "TERM": "xterm-256color"}},
 }
 
-// goldenPlain runs capture once for each colour variant, requires the same bytes from both, and
-// compares them with testdata/plain/<name>.txt (or rewrites the file under -update-plain).
-// capture builds its own harness, calls tune on it before its first command, and returns what it
-// read, with the harness for its output directory, which is written as <OUTPUT-DIR> in both the
-// file and the comparison so that the file holds nothing that belongs to one machine.
+// goldenPlain compares both colour environments with one golden file, normalising
+// machine-specific output paths. capture builds its own harness and applies tune before
+// running; -update-plain rewrites expectations.
 func goldenPlain(t *testing.T, name string, capture func(tune func(*harness)) (*harness, string)) {
 	t.Helper()
 	var want string
@@ -93,8 +86,8 @@ func (n noting) Notes(run.View) []string { return n.notes }
 // longHost is a host name long enough to push a finding line past 100 columns.
 const longHost = "customer-portal-staging-environment-eu-west.internal-services.division-alpha.example-holdings.a.com"
 
-// summaryWorld is the stages of the runs whose summaries are captured, and what each says on the
-// second run. The first run sees only the first key of crtsh and so has no changes to report.
+// summaryWorld supplies two-run fixtures, with a single initial discovery and no first-run
+// comparison.
 type summaryWorld struct {
 	h                          *harness
 	crtsh, otx, wayback, spots *src
@@ -119,8 +112,7 @@ func newSummaryWorld(t *testing.T, tune func(*harness)) *summaryWorld {
 	return w
 }
 
-// secondDay adds what the second run finds: new hosts, certificates, email posture and reported
-// ports that make findings, and more high-confidence candidates than the summary lists.
+// secondDay adds findings and enough high-confidence candidates to exercise overflow output.
 func (w *summaryWorld) secondDay() {
 	w.crtsh.finds = finds(
 		"k1", list(host("www.a.com"), host("old.a.com"), certSvc("old.a.com", "2026-10-15")),
@@ -136,9 +128,8 @@ func (w *summaryWorld) secondDay() {
 	w.h.now = w.h.now.Add(24 * time.Hour)
 }
 
-// candidates are n roots and n/2 netblocks as one source sees them. Every source sees all of them
-// except that certspotter sees only the first five roots, so most candidates have three sources
-// and a few have four.
+// candidates creates overlapping source evidence, with Cert Spotter adding support to only the
+// first five roots.
 func (w *summaryWorld) candidates(n int, source string) []run.Observation {
 	var out []run.Observation
 	for i := range n {
@@ -174,9 +165,8 @@ func TestPlain_SummaryFirstRun(t *testing.T) {
 	})
 }
 
-// The summary of a second run has every block: counts, the unconfirmed risky ports line, notes,
-// failed and deferred checks, findings of both severities (one with a long target), candidates
-// with more than the summary lists, and the changes with their new findings.
+// Exercise every second-run summary block, including failures, deferrals, long targets,
+// candidate overflow and changes.
 func TestPlain_SummaryEveryBlock(t *testing.T) {
 	t.Parallel()
 	goldenPlain(t, "summary-every-block", func(tune func(*harness)) (*harness, string) {
@@ -222,9 +212,7 @@ var longWarning = func() string {
 	return w[:800]
 }()
 
-// newLogWorld is a run that writes every kind of log line: the run header, a stage in each state,
-// found lines of each form, counts, warnings (one long and one of several lines) and, under
-// --debug, the failures of checks.
+// newLogWorld exercises every log shape/state, multiline warnings and debug failures.
 func newLogWorld(t *testing.T, tune func(*harness)) *harness {
 	t.Helper()
 	crtsh := newSrc("crtsh", finds("k1", list(
@@ -256,9 +244,7 @@ func (h *harness) logRun(t *testing.T, args ...string) {
 	}
 }
 
-// The log lines of a first run: the header, stages that are running, done, failed and not
-// configured, found lines with and without a severity badge, counts, warnings, and the error
-// that ends the run.
+// Capture first-run logs plus the final error across all stage and finding states.
 func TestPlain_LogFirstRun(t *testing.T) {
 	t.Parallel()
 	goldenPlain(t, "log-first-run", func(tune func(*harness)) (*harness, string) {
@@ -342,9 +328,7 @@ const longDescription = "A flaw in the request parser of the Example Gateway all
 	"for the vendor's analysis, indicators of compromise and the steps to take until a fixed release is installed. " +
 	"Workarounds that disable the streaming module reduce but do not remove the exposure."
 
-// richEntry is an NVD entry that fills every part of a record: a long description, a severity,
-// weaknesses of different lengths, products with every kind of version bound, and references,
-// some with tags and some with URLs longer than the width.
+// richEntry exercises every CVE field, version-bound format and long tagged reference.
 func richEntry() string {
 	product := func(vendor, name, version, bounds string) string {
 		return fmt.Sprintf(`{"vulnerable":true,"criteria":"cpe:2.3:a:%s:%s:%s:*:*:*:*:*:*:*"%s}`, vendor, name, version, bounds)
@@ -375,8 +359,7 @@ func richEntry() string {
 		`"references":[%s]}`, longDescription, products, strings.Join(refs, ","))
 }
 
-// bareEntry is an NVD entry with nothing but an ID and a status: no description, no score, no
-// weaknesses, products or references, so its severity is null.
+// bareEntry leaves only ID/status, exercising absent descriptions, scores and lists.
 const bareEntry = `{"id":"CVE-2024-10002","vulnStatus":"Awaiting Analysis","published":"2024-11-10T00:15:00.000","lastModified":"2024-11-10T00:15:00.000",` +
 	`"descriptions":[],"references":[]}`
 
@@ -384,9 +367,8 @@ const bareEntry = `{"id":"CVE-2024-10002","vulnStatus":"Awaiting Analysis","publ
 var cveShapes = []string{"", "all", "id", "id,cvss_severity", "id,description", "id,cvss_score,cvss_vector", "cvss_score", "cvss_score,cvss_severity",
 	"cvss_version,cvss_source", "weaknesses", "affected_products", "references", "references_count", "status,published,last_modified"}
 
-// cveGolden captures nyx cve records for each --fields shape with COLUMNS set to columns ("" is
-// unset): a record that fills every part, one with a null severity and nothing else, a rejected
-// one and one that has only a version 2 score.
+// cveGolden captures rich, bare, rejected and CVSS-v2 records for each selection at the
+// requested width.
 func cveGolden(t *testing.T, name, columns string) {
 	t.Helper()
 	goldenPlain(t, name, func(tune func(*harness)) (*harness, string) {

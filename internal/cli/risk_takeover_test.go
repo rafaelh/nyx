@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// A dangling CNAME into a provider marked claimable is a high takeover, from
-// DNS evidence alone, so it works under --passive with no target request.
+// Dangling claimable CNAMEs produce high takeover findings using DNS evidence alone.
 func TestTakeover_DNSTakeoverPassive(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage", "takeover", "sensitive-paths")

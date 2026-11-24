@@ -14,8 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// unkeyedSource describes one of the three sources that need no key: the answers
-// it gives and the names its good answer must yield.
+// unkeyedSource pairs source responses with expected discovered names.
 type unkeyedSource struct {
 	stage, host string
 	// ok holds the names in names plus noise that must not be recorded: a name
@@ -67,9 +66,8 @@ func (s unkeyedSource) serve(w *world, body string) {
 	})
 }
 
-// handle sets h as the source's handler. The reverseip stage asks HackerTarget's host too, about
-// addresses; those requests are answered with nothing found, so that a test of the source's own
-// stage fails no other.
+// handle supplies empty reverse-IP results to isolate subdomain tests sharing HackerTarget's
+// host.
 func (s unkeyedSource) handle(w *world, h http.HandlerFunc) {
 	w.handle(s.host, func(rw http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/reverseiplookup") {
@@ -195,8 +193,8 @@ func TestUnkeyed_ScopeDecidesTheFile(t *testing.T) {
 func TestUnkeyed_NamesAreNormalised(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	// crt.sh and a new source both give a wildcard; the new source also gives
-	// upper case, a trailing dot, a Unicode name and one that is not a hostname.
+	// Cover wildcard, case, trailing-dot, Unicode and invalid-name normalisation across old
+	// and new sources.
 	w.crtsh(map[string][]string{"example.com": {"*.dev.example.com"}}, nil)
 	hackerTargetHosts(w, "*.stage.example.com,198.51.100.1\nUP.Example.com.,198.51.100.2\nBücher.example.com,198.51.100.3\n"+
 		"under_score.example.com,198.51.100.4\nsp ace.example.com,198.51.100.5\n")
@@ -305,9 +303,8 @@ func checkQuotaRetried(t *testing.T, w *world, s unkeyedSource) {
 	}
 }
 
-// checkQuotaSpentStage checks a run in which the source's quota was spent: its
-// stage failed after one request with nothing done and one quota warning, and
-// the other stages and their names were unaffected.
+// checkQuotaSpentStage verifies one request/warning and no completions without affecting other
+// stages.
 func checkQuotaSpentStage(t *testing.T, w *world, s unkeyedSource) {
 	t.Helper()
 	if st, _ := stateOf(w, s.stage); st != "failed" {
@@ -468,8 +465,7 @@ func TestGet_RangePublisher429StaysAFailedCheck(t *testing.T) {
 	}
 }
 
-// Re-running an engagement made before these sources existed does not repeat
-// the old sources' checks and resolves only the names the new ones add.
+// New stages add discoveries without repeating checks from existing stages.
 func TestUnkeyed_RerunResolvesOnlyAddedNames(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -661,8 +657,8 @@ func TestCertSpotter_RejectedKeyAborts(t *testing.T) {
 	}
 }
 
-// A key added after checks failed applies to the checks not yet done, and the
-// key is not part of the check, so --redo is only needed for the finished ones.
+// Adding a key retries pending checks; completed checks need redo because credentials are not
+// keyed.
 func TestCertSpotter_KeyAddedLaterAppliesToPendingChecks(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -770,8 +766,7 @@ func TestDocs_NameTheNewSources(t *testing.T) {
 	}
 }
 
-// urlscan reads one page of results; it says so when the answer has more. The
-// live service reports total beyond the page with has_more false.
+// urlscan detects more results from total even when has_more is incorrectly false.
 func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 	t.Parallel()
 	const one = `"results":[{"page":{"domain":"us.example.com"},"task":{}}]`
@@ -802,8 +797,7 @@ func TestUrlscan_WarnsWhenResultsAreCutShort(t *testing.T) {
 	}
 }
 
-// keyedSourcesBullet is the "Keyed sources" bullet of the docs, which may wrap onto
-// indented continuation lines, as one line.
+// keyedSourcesBullet joins wrapped documentation lines for one keyed-source list item.
 func keyedSourcesBullet(docs string) string {
 	var keyed string
 	in := false

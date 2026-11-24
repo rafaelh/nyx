@@ -77,25 +77,25 @@ func TestKeyTest_AnOlderGenerationIsDiscardedAndEditingRemovesTheResult(t *testi
 	h := newTH(t, b)
 	h.goTo(0, 1)
 	stale := h.press("t")
-	// The key is replaced while the test is out.
+	// Replace the key while its test is pending.
 	h.press("enter")
 	h.typ("a-different-key-1234")
 	h.press("enter")
 	h.run(stale)
 	mustNotHave(t, lineFor(h.view(), "shodan"), "accepted", "testing")
-	// A test of the new key shows, and editing removes it.
+	// New-key results display until editing invalidates them.
 	h.run(h.press("t"))
 	mustHave(t, lineFor(h.view(), "shodan"), "accepted")
 	h.press("enter")
 	h.typ("x")
 	h.press("enter")
 	mustNotHave(t, lineFor(h.view(), "shodan"), "accepted")
-	// So does clearing.
+	// Clearing also invalidates the displayed result.
 	h.run(h.press("t"))
 	mustHave(t, lineFor(h.view(), "shodan"), "accepted")
 	h.press("x")
 	mustNotHave(t, lineFor(h.view(), "shodan"), "accepted")
-	// A result delivered for a cleared key is dropped.
+	// Discard late results for cleared credentials.
 	h.send(testDone{source: "shodan", gen: 0, res: TestResult{Status: TestAccepted}})
 	mustNotHave(t, lineFor(h.view(), "shodan"), "accepted")
 }
@@ -145,7 +145,7 @@ func TestKeyTest_TIsIgnoredWhileThatKeysTestRuns(t *testing.T) {
 	if second := h.press("t"); second != nil {
 		t.Error("a second test started while the first was running")
 	}
-	// Another source's test is independent.
+	// One source's test state cannot affect another.
 	h.goTo(0, 5)
 	if other := h.press("t"); other == nil {
 		t.Error("a test of another key was refused")
@@ -222,7 +222,7 @@ func TestKeyTest_GivesUpAtTheTimeoutEvenWhenTheBackendIsLate(t *testing.T) {
 	b.testFn = func(ctx context.Context, _ string, _ config.Secret) TestResult {
 		<-ctx.Done()
 		time.Sleep(5 * time.Millisecond)
-		return TestResult{Status: TestAccepted} // an answer that came after the deadline
+		return TestResult{Status: TestAccepted} // response arriving after the timeout
 	}
 	h := newTH(t, b, func(o *Options) { o.TestTimeout = 20 * time.Millisecond })
 	h.goTo(0, 1)

@@ -1,18 +1,13 @@
 package kinds
 
-// WebPosture is the web-configuration evidence of one web service: what its
-// responses say about HSTS, cookie flags, directory listings and version
-// banners. The probe stores it with the web_service record of the same key, in
-// the same check, and the findings package derives the low web-posture
-// findings from it. It is a kind of its own so that the posture columns stay
-// out of WebServiceAttrs.
+// WebPosture holds HSTS, cookie, directory-listing and version-disclosure evidence for
+// low-severity findings. The probe writes it with the same-key web_service record. A separate
+// kind keeps posture fields out of WebServiceAttrs.
 var WebPosture = define[WebPostureAttrs](Kind{Name: "web_posture", HostAttr: "host"})
 
-// WebPostureAttrs: Host is the service's host. HSTS is unset for a service
-// answering over HTTP, where the header means nothing. The cookie fields hold
-// cookie names only, never values, ";"-joined and sorted: those missing Secure
-// (judged only over HTTPS) and those missing HttpOnly. VersionDisclosure is
-// the Server and X-Powered-By values that carry a version, ";"-joined.
+// WebPostureAttrs records host and response evidence. HSTS applies only to HTTPS. Cookie fields
+// contain sorted, semicolon-separated names, never values; Secure is checked only over HTTPS.
+// VersionDisclosure joins versioned Server and X-Powered-By values with semicolons.
 type WebPostureAttrs struct {
 	Host              string `json:"host"`
 	HSTS              *bool  `json:"hsts,omitempty"`

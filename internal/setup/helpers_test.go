@@ -36,7 +36,7 @@ type fakeBackend struct {
 	overFn  func(e Edits) (Snapshot, error)
 	testFn  func(ctx context.Context, source string, key config.Secret) TestResult
 
-	// threat is what ThreatData gives; an update's result replaces it, as the real data would be.
+	// threat supplies current lists and adopts update results like the real backend.
 	threat   []ThreatList
 	updateFn func(ctx context.Context) ThreatResult
 
@@ -416,7 +416,7 @@ func mustNotHave(t *testing.T, frame string, subs ...string) {
 	}
 }
 
-// windows are the 5-rune pieces of key, every one of which is more than its last four characters.
+// Five-rune windows detect leaks beyond the permitted final four key characters.
 func windows(key string) []string {
 	r := []rune(key)
 	var out []string

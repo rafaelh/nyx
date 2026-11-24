@@ -8,26 +8,24 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// bullet is what a key field draws for each rune typed.
+// bullet masks each typed key rune.
 const bullet = "•"
 
-// field is a one-line text entry: a rune buffer with a cursor. It stores the runes exactly as
-// they were typed or pasted. A secret field draws one bullet for each rune; any other field draws
-// the text after sanitize.Line.
+// field preserves typed or pasted runes in a one-line buffer. Secrets display as bullets;
+// ordinary text passes through sanitize.Line for display.
 type field struct {
 	buf    []rune
 	cur    int
 	secret bool
 }
 
-// newField starts a field holding text, with the cursor at its end.
 func newField(secret bool, text string) *field {
 	f := &field{secret: secret, buf: []rune(text)}
 	f.cur = len(f.buf)
 	return f
 }
 
-// text is what was typed, unchanged.
+// text preserves original input runes.
 func (f *field) text() string { return string(f.buf) }
 
 // insert puts s at the cursor.
@@ -37,7 +35,7 @@ func (f *field) insert(s string) {
 	f.cur += len(in)
 }
 
-// press handles one named editing key and reports whether it was one.
+// press handles recognised editing keys and reports whether it consumed the key.
 func (f *field) press(name string) bool {
 	switch name {
 	case "left":
@@ -65,18 +63,18 @@ func (f *field) press(name string) bool {
 	return true
 }
 
-// Format never prints the text: a field may hold a key.
+// Format hides field text because the buffer may contain a secret.
 func (f field) Format(s fmt.State, _ rune) {
 	fmt.Fprintf(s, "field{%d runes}", len(f.buf))
 }
 
-// cell is one rune as drawn.
+// cell describes one displayed rune.
 type cell struct {
 	s string
 	w int
 }
 
-// cells is each rune of the text as it is drawn.
+// cells measures displayed input runes.
 func (f *field) cells() []cell {
 	out := make([]cell, len(f.buf))
 	for i, r := range f.buf {
@@ -89,8 +87,8 @@ func (f *field) cells() []cell {
 	return out
 }
 
-// view draws the text in at most width cells, scrolled so the cursor stays in view, and returns it
-// with the cursor's cell offset.
+// view scrolls text to keep the cursor visible within width cells, returning the cursor's cell
+// offset.
 func (f *field) view(width int) (string, int) {
 	cells := f.cells()
 	// One cell stays free after the text for the cursor.

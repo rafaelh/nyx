@@ -9,24 +9,17 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// The record kinds. Each is a handle (Of or Bare) with its showing rules and,
-// for an Of, the struct of attributes its observations carry.
-//
-// A field the writer always sets has no omitempty, so a zero is stored (and
-// rendered: an spf_lookups of 0 is "0"). A field set only sometimes has
-// omitempty, and is a pointer when its zero differs from its absence (a
-// tls_self_signed of false is "false", no TLS at all is ""). Several stages
-// may observe one record; the store merges their attributes field by field,
-// so a stage that does not know a field leaves it out.
+// Record handles define attributes and visibility rules. Fields always supplied omit omitempty
+// so zero values are stored and rendered. Optional fields use omitempty; pointers distinguish
+// zero from unknown, such as false for a checked certificate versus nil when TLS was not
+// checked. Since observations merge field by field, stages omit fields they do not know.
 
-// Entities, placed against the scope. An in-scope root is an input, so it is
-// not counted.
+// Entities use scope placement; in-scope roots are inputs and are not counted as discoveries.
 var (
 	Hostname = define[HostnameAttrs](Kind{Name: "hostname", Singular: "host", Category: Hosts, place: placeHost, Printed: true, Change: LabelHostname})
 	Root     = defineBare(Kind{Name: "root", Singular: "root", place: placeHost})
 	Netblock = define[NetblockAttrs](Kind{Name: "netblock", Singular: "netblock", Category: Netblocks, place: placeNetblock, Change: LabelNetblock})
-	// ExcludedKind is an address or name that triggered an exclusion at dial
-	// time; Excluded is its summary category.
+	// ExcludedKind records dial-time exclusions; Excluded names their summary category.
 	ExcludedKind = define[ExcludedAttrs](Kind{Name: "excluded", Singular: "excluded", place: placeExcluded})
 )
 
@@ -35,9 +28,8 @@ func placeHost(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class
 	return sc.ClassifyHost(key).Class, true
 }
 
-// placeNetblock places a netblock in scope when it is an input or an input
-// brings it in, and as a candidate otherwise. A key that is not a CIDR is not
-// placed.
+// placeNetblock includes input and input-derived CIDRs in scope, and classifies other valid
+// CIDRs as candidates. Invalid CIDR keys remain unlisted.
 func placeNetblock(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
 	if _, err := netip.ParsePrefix(key); err != nil {
 		return 0, false
@@ -58,8 +50,8 @@ type HostnameAttrs struct {
 	Index string `json:"index,omitempty"`
 }
 
-// NetblockAttrs: the ASN that announces it ("AS123" or "123", as the input
-// gave it) and, from an organisation pivot, the organisation.
+// NetblockAttrs identifies the announcing ASN and, for organisation pivots, the searched
+// organisation.
 type NetblockAttrs struct {
 	ASN string `json:"asn,omitempty"`
 	Org string `json:"org,omitempty"`
@@ -82,10 +74,9 @@ var (
 	ProviderRange = define[ProviderRangeAttrs](Kind{Name: "provider_range"})
 )
 
-// ResolutionAttrs is one DNS answer: a name's A, AAAA or CNAME value, a root's
-// NS, SOA, TXT or CAA value, or the value of an SRV service name (not a host).
-// Only A, AAAA and CNAME rows decide what is resolved, contacted or checked for
-// wildcards. A record's key is "<name>|<TYPE>|<value>", which carries all three.
+// ResolutionAttrs describes a DNS answer keyed "<name>|<TYPE>|<value>". Types include host
+// A/AAAA/CNAME, root NS/SOA/TXT/CAA and service-name SRV. Only A, AAAA and CNAME establish
+// resolution for scope, contact or wildcard decisions.
 type ResolutionAttrs struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
@@ -112,8 +103,7 @@ type IPOwnerAttrs struct {
 	Holder string `json:"holder"`
 }
 
-// IPHostnameAttrs: a name an address points back to, and where that came from.
-// A record's key is "<ip>|<hostname>".
+// IPHostnameAttrs preserves a source-reported reverse name, keyed "<ip>|<hostname>".
 type IPHostnameAttrs struct {
 	IP       string `json:"ip"`
 	Hostname string `json:"hostname"`
@@ -137,7 +127,7 @@ var (
 	URL        = define[URLAttrs](Kind{Name: "url", Singular: "url", Category: "urls", HostAttr: "host", Change: "url"})
 )
 
-// WebServiceAttrs is what a probe of an origin found.
+// WebServiceAttrs holds service evidence from an origin probe.
 type WebServiceAttrs struct {
 	URL          string `json:"url"`
 	Host         string `json:"host"`
@@ -159,14 +149,12 @@ type WebServiceAttrs struct {
 	TLSVersion    string `json:"tls_version,omitempty"`
 	TLSCipher     string `json:"tls_cipher,omitempty"`
 	TLSTrust      string `json:"tls_trust,omitempty"`
-	// BodyLen is the length in bytes of the first response's body (the part read, which is capped);
-	// origin exposure compares it with a candidate origin's. Absent for a service probed before it
-	// was recorded.
+	// BodyLen records bytes read from the first response, subject to the body cap, for
+	// origin comparisons. Older service records may omit it.
 	BodyLen int `json:"body_len,omitempty"`
 }
 
-// The tls_trust values. They are the strings egress.Response.CertTrust
-// reports, which a test pins.
+// Stored trust strings mirror egress certificate classifications, pinned by tests.
 const (
 	TrustExpired          = "expired" // including not yet valid
 	TrustHostnameMismatch = "hostname-mismatch"
@@ -175,10 +163,8 @@ const (
 	TrustTrusted          = "trusted"
 )
 
-// TLSTrust is the trust state of the service's certificate, one of the Trust
-// values, and "" when no certificate was seen. A record stored before
-// tls_trust existed has it worked out from the tls_error text and
-// tls_self_signed it did carry, so the old and new records read alike.
+// TLSTrust holds a Trust value, or "" when no certificate was seen. Older records infer it from
+// tls_error and tls_self_signed for consistent reading.
 func TLSTrust(a WebServiceAttrs) string {
 	if a.TLSTrust != "" {
 		return a.TLSTrust
@@ -206,8 +192,8 @@ type HTTPPortAttrs struct {
 	Host   string `json:"host"`
 }
 
-// URLAttrs: a URL found by crawling, a redirect or a web archive. Status is
-// set only once the URL has been fetched.
+// URLAttrs describes a crawled, redirected or archived URL. Status is present only after
+// fetching it.
 type URLAttrs struct {
 	URL    string `json:"url"`
 	Host   string `json:"host"`
@@ -219,26 +205,24 @@ var OpenPort = defineKeyed(Kind{Name: "open_port", Singular: "open port", Catego
 	func(a OpenPortAttrs) string { return portKey(a.IP, a.Port) },
 	func(key string, a *OpenPortAttrs) { rebuildPort(key, &a.IP, &a.Port) })
 
-// OpenPortAttrs: an open TCP port and the banner it sent unprompted, escaped
-// with strconv.Quote's rules and without the quotes. A record's key is the
-// address and port (see ParsePortKey).
+// OpenPortAttrs holds a TCP port and any unprompted banner, escaped using strconv.Quote rules
+// without surrounding quotes. The key is the address/port pair.
 type OpenPortAttrs struct {
 	IP     string `json:"ip"`
 	Port   int    `json:"port"`
 	Banner string `json:"banner"`
 }
 
-// Findings, derived by the findings package. Their attributes and found line
-// depend on the finding's category, which the findings package owns: it
-// describes the line with SetFindingFound, as kinds cannot import it.
+// Finding attributes and console text belong to the findings package. It installs a formatter
+// through SetFindingFound to avoid an import cycle.
 var Finding = define[map[string]any](Kind{Name: "finding", Singular: "finding", Category: "findings", Printed: true, Change: LabelFinding,
 	Found: func(r store.Record) map[string]any { return findingFound(r) }})
 
 // findingFound describes a finding's found line; see SetFindingFound.
 var findingFound = func(store.Record) map[string]any { return nil }
 
-// SetFindingFound sets what describes a finding's found line (see Kind.Found).
-// The findings package calls it as it is initialised, before any record is read.
+// SetFindingFound installs the finding event formatter during findings package initialisation,
+// before records are read.
 func SetFindingFound(found func(store.Record) map[string]any) { findingFound = found }
 
 // Evidence: stages store these, the findings package derives findings from them.
@@ -252,8 +236,7 @@ var (
 	EmailPosture   = define[EmailPostureAttrs](Kind{Name: "email_posture", HostKey: true, Change: "email posture"})
 )
 
-// TakeoverHTTPAttrs: a provider-hosted service whose root serves the page of
-// an unclaimed resource.
+// TakeoverHTTPAttrs records an unclaimed-resource page on a provider-hosted service.
 type TakeoverHTTPAttrs struct {
 	Host            string `json:"host"`
 	URL             string `json:"url"`
@@ -264,9 +247,9 @@ type TakeoverHTTPAttrs struct {
 	CNAME           string `json:"cname"`
 }
 
-// StorageAttrs: what an anonymous listing of a bucket or container said.
-// Exists is unset when the answer cannot tell (Azure answers a private and a
-// missing container alike), and Listable when the bucket does not exist.
+// StorageAttrs records an anonymous listing result. Exists stays unknown for ambiguous
+// responses such as Azure private/missing containers. Listable stays unset for nonexistent
+// buckets.
 type StorageAttrs struct {
 	Provider    string   `json:"provider"`
 	Name        string   `json:"name"`
@@ -278,9 +261,8 @@ type StorageAttrs struct {
 	Region      string   `json:"region,omitempty"`
 }
 
-// StorageAccountAttrs: whether an Azure storage account exists. Exists is a
-// pointer so that a record without a usable value reads as unknown, never as
-// a missing (claimable) account.
+// StorageAccountAttrs uses a pointer so missing or unusable Exists data remains unknown rather
+// than implying a claimable Azure account.
 type StorageAccountAttrs struct {
 	Exists *bool `json:"exists"`
 }

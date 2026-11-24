@@ -9,15 +9,13 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// ReportedPort is a TCP service a third party (Shodan) says is open on an
-// address. It is shown like an open_port while its address is port-eligible,
-// but nothing that decides contact ever reads it.
+// ReportedPort records a third party's open TCP service. It is visible while its address is
+// port-eligible, but never grants permission to contact anything.
 var ReportedPort = defineKeyed(Kind{Name: "reported_port", Singular: "reported port", Category: "open ports (third-party reported)", PortKey: true, ClosedHides: true, Change: "open port"},
 	func(a ReportedPortAttrs) string { return portKey(a.IP, a.Port) },
 	func(key string, a *ReportedPortAttrs) { rebuildPort(key, &a.IP, &a.Port) })
 
-// ReportedPortAttrs: the banner as cut and escaped by ShodanBanner, and the
-// date (YYYY-MM-DD) the third party last saw the service.
+// ReportedPortAttrs holds a ShodanBanner-formatted banner and the source's last-seen date.
 type ReportedPortAttrs struct {
 	IP       string `json:"ip"`
 	Port     int    `json:"port"`
@@ -25,8 +23,8 @@ type ReportedPortAttrs struct {
 	LastSeen string `json:"last_seen,omitempty"`
 }
 
-// ParsePortKey parses the key of a PortKey kind ("<address>:<port>"), with the
-// address unmapped so that the keys of every port kind compare equal.
+// ParsePortKey parses an address/port key and unmaps the address so all port kinds compare
+// consistently.
 func ParsePortKey(key string) (netip.AddrPort, bool) {
 	ap, err := netip.ParseAddrPort(key)
 	if err != nil {
@@ -35,8 +33,7 @@ func ParsePortKey(key string) (netip.AddrPort, bool) {
 	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), true
 }
 
-// portKey is the key of a port on the address ip, as netip.AddrPort writes it
-// ("[<address>]:<port>" for IPv6), the form ParsePortKey reads.
+// portKey formats the canonical address/port key, including brackets for IPv6.
 func portKey(ip string, port int) string {
 	if addr, err := netip.ParseAddr(ip); err == nil && port >= 0 && port <= 0xffff {
 		return netip.AddrPortFrom(addr, uint16(port)).String()
@@ -57,15 +54,14 @@ func rebuildPort(key string, ip *string, port *int) {
 	}
 }
 
-// EncodeBanner escapes a banner so it is lossless for binary greetings and
-// invalid UTF-8, and readable for text. DecodeBanner reverses it.
+// EncodeBanner preserves binary data and invalid UTF-8 through escaping while keeping text
+// readable. DecodeBanner reverses it.
 func EncodeBanner(b string) string {
 	q := strconv.Quote(b)
 	return q[1 : len(q)-1]
 }
 
-// DecodeBanner returns the text of a banner as EncodeBanner stored it, or the
-// stored text itself when it is not in that form.
+// DecodeBanner reverses EncodeBanner, leaving unrecognised stored text unchanged.
 func DecodeBanner(b string) string {
 	if s, err := strconv.Unquote(`"` + b + `"`); err == nil {
 		return s
@@ -73,8 +69,8 @@ func DecodeBanner(b string) string {
 	return b
 }
 
-// ShodanBanner is a third party's banner as it is stored: cut to its first line
-// or 256 characters, whichever is shorter, then escaped like nyx's own.
+// ShodanBanner keeps the first line or 256 characters, whichever is shorter, then applies the
+// same escaping as nyx's own banners.
 func ShodanBanner(b string) string {
 	if i := strings.IndexAny(b, "\r\n"); i >= 0 {
 		b = b[:i]
@@ -88,8 +84,8 @@ func ShodanBanner(b string) string {
 // maxReportedBanner is how many characters of a third party's banner are kept.
 const maxReportedBanner = 256
 
-// OpenedPorts is the set of ports among the current open_port records recs. A
-// port nyx opened supersedes a third party's report of it, however it is shown.
+// OpenedPorts indexes current open_port records so confirmed ports can supersede third-party
+// reports.
 func OpenedPorts(recs []store.Record) map[netip.AddrPort]bool {
 	opened := map[netip.AddrPort]bool{}
 	for _, r := range recs {

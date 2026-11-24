@@ -2,8 +2,7 @@ package palette
 
 import "testing"
 
-// The 256-colour entries are the nearest of indices 16 to 255; the 16-colour
-// table is fixed, not computed.
+// 256-colour styles use nearest fixed xterm entries; 16-colour choices are explicit.
 func TestDepthTables(t *testing.T) {
 	t.Parallel()
 	want256 := map[string][2]int{
@@ -27,7 +26,7 @@ func TestDepthTables(t *testing.T) {
 		if s.Bold != (s.Name == "CRIT") {
 			t.Errorf("%s: bold = %v", s.Name, s.Bold)
 		}
-		// Every depth keeps the foreground apart from the background.
+		// Keep text distinguishable from its background at every depth.
 		if s.FG == s.BG || s.FG16 == s.BG16 || s.FG256 == s.BG256 {
 			t.Errorf("%s: foreground equals background at some depth: %+v", s.Name, s)
 		}

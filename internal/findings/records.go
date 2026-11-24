@@ -13,15 +13,12 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// This file is everything outside the package needs to know about a stored
-// finding record: its key, how to read one back, its found line, which ones the
-// summary lists, and the files that list them, each category's in its entry of
-// categories. Adding a category changes only this package.
+// This file defines the stored-finding interface: keys, decoding, console text, summary
+// selection and risk files. Category-specific behaviour stays in categories so new categories
+// do not require changes in callers.
 
-// category is everything about the stored finding records of one category: how a finding's key is
-// made and read back, the text its found line prints, and its risk file. A category not in
-// categories, or a field left nil, has the default: the key "<category>|<type>|<target>", no found
-// text and no file.
+// category defines key encoding, decoding, console text and a risk file. Missing categories or
+// nil callbacks use "<category>|<type>|<target>" keys with no custom text or file.
 type category struct {
 	name string
 	// key is the part of the record key after "<category>|", and parse reads the type and target
@@ -31,8 +28,8 @@ type category struct {
 	// found is the text the console prints for a newly found finding in place of its category and
 	// target.
 	found func(Finding) string
-	// columns are those of the category's risk-<category>.csv, and fromKey the columns a finding
-	// no longer derived takes from its key, its type and target already parsed from it.
+	// columns defines risk-file fields. fromKey recovers extra fields for non-current
+	// findings after type and target have been parsed.
 	columns []string
 	fromKey func(key, typ, target string) map[string]string
 }
@@ -72,9 +69,8 @@ var categories = []category{
 	{name: Certificates, columns: []string{"severity", "url", "type", "tls_subject", "tls_issuer", "tls_expiry"}, fromKey: targetAs("url")},
 	{name: WebPosture, columns: []string{"severity", "url", "type", "detail"}, fromKey: targetAs("url")},
 	{
-		// One per hostname and address, so the row is the same while it moves between possible
-		// and confirmed. The found line reads "[possible ]origin exposure <host> -> <address>
-		// (behind <provider>)".
+		// Key by hostname/address pair so possible and confirmed origins share a row.
+		// Console text includes the provider and marks possible origins.
 		name: OriginExposure,
 		key: func(f Finding) string {
 			host, addr := splitOriginTarget(f.Target)
@@ -99,9 +95,8 @@ var categories = []category{
 		},
 	},
 	{
-		// One per type, target and product: each product on a service is its own finding. The
-		// product is not part of the target. The found line reads "end-of-life <product>
-		// <version> on <target>" (or "end of support approaching for ...").
+		// Key by type, target and product so several products on one service remain
+		// distinct findings. Console text includes the product and captured version.
 		name: EOLSoftware,
 		key: func(f Finding) string {
 			product, _ := f.Attrs["product"].(string)
@@ -128,13 +123,9 @@ var categories = []category{
 		},
 	},
 	{
-		// One per address, whatever its type, so the row is the same while the address moves
-		// between a DROP network (high), an ASN-DROP AS (medium), an ipapi.is network (medium) and
-		// an ipapi.is AS (low), and a rise is announced. The found line reads "address <ip> in
-		// Spamhaus DROP network <entry> (<SBL ID>)", "address <ip> in Spamhaus ASN-DROP <AS>
-		// (<name>)", "address <ip> in abusive network <entry> (<organisation>)" or "address <ip> in
-		// abusive AS<n> (<organisation>)", from the entry and org attributes, with no parentheses
-		// when the second is blank.
+		// Key by address so DROP, ASN-DROP and abuse-list matches share one finding as
+		// severity changes. Console text uses the strongest matching entry and adds its
+		// organisation or SBL details when available.
 		name:  AbusiveNetwork,
 		key:   func(f Finding) string { return f.Target },
 		parse: func(rest string) (string, string) { return "", rest },
@@ -171,8 +162,8 @@ func categoryOf(name string) category {
 	return category{name: name}
 }
 
-// Key is the finding's record key, as its category makes it (by default "<category>|<type>|<target>").
-// ParseKey reverses it, apart from what a category's key holds beyond its type and target.
+// Key delegates to the category's key format, defaulting to "<category>|<type>|<target>".
+// ParseKey recovers type and target; category-specific extra data is handled separately.
 func (f Finding) Key() string {
 	if c := categoryOf(f.Category); c.key != nil {
 		return f.Category + "|" + c.key(f)
@@ -192,9 +183,8 @@ func ParseKey(key string) (category, typ, target string) {
 	return category, typ, target
 }
 
-// FromRecord reads a stored finding record back. A record no longer derived
-// keeps no attributes (the store drops them with its last observation), so the
-// category, type and target then come from its key.
+// FromRecord decodes finding attributes, recovering category, type and target from the key when
+// a non-current record has lost its observations.
 func FromRecord(r store.Record) Finding {
 	category, typ, target := ParseKey(r.Key)
 	return Finding{
@@ -207,8 +197,8 @@ func FromRecord(r store.Record) Finding {
 	}
 }
 
-// FoundText is the text the console prints for a newly found finding in place of its category and
-// target, or "" when the category has none.
+// FoundText returns category-specific console text for a new finding, or "" for the default
+// format.
 func (f Finding) FoundText() string {
 	if c := categoryOf(f.Category); c.found != nil {
 		return c.found(f)
@@ -219,8 +209,8 @@ func (f Finding) FoundText() string {
 // The finding kind's found line is this package's: kinds cannot import it.
 func init() { kinds.SetFindingFound(found) }
 
-// found describes the found line of a finding record (see kinds.Kind.Found): it is listed under
-// "finding <category>" with its target, its severity, and its category's found text if it has one.
+// found builds the event fields for a finding: category label, target, severity and optional
+// custom text.
 func found(r store.Record) map[string]any {
 	f := FromRecord(r)
 	k, _ := kinds.Get(kinds.Finding.Name())
@@ -261,8 +251,8 @@ func UnconfirmedRisky(recs []store.Record) int {
 	return n
 }
 
-// Listing is what the findings files are written from: the records of every
-// kind, current or not, and the storage Attribution derived with the findings.
+// Listing provides all finding-file records, including non-current ones, plus attribution
+// calculated with the findings.
 type Listing struct {
 	Records map[string][]store.Record
 	Storage map[string]StorageAttr
@@ -300,9 +290,8 @@ func Files() []File {
 	return files
 }
 
-// riskFile lists every finding record of a category: current ones and those no
-// longer derived, which stay on record. The findings are derived
-// with scope and visibility already applied, so the file does not filter again.
+// riskFile includes current and historical findings. Derivation already applied scope and
+// visibility, so the file does not filter them again.
 func riskFile(category string, columns []string, fromKey func(key, typ, target string) map[string]string) File {
 	return File{Name: "risk-" + category + ".csv", Columns: columns, Rows: func(l Listing) []FileRow {
 		var rows []FileRow
@@ -332,9 +321,8 @@ func riskFile(category string, columns []string, fromKey func(key, typ, target s
 
 var storageUnattributedColumns = []string{"provider", "name", "url", "exists", "public", "listable", "object_count", "first_keys", "generated_from", "severity"}
 
-// storageUnattributedRows lists every existing bucket or container nothing in
-// scope references and that a root or organisation input would have guessed.
-// A public or listable one is a low finding; a private one is listed, not reported.
+// storageUnattributedRows lists existing, unreferenced storage that inputs could have guessed.
+// Public/listable storage is a low finding; private storage is listed without a finding.
 func storageUnattributedRows(l Listing) []FileRow {
 	var rows []FileRow
 	for _, r := range l.Records[kinds.Storage.Name()] {

@@ -1,6 +1,3 @@
-// Package risk has the risk stages: email (DNS posture of the input roots),
-// storage (cloud buckets), takeover (unclaimed provider resources) and
-// sensitive-paths (exposed files). They store evidence only; the findings
-// package derives the findings from it. Like every stage it never touches the
-// network itself: all I/O goes through egress.
+// Package risk collects email, storage, takeover and sensitive-path evidence through egress.
+// The findings package calculates findings from that evidence.
 package risk

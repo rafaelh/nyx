@@ -35,17 +35,17 @@ func keys(obs []store.Obs) []string {
 	return out
 }
 
-// One row per root and provider suffix for each in-scope name whose chain ends at a SaaS entry.
+// SaaS dependency rows deduplicate per root/provider suffix across hostname chains.
 func TestCNAMEDerivation(t *testing.T) {
 	t.Parallel()
 	obs := build([]string{"example.com", "example.org"},
 		[]string{"a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.org", "f.other.test", "g.example.com"},
 		map[string]string{
-			"a.example.com": "x.myshopify.com", "b.example.com": "y.myshopify.com", // one row for both
-			"c.example.com": "d1.cloudfront.net",                                   // a CDN, not SaaS
-			"d.example.com": "hop.example.net", "hop.example.net": "end.readme.io", // the end of a chain
-			"e.example.org": "x.myshopify.com", // another root, its own row
-			"f.other.test":  "x.zendesk.com",   // not in scope
+			"a.example.com": "x.myshopify.com", "b.example.com": "y.myshopify.com", // deduplicate shared dependency
+			"c.example.com": "d1.cloudfront.net",                                   // ignore CDN-only hosting
+			"d.example.com": "hop.example.net", "hop.example.net": "end.readme.io", // follow the full chain
+			"e.example.org": "x.myshopify.com", // preserve separate root attribution
+			"f.other.test":  "x.zendesk.com",   // ignore external hostname
 		}, nil)
 	want := []string{"example.com|cname|myshopify.com", "example.com|cname|readme.io", "example.org|cname|myshopify.com"}
 	if got := keys(obs); !slices.Equal(got, want) {
@@ -59,7 +59,7 @@ func TestCNAMEDerivation(t *testing.T) {
 	}
 }
 
-// A name that answers only because of a wildcard is not listed.
+// Wildcard-only names cannot establish SaaS dependencies.
 func TestCNAMEDerivationSkipsWildcardOnly(t *testing.T) {
 	t.Parallel()
 	obs := build([]string{"example.com"}, []string{"x.wild.example.com", "real.example.com"},

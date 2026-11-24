@@ -30,8 +30,8 @@ func reversed(s []string) []string {
 	return s
 }
 
-// makeEngagements gives the output directory an engagement for each name, with a state
-// database that is not opened: only the directory layout counts for listing.
+// makeEngagements creates recognisable directory layouts without needing readable database
+// contents.
 func makeEngagements(t *testing.T, out string, names ...string) {
 	t.Helper()
 	for _, n := range names {
@@ -44,8 +44,7 @@ func makeEngagements(t *testing.T, out string, names ...string) {
 	}
 }
 
-// A run holds the engagement's lock, so another run is refused with the LOCKED code, marked
-// transient, and the hint says what to do.
+// An active engagement lock is a retryable LOCKED error with actionable guidance.
 func TestEngagementErrors_LockedEngagement(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -75,9 +74,7 @@ func TestEngagementErrors_LockedEngagement(t *testing.T) {
 	}
 }
 
-// A directory that is not an engagement, such as one the Python version left, is a usage error
-// that names it, with or without inputs, together with every other problem, and is left as it
-// was.
+// Foreign directories are preserved and reported alongside other validation failures.
 func TestEngagementErrors_ForeignDirectory(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -140,8 +137,7 @@ func TestEngagementErrors_ForeignDirectory(t *testing.T) {
 	}
 }
 
-// -e of an engagement that does not exist, with nothing to start it, is NOT_FOUND and creates
-// nothing, whether the output directory is absent, empty or has other engagements.
+// Missing named engagements without scope inputs return NOT_FOUND without creating directories.
 func TestEngagementErrors_NotFoundCreatesNothing(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -186,7 +182,7 @@ func TestEngagementErrors_NotFoundCreatesNothing(t *testing.T) {
 		t.Errorf("the call created %d entries in the empty engagement directory", len(entries))
 	}
 
-	// The input is the -e value as typed; the message names the engagement it makes.
+	// Errors preserve the typed -e value while messages use the derived engagement name.
 	f = h.failed(h.exec("-e", "Nope Two", "--json"), 3, true)
 	if !slices.Equal(f.inputOf("engagement"), []string{"Nope Two"}) || !strings.Contains(f.msg, `"nope-two"`) {
 		t.Errorf("input %v, message %q", f.input, f.msg)
@@ -196,7 +192,7 @@ func TestEngagementErrors_NotFoundCreatesNothing(t *testing.T) {
 		t.Errorf("export: input %v", f.input)
 	}
 
-	// A bad value is reported alone as a usage error: nothing is NOT_FOUND while an input is wrong.
+	// Invalid input takes precedence over missing-engagement errors.
 	f = h.failed(h.exec("-e", "nope", "--concurrency", "abc"), 2, false)
 	if f.code != "INVALID_INPUT" {
 		t.Errorf("with a bad flag: %+v", f)
@@ -226,8 +222,8 @@ func TestEngagementErrors_NotFoundHintListsEngagements(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			h := newHarness(t, noop())
-			// Made in reverse, so the order of the hint is not the order they were made in. A
-			// directory that is not an engagement and a file are not listed.
+			// Create fixtures in reverse order to verify hints sort names and
+			// ignore non-engagement entries.
 			makeEngagements(t, h.out, reversed(names(c.count))...)
 			if err := os.MkdirAll(filepath.Join(h.out, "aaa-not-one"), 0o755); err != nil {
 				t.Fatal(err)
@@ -250,9 +246,8 @@ func TestEngagementErrors_NotFoundHintListsEngagements(t *testing.T) {
 	}
 }
 
-// export of an engagement that does not exist is NOT_FOUND, of a directory that is not an
-// engagement is a usage error, and of a file it cannot write is an unexpected failure, in both
-// modes and creating nothing.
+// Export distinguishes missing engagements, foreign directories and output-write failures
+// without creating state.
 func TestExport_EngagementErrors(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -312,8 +307,7 @@ func TestExport_EngagementErrors(t *testing.T) {
 	}
 }
 
-// A failure to write the export is UNEXPECTED_ERROR, exit 1, and leaves the engagement and the
-// output directory as they were.
+// Export write failures leave engagement/output state unchanged and return UNEXPECTED_ERROR.
 func TestExport_WriteFailureIsUnexpected(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)

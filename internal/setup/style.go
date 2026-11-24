@@ -7,8 +7,8 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// The roles the screen is drawn in, as palette.Setup names them. Where a role comes in a pair the
-// first is the selected row's and the second every other row's.
+// Screen roles use palette.Setup. Paired roles apply to the selected row first and other rows
+// second.
 const (
 	rolePointer  = "pointer"   // the selection arrow
 	roleName     = "name"      // a key's, setting's or stage's name; the active tab
@@ -31,7 +31,7 @@ func pick(selected bool, on, off string) string {
 	return off
 }
 
-// line is one line of the screen as spans: plain text, each styled once the line is cut to the width.
+// line stores styled spans, applying styles only after width truncation.
 type line []layout.Span
 
 // plain is an unstyled span.
@@ -58,8 +58,8 @@ func (l line) width() int {
 	return n
 }
 
-// fit cuts l to w cells, ending in an ellipsis when it was cut, and styles each span's part. No
-// escape sequence is ever cut.
+// fit truncates styled spans by cell width with an ellipsis, applying escapes afterwards so
+// they cannot be cut.
 func fit(l line, w int) string {
 	if w <= 0 {
 		return ""
@@ -83,7 +83,7 @@ func fit(l line, w int) string {
 	return sb.String() + "…"
 }
 
-// take is the longest start of s at most room cells wide, and its width.
+// take returns the longest prefix fitting room cells and its width.
 func take(s string, room int) (string, int) {
 	used := 0
 	for i, r := range s {
@@ -103,11 +103,11 @@ func styled(s layout.Span, text string) string {
 	return s.Style(text)
 }
 
-// hint is a key to press and what it does, as the footer lists it.
+// hint pairs a footer shortcut with its description.
 type hint struct{ keys, does string }
 
-// hints are a line of the footer: each key in the key role, with the "/" between alternatives and
-// the "+" of a chord in the help role, as is what it does.
+// hints formats footer shortcuts. Keys use the key role; separators, chord symbols and
+// descriptions use the help role.
 func (m *model) hints(hs []hint) line {
 	var l line
 	for i, h := range hs {

@@ -94,11 +94,8 @@ func TestDocsStateListsAndVolume(t *testing.T) {
 	}
 }
 
-// sampleName is the testdata file holding an example of the path's file: the path
-// without its leading "/", with the rest of the "/" written "__". A trailing "~" is
-// written "-tilde" and ".DS_Store" "dot-DS_Store", because git ignores files of those
-// names almost everywhere, and a sample that is never committed would pass only on
-// the machine that wrote it.
+// sampleName encodes paths for fixtures and renames tilde/.DS_Store cases that Git would
+// otherwise ignore. This ensures fixtures exist after checkout, not only locally.
 func sampleName(path string) string {
 	name := strings.ReplaceAll(strings.TrimPrefix(path, "/"), "/", "__")
 	if name == ".DS_Store" {
@@ -116,8 +113,8 @@ func sample(t *testing.T, name string) []byte {
 	return b
 }
 
-// Every built-in path is explicit about its severity, matches a sample of the
-// real file, and does not match a catch-all 200 page or a soft 404.
+// Built-in signatures need explicit severity and realistic positive samples without matching
+// generic success/404 pages.
 func TestBuiltinSensitivePathsSamples(t *testing.T) {
 	t.Parallel()
 	s, err := load(t, nil, "")
@@ -146,8 +143,8 @@ func TestBuiltinSensitivePathsSamples(t *testing.T) {
 			t.Errorf("%s is listed twice", e.Path)
 		}
 		seen[e.Path] = true
-		// Two samples whose names differ only in case are one file on macOS and
-		// Windows, so such a test would pass there and fail on Linux.
+		// Reject case-only fixture names that collapse on case-insensitive filesystems
+		// but differ on Linux.
 		if other, ok := seenSample[strings.ToLower(sampleName(e.Path))]; ok {
 			t.Errorf("%s and %s have samples whose names differ only in case", other, e.Path)
 		}
@@ -199,9 +196,8 @@ func TestSensitiveSamplesHaveEntries(t *testing.T) {
 	}
 }
 
-// goldenEntries are the built-in entries of the release before the list grew,
-// as path|hash. Their hash is part of every check key, so changing one would
-// repeat its checks on every engagement and strand its hits.
+// Pin existing path hashes because changing them reruns checks and disconnects previously
+// stored hits.
 var goldenEntries = []string{
 	"/.git/config|eb95cb36",
 	"/.git/HEAD|82193961",

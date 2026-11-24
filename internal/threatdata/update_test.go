@@ -69,8 +69,7 @@ func failedWith(t *testing.T, what string, s threatdata.SourceResult, code clier
 	}
 }
 
-// An update asks for each of the five lists once, with a GET to its host, each request giving up
-// after 30 seconds. An answer dated the same as the copy in use leaves each source current.
+// Updates GET each list once with a 30-second timeout; equal dates remain current.
 func TestUpdate_AsksForEachListOnce(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -105,8 +104,7 @@ func TestUpdate_AsksForEachListOnce(t *testing.T) {
 	}
 }
 
-// What the update reports for each source and each list: the old and new date, the entry counts,
-// and how many entries were added and removed.
+// Verify source/list result dates, counts and added/removed totals.
 func TestUpdate_ReportsEachList(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -159,9 +157,8 @@ func TestUpdate_ReportsEachList(t *testing.T) {
 	}
 }
 
-// Once one of a source's requests fails, its remaining lists are not asked for, the other source
-// still is, and nothing is retried. The failure's code and reason follow what went wrong, and any
-// answer starts the hour.
+// Stop a source after its first failure without retries, continue the other source and start
+// cooldown on any response.
 func TestUpdate_AFailureStopsItsSource(t *testing.T) {
 	t.Parallel()
 	malformed := file(append(append(rows(v4Row, 0, 79), `{"cidr":"10.250.0.0/24","sblid"`), metaLine(d2, 80))...)
@@ -249,8 +246,8 @@ func allSkipped(t *testing.T, r threatdata.Result, contacted time.Time) {
 	}
 }
 
-// A request that stalls past the request timeout gives up then, as TIMEOUT, even when egress's own
-// HTTP timeout is shorter. It got no response, so it doesn't start the hour.
+// Use the update's request timeout even with shorter base egress settings. No response means no
+// cooldown.
 func TestUpdate_Timeout(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -279,8 +276,7 @@ func TestUpdate_Timeout(t *testing.T) {
 	}
 }
 
-// A request that got no response (a refused connection, a failed DNS lookup) is NETWORK_ERROR, and
-// doesn't start the hour: the next update asks again.
+// Network failures without responses preserve immediate retry eligibility.
 func TestUpdate_NoResponse(t *testing.T) {
 	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -339,9 +335,8 @@ func TestUpdate_NoResponse(t *testing.T) {
 	})
 }
 
-// Within an hour of a source's last response, whatever its status, an update sends it nothing and
-// reports it skipped, with when it was last contacted and can next be updated. At the hour it asks
-// again.
+// Any response starts an inclusive one-hour cooldown with last/next timestamps in skipped
+// results.
 func TestUpdate_WithinTheHourIsSkipped(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -371,7 +366,8 @@ func TestUpdate_WithinTheHourIsSkipped(t *testing.T) {
 				t.Errorf("an update 59m59s later asked for %v", got)
 			}
 			allSkipped(t, r, now)
-			// A skipped list is reported as the copy in use: the downloaded one when there is one.
+			// Skipped lists report the active copy, including downloaded metadata
+			// when selected.
 			for i, in := range w.load(w.now).Lists {
 				if l := r.Lists[i]; l.NewUpdated != in.Updated || l.Entries != in.Entries {
 					t.Errorf("skipped %s: %s, %d entries; want the copy in use's %s, %d", l.List, l.NewUpdated, l.Entries, in.Updated, in.Entries)
@@ -393,8 +389,7 @@ func TestUpdate_WithinTheHourIsSkipped(t *testing.T) {
 	}
 }
 
-// A last response recorded in the future is taken as now and written back, so the source can be
-// updated an hour later however far ahead it was.
+// Clamp future contact times to now so cooldown cannot extend indefinitely.
 func TestUpdate_FutureLastResponse(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -419,8 +414,7 @@ func TestUpdate_FutureLastResponse(t *testing.T) {
 	}
 }
 
-// A last check recorded in the future is taken as now and written back, so it can't hide the
-// stale notice for more than 30 days.
+// Clamp future check times so stale notices cannot be hidden beyond 30 days.
 func TestUpdate_FutureLastChecked(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -440,7 +434,7 @@ func TestUpdate_FutureLastChecked(t *testing.T) {
 	}
 }
 
-// A response is recorded as soon as it arrives, and a successful check once the source is done.
+// Record responses immediately; record successful checks only after the source finishes.
 func TestUpdate_RecordsTheState(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -459,8 +453,7 @@ func TestUpdate_RecordsTheState(t *testing.T) {
 	}
 }
 
-// Two updates at once on one directory: the second waits for the first to finish with each
-// source, then is skipped, as the first got a response. Each list is asked for once.
+// Per-source locks serialise concurrent updates so each list is requested once.
 func TestUpdate_TwoAtOnce(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -567,8 +560,7 @@ func TestUpdate_SourcesRunConcurrently(t *testing.T) {
 	}
 }
 
-// A list dated no later than the copy in use is already current: the data file is left alone and
-// the successful check is recorded.
+// Older/equal data stays unchanged while a successful check is still recorded.
 func TestUpdate_AlreadyCurrent(t *testing.T) {
 	t.Parallel()
 	t.Run("against the built-in copy", func(t *testing.T) {
@@ -616,8 +608,7 @@ func TestUpdate_AlreadyCurrent(t *testing.T) {
 	})
 }
 
-// When one list of a source is newer, the source is updated: the newer list replaces the old one,
-// and the others keep their previous downloaded copy and are reported current.
+// Update only newer lists within a bundle, retaining other downloaded versions.
 func TestUpdate_OneNewerList(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -664,8 +655,8 @@ func TestUpdate_OneNewerList(t *testing.T) {
 	}
 }
 
-// An unreadable downloaded copy is replaced by what the update downloads, even when that is no
-// newer than the built-in copy, and the warning then stops.
+// A valid download replaces corrupt stored data even when no newer than embedded data, clearing
+// fallback warnings.
 func TestUpdate_ReplacesAnUnreadableCopy(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -707,8 +698,7 @@ func TestUpdate_ReplacesAnUnreadableCopy(t *testing.T) {
 	}
 }
 
-// A download that breaks a rule is refused: its source fails with the reason, its remaining lists
-// are not asked for, and the downloaded copy keeps its bytes and its mode.
+// Rejected data stops its source and preserves previous bytes/permissions.
 func TestUpdate_Refusals(t *testing.T) {
 	t.Parallel()
 	endOfTomorrow := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC) // now is 2026-11-01 12:00 UTC
@@ -765,8 +755,8 @@ type refusal struct {
 	asnPage []byte
 	at      string // the path refused; "" when the download passes
 	reason  []string
-	// compared means the refusal compares the list with the copy in use, which the update may
-	// do once every list of the source has arrived: the lists after it may have been asked for.
+	// Comparison-based rejections may wait for the full source bundle, so later lists may
+	// already have been requested.
 	compared bool
 }
 
@@ -863,8 +853,7 @@ func TestUpdate_CreatesAPrivateDirectory(t *testing.T) {
 	}
 }
 
-// A directory nyx can't write to fails both sources with UNEXPECTED_ERROR before anything is
-// sent, so no request goes out whose answer couldn't be recorded. The previous copy is intact.
+// Detect unwritable storage before requests because responses need persistent contact records.
 func TestUpdate_ReadOnlyDirectory(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {
@@ -892,8 +881,8 @@ func TestUpdate_ReadOnlyDirectory(t *testing.T) {
 	unchanged(t, w.path(ipapiData), ip)
 }
 
-// A download that passes its checks but can't be put in place fails its source with
-// UNEXPECTED_ERROR and the reason. The previous copy is intact, and the response is recorded.
+// Replacement failure preserves previous data and records the received response with an
+// unexpected-error result.
 func TestUpdate_StoreFailure(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -977,8 +966,7 @@ func TestUpdate_RemovesStaleTemporaryFiles(t *testing.T) {
 	}
 }
 
-// A command that reads the threat data while updates run sees each source's previous copy or its
-// complete new one, never a mix and never a partial file.
+// Concurrent readers see complete old/new source bundles, never partial or mixed writes.
 func TestUpdate_LoadDuringUpdates(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -1028,9 +1016,8 @@ func TestUpdate_LoadDuringUpdates(t *testing.T) {
 	}
 }
 
-// version describes how a set read during the updates of TestUpdate_LoadDuringUpdates is not one
-// whole version of each source, or "" when it is. Version k's lists all hold k more entries than
-// the built-in copy's and are dated k hours (Spamhaus) or k days (ipapi.is) after it.
+// version checks all lists agree on their encoded fixture generation, returning a reason when
+// they do not.
 func version(s threatdata.Set) string {
 	if len(s.Warnings) != 0 {
 		return fmt.Sprintf("warnings %+v", s.Warnings)

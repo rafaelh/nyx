@@ -26,29 +26,23 @@ import (
 )
 
 const (
-	// maxWait is the longest rate-limit wait the stage sits out. A reset further
-	// away stops the stage for the run, as for any other keyed source.
+	// maxWait bounds waitable rate limits. Later resets abort this stage for the run.
 	maxWait = 60 * time.Second
-	// maxWaits is how many times in a row one page is waited for. A limit that is
-	// still in force after that many waits is not going to lift.
+	// maxWaits bounds repeated waits so a persistent limit cannot stall one page
+	// indefinitely.
 	maxWaits = 5
 	perPage  = 100
-	// lastPage is the last page GitHub serves: a search returns at most 1,000
-	// results, and asking past them is refused. A page can hold fewer than
-	// perPage results, so the cap alone does not keep the stage within it.
+	// lastPage enforces GitHub's 1,000-result ceiling even when pages contain fewer than
+	// perPage results.
 	lastPage = 1000 / perPage
 )
 
-// Stage searches GitHub's code for the quoted text of each in-scope input root
-// and records where it is mentioned: the repository, the file path and the
-// match's URL, with the hostnames under an in-scope root that the returned
-// fragment names. The stage queries GitHub about the domain, never the target,
-// and never stores a fragment, so nothing about secrets is recorded or inferred.
+// Stage searches GitHub code for each quoted in-scope input root. It stores repository/file
+// locations and matching in-scope hostnames, never fragments or inferred secrets.
 //
-// A root is searched once. The check is keyed by the root and the cap, so
-// github.max_results changes search again; new mentions appear only after
-// --redo github. The key carries no scope: a hostname under a root added later
-// was ignored and is recorded only after --redo github.
+// Checks include root and result cap, so cap changes rerun searches. Other refreshes, including
+// extracting names under roots added later, require --redo github because scope is not in the
+// key.
 type Stage struct{}
 
 // New returns the github stage.
@@ -69,9 +63,8 @@ func (*Stage) Evidence(checkKey string) (source, item string) {
 	return "github", root
 }
 
-// input is the Check.Input. The scope and the input roots travel in it so that
-// Run can tell a hostname under an in-scope root, other than the root itself,
-// from any other name.
+// input carries scope and roots so Run can extract in-scope subdomains while excluding root
+// names themselves.
 type input struct {
 	root  string
 	max   int
@@ -153,10 +146,9 @@ func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	return obs, nil
 }
 
-// search asks for one page of the root's results. A rate limit that lifts within
-// maxWait is waited out and the same page asked again; a 401 and any other 403 or
-// 429 abort the stage. Any other status, a truncated body and an unreadable
-// answer are transient errors, as for httpsrc.Get.
+// search retries the same page for rate limits lifting within maxWait. A 401 or unhandled
+// 403/429 aborts the stage. Other statuses, truncation and invalid responses remain retryable
+// check failures.
 func search(ctx context.Context, e egress.Clients, root string, page int) (searchResult, error) {
 	q := url.Values{"q": {`"` + root + `"`}, "per_page": {strconv.Itoa(perPage)}, "page": {strconv.Itoa(page)}}
 	req := egress.ThirdPartyRequest{
@@ -194,9 +186,8 @@ func search(ctx context.Context, e egress.Clients, root string, page int) (searc
 	}
 }
 
-// resetWait is how long GitHub asks to wait, at least a second: retry-after, or
-// else the time until x-ratelimit-reset when x-ratelimit-remaining is 0. ok is
-// false when the response says neither, which is a refusal and no rate limit.
+// resetWait reads Retry-After or an exhausted quota's reset timestamp, with a one-second
+// minimum. Without either signal, the refusal is not treated as a waitable limit.
 func resetWait(resp egress.ThirdPartyResponse, now time.Time) (wait time.Duration, ok bool) {
 	if v := resp.HeaderValue("Retry-After"); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
@@ -213,15 +204,12 @@ func resetWait(resp egress.ThirdPartyResponse, now time.Time) (wait time.Duratio
 	return max(time.Unix(reset, 0).Sub(now), time.Second), true
 }
 
-// tokens are the runs of characters a hostname is made of, plus the underscore
-// and the wildcard, so that a name such as "a_b.example.com" is one token that
-// fails to validate and not a shorter name that it merely ends with.
+// tokens includes underscores/wildcards so invalid names are rejected as a whole instead of
+// yielding a misleading valid suffix.
 var tokens = regexp.MustCompile(`[A-Za-z0-9_*.-]+`)
 
-// hostnames are the names in the fragments of a match that are under an
-// in-scope root, sorted. The roots themselves are not listed: every match
-// mentions the root it was searched for. The fragments are read here and kept
-// nowhere.
+// hostnames extracts sorted in-scope subdomains from response fragments without retaining the
+// fragments. Root names are omitted because the search already implies them.
 func (in input) hostnames(it match) []string {
 	set := map[string]bool{}
 	for _, m := range it.TextMatches {
@@ -239,11 +227,9 @@ func (in input) hostnames(it match) []string {
 	return slices.Sorted(maps.Keys(set))
 }
 
-// unescaped is tok, which starts at s[i:], without the tail of an escape that
-// runs into it: the hex digits of a percent-encoding ("%2Fapi.example.com") or
-// of a backslash escape ("\x2f", "/"), or the letter of "\n", "\r" or "\t".
-// Left on, they would make a name such as "2fapi.example.com" that the text never
-// named. An escaped backslash ("\\server.example.com") escapes nothing.
+// unescaped removes escape tails accidentally included at the start of a hostname token, such
+// as "2F" in "%2Fapi.example.com" or the letter after a backslash. Escaped backslashes do not
+// escape the following hostname.
 func unescaped(s string, i int, tok string) string {
 	if i == 0 {
 		return tok

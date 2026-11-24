@@ -24,10 +24,8 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// Open ports. The tests drive cli.Execute with the real ports stage
-// and a loopback listener behind egress's DialMap for every address and port
-// the sweep may dial, so nothing leaves the machine. Every listener counts the
-// connections it accepted, which is how the tests see what was contacted.
+// Port tests map every sweep destination to a counting loopback listener so all contact is
+// observable.
 
 // portSrv is a loopback TCP server standing in for one or more address:port pairs.
 type portSrv struct {
@@ -70,8 +68,7 @@ func newPorts(t *testing.T) *pworld {
 	return &pworld{web: x}
 }
 
-// listen starts a server. A banner is sent after delay; with no banner the
-// server hangs up at once, like a service that is open but not talking.
+// listen sends an optional delayed banner; otherwise it closes as an open but silent service.
 func (p *pworld) listen(key, banner string, delay time.Duration) *portSrv {
 	return p.listenOn("127.0.0.1:0", key, banner, delay)
 }
@@ -98,10 +95,8 @@ func (p *pworld) listenOn(bind, key, banner string, delay time.Duration) *portSr
 				p.peak = max(p.peak, p.cur)
 				p.mu.Unlock()
 				s.conns.Add(1)
-				// A connection stops counting as in flight once the banner is
-				// written (or at once, for a silent server), not when the client's
-				// close reaches this goroutine: that lags the client, so the next
-				// connect would be counted on top of the one just finished.
+				// Stop counting in-flight work when the banner is sent, since
+				// observing the client's close lags its next connection.
 				var once sync.Once
 				settle := func() { once.Do(func() { p.mu.Lock(); p.cur--; p.mu.Unlock() }) }
 				defer settle()
@@ -333,8 +328,7 @@ func TestPorts_AddressSet(t *testing.T) {
 	}
 }
 
-// IPv6 is checked like IPv4, over a real IPv6 socket. ::1 is in the in-scope
-// netblock ::1/128 and is found through the AAAA record of a name.
+// Exercise IPv6 through a real ::1 socket discovered via AAAA within ::1/128.
 func TestPorts_IPv6(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)
@@ -537,7 +531,7 @@ func TestPorts_Banners(t *testing.T) {
 	}
 }
 
-// A closed or filtered port is recorded as checked and not retried.
+// Closed/filtered outcomes complete checks and prevent retries.
 func TestPorts_CompletedChecksAreNotRetried(t *testing.T) {
 	t.Parallel()
 	p := newPorts(t)

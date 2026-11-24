@@ -420,8 +420,7 @@ func TestKindVersion(t *testing.T) {
 	}
 }
 
-// A redo moves the version of the kinds the stage observes, because those
-// records lose their observers at once; a kind it does not observe stays put.
+// Redo invalidates observer caches only for kinds the stage supports.
 func TestRedoBumpsTheKindsTheStageObserves(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
@@ -440,8 +439,7 @@ func TestRedoBumpsTheKindsTheStageObserves(t *testing.T) {
 	}
 }
 
-// Observers lists, per record, the completed checks that observe it now: not
-// the observations of a check a redo has forgotten, nor of one retired.
+// Observers excludes forgotten and retired checks even if stale observations remain stored.
 func TestObservers(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
@@ -594,9 +592,8 @@ func TestOpenReadOnlyCreatesNothing(t *testing.T) {
 	}
 }
 
-// With no log file the database is read immutable, without a lock, so a run
-// that starts during the read could change the file under it. The read is then
-// made again, under the run's log, and sees what the run committed.
+// If a run starts during an immutable read, retry through WAL to avoid returning data read
+// across file changes.
 func TestViewRereadsWhenARunStarts(t *testing.T) {
 	t.Parallel()
 	c := newClock()

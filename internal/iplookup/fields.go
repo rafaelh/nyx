@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// field is one key of the record: its name, whether only --active has it, and the sources its
-// value needs. The sources are its own and the ones it depends on, so the provider lists cymru,
-// which gives the AS number the provider is decided from.
+// field describes a record key, its active-only status and all required sources. Dependencies
+// are included: provider needs cymru because it uses the AS number.
 type field struct {
 	name    string
 	always  bool // present whatever --fields selects
@@ -19,12 +18,11 @@ type field struct {
 	value   func(*Record) any
 }
 
-// activeSources are the sources of the probing keys: the shared check (cymru), the ports to scan
-// (internetdb) and the scan itself (probe).
+// activeSources includes ownership classification, InternetDB's extra ports and the probe
+// itself.
 var activeSources = []Source{SourceCymru, SourceInternetDB, SourceProbe}
 
-// table is the one field table, in the record's key order. It does the selection, names the keys
-// for help and checks the names a caller passes.
+// table defines field ordering, selection, help names and validation in one place.
 var table = []field{
 	{name: "address", always: true, value: func(r *Record) any { return r.Address }},
 	{name: "hostnames", always: true, value: func(r *Record) any { return nonNil(r.Hostnames) }},
@@ -58,7 +56,7 @@ var table = []field{
 	{name: "failures", always: true, value: func(r *Record) any { return nonNil(r.Failures) }},
 }
 
-// nonNil is s, or an empty list when s is nil, so the key encodes as [].
+// nonNil ensures empty lists encode as [] rather than null.
 func nonNil[T any](s []T) []T {
 	if s == nil {
 		return []T{}
@@ -66,8 +64,7 @@ func nonNil[T any](s []T) []T {
 	return s
 }
 
-// FieldNames is every key the mode allows, in the record's key order, the always-present ones
-// included.
+// FieldNames returns all mode-available keys, including mandatory fields, in record order.
 func FieldNames(active bool) []string { return AllFields(active).Names() }
 
 // ActiveFieldNames is the keys only --active has, in order.
@@ -81,8 +78,8 @@ func ActiveFieldNames() []string {
 	return names
 }
 
-// ChoosableFieldNames is the keys the mode allows that a caller can choose with --fields, in
-// order: the always-present ones are in every record whatever is chosen.
+// ChoosableFieldNames lists mode-available optional keys. Mandatory keys are included
+// regardless of --fields.
 func ChoosableFieldNames(active bool) []string {
 	var names []string
 	for _, f := range table {
@@ -93,13 +90,12 @@ func ChoosableFieldNames(active bool) []string {
 	return names
 }
 
-// ValidFields names every value --fields accepts, for a hint: the keys ChoosableFieldNames gives,
-// and all.
+// ValidFields formats selectable names plus all for error hints.
 func ValidFields(active bool) string {
 	return "valid fields: " + strings.Join(ChoosableFieldNames(active), ", ") + ", or all"
 }
 
-// Fields is a selection of the record's keys, with the mode it was made for.
+// Fields binds a record-key selection to its lookup mode.
 type Fields struct {
 	active bool
 	has    []bool // by position in the table; nil for the zero selection
@@ -110,11 +106,9 @@ func fieldIndex(name string) int {
 	return slices.IndexFunc(table, func(f field) bool { return f.name == name })
 }
 
-// Select reads a --fields value: names separated by commas, or all. Names are trimmed and empty
-// ones are ignored, so "" selects only the keys that are always present. The selection is in the
-// table's order whatever order the names were given in. unknown holds the names that are not keys
-// at all, and activeOnly the names of keys that only --active has, given without it; with either
-// the selection is empty.
+// Select parses comma-separated names or "all" into table order, ignoring blanks. Empty text
+// keeps only mandatory keys. Unknown names and active-only fields requested without --active
+// are returned separately; either invalidates the selection.
 func Select(spec string, active bool) (f Fields, unknown, activeOnly []string) {
 	sel := Fields{active: active, has: make([]bool, len(table))}
 	for i, t := range table {
@@ -141,7 +135,7 @@ func Select(spec string, active bool) (f Fields, unknown, activeOnly []string) {
 	return sel, nil, nil
 }
 
-// AllFields is every key the mode allows, which is what a call without --fields returns.
+// AllFields returns every key permitted in the selected mode.
 func AllFields(active bool) Fields {
 	f := Fields{active: active, has: make([]bool, len(table))}
 	for i, t := range table {
@@ -170,9 +164,8 @@ func (f Fields) Names() []string {
 	return names
 }
 
-// Needs reports whether the source must be asked for the selection: some selected key takes its
-// value from it, or it is what those depend on. Under --active cymru is always needed, since
-// whether an address is shared infrastructure is always worked out.
+// Needs checks direct and dependent source requirements. Active mode always needs Cymru to
+// classify shared infrastructure before probing.
 func (f Fields) Needs(s Source) bool {
 	if f.has == nil {
 		return false
@@ -199,8 +192,8 @@ func (f Fields) Sources() []Source {
 	return out
 }
 
-// Sourceless reports whether a selected key needs no source, so a public address always has its
-// value (the abusive and DROP network matches, from the lists in use, which need no request).
+// Sourceless identifies selected network-list fields that can answer locally for every public
+// address, even when all requested sources fail.
 func (f Fields) Sourceless() bool {
 	for i, t := range table {
 		if i < len(f.has) && f.has[i] && !t.always && len(t.sources) == 0 {
@@ -210,21 +203,19 @@ func (f Fields) Sourceless() bool {
 	return false
 }
 
-// NeedsProbe reports whether the TCP scan runs: ports, tls or web is selected.
+// NeedsProbe enables scanning for selected ports, TLS or web fields.
 func (f Fields) NeedsProbe() bool { return f.Needs(SourceProbe) }
 
-// NeedsTLS reports whether a TLS handshake is made on each open TLS port: tls is selected.
+// NeedsTLS enables handshakes on open TLS ports when TLS output is selected.
 func (f Fields) NeedsTLS() bool { return f.Has("tls") }
 
-// NeedsWeb reports whether a GET / is made on each open web port: web is selected.
+// NeedsWeb enables GET / on open web ports when web output is selected.
 func (f Fields) NeedsWeb() bool { return f.Has("web") }
 
-// NeedsSharedCheck reports whether an address is shared provider infrastructure must be
-// worked out, which it always is under --active whatever is selected.
+// NeedsSharedCheck is always true in active mode, regardless of selected output.
 func (f Fields) NeedsSharedCheck() bool { return f.has != nil && f.active }
 
-// Projected is a record cut down to the selected keys. It encodes only those, in the table's
-// order.
+// Projected encodes selected keys in field-table order.
 type Projected struct {
 	rec Record
 	f   Fields

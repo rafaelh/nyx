@@ -10,13 +10,10 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// The stale hint: a source whose oldest list in use, and whose last successful check, are both more
-// than 30 days old is named in one line on stderr after a recon run or a nyx ip call, or in
-// meta.warnings under --json. The tests' built-in copies are fixed and old (see staleDrop); the
-// harness's clock is 2026-11-01.
+// Staleness tests fix old built-ins against the harness clock and check both human hints and
+// JSON notices after 30 days.
 
-// The dates of the old built-in copies: ipapi.is's lists, and Spamhaus's (staleDrop). The oldest of
-// each source is what its hint gives.
+// Fixed old list dates let hints identify each source's oldest active data.
 const (
 	staleIpapiNets = "2026-09-14"
 	staleIpapiASNs = "2026-09-10"
@@ -54,7 +51,7 @@ func sameSet(got, want []string) bool {
 	return slices.Equal(got, want)
 }
 
-// warningsLike are the entries of a list of warnings that speak of updating the threat data.
+// warningsLike selects threat-update notices from warning lists.
 func warningsLike(ws []string) []string {
 	var out []string
 	for _, w := range ws {
@@ -65,8 +62,7 @@ func warningsLike(ws []string) []string {
 	return out
 }
 
-// A recon run with old data prints one hint line for each stale source, with the source's oldest
-// date, and the call is otherwise as it would be.
+// Old active data adds one dated hint per stale source without changing recon results.
 func TestStaleHint_Recon(t *testing.T) {
 	t.Parallel()
 	fresh := newHarness(t, noop())
@@ -94,8 +90,7 @@ func TestStaleHint_Recon(t *testing.T) {
 	}
 }
 
-// nyx ip names a stale source only when a selected key reads it: abusive_* read ipapi.is, drop_*
-// read Spamhaus, and the other keys neither.
+// IP staleness notices follow selected threat-field dependencies only.
 func TestStaleHint_IPOnlyForTheSourcesItsKeysRead(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -129,8 +124,7 @@ func TestStaleHint_IPOnlyForTheSourcesItsKeysRead(t *testing.T) {
 	}
 }
 
-// Under --json the notice is an entry of meta.warnings, for recon and for nyx ip, with --quiet too,
-// and nothing is printed on stderr.
+// JSON staleness notices remain warnings under quiet mode without stderr output.
 func TestStaleHint_UnderJSONIsAWarning(t *testing.T) {
 	t.Parallel()
 	want := []string{staleSpamhausWarning, staleIpapiWarning}
@@ -241,8 +235,7 @@ func TestStaleHint_OrderOnStderr(t *testing.T) {
 	}
 }
 
-// A source is not stale while its last successful check is recent, or once its copy in use is
-// recent: a recorded response alone is not a check.
+// Recent data or a successful check prevents staleness; merely receiving a response does not.
 func TestStaleHint_ARecentCheckOrCopyHidesIt(t *testing.T) {
 	t.Parallel()
 	recent := func(h *harness) string { return h.now.Add(-24 * time.Hour).Format(time.RFC3339) }

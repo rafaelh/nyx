@@ -62,9 +62,8 @@ func TestClassify_PublishedRangeRules(t *testing.T) {
 	}
 }
 
-// A published range beats the ASN: DigitalOcean's ASN says shared hosting, its
-// list says the address is a customer's own machine. Without the list the ASN
-// still applies.
+// Published dedicated ranges override generic shared ASN labels; absent ranges retain
+// conservative ASN fallback.
 func TestClassify_RangeBeatsASN(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()

@@ -4,10 +4,8 @@ import "runtime/debug"
 
 const develVersion = "devel"
 
-// versionString is the module version recorded in the build, or "" when there
-// is none; Execute alone turns "" into develVersion. Builds from a checkout and
-// `go install @latest` both record a VCS pseudo-version (with +dirty for local
-// changes), so it is used as is.
+// versionString reads the module's build version, including VCS pseudo-versions and +dirty. An
+// absent version returns ""; Execute supplies develVersion.
 func versionString(info *debug.BuildInfo, ok bool) string {
 	if !ok || info == nil || info.Main.Version == "(devel)" {
 		return ""

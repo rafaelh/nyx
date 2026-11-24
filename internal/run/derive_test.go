@@ -53,7 +53,7 @@ const (
 
 var dropListTime = time.Date(2026, 10, 1, 8, 30, 5, 0, time.UTC)
 
-// dropFile is a DROP or ASN-DROP list as Spamhaus serves it: its rows, then its metadata line.
+// dropFile writes source rows followed by metadata.
 func dropFile(rows ...string) []byte {
 	var b strings.Builder
 	for _, r := range rows {
@@ -92,8 +92,7 @@ func ipapiNetwork() *abusive.Snapshot {
 	})
 }
 
-// threatWorld is the input the findings deriver reads: example.com's scope, with app.example.com
-// resolving to addr, announced by AS64500, and the finding records already stored.
+// threatWorld supplies scope, address ownership and prior findings for derivation tests.
 func threatWorld(addr string, stored ...store.Record) deriveInput {
 	a := netip.MustParseAddr(addr)
 	inv := inventory.New(inventory.Data{
@@ -110,7 +109,7 @@ func threatWorld(addr string, stored ...store.Record) deriveInput {
 		Today: "2026-11-01", Records: func(k kinds.Named) []store.Record { return recs[k.Name()] }}
 }
 
-// storedFinding is a current abusive-network finding of the address, as a run stored it.
+// storedFinding builds a current stored address-abuse finding.
 func storedFinding(typ, severity string) store.Record {
 	return rec("finding", dropKey, true, map[string]any{"category": "abusive-network", "type": typ, "severity": severity,
 		"target": dropAddr, "ip": dropAddr}, "findings")
@@ -191,8 +190,7 @@ func TestDeriveFindings_ARiseToDropASNIsAnnounced(t *testing.T) {
 	}
 }
 
-// A finding whose strongest match weakens (DROP drops the address, ipapi.is still lists it) stays
-// the one finding at the lower type and severity, and is not announced.
+// Weaker remaining matches downgrade the same current finding without another announcement.
 func TestDeriveFindings_AWeakerMatchKeepsOneFinding(t *testing.T) {
 	t.Parallel()
 	ev := &events{}

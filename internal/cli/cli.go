@@ -1,6 +1,5 @@
-// Package cli is the nyx command line: the command tree (nyx, recon, recon
-// export, cve, ip, help and the help topics), flags, validation, help text,
-// signals, and the one place that picks the exit code and writes the error.
+// Package cli builds nyx's command tree, validates input and handles help, signals and output.
+// Execute chooses exit codes and prints command errors.
 package cli
 
 import (
@@ -47,7 +46,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// Deps are the collaborators of Execute, replaceable in tests.
+// Deps supplies Execute's replaceable dependencies for production and tests.
 type Deps struct {
 	Stages      []run.Stage // in registry order
 	Files       []output.File
@@ -56,43 +55,42 @@ type Deps struct {
 	Stderr      io.Writer
 	StdoutIsTTY func() bool
 	StderrIsTTY func() bool // nil means false
-	// StdoutWidth and StderrWidth report the width in cells of a terminal stream, or 0 when it has
-	// none; nil means 0. They are consulted only for a stream that is a terminal.
+	// StdoutWidth and StderrWidth return terminal widths in cells. They are called only for
+	// terminal streams; nil or zero means unknown.
 	StdoutWidth func() int
 	StderrWidth func() int
 	Location    *time.Location // the time zone human output shows times in; nil means time.Local
 	Clock       func() time.Time
-	// Signals delivers SIGINT, SIGTERM and SIGHUP; nil means none arrive. The
-	// first cancels the command, a second exits at once (see NotifySignals).
+	// Signals cancels on the first signal and exits on the second. Nil disables signal
+	// delivery.
 	Signals <-chan os.Signal
 	Version string // shown by --version and sent as the User-Agent; empty means "devel"
-	// Env is the environment settings and colours are read from, as os.Environ gives it; nil
-	// means an empty one.
+	// Env supplies process-style environment entries for config paths and colours. Nil is
+	// empty.
 	Env config.Env
-	// NoFsync writes output files without syncing them to disk first, which on macOS costs a full
-	// flush of the drive's cache per file. Only tests set it.
+	// NoFsync skips per-file disk flushes in tests, avoiding macOS's costly drive-cache
+	// flush.
 	NoFsync bool
-	// Events, when set, also receives every event of a recon run, as the console would see it
-	// (redacted). Only tests set it, to read the events that --json no longer writes.
+	// Events receives redacted recon events in tests, including events suppressed from
+	// stdout by --json.
 	Events report.Emitter
-	// Stdin is read by a lookup command given a lone "-" (nyx cve, nyx ip), and is the terminal's
-	// input for nyx setup; nil means an empty one.
+	// Stdin supplies lookup input for a lone "-" and terminal input for setup. Nil means
+	// empty input.
 	Stdin io.Reader
-	// StdinIsTTY reports whether Stdin is a terminal, which nyx setup needs; nil means false.
+	// StdinIsTTY gates the interactive editor; nil means false.
 	StdinIsTTY func() bool
-	// WindowSize is the size in cells of the terminal nyx setup draws in, for a Stdout that the
-	// terminal library cannot size itself (a test's buffer); nil means the library asks Stdout.
+	// WindowSize supplies dimensions for setup terminals the library cannot measure, such
+	// as test buffers. Nil uses Stdout's size.
 	WindowSize func() (width, height int)
-	// Getwd is the directory nyx was run from, which nyx setup resolves relative paths against;
-	// nil means os.Getwd.
+	// Getwd resolves setup's relative paths. Nil uses os.Getwd.
 	Getwd func() (string, error)
-	// ThreatBuiltIn replaces the threat-data copies built into the binary (the ipapi.is snapshot and
-	// the Spamhaus lists); nil means the embedded ones. Only tests set it.
+	// ThreatBuiltIn supplies fixed threat-data snapshots for tests. Nil uses embedded
+	// copies.
 	ThreatBuiltIn *threatdata.BuiltIn
 }
 
-// DefaultDeps returns the production dependencies, except Signals, which only
-// main subscribes to (see NotifySignals).
+// DefaultDeps supplies production dependencies without subscribing to signals; main does that
+// separately.
 func DefaultDeps() Deps {
 	return Deps{
 		Version: versionString(debug.ReadBuildInfo()),
@@ -119,16 +117,15 @@ func termWidth(fd uintptr) int {
 	return w
 }
 
-// NotifySignals subscribes to SIGINT, SIGTERM and SIGHUP, for Deps.Signals.
-// The subscription changes what those signals do to the whole process, so
-// only main makes it, not DefaultDeps.
+// NotifySignals changes process-wide SIGINT/SIGTERM/SIGHUP handling. Only main subscribes;
+// DefaultDeps leaves handlers alone.
 func NotifySignals() <-chan os.Signal {
 	ch := make(chan os.Signal, 2)
 	signal.Notify(ch, os.Interrupt, unix.SIGTERM, unix.SIGHUP)
 	return ch
 }
 
-// withDefaults fills in what a test leaves out of Deps.
+// withDefaults fills omitted test dependencies.
 func withDefaults(d Deps) Deps {
 	if d.Version == "" {
 		d.Version = develVersion
@@ -173,17 +170,14 @@ func withDefaults(d Deps) Deps {
 	return d
 }
 
-// defaultStages is the registry order: sources first, then DNS, then the stages derived from what
-// the sources found. Passes repeat, so late discoveries are picked up. The port sweep is last so
-// that probing hostnames on 80 and 443 does not wait for a sweep that can take hours; the pass
-// after it probes the ports it found. The email stage follows the DNS stages (dnsroot, which
-// records a root's own NS, SOA, TXT and CAA, among them); rdap and shodan-host follow ipowner,
-// whose owners decide which addresses may be asked about, and netblockowner, which asks about the
-// netblocks' addresses only for the abusive-network check, comes after it; storage follows the crawl so references
-// found in the same pass are checked, identifier-pivot follows the web stages whose identifiers it
-// searches, and the Target stages run before the port sweep. dnshistory follows reverseip, as both ask
-// SecurityTrails about addresses and names the earlier stages found; origincheck follows dnshistory
-// and the probe, whose historical addresses and web services its candidates come from.
+// defaultStages orders sources before DNS and stages that consume their discoveries. Repeated
+// passes pick up results found late. The port sweep runs last because it can take hours;
+// hostname probing runs first, and the next pass probes newly found ports.
+//
+// Email follows DNS. RDAP and shodan-host follow ipowner so ownership can guide lookups;
+// netblockowner follows to supply abuse-check evidence. Storage follows crawling,
+// identifier-pivot follows web identifier collection, and origincheck follows DNS history and
+// web probing. dnshistory follows reverseip so both can use earlier address/name discoveries.
 func defaultStages() []run.Stage {
 	sub := subdomains.New() // crtsh, wayback, commoncrawl, virustotal, securitytrails, hackertarget, urlscan, certspotter, censys, chaos
 	stages := []run.Stage{asn.New(), orgpivot.NewOrgASN(), orgpivot.NewCTOrg(), orgpivot.NewWhoisXML()}
@@ -195,14 +189,12 @@ func defaultStages() []run.Stage {
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }
 
-// streams are the two output streams as the layout sees them: whether each is a terminal, its
-// colour depth and its width. The depth is decided once; the width is read each time a layout is
-// made, so a resize applies from the next one.
+// streams holds terminal capabilities for stdout and stderr. Colour depth is fixed per
+// invocation; width is read for each layout so resizing takes effect.
 type streams struct{ out, err layout.Stream }
 
-// newStream is one output's stream. Its width is COLUMNS when that is a positive number, else the
-// terminal's own width (asked of width only when the stream is a terminal), else 100, and never
-// less than 60.
+// newStream chooses width from positive COLUMNS, then terminal measurement, then 100 columns.
+// Width is at least 60; non-terminal streams are never measured.
 func newStream(isTTY func() bool, env config.Env, width func() int) layout.Stream {
 	tty := isTTY()
 	columns := env.Get("COLUMNS") // the environment is fixed for the process
@@ -219,12 +211,10 @@ func newStream(isTTY func() bool, env config.Env, width func() int) layout.Strea
 	}
 }
 
-// shared are the flags every command takes, before or after its name. None of
-// them is a setting.
+// shared holds invocation flags accepted around every command, separate from config settings.
 type shared struct{ json, quiet, debug bool }
 
-// invocation is one call of nyx: what the commands share, and what they hand
-// back to Execute.
+// invocation shares parsed state and command results with Execute.
 type invocation struct {
 	d    Deps
 	st   streams
@@ -232,40 +222,39 @@ type invocation struct {
 	raw  shared   // the shared flags as a scan of args finds them, before any parse
 	sh   shared   // the shared flags as parsed
 	fw   *failureWriter
-	mg   *margin // the blank lines around the output on a terminal; Execute closes it
+	mg   *margin // terminal output margins, closed by Execute
 
 	cmd *cobra.Command // the command that ran, for the default hint
 	err error          // what it returned
 
-	// rawOut is Deps.Stdout as the caller gave it, before the margin wraps it. A full-screen
-	// command needs the terminal itself, not the wrapped writer.
+	// rawOut preserves the original terminal writer for full-screen commands before margin
+	// wrapping.
 	rawOut io.Writer
-	// hintNoConfig is the default config path to suggest nyx setup for, set by a command that read
-	// no config file because there is none ("" for no hint).
+	// hintNoConfig stores a missing default config path for the setup hint; empty
+	// suppresses it.
 	hintNoConfig string
-	// staleHints are the stale-data notices a command that read threat data found, to print as hints
-	// (never under --json, where they are warnings instead).
+	// staleHints collects human update notices. JSON reports them as warnings instead.
 	staleHints []string
 
 	mu            sync.Mutex
-	interruptHint string // what to do after a signal, set by the command
-	// beforeHardExit, when set, runs before the process exits on a second signal, so a command
-	// that has taken over the terminal can give it back.
+	interruptHint string // command-specific interruption handler
+	// beforeHardExit restores command-owned terminal state before a second signal
+	// terminates the process.
 	beforeHardExit func()
 }
 
 func newInvocation(d Deps, args []string) *invocation {
 	inv := &invocation{d: d, args: args, raw: scanShared(args), mg: &margin{}, rawOut: d.Stdout}
 	inv.st = streams{out: newStream(d.StdoutIsTTY, d.Env, d.StdoutWidth), err: newStream(d.StderrIsTTY, d.Env, d.StderrWidth)}
-	// The pre-scan decides --json: a value refused later still leaves the streams as they were.
+	// Pre-scan chooses output mode even when later validation rejects a flag value.
 	inv.d.Stdout = inv.mg.wrap(d.Stdout, inv.st.out.Terminal && !inv.raw.json)
 	inv.d.Stderr = inv.mg.wrap(d.Stderr, inv.st.err.Terminal && !inv.raw.json)
 	inv.fw = newFailureWriter(inv.d.Stderr, inv.raw.json, inv.st.err.Depth, config.NewRedactor())
 	return inv
 }
 
-// loadSettings loads a command's settings into probs, and has the error mask
-// every key that loaded, even when some setting did not.
+// loadSettings collects config problems and registers every loaded key for redaction, including
+// on invalid config.
 func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs *clierr.Problems) (config.Settings, *config.Redactor) {
 	settings, err := config.Load(fs, configPath, inv.d.Env)
 	probs.Merge(err)
@@ -274,9 +263,8 @@ func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs 
 	return settings, red
 }
 
-// Execute runs nyx with args and returns the process exit code. It alone
-// picks the exit code and writes the error: commands return an error and
-// print none.
+// Execute runs the invocation and owns error printing and exit-code selection. Commands return
+// errors for it to report.
 func Execute(ctx context.Context, args []string, d Deps) int {
 	inv := newInvocation(withDefaults(d), args)
 	defer inv.mg.close() // after the error, which Execute writes before it returns
@@ -305,8 +293,8 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	if s == nil && errors.Is(ctx.Err(), context.Canceled) {
 		s = os.Interrupt // the caller cancelled: an interrupt, as Ctrl-C would be
 	}
-	// A command returns PARTIAL only after it has written its result, so a signal that lands
-	// after that leaves it standing: INTERRUPTED never comes with a non-empty stdout.
+	// PARTIAL means output was already written. A later signal must preserve that outcome
+	// so INTERRUPTED never accompanies partial stdout.
 	var partial *clierr.Error
 	isPartial := errors.As(err, &partial) && partial.Code == clierr.Partial
 	if s != nil && !isPartial {
@@ -318,13 +306,13 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	return clierr.ExitCode(e.Code)
 }
 
-// noConfigHint is the line that suggests nyx setup, for the path of the config file that is absent.
+// noConfigHint suggests setup for a missing default config path.
 func noConfigHint(path string) string {
 	return "hint: no config file at " + sanitize.Line(path) + "; run nyx setup to store API keys and settings\n"
 }
 
-// noteNoConfig records the default config path for the hint when no --config was given, the
-// default path is known and there is no file at it.
+// noteNoConfig records a hint only for a missing, known default path when --config was not
+// explicit.
 func (inv *invocation) noteNoConfig(configPath string) {
 	if configPath != "" {
 		return
@@ -338,16 +326,15 @@ func (inv *invocation) noteNoConfig(configPath string) {
 	}
 }
 
-// writeHints writes the hints a command left, once it has returned and before any error line: the
-// no-config hint, then the hints that say threat data is old. They stay out of a usage error, which
-// the user is already fixing, and out of --json (a stale notice is a warning there) and --quiet.
-// They are not events, so the events and stdout are as they would be without them.
+// writeHints prints config and stale-data hints after command execution and before errors.
+// Usage errors, --json and --quiet suppress these lines. They are not events; JSON receives
+// stale notices as warnings instead.
 func (inv *invocation) writeHints(err error) {
 	if (inv.hintNoConfig == "" && len(inv.staleHints) == 0) || inv.sh.json || inv.sh.quiet {
 		return
 	}
-	// A panic is never a usage error, and toError would write its stack under --debug, which
-	// Execute then writes again.
+	// Recover panics as unexpected errors without passing through toError, which would
+	// duplicate the debug stack.
 	var pe *clierr.PanicError
 	if err != nil && !errors.As(err, &pe) && inv.toError(err).Code == clierr.InvalidInput {
 		return
@@ -360,8 +347,8 @@ func (inv *invocation) writeHints(err error) {
 	}
 }
 
-// execute builds the tree, classifies the arguments and runs the command. A
-// panic anywhere on this goroutine ends here, as an unexpected failure.
+// execute builds and runs the command tree, recovering main-goroutine panics as unexpected
+// failures.
 func (inv *invocation) execute(ctx context.Context) (err error) {
 	defer func() {
 		if v := recover(); v != nil {
@@ -371,7 +358,8 @@ func (inv *invocation) execute(ctx context.Context) (err error) {
 	root := newRoot(inv)
 	sc := classify(inv.args, root)
 	if sc.err == nil && (sc.version || sc.help) {
-		// Every argument is a shared flag or --version, so the scan is the parse.
+		// Only shared flags/version remain, so pre-scan has already resolved the
+		// invocation.
 		inv.sh = inv.raw
 		if err := inv.problems().Err(); err != nil {
 			return err
@@ -392,14 +380,14 @@ func (inv *invocation) execute(ctx context.Context) (err error) {
 	root.SetErr(inv.d.Stderr)
 	cmd, perr := root.ExecuteContextC(ctx)
 	if perr != nil {
-		// A command's run never returns an error through cobra, so this is the
-		// parser's own: a usage error.
+		// Command errors bypass Cobra; errors returned here come from parsing and are
+		// usage failures.
 		return parseError(cmd, perr)
 	}
 	return inv.err
 }
 
-// toError turns what a command returned into the error to write.
+// toError normalises command errors for reporting.
 func (inv *invocation) toError(err error) *clierr.Error {
 	var e *clierr.Error
 	var probs clierr.Problems
@@ -421,7 +409,7 @@ func (inv *invocation) toError(err error) *clierr.Error {
 	return e
 }
 
-// helpOf is the --help call of cmd, or of nyx when there is none.
+// helpOf builds the command's --help hint, falling back to root help.
 func helpOf(cmd *cobra.Command) string {
 	if cmd == nil {
 		return "nyx --help"
@@ -429,7 +417,7 @@ func helpOf(cmd *cobra.Command) string {
 	return cmd.CommandPath() + " --help"
 }
 
-// interruptError is the error of a command a signal ended.
+// interruptError maps a received signal to its command error.
 func (inv *invocation) interruptError(s os.Signal) *clierr.Error {
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
@@ -442,7 +430,7 @@ func (inv *invocation) setInterruptHint(h string) {
 	inv.mu.Unlock()
 }
 
-// problems starts a command's checks with those of the shared flags.
+// problems begins validation with shared-flag conflicts.
 func (inv *invocation) problems() *clierr.Problems {
 	var p clierr.Problems
 	if inv.sh.quiet && inv.sh.debug {
@@ -451,14 +439,13 @@ func (inv *invocation) problems() *clierr.Problems {
 	return &p
 }
 
-// start records the command that runs and returns its run function's error
-// slot, so a command never returns an error through cobra.
+// start captures command errors separately so Cobra does not print or handle them.
 func (inv *invocation) start(cmd *cobra.Command, err error) error {
 	inv.cmd, inv.err = cmd, err
 	return nil
 }
 
-// parseError is the usage error of an argument the parser refused.
+// parseError translates parser failures into usage errors.
 func parseError(cmd *cobra.Command, err error) *clierr.Error {
 	e := &clierr.Error{Code: clierr.InvalidInput, Message: err.Error(), Hint: helpOf(cmd)}
 	if flag := flagOf(err); flag != "" {
@@ -467,7 +454,7 @@ func parseError(cmd *cobra.Command, err error) *clierr.Error {
 	return e
 }
 
-// flagOf is the flag a parser error names, as it was written, or "".
+// flagOf extracts the original flag spelling from parser errors, or "".
 func flagOf(err error) string {
 	// NotExistError and ValueRequiredError both name the flag as written.
 	var named interface {
@@ -495,11 +482,9 @@ func stageNames(stages []run.Stage) []string {
 	return names
 }
 
-// newEmitter builds a command's event sink, teed to Deps.Events when set and redacting API keys
-// with red. The console writes the log to stderr. Under --json nothing is written while the
-// command goes on: the warnings are kept (the second result) for the envelope, and --debug adds a
-// console on stderr which passes only the debug events, so that stdout is the same with or without
-// --debug. The summary is not an event: recon writes it.
+// newEmitter redacts API keys and optionally copies events to Deps.Events. Human logs go to
+// stderr. In JSON mode it collects warnings for the envelope; --debug additionally prints only
+// debug events to stderr. Recon writes its summary separately.
 func newEmitter(inv *invocation, red *config.Redactor) (report.Emitter, *report.Warnings) {
 	d, sh := inv.d, inv.sh
 	minLevel := report.Info

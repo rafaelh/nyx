@@ -27,7 +27,7 @@ import (
 
 var certExpiry = time.Date(2027, 3, 4, 5, 6, 7, 0, time.UTC)
 
-// selfSignedCert is a self-signed certificate for the DNS names and the loopback address.
+// selfSignedCert covers requested DNS names and loopback.
 func selfSignedCert(t *testing.T, dnsNames ...string) tls.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -48,8 +48,8 @@ func selfSignedCert(t *testing.T, dnsNames ...string) tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
-// probeTLSServer is a TLS server on loopback that finishes the handshake, then counts what the
-// client sends until it closes.
+// probeTLSServer counts application bytes after completing TLS, making handshake-only behaviour
+// observable.
 type probeTLSServer struct {
 	port  int
 	sni   chan string
@@ -107,7 +107,7 @@ func handshakeOpts() egress.Options {
 	return egress.Options{RatePerHost: 1000, ConnectTimeout: time.Second, HTTPTimeout: 2 * time.Second}
 }
 
-// handshakeClient is the probe for a tcpPolicy that allows ports.
+// handshakeClient builds a probe for the selected policy ports.
 func handshakeClient(t *testing.T, opts egress.Options, p *egress.Policy) egress.TargetTLS {
 	t.Helper()
 	return egress.NewProbe(opts, p).TLS
@@ -168,7 +168,8 @@ func TestHandshakeSendsTheServerName(t *testing.T) {
 	}
 }
 
-// Certificates are neither trusted nor rejected: an expired, mismatched, self-signed one is read.
+// Collect certificates despite trust failures, including expired and wrong-name self-signed
+// leaves.
 func TestHandshakeDoesNotVerify(t *testing.T) {
 	t.Parallel()
 	srv := startProbeTLSServer(t, &tls.Config{Certificates: []tls.Certificate{selfSignedCert(t, "other.example.org")}})
@@ -207,7 +208,7 @@ func TestHandshakeDialsThroughDialMap(t *testing.T) {
 	}
 }
 
-// Each refusal is a result, and nothing is sent to the address.
+// Policy refusal is a result without target traffic.
 func TestHandshakeRefusals(t *testing.T) {
 	t.Parallel()
 	srv := startProbeTLSServer(t, &tls.Config{Certificates: []tls.Certificate{selfSignedCert(t, "srv.example.com")}})
@@ -242,13 +243,13 @@ func TestHandshakeRefusals(t *testing.T) {
 	}
 }
 
-// A refused handshake never reaches the network: a server that counts connections sees none.
+// Connection counters verify refusals occur before dialling.
 func TestHandshakeRefusalsOpenNoConnection(t *testing.T) {
 	t.Parallel()
 	srv := startProbeTLSServer(t, &tls.Config{Certificates: []tls.Certificate{selfSignedCert(t, "srv.example.com")}})
 	noAck := tcpPolicy(srv.port)
 	noAck.Ack = false
-	ineligible := tcpPolicy(srv.port) // 8.8.8.8 is not in its netblocks
+	ineligible := tcpPolicy(srv.port) // outside the allowed netblocks
 	unlisted := tcpPolicy(srv.port + 1)
 	opts := handshakeOpts()
 	opts.DialMap = map[string]string{"8.8.8.8:" + strconv.Itoa(srv.port): "127.0.0.1:" + strconv.Itoa(srv.port)}
@@ -325,7 +326,7 @@ func TestHandshakeResetIsTLSFailed(t *testing.T) {
 	}
 }
 
-// A service that accepts and never answers is a timeout, and it comes at the deadline.
+// A silent accepted connection times out at the request deadline.
 func TestHandshakeDeadlineMidHandshakeIsTimeout(t *testing.T) {
 	t.Parallel()
 	port := serveTCP(t, func(c net.Conn) { time.Sleep(3 * time.Second) })
@@ -352,7 +353,7 @@ func TestHandshakeCancelIsAnError(t *testing.T) {
 	}
 }
 
-// Handshakes to one address are paced by the host limiter.
+// TLS attempts share per-address pacing.
 func TestHandshakeUsesTheHostLimiter(t *testing.T) {
 	t.Parallel()
 	srv := startProbeTLSServer(t, &tls.Config{Certificates: []tls.Certificate{selfSignedCert(t, "srv.example.com")}})
@@ -370,7 +371,7 @@ func TestHandshakeUsesTheHostLimiter(t *testing.T) {
 	}
 }
 
-// --- Clients has no TLS client; the probe is the only way to one ---
+// Only explicit probes expose a TLS client to callers.
 
 func TestClientsHaveNoTLSClient(t *testing.T) {
 	t.Parallel()
@@ -398,7 +399,7 @@ func TestProbeCarriesTheClientsOfOneAddress(t *testing.T) {
 	if p.TCP == nil || p.HTTP == nil || p.TLS == nil {
 		t.Fatalf("probe = %#v, want all three clients", p)
 	}
-	// Policy is enforced: without one every client refuses.
+	// Every target client refuses without installed policy.
 	none := egress.NewProbe(egress.Options{}, nil)
 	if res, err := none.TCP.Connect(context.Background(), addr("127.0.0.1"), 443); !isRefusedTCP(res) || err != nil {
 		t.Errorf("TCP without a policy: %#v %v", res, err)

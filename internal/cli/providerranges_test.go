@@ -11,9 +11,8 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/providerranges"
 )
 
-// The seven publishers, as the stage fetches them. The addresses are ones no
-// other test uses: 100.67/24 is DigitalOcean's, 100.68/24 Linode's, 100.69.0/24
-// Oracle's OCI and 100.69.1/24 its OSN.
+// Use distinct fixture ranges for each publisher to avoid accidental provider evidence from
+// unrelated tests.
 const (
 	cloudflareV4 = "104.16.0.0/13\n"
 	cloudflareV6 = "2606:4700::/32\n"
@@ -63,9 +62,8 @@ func serveOldRanges(w *world) {
 	w.handle("www.gstatic.com", jsonBody(gcpList))
 }
 
-// serveAWSElsewhere answers the AWS list with one range no other test uses, for a test whose
-// servers sit in 203.0.113.0/24, which the default list names: an address there would be AWS's
-// shared infrastructure, and the test is about something else.
+// serveAWSElsewhere moves default AWS ranges away from fixture servers so AWS classification
+// cannot affect unrelated tests.
 func serveAWSElsewhere(w *world) {
 	w.handle("ip-ranges.amazonaws.com", jsonBody(`{"prefixes":[{"ip_prefix":"100.66.0.0/24","region":"eu-west-1","service":"EC2"}],"ipv6_prefixes":[]}`))
 }
@@ -161,8 +159,8 @@ func TestProviderRanges_ExistingEngagementFetchesOnlyTheNewLists(t *testing.T) {
 	}
 }
 
-// A list that cannot be read is a failed check named in a --debug line;
-// the ranges fetched before still apply and nothing is reported as a finding.
+// Unreadable lists fail their checks while previous successful ranges remain usable, without
+// creating findings.
 func TestProviderRanges_FailedListKeepsEarlierRanges(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -219,9 +217,8 @@ func checkFailedRangeList(t *testing.T, w *world) {
 	}
 }
 
-// checkEarlierRangesApply checks that the DigitalOcean address keeps the
-// placement it had before the list failed, and that nothing is reported as a
-// finding.
+// checkEarlierRangesApply verifies previous DigitalOcean evidence survives download failure
+// without creating findings.
 func checkEarlierRangesApply(t *testing.T, w *world, before map[string]string) {
 	t.Helper()
 	after := find(w.table(eng, "ips.csv"), "ip", "100.67.0.9")

@@ -107,7 +107,7 @@ func snapshotOf(nets []abusive.NetworkEntry, asns []abusive.ASNEntry) *abusive.S
 	})
 }
 
-// everything lists every address the tests use, so that what is flagged is what is checked.
+// everything covers all fixture addresses so matching assertions also reveal omissions.
 func everything() *abusive.Snapshot {
 	return snapshotOf([]abusive.NetworkEntry{
 		netEntry(7001, "203.0.113.0", "203.0.113.255", "High", 80, "Acme Hosting", "hosting"),
@@ -117,9 +117,8 @@ func everything() *abusive.Snapshot {
 	}, nil)
 }
 
-// Which addresses are checked: those of in-scope names (shared and wildcard-only ones included) and
-// those of current ip records inside the netblocks that are not only named by DNS history. Never a
-// candidate's address, an excluded address or one that history alone names.
+// Abuse checks include in-scope hostname addresses and current netblock IPs, excluding
+// candidates, exclusions and history-only evidence.
 func TestAbusive_WhichAddressesAreChecked(t *testing.T) {
 	t.Parallel()
 	// The same addresses are checked against ipapi.is's lists and against Spamhaus's.
@@ -273,8 +272,8 @@ func TestAbusive_NetblockOwnerAppliesToTheUnit(t *testing.T) {
 	}
 }
 
-// What a finding holds: every entry with its tag, score, organisation, type and date, no rank, the
-// attrs the risk file reads, a found line and a key that does not change with its type.
+// Finding attributes preserve match metadata without rank and use a type-independent address
+// key.
 func TestAbusive_FindingContent(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
@@ -454,17 +453,17 @@ const (
 	dropASNDate = "2026-10-02T00:00:01Z"
 )
 
-// dropNetRow is a row of DROP or DROPv6 as Spamhaus writes one.
+// dropNetRow builds one source-format network row.
 func dropNetRow(cidr, sbl, rir string) string {
 	return fmt.Sprintf(`{"cidr":%q,"sblid":%q,"rir":%q}`, cidr, sbl, rir)
 }
 
-// dropASNRow is a row of ASN-DROP as Spamhaus writes one.
+// dropASNRow builds one source-format ASN row.
 func dropASNRow(asn int, name, cc, domain, rir string) string {
 	return fmt.Sprintf(`{"asn":%d,"rir":%q,"domain":%q,"cc":%q,"asname":%q}`, asn, rir, domain, cc, name)
 }
 
-// dropFile is a list as Spamhaus serves it: its rows, then its metadata line.
+// dropFile writes source rows followed by metadata.
 func dropFile(at time.Time, rows []string) []byte {
 	var b strings.Builder
 	for _, r := range rows {
@@ -504,8 +503,7 @@ func dropEverything(t *testing.T) *spamhaus.Lists {
 	}, nil, nil)
 }
 
-// strs is a list attribute as strings, whether it is held as derived or as the store decodes it;
-// nil when it is not a list.
+// strs accepts derived or decoded list attributes and returns nil for other values.
 func strs(v any) []string {
 	switch l := v.(type) {
 	case []string:
@@ -603,10 +601,8 @@ func comboWant(m int) (typ, sev, entry, org string) {
 	return "asn", "low", fmt.Sprintf("AS%d", as), fmt.Sprintf("AS Org %d", m)
 }
 
-// Every combination of the four kinds of match is one finding for the address, whose type and
-// severity are those of its strongest match: a DROP network (high), then the AS in ASN-DROP
-// (medium), then an ipapi.is network (medium), then the AS in ipapi.is's list (low). The entry and
-// organisation are the strongest match's, and every match is carried.
+// One address produces one finding at its strongest match's severity while retaining every
+// matching entry.
 func TestDrop_TypeAndSeverityOfEveryCombination(t *testing.T) {
 	t.Parallel()
 	all := derive(comboWorld(t).input(t))
@@ -639,9 +635,8 @@ func TestDrop_TypeAndSeverityOfEveryCombination(t *testing.T) {
 	}
 }
 
-// What a DROP finding holds: each list's entries as the risk file reads them, the most specific
-// network first, the date of each DROP list that matched, and the found line that names the
-// entry. The ipapi.is entries it also matches are carried as before.
+// DROP findings preserve ordered network/ASN details, dates, console text and additional abuse
+// matches.
 func TestDrop_FindingContent(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
@@ -688,8 +683,7 @@ func TestDrop_FindingContent(t *testing.T) {
 	}
 }
 
-// An address whose only match is its AS in ASN-DROP is a medium drop-asn finding named by the AS
-// and its name, with no DROP network and no network date.
+// ASN-only DROP evidence yields a medium finding without network-specific fields.
 func TestDrop_ASNOnlyFinding(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
@@ -797,8 +791,7 @@ func TestDrop_OnlyTheFindingChanges(t *testing.T) {
 	}
 }
 
-// A finding keeps one key whatever its strongest match is, so a weaker match leaves it one finding
-// at the lower type and severity, and no match leaves none.
+// Stable address keys survive strength/type changes; no remaining match removes the finding.
 func TestDrop_OneFindingWhateverItsStrongestMatch(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
@@ -846,8 +839,7 @@ func TestDrop_TextIsSanitised(t *testing.T) {
 	}
 }
 
-// The risk file lists the DROP entries beside the ipapi.is ones, each list's entries joined with
-// ";", and the date of each DROP list that matched.
+// Risk files include semicolon-joined matches and dates from each applicable source list.
 func TestDrop_RiskFile(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()
@@ -897,8 +889,7 @@ func TestDrop_RiskFile(t *testing.T) {
 	}
 }
 
-// The severity table has a row for each DROP type, naming Spamhaus, and the ipapi.is rows are
-// reworded now that the data is no longer only built into nyx.
+// Severity descriptions distinguish Spamhaus and active ipapi.is data.
 func TestDrop_SeverityTableRows(t *testing.T) {
 	t.Parallel()
 	before := map[string]string{

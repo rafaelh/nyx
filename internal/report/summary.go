@@ -15,10 +15,9 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Summary is what a recon run reports when it ends: the human summary and the
-// data of the --json envelope. Its fields, in this order, are the envelope's keys, a
-// stable interface: adding a key is compatible, renaming, removing or retyping one is a
-// breaking change. A list is never nil once written (see WriteEnvelope).
+// Summary supplies human recon output and the JSON envelope's ordered data keys. Adding keys is
+// compatible; removing, renaming or changing their types breaks the interface. WriteEnvelope
+// normalises lists to non-nil values.
 type Summary struct {
 	Engagement            string         `json:"engagement"`
 	Directory             string         `json:"directory"`
@@ -70,7 +69,7 @@ type CandidateRow struct {
 	Promote       string   `json:"promote"`
 }
 
-// Changes is what changed since the run before. It is nil in a Summary on a first run.
+// Changes summarises differences from the previous run; first runs use nil.
 type Changes struct {
 	Counts   []ChangeCount `json:"counts"`
 	Findings []FindingRow  `json:"findings"`
@@ -83,16 +82,10 @@ type ChangeCount struct {
 	N      int    `json:"n"`
 }
 
-// WriteSummary writes the human summary of env to w: the counts, the stages' notes, a
-// line for a run the deadline ended, the failed and deferred checks, the findings, the
-// candidates and, when Data.Changes is set, the "Since last run" block. Text that came
-// from a target is sanitised. Rows come out in the order they are given. The whole
-// summary is one write and ends in one newline.
-//
-// On a stream that is not a terminal the summary is plain lines. On a terminal it is laid out for
-// the stream's width: every heading has a rule, the numbers of a block of counts are
-// right-aligned, the findings and candidates are tables, and the other lines wrap with their
-// continuation lines indented under the text. The width is read once.
+// WriteSummary formats counts, stage notes, partial-work details, findings, candidates and
+// optional changes in their supplied order. It sanitises target text and writes once with a
+// final newline. Plain streams use lines; terminals use aligned counts, tables and wrapped text
+// with ruled headings. Width is captured once for consistent alignment.
 func WriteSummary(w io.Writer, st layout.Stream, env Envelope) {
 	if !st.Terminal {
 		writePlainSummary(w, st.Depth, env)
@@ -101,7 +94,7 @@ func WriteSummary(w io.Writer, st layout.Stream, env Envelope) {
 	writeTerminalSummary(w, st, env)
 }
 
-// writePlainSummary is the summary as it is written to a stream that is not a terminal.
+// writePlainSummary preserves non-terminal summary formatting.
 func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
 	var b strings.Builder
 	s := env.Map(sanitize.Text).Data
@@ -154,14 +147,13 @@ func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
 	fmt.Fprintln(w, b.String())
 }
 
-// labelled is a line of a block of counts.
+// labelled pairs a count label with its value.
 type labelled struct {
 	label string
 	n     int
 }
 
-// writeLabelled writes one line for each row, with the numbers in one column: at least
-// 16 wide, and wide enough for the longest label.
+// writeLabelled aligns values after labels with a minimum label width of 16 cells.
 func writeLabelled(b *strings.Builder, rows []labelled) {
 	width := 16
 	for _, r := range rows {
@@ -172,10 +164,8 @@ func writeLabelled(b *strings.Builder, rows []labelled) {
 	}
 }
 
-// writeSinceLastRun writes the block that ends the summary of a run that has an earlier
-// one to compare with: what is new (including what returned) and the findings that are
-// gone, then the new findings of high and medium severity. A kind or change that is
-// missing counts as none.
+// writeSinceLastRun reports new/returned entries, gone findings and new high/medium findings.
+// Missing kinds or change types count as zero.
 func writeSinceLastRun(b *strings.Builder, d palette.Depth, ch Changes) {
 	b.WriteString("\n" + d.Bold("Since last run"))
 	writeLabelled(b, changeCounts(ch))
@@ -265,8 +255,7 @@ func writeTerminalSummary(w io.Writer, st layout.Stream, env Envelope) {
 	_, _ = io.WriteString(w, b.String()) // a failed write of the summary has nowhere to be reported
 }
 
-// countLines is one line for each row, with the labels in one column (at least 16 wide, and wide
-// enough for the longest) and the numbers right-aligned in another, as wide as the widest.
+// countLines aligns labels in at least 16 cells and right-aligns counts to the widest number.
 func countLines(rows []labelled) []string {
 	label, num := 16, 0
 	nums := make([]string, len(rows))
@@ -282,8 +271,7 @@ func countLines(rows []labelled) []string {
 	return out
 }
 
-// findingsTable writes the heading and table of findings, or nothing when there are none. DETAIL
-// is a column only when some finding has a detail.
+// findingsTable omits empty tables and adds DETAIL only when at least one row has details.
 func findingsTable(b *strings.Builder, st layout.Stream, heading func(string), title string, rows []FindingRow) {
 	if len(rows) == 0 {
 		return
@@ -292,8 +280,7 @@ func findingsTable(b *strings.Builder, st layout.Stream, heading func(string), t
 	b.WriteString(findingsTableText(st, rows))
 }
 
-// findingsTableText is the table of findings. DETAIL is a column only when some finding has a
-// detail.
+// findingsTableText includes DETAIL only when a row needs it.
 func findingsTableText(st layout.Stream, rows []FindingRow) string {
 	withDetail := slices.ContainsFunc(rows, func(r FindingRow) bool { return r.Detail != nil && *r.Detail != "" })
 	t := layout.Table{Indent: 2, Columns: []layout.Column{
@@ -316,8 +303,7 @@ func findingsTableText(st layout.Stream, rows []FindingRow) string {
 	return t.Render(st)
 }
 
-// candidatesTable is the table of candidates: the value, the count of evidence, the sources and the
-// input that promotes it.
+// candidatesTable displays value, evidence count, sources and promotion input.
 func candidatesTable(st layout.Stream, rows []CandidateRow) string {
 	t := layout.Table{Indent: 2, Columns: []layout.Column{
 		{Header: "VALUE", Wrap: layout.Spaces, Shrink: 2}, {Header: "EVIDENCE"},
@@ -330,8 +316,8 @@ func candidatesTable(st layout.Stream, rows []CandidateRow) string {
 	return t.Render(st)
 }
 
-// changeCounts are the lines of the "Since last run" block: what is new, including what returned,
-// and the findings that are gone. A kind or change that is missing counts as none.
+// changeCounts formats new/returned counts and gone findings for the changes block, treating
+// absent counts as zero.
 func changeCounts(ch Changes) []labelled {
 	type key struct{ kind, change string }
 	counts := make(map[key]int, len(ch.Counts))

@@ -89,9 +89,8 @@ func TestFindingsFileRows(t *testing.T) {
 	}
 }
 
-// candidates.csv and excluded.csv list exactly what the summary counts: a
-// netblock key that does not parse is neither, and a value excluded under
-// several records is one excluded row, shown as current while any record is.
+// Candidate/exclusion rows match summary placement, deduplicating excluded values and ignoring
+// invalid CIDRs.
 func TestCandidateExcludedFilesMatchTotals(t *testing.T) {
 	t.Parallel()
 	x, err := input.ParseExclusion("bad.example.com")

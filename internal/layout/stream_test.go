@@ -7,13 +7,12 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// The width rule: COLUMNS when it is a positive number, else the terminal's own
-// width, else 100, and never less than 60.
+// Width selection prefers positive COLUMNS, terminal width, then 100, with a 60-cell floor.
 func TestWidth(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		columns string
-		want    [3]int // for a terminal width of 0, 50 and 120
+		want    [3]int // unknown, undersized and wide terminal measurements
 	}{
 		{"80", [3]int{80, 80, 80}},
 		{" 90 ", [3]int{90, 90, 90}},
@@ -34,8 +33,7 @@ func TestWidth(t *testing.T) {
 	}
 }
 
-// A stream's width is read each time, falls back to 100 when it knows none and
-// is never below 60.
+// Width is remeasured for every layout while retaining fallback/minimum bounds.
 func TestStreamCols(t *testing.T) {
 	t.Parallel()
 	if got := (layout.Stream{}).Cols(); got != 100 {

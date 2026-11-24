@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// Each source says what its key turns on, from the stages that name it; Cert Spotter says it works
-// without one and the NVD's line is fixed.
+// Key descriptions derive required/optional stages, with explicit Cert Spotter and NVD wording.
 func TestKeyTurnsOn(t *testing.T) {
 	t.Parallel()
 	stages := defaultStages()

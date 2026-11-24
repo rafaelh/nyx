@@ -10,9 +10,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// Through the real editor: u on the Threat data tab runs the update against the fakes, and quitting
-// after it exits 0 at once (a question to save would leave setup open, and the run would not end),
-// with the files written and the config file as it was.
+// Threat-tab updates write data without changing config or creating an unsaved-changes prompt.
 func TestThreatSetup_UpdatesFromTheTab(t *testing.T) {
 	t.Parallel()
 	w := newThreatWorldOn(t, setupHarness(t))

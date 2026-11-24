@@ -1,5 +1,5 @@
-// Package config loads and validates nyx settings from a YAML file and flags (flags win). No
-// setting or API key is read from the environment: the file is the only place one is kept.
+// Package config loads settings from YAML and explicit flags, with flags taking precedence.
+// Settings and API keys are never read from environment variables.
 package config
 
 import (
@@ -39,14 +39,13 @@ type Crawl struct{ MaxDepth, MaxPages int }
 
 // JSParse holds the settings of the jsparse stage.
 type JSParse struct {
-	// MaxScripts caps the scripts fetched per script origin. It is not part of a check's key: a
-	// script already read keeps its place when new scripts appear, raising the cap fetches the
-	// scripts left over, and lowering it below the number already read retires those past the cap,
-	// in URL order.
+	// MaxScripts caps fetched scripts per origin without changing check keys. Fetched
+	// scripts retain their slots when new URLs appear. Raising the cap admits pending
+	// scripts; lowering it retires excess scripts in URL order.
 	MaxScripts int
 }
 
-// Archive holds the limits on URLs taken from public archives.
+// Archive limits public-archive URL selection.
 type Archive struct{ MaxURLs int }
 
 // Permutations holds the subdomain-permutation settings.
@@ -58,69 +57,67 @@ type Permutations struct {
 
 // Storage holds the cloud-storage settings.
 type Storage struct {
-	// MaxNames caps the bucket names guessed per root and per organisation.
+	// MaxNames bounds storage guesses per root or organisation.
 	MaxNames int
 }
 
 // Shodan holds the settings of the shodan-host stage.
 type Shodan struct {
-	// MaxHosts caps the addresses looked up per run; the rest are deferred.
+	// MaxHosts budgets address lookups, deferring excess work.
 	MaxHosts int
 }
 
 // IdentifierPivot holds the settings of the identifier-pivot stage.
 type IdentifierPivot struct {
-	// MaxQueries caps the Shodan searches sent per run; the rest are deferred.
+	// MaxQueries budgets identifier searches across runs.
 	MaxQueries int
 }
 
 // NSReverse holds the settings of the nsreverse stage.
 type NSReverse struct {
-	// MaxDomains is the number of domains one name server or mail host may host before it is
-	// treated as shared hosting and nothing is recorded. It is part of the check, so changing it
-	// asks every server again.
+	// MaxDomains limits domains returned for one name server or mail host. Larger results
+	// are treated as shared hosting and discarded. The limit is part of the check key, so
+	// changing it reruns lookups.
 	MaxDomains int
 }
 
 // ReverseIP holds the settings of the reverseip stage.
 type ReverseIP struct {
-	// MaxDomains is the number of distinct registrable domains one address may return before it is
-	// treated as shared hosting and nothing is recorded. It is part of the check, so changing it
-	// asks every address again.
+	// MaxDomains limits distinct registrable domains returned for one address. Larger
+	// results are treated as shared hosting and discarded. Changing the limit creates new
+	// checks.
 	MaxDomains int
 }
 
 // DNSHistory holds the settings of the dnshistory stage.
 type DNSHistory struct {
-	// MaxHosts caps the hostnames whose history is fetched per run; the rest are deferred.
+	// MaxHosts budgets historical hostname lookups across runs.
 	MaxHosts int
 }
 
-// OriginCheck holds the settings of origin exposure: how many origin candidates are kept for each
-// hostname behind a CDN or WAF. It is shared by the origincheck stage and the findings, so the
-// stage checks the candidates the findings report.
+// OriginCheck caps origin candidates per CDN/WAF hostname. The stage and findings share this
+// setting so checked and reported candidates agree.
 type OriginCheck struct {
 	MaxCandidates int
 }
 
 // GitHub holds the settings of the github stage.
 type GitHub struct {
-	// MaxResults caps the code search results read per root (GitHub serves at most 1,000). It is
-	// part of the check, so changing it searches again.
+	// MaxResults versions each root's GitHub search cap, up to the service's 1,000-result
+	// ceiling. Changing it reruns searches.
 	MaxResults int
 }
 
-// maxGitHubResults is the most results GitHub's code search serves for a query.
+// maxGitHubResults reflects GitHub's search-result ceiling.
 const maxGitHubResults = 1000
 
-// PagedSource holds the settings of a source that follows result pages.
+// PagedSource configures capped source pagination.
 type PagedSource struct {
-	// MaxPages caps the result pages followed per root. It is part of the check, so raising it
-	// repeats the checks.
+	// MaxPages versions checks so increasing the cap repeats affected root queries.
 	MaxPages int
 }
 
-// skipNone is the value of --skip that clears the skip setting for a run.
+// skipNone clears configured skipped stages for one invocation.
 const skipNone = "none"
 
 // Settings are the validated settings for a run.
@@ -131,29 +128,29 @@ type Settings struct {
 	SensitivePaths       string // file path; empty means the built-in list
 	SensitivePathEntries []SensitivePath
 	Wordlist             string // file path; empty means the built-in list
-	// WordlistWords is the parsed list from Wordlist (or the built-in list).
+	// WordlistWords holds parsed custom or embedded names.
 	WordlistWords []string
 	Permutations  Permutations
 	Concurrency   int
-	// PortConcurrency is the number of workers of the ports stage, which is
-	// slow per check (a silent port costs the connect timeout) and so needs more.
+	// PortConcurrency gives slow port checks a separate worker pool because silent ports
+	// consume the full connect timeout.
 	PortConcurrency int
 	Rate            Rate
 	Crawl           Crawl
 	Archive         Archive
 	Storage         Storage
-	// CertExpiryDays is how many days ahead a certificate expiry is reported.
+	// CertExpiryDays sets the certificate-expiry warning horizon.
 	CertExpiryDays int
 	OutputDir      string
 	NetblockLimit  int // IPv4 addresses
 	Certspotter    PagedSource
-	// Skip names the stages to turn off. It holds only stage names: "none" is
-	// resolved here, and whether each name is a stage is checked by the caller.
+	// Skip holds normalised stage names after resolving "none". The caller validates stage
+	// existence.
 	Skip      []string
 	ShodanDNS PagedSource
 	Censys    PagedSource
 	Chaos     PagedSource
-	// SensitivePathMaxRequests caps the sensitive-path requests sent in one run.
+	// SensitivePathMaxRequests budgets path checks per run.
 	SensitivePathMaxRequests int
 	Shodan                   Shodan
 	ReverseIP                ReverseIP
@@ -162,15 +159,14 @@ type Settings struct {
 	GitHub                   GitHub
 	DNSHistory               DNSHistory
 	OriginCheck              OriginCheck
-	// EOLWarnDays is how many days before the end of a release cycle's security support the
-	// approaching finding is reported; 0 turns that finding off.
+	// EOLWarnDays sets the approaching-support-end window. Zero disables approaching
+	// findings.
 	EOLWarnDays int
 	NSReverse   NSReverse
 }
 
-// Defaults returns the default settings. The limits and rates are reasonable starting points, not
-// taken from any source's fair-use terms or from engagement norms: tune them when there is evidence
-// for a better value.
+// Defaults provides starting limits and rates. These values do not encode source fair-use terms
+// or engagement-specific limits.
 func Defaults() Settings {
 	return Settings{
 		Keys:            map[string]Secret{},
@@ -204,8 +200,8 @@ func Defaults() Settings {
 	}
 }
 
-// KeyValues returns the configured key values, each as given and trimmed (the
-// form a caller that trims its key sends), for building a Redactor.
+// KeyValues supplies original and trimmed key variants for redaction, covering callers that
+// trim before sending.
 func (s Settings) KeyValues() []string {
 	var out []string
 	for _, n := range slices.Sorted(maps.Keys(s.Keys)) {
@@ -218,8 +214,7 @@ func (s Settings) KeyValues() []string {
 	return out
 }
 
-// The built-in lists are parsed once: the flags' help names them on every call, and every Load
-// that does not replace them uses them. Callers get a copy.
+// Parse embedded lists once for repeated help/load calls, then copy them for callers.
 var (
 	builtinWordlist = sync.OnceValue(func() []string {
 		b, _ := builtin.ReadFile("builtin/wordlist.txt")
@@ -250,27 +245,25 @@ var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3
 // DKIMSelectors are the selectors the email stage looks up.
 func DKIMSelectors() []string { return slices.Clone(dkimSelectors) }
 
-// ListHash is a short hash of a list, for a check key that must change when
-// the list is edited.
+// ListHash versions checks when list contents change.
 func ListHash(list []string) string {
 	sum := sha256.Sum256([]byte(strings.Join(list, "\n")))
 	return hex.EncodeToString(sum[:6])
 }
 
-// DKIMSelectorHash identifies the selector list, so a changed list creates new email checks. It
-// predates ListHash and is kept as it is because email check keys carry it.
+// DKIMSelectorHash versions email checks. Its older format is preserved because existing
+// engagement keys contain it.
 func DKIMSelectorHash() string {
 	sum := sha256.Sum256([]byte(strings.Join(dkimSelectors, ",")))
 	return hex.EncodeToString(sum[:4])
 }
 
-// Env is the process environment in the "NAME=value" form os.Environ returns. Only HOME and
-// XDG_CONFIG_HOME are read from it, to find the config file and expand "~"; it is passed in rather
-// than read from the process, so the caller decides what it holds.
+// Env supplies process-style NAME=value entries. Only HOME and XDG_CONFIG_HOME are used, for
+// config paths and tilde expansion. Passing values explicitly lets callers control the
+// environment.
 type Env []string
 
-// Get returns the value of name, or "" when it is unset. As with os.Getenv, the first entry for a
-// name wins.
+// Get reads the first matching environment entry, returning "" when absent.
 func (e Env) Get(name string) string {
 	for _, kv := range e {
 		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
@@ -280,14 +273,12 @@ func (e Env) Get(name string) string {
 	return ""
 }
 
-// home is the user's home directory, or "" when it is not known. It is $HOME, as os.UserHomeDir
-// gives it on macOS and Linux.
+// home reads HOME from the supplied environment, returning "" when unknown.
 func (e Env) home() string { return e.Get("HOME") }
 
-// DefaultConfigPath is $XDG_CONFIG_HOME/nyx/config.yaml, or ~/.config/nyx/config.yaml. It is ""
-// when neither XDG_CONFIG_HOME nor the home directory is known, so a missing $HOME never resolves
-// to a config file relative to the working directory. os.UserConfigDir is deliberately not used: on
-// macOS it would move the file to ~/Library/Application Support.
+// DefaultConfigPath uses $XDG_CONFIG_HOME/nyx/config.yaml or ~/.config/nyx/config.yaml. It
+// returns "" without either base directory, avoiding a working-directory fallback. It bypasses
+// os.UserConfigDir to keep the same location on macOS.
 func DefaultConfigPath(env Env) string {
 	base := env.Get("XDG_CONFIG_HOME")
 	if base == "" {
@@ -320,13 +311,13 @@ var settingTable = []setting{
 	{"eol-warn-days", "eol_warn_days"}, {"nsreverse-max-domains", "nsreverse.max_domains"},
 }
 
-// RegisterFlags adds one flag per setting to fs. There is deliberately no flag for API keys.
+// RegisterFlags exposes settings through flags while leaving credentials file-only.
 func RegisterFlags(fs *pflag.FlagSet) {
 	d := Defaults()
 	portsRaw, riskyRaw := FormatPorts(d.Ports), FormatPorts(d.RiskyPorts)
 	var pt, rt bool
 	fs.Var(portsFlag{&portsRaw, &pt}, "ports", "TCP ports to check, separated by commas (e.g.: 37,53,79-81,443)")
-	// The default list is about 100 ports long; leave it out of --help.
+	// Keep the long default port list out of concise flag help.
 	fs.Lookup("ports").DefValue = ""
 	fs.Var(portsFlag{&riskyRaw, &rt}, "risky-ports", "Ports whose being open is reported as a risk")
 	fs.String("sensitive-paths", "", "YAML file of sensitive paths to request (default: "+BuiltinSensitivePathsLabel()+")")
@@ -363,10 +354,8 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	intFlag(fs, "nsreverse-max-domains", d.NSReverse.MaxDomains, "Domains one self-hosted name server or mail host may host before it is treated as shared hosting and nothing is recorded")
 }
 
-// numberFlag is a numeric setting's flag. It keeps the text as given, so that
-// Load checks it with every other setting and reports a bad value by its key;
-// its Type is never "int" or "float64", which viper would cast (turning "abc"
-// into 0) instead of passing the text through.
+// numberFlag preserves numeric text for combined validation in Load. Its Type avoids
+// int/float64 because Viper would silently convert invalid text such as "abc" to zero.
 type numberFlag struct {
 	raw  string
 	kind string // "integer" or "float", shown in help
@@ -452,35 +441,30 @@ type rawSettings struct {
 	NSReverse   struct {
 		MaxDomains string `mapstructure:"max_domains"`
 	} `mapstructure:"nsreverse"`
-	// KeyTests is nyx setup's record of when each key was last tested. Nothing else reads it, so it
-	// is accepted whatever it holds: setup ignores a record it cannot read.
+	// KeyTests stores setup's last key-test results. Other commands accept any contents;
+	// setup ignores unreadable entries.
 	KeyTests any `mapstructure:"key_tests"`
 }
 
-// Load merges defaults, the config file and the flags in fs that were set (flags win over the
-// file). configPath "" means the default location, which is
-// optional; an explicit path must exist.
-//
-// Every problem is reported together, as clierr.Problems named by setting key: a config file that
-// cannot be read or holds an unknown key does not stop the other settings being checked. The
-// settings are returned even then, holding what was valid (the keys among it, so they can be
-// masked); a caller must not use them for a run.
+// Load merges defaults, YAML and explicitly set flags in that order. The default config path is
+// optional; explicit paths must exist. All problems are collected by setting key, including
+// unreadable files and unknown keys. Returned settings retain valid values for error redaction,
+// but cannot be used to run after an error.
 func Load(fs *pflag.FlagSet, configPath string, env Env) (Settings, error) {
 	var probs clierr.Problems
 	path, data, haveFile := readConfigFile(configPath, env, &probs)
 	return check(data, haveFile, path, fs, env, probs)
 }
 
-// Check parses and checks the bytes of one config file as Load does for that file with no flags:
-// every problem is reported together, named by setting key
-// (a problem with the file as a whole is named "config" and names path). The settings are returned
-// even when there are problems, as Load returns them. Empty data is an empty file.
+// Check validates file bytes using the same rules as Load without flags. It collects all
+// problems by setting key, using "config" and path for whole-file errors. It returns valid
+// settings even on error; empty data represents an empty file.
 func Check(data []byte, path string, env Env) (Settings, error) {
 	return check(data, true, path, nil, env, nil)
 }
 
-// check is Load and Check: probs holds what reading the file already found, haveFile whether data
-// is a file's content, and fs (nil for none) the flags.
+// check shares Load/Check validation, adding to existing file problems. haveFile identifies
+// actual file data; nil fs means no flags.
 func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, probs clierr.Problems) (Settings, error) {
 	d := Defaults()
 	v := viper.New()
@@ -496,7 +480,7 @@ func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, 
 	var raw rawSettings
 	if err := v.UnmarshalExact(&raw); err != nil {
 		probs.Add("config", path, fmt.Sprintf("config: %v", err), "")
-		// Decode again without the unknown keys, so the rest is still checked.
+		// Remove unknown keys and continue validating known settings.
 		raw = rawSettings{}
 		if err := v.Unmarshal(&raw); err != nil {
 			return d, probs
@@ -518,7 +502,7 @@ func check(data []byte, haveFile bool, path string, fs *pflag.FlagSet, env Env, 
 	return s, probs.Err()
 }
 
-// setDefaults gives v the default of every setting, from d.
+// setDefaults seeds Viper from typed defaults.
 func setDefaults(v *viper.Viper, d Settings) {
 	defaults := map[string]any{
 		"ports": FormatPorts(d.Ports), "risky_ports": FormatPorts(d.RiskyPorts),
@@ -543,9 +527,9 @@ func setDefaults(v *viper.Viper, d Settings) {
 	}
 }
 
-// readConfigFile reads the config file and returns its path (configPath, or the default location
-// when it is "") and its bytes. The default file is optional; an explicit one must exist. A file
-// that cannot be read is a problem named "config", and haveFile is false.
+// readConfigFile resolves the default or explicit path and reads its bytes. A missing default
+// is allowed; an explicit file is required. Read errors add a "config" problem and clear
+// haveFile.
 func readConfigFile(configPath string, env Env, probs *clierr.Problems) (path string, data []byte, haveFile bool) {
 	path, explicit := configPath, configPath != ""
 	if !explicit {
@@ -562,13 +546,12 @@ func readConfigFile(configPath string, env Env, probs *clierr.Problems) (path st
 	return path, nil, false
 }
 
-// FileReadMessage is the message for a config file that could not be read or parsed, as Load and
-// Check give it.
+// FileReadMessage shares config read/parse error wording between Load and Check.
 func FileReadMessage(path string, err error) string {
 	return fmt.Sprintf("config file %s: %v", path, ErrorText(err))
 }
 
-// bindFlags binds the flags in fs (nil for none) to their settings, so a flag that was set wins.
+// bindFlags applies only explicitly set flags over file settings; nil skips binding.
 func bindFlags(v *viper.Viper, fs *pflag.FlagSet, probs *clierr.Problems) {
 	if fs == nil {
 		return
@@ -582,8 +565,7 @@ func bindFlags(v *viper.Viper, fs *pflag.FlagSet, probs *clierr.Problems) {
 	}
 }
 
-// settingChecker parses raw setting values into Settings, recording each invalid one as a
-// problem named by its setting key.
+// settingChecker parses typed settings and collects errors by key.
 type settingChecker struct{ probs *clierr.Problems }
 
 func (c settingChecker) bad(key, val, why string) {
@@ -657,8 +639,7 @@ func (c settingChecker) numbers(raw rawSettings, s *Settings) {
 	}
 }
 
-// choices parses the skip list and whether permutations are enabled, which --no-permutations
-// (when fs sets it) turns off.
+// choices validates skip/permutation choices, applying explicit --no-permutations.
 func (c settingChecker) choices(raw rawSettings, s *Settings, fs *pflag.FlagSet) {
 	if skip, err := parseSkip(raw.Skip); err != nil {
 		c.bad("skip", strings.Join(raw.Skip, ","), err.Error())
@@ -677,8 +658,8 @@ func (c settingChecker) choices(raw rawSettings, s *Settings, fs *pflag.FlagSet)
 	}
 }
 
-// files expands "~" in the path settings and reads the wordlist and sensitive-path list, or
-// takes the built-in ones when no file is set.
+// files expands path tildes and loads custom word/sensitive-path lists, falling back to
+// embedded lists when unset.
 func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 	s.OutputDir = expandHome(raw.OutputDir, home)
 	if s.OutputDir == "" {
@@ -701,8 +682,8 @@ func (c settingChecker) files(raw rawSettings, s *Settings, home string) {
 	}
 }
 
-// parseSkip normalises the skip list: names are trimmed, lower-cased and de-duplicated, and "none"
-// alone gives an empty list. "none" beside a stage name is a contradiction, not something to guess.
+// parseSkip trims, lowercases and deduplicates stage names. A lone "none" clears the list;
+// combining it with stage names is invalid.
 func parseSkip(items []string) ([]string, error) {
 	out, none := SkipNames(items)
 	if none && len(out) > 0 {
@@ -711,8 +692,8 @@ func parseSkip(items []string) ([]string, error) {
 	return out, nil
 }
 
-// SkipNames are the stage names of the skip list items, as Load reads them: trimmed, lower-cased
-// and de-duplicated, without empty items or "none". none is whether "none" was among them.
+// SkipNames returns trimmed, lowercase, unique stage names without blanks or "none". Its second
+// result reports whether "none" occurred.
 func SkipNames(items []string) (names []string, none bool) {
 	for _, it := range items {
 		it = strings.ToLower(strings.TrimSpace(it))
@@ -727,10 +708,8 @@ func SkipNames(items []string) (names []string, none bool) {
 	return names, none
 }
 
-// expandHome replaces a leading "~" or "~/" with home, the user's home directory. Paths from the
-// config file are not shell-expanded, so without this "output_dir: ~/engagements"
-// would create a directory named "~". "~user" forms, and every path when home is unknown, are left
-// as is.
+// expandHome expands only leading "~" and "~/". Config paths are not shell-expanded, so this
+// avoids creating a literal "~" directory. Unknown homes and "~user" paths remain unchanged.
 func expandHome(p, home string) string {
 	if home == "" || (p != "~" && !strings.HasPrefix(p, "~/")) {
 		return p
@@ -738,14 +717,12 @@ func expandHome(p, home string) string {
 	return filepath.Join(home, p[1:])
 }
 
-// ExpandHome is p with a leading "~" or "~/" replaced by the home directory in env, as Load does
-// for output_dir, wordlist and sensitive_paths; "~user" forms, and every path when env has no
-// home, are left as they are.
+// ExpandHome applies config path expansion using env's home directory. It leaves "~user" and
+// paths without a known home unchanged.
 func ExpandHome(p string, env Env) string { return expandHome(p, env.home()) }
 
-// DefaultText is the default of a setting as the config file would hold it ("10" for concurrency,
-// "5" for rate.per_host), or the built-in list's label for wordlist and sensitive_paths. It is ""
-// for a key it does not know.
+// DefaultText formats a default as YAML would store it, using built-in labels for lists and ""
+// for unknown keys.
 func DefaultText(key string) string {
 	switch key {
 	case "wordlist":
@@ -756,8 +733,8 @@ func DefaultText(key string) string {
 	return SettingText(Defaults(), key)
 }
 
-// SettingText is the value of the setting named key in s as the config file would hold it: a path
-// as it is, a number in its shortest form. It is "" for a key it does not know.
+// SettingText formats a setting for storage: paths unchanged and numbers in their shortest
+// form. Unknown keys return "".
 func SettingText(s Settings, key string) string {
 	f := func(x float64) string { return strconv.FormatFloat(x, 'f', -1, 64) }
 	switch key {
@@ -779,8 +756,7 @@ func SettingText(s Settings, key string) string {
 	return ""
 }
 
-// ErrorText is err's text without the operation and file names an os error carries, which are
-// often a temporary file's.
+// ErrorText removes operation/path prefixes so save errors do not expose temporary filenames.
 func ErrorText(err error) string {
 	if pe, ok := errors.AsType[*os.PathError](err); ok {
 		return pe.Err.Error()

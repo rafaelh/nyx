@@ -1,9 +1,6 @@
-// Package configedit edits one nyx config file the way a person would: it changes only the values
-// it is told to, and keeps every other setting, comment and their order. It reads the file as a
-// YAML document of nodes, so a setting is found by its dotted key whatever case the file spells it
-// in, and it writes the document back with Save, which replaces the file atomically.
-//
-// Store is the setup command's Backend over that document.
+// Package configedit changes selected YAML settings while preserving other values, comments and
+// order. Dotted keys are matched case-insensitively through document nodes. Save replaces files
+// atomically; Store adapts the document to setup.Backend.
 package configedit
 
 import (
@@ -19,28 +16,25 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// Doc is a config file as a YAML document. Settings are named by dotted key ("keys.shodan",
-// "rate.per_host"), and each name is matched case-insensitively at every level, as the loader does.
-// A Doc is not safe for concurrent use.
+// Doc holds a YAML config document with case-insensitive dotted keys such as "keys.shodan". It
+// is not safe for concurrent use.
 type Doc struct {
 	doc  *yaml.Node // the document node
 	root *yaml.Node // its mapping
 }
 
-// Entry is what Lookup found for a key.
+// Entry describes a setting found by Lookup.
 type Entry struct {
-	// Node is the value of the first entry in file order, or nil when the file has none.
+	// Node selects the first file-order value, or nil when absent.
 	Node *yaml.Node
-	// Variants, when the file spells the key (or a block above it) more than once with different
-	// case, holds those spellings as dotted paths in file order ("keys.Shodan", "keys.shodan" or,
-	// for blocks, "Keys" and "keys"). The loader keeps only one of them, so the setting is
-	// ambiguous. It is nil otherwise.
+	// Variants lists case-conflicting key paths in file order, including conflicting parent
+	// blocks. Since the loader keeps only one spelling, these settings are ambiguous. Nil
+	// means no conflict.
 	Variants []string
 }
 
-// Parse reads a config file's bytes. Empty data is an empty document; a file that holds only
-// comments keeps them. It is an error when the data is not one YAML document whose top level is a
-// mapping.
+// Parse accepts one YAML mapping document, including empty or comment-only files. It preserves
+// comments for editing.
 func Parse(data []byte) (*Doc, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var n yaml.Node
@@ -77,7 +71,7 @@ func Parse(data []byte) (*Doc, error) {
 	return d, nil
 }
 
-// commentsOnly is the comment lines of a file that holds no YAML node, as one head comment.
+// commentsOnly preserves a node-free file as one YAML head comment.
 func commentsOnly(data []byte) string {
 	var lines []string
 	for l := range strings.SplitSeq(string(data), "\n") {
@@ -88,7 +82,7 @@ func commentsOnly(data []byte) string {
 	return strings.Join(lines, "\n")
 }
 
-// keyName is the lower-case name of a mapping key, as the loader reads it.
+// keyName matches loader key normalisation.
 func keyName(n *yaml.Node) (string, bool) {
 	if n.Kind != yaml.ScalarNode {
 		return "", false
@@ -96,7 +90,7 @@ func keyName(n *yaml.Node) (string, bool) {
 	return strings.ToLower(n.Value), true
 }
 
-// find is the indexes of the keys of mapping m that name want (lower case), in file order.
+// find returns matching normalised mapping-key indexes in file order.
 func find(m *yaml.Node, want string) []int {
 	var out []int
 	for i := 0; i+1 < len(m.Content); i += 2 {
@@ -107,8 +101,8 @@ func find(m *yaml.Node, want string) []int {
 	return out
 }
 
-// Lookup finds key. It looks in every block that spells the key's parents, so a setting under a
-// second spelling of its block is found too.
+// Lookup searches all case variants of parent blocks, including settings hidden beneath a
+// duplicate spelling.
 func (d *Doc) Lookup(key string) Entry {
 	parts := strings.Split(strings.ToLower(key), ".")
 	type level struct {
@@ -148,16 +142,15 @@ func (d *Doc) Lookup(key string) Entry {
 	return e
 }
 
-// span is a mapping's key and where it sits in its parent, from the root down to a setting's block.
+// span traces a setting's parent mappings for replacement and cleanup.
 type span struct {
 	parent *yaml.Node
 	idx    int
 }
 
-// block finds the mapping that holds the last part of key and returns it with the path of keys
-// that lead there. Blocks spelled in more than one case are merged into the first, so the setting
-// is left with one home. A block that is only a key with no value becomes a mapping. With create
-// false a missing block is not an error: block returns nil.
+// block finds a setting's parent mapping and the path to it. Case-variant blocks merge into the
+// first spelling; valueless keys become mappings. With create=false, missing blocks return nil
+// without error.
 func (d *Doc) block(parts []string, create bool) (*yaml.Node, []span, error) {
 	cur := d.root
 	var path []span
@@ -191,7 +184,7 @@ func (d *Doc) block(parts []string, create bool) (*yaml.Node, []span, error) {
 	return cur, path, nil
 }
 
-// openBlock makes a valueless block a mapping, and refuses one that holds something else.
+// openBlock promotes empty values to mappings and rejects incompatible nodes.
 func openBlock(n *yaml.Node, name string) error {
 	switch {
 	case n.Kind == yaml.MappingNode:
@@ -207,10 +200,9 @@ func openBlock(n *yaml.Node, name string) error {
 	return nil
 }
 
-// SetString sets key to value, which is always written as a string, so it reads back exactly as
-// given (a "0123", "yes" or "0x10" is quoted). The entry is replaced in place and keeps its
-// comments and spelling; case variants of it collapse to the first one. It is an error for the
-// value not to be valid UTF-8, which cannot be stored.
+// SetString replaces a setting in place, preserving comments and spelling while collapsing case
+// variants. It quotes values such as "0123" or "yes" to preserve their text. Invalid UTF-8 is
+// rejected.
 func (d *Doc) SetString(key, value string) error {
 	if !utf8.ValidString(value) {
 		return fmt.Errorf("%s: the value is not valid UTF-8", key)
@@ -220,9 +212,8 @@ func (d *Doc) SetString(key, value string) error {
 	})
 }
 
-// SetList sets key to a block sequence of strings. An item that an existing sequence already holds
-// (compared trimmed and lower-cased) keeps its node and so its comments. An empty list clears the
-// key.
+// SetList writes a block sequence of strings. Existing items matched after trimming and
+// lowercasing retain their nodes and comments. An empty list removes the key.
 func (d *Doc) SetList(key string, items []string) error {
 	for _, it := range items {
 		if !utf8.ValidString(it) {
@@ -253,7 +244,7 @@ func (d *Doc) SetList(key string, items []string) error {
 
 func normalise(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-// set puts the node build returns (given the value it replaces, or nil) at key.
+// set builds a replacement from the previous value and installs it at key.
 func (d *Doc) set(key string, build func(old *yaml.Node) *yaml.Node) error {
 	parts := strings.Split(strings.ToLower(key), ".")
 	cur, _, err := d.block(parts, true)
@@ -271,7 +262,7 @@ func (d *Doc) set(key string, build func(old *yaml.Node) *yaml.Node) error {
 	n := build(old)
 	n.HeadComment, n.LineComment, n.FootComment = old.HeadComment, old.LineComment, old.FootComment
 	if n.Kind == yaml.SequenceNode && n.LineComment != "" {
-		// Beside "skip:", where it was, not after the first item.
+		// Keep the comment beside the sequence key rather than its first item.
 		cur.Content[first].LineComment, n.LineComment = n.LineComment, ""
 	}
 	cur.Content[first+1] = n
@@ -281,9 +272,8 @@ func (d *Doc) set(key string, build func(old *yaml.Node) *yaml.Node) error {
 	return nil
 }
 
-// Clear removes key with its own comments, every case variant of it, and any block it leaves
-// empty. The head comment of the document's first entry, which is usually the file's header, moves
-// to the document. A key the file does not hold is left alone.
+// Clear removes a key, its case variants and comments, and newly empty parent blocks. It
+// preserves a first-entry header comment on the document. Missing keys are unchanged.
 func (d *Doc) Clear(key string) {
 	parts := strings.Split(strings.ToLower(key), ".")
 	cur, path, err := d.block(parts, false)
@@ -302,7 +292,6 @@ func (d *Doc) Clear(key string) {
 	}
 }
 
-// removePair removes the key at index i of mapping m, and its value.
 func (d *Doc) removePair(m *yaml.Node, i int) {
 	if m == d.root && i == 0 {
 		if hc := m.Content[0].HeadComment; hc != "" {
@@ -315,11 +304,10 @@ func (d *Doc) removePair(m *yaml.Node, i int) {
 	m.Content = slices.Delete(m.Content, i, i+2)
 }
 
-// Bytes is the document as YAML, indented by two spaces. Comments and order are kept; blank lines
-// between entries are not.
+// Bytes emits two-space YAML while preserving comments/order, but not inter-entry blank lines.
 func (d *Doc) Bytes() ([]byte, error) {
 	if len(d.root.Content) == 0 {
-		// An empty mapping would be written as "{}": write the comments alone, or nothing.
+		// Preserve comment-only output without emitting an empty-mapping literal.
 		var parts []string
 		for _, c := range []string{d.doc.HeadComment, d.doc.FootComment} {
 			if c != "" {
@@ -343,8 +331,8 @@ func (d *Doc) Bytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DecodedText is a scalar as the loader reads it as text: "16" for 0x10, "8" for 010, "5" for 5.0,
-// "1" for true, "" for null. It is false for a node that is not a scalar or has no text form.
+// DecodedText reproduces the loader's scalar conversion, including numeric bases, booleans and
+// null. It returns false for non-scalars or unsupported text forms.
 func DecodedText(n *yaml.Node) (string, bool) {
 	for n != nil && n.Kind == yaml.AliasNode {
 		n = n.Alias

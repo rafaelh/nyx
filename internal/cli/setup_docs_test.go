@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// The docs describe nyx setup in the command list, its own section, the exit-code table, the
-// hint that suggests it, what still overrides what it saves, and the hosts a key test contacts.
+// Keep setup commands, errors, hints, config precedence and key-test source hosts documented.
 func TestSetup_DocsDescribeTheCommand(t *testing.T) {
 	t.Parallel()
 	docs := docsText(t)

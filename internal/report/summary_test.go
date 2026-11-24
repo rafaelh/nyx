@@ -12,8 +12,7 @@ import (
 	"github.com/rafaelh/nyx/internal/report"
 )
 
-// writeSummary is the summary on a stream that is not a terminal, with d as the depth it would
-// have if it were forced.
+// writeSummary renders a non-terminal stream while varying the reported colour depth.
 func writeSummary(d palette.Depth, env report.Envelope) string {
 	var buf bytes.Buffer
 	report.WriteSummary(&buf, layout.Stream{Depth: d}, env)
@@ -225,8 +224,7 @@ func TestWriteSummary_Coloured(t *testing.T) {
 	}
 }
 
-// At most the rows given are listed, and the overflow line counts the rest of
-// the total. A total equal to the list has no overflow line.
+// Overflow counts use the total beyond supplied rows; exact-fit lists omit overflow text.
 func TestWriteSummary_CandidatesOverTheCap(t *testing.T) {
 	t.Parallel()
 	var rows []report.CandidateRow
@@ -274,8 +272,8 @@ func TestWriteSummary_CandidateSources(t *testing.T) {
 	containsAll(t, out, "  a.org  3 evidence (x;y;z)  promote: -d a.org\n", "  b.org  1 evidence ()  promote: -d b.org\n")
 }
 
-// The block ends the summary and has seven lines, zeros included. Returned
-// records count with the new ones, and a kind it does not count is left out.
+// The final changes block includes zero counts, combines returned/new and ignores unsupported
+// kinds.
 func TestWriteSummary_SinceLastRun(t *testing.T) {
 	t.Parallel()
 	env := withData(report.Summary{

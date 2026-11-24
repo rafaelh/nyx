@@ -12,16 +12,10 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// The sources here work without a key. Each records hostnames only: the
-// addresses, URLs and certificate data they also return are dropped by the
-// parsers, and a name outside the queried root by Stage.Run.
-//
-// A source's 404 means it has nothing for the root, and its 429 means its free
-// quota is spent (httpsrc.GetQuota). A body that is not the shape the parser
-// expects is an error, never an empty result: an error object sent with status
-// 200 must be retried, not recorded as "no names".
+// Unkeyed sources contribute hostnames only; parsers discard other data and Run filters
+// outside-root names. A 404 is empty; quota 429 aborts through GetQuota. Unexpected 200 bodies
+// are errors so source failures cannot be saved as completed empty results.
 
-// fetchNames GETs u and turns the body into names with parse (httpsrc.GetNames).
 func fetchNames(ctx context.Context, c egress.Clients, u string, parse func([]byte) ([]string, error)) (result, error) {
 	names, err := httpsrc.GetNames(ctx, c, u, parse)
 	return result{names: names}, err
@@ -33,8 +27,7 @@ func hackertarget(ctx context.Context, in rootInput, c egress.Clients) (result, 
 	return fetchNames(ctx, c, "https://api.hackertarget.com/hostsearch/?"+url.Values{"q": {in.root}}.Encode(), hackertargetNames)
 }
 
-// hackertargetNames reads "host,address" lines, by the reply rules HackerTarget's
-// stages share (httpsrc.HackerTargetLines).
+// hackertargetNames parses host/address lines with shared HackerTarget quota/no-data rules.
 func hackertargetNames(body []byte) ([]string, error) {
 	lines, err := httpsrc.HackerTargetLines(body)
 	if err != nil {
@@ -64,9 +57,8 @@ func urlscan(ctx context.Context, in rootInput, c egress.Clients) (result, error
 	})
 }
 
-// urlscanNames returns the names in a search answer and whether the answer is
-// cut short. Live answers report has_more=false while total exceeds the page, so
-// both are read.
+// urlscanNames checks both has_more and total because responses may report false while more
+// results remain.
 func urlscanNames(body []byte) ([]string, bool, error) {
 	var r struct {
 		HasMore bool `json:"has_more"`
@@ -92,8 +84,8 @@ func urlscanNames(body []byte) ([]string, bool, error) {
 
 // --- Cert Spotter (issuances) ---
 
-// certspotter follows the result pages, in.pages at most. The key is optional:
-// it raises the rate limit, and is sent only when the check was made with one.
+// certspotter follows up to in.pages pages. Its optional key raises the rate limit and is sent
+// only when present during check construction.
 func certspotter(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
 	var names []string
 	after := ""

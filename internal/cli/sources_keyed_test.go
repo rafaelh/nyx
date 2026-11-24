@@ -23,8 +23,7 @@ const (
 	chaosKey  = "ch-key-SECRET-0003"
 )
 
-// keyedSource describes one of the three stages: its key, the host it asks, how
-// to tell the request carries the key, and the answers it gets.
+// keyedSource describes authentication checks and response fixtures for one keyed stage.
 type keyedSource struct {
 	stage, host, source, key string
 	// auth reports whether the request carries the key the way the source wants it.
@@ -364,8 +363,7 @@ func pagedSources() []pagedSource {
 	}
 }
 
-// Paging stops at <stage>.max_pages with a warning when the source has more;
-// the cap is part of the check, so raising it repeats the check.
+// Page caps warn and version checks so raising them reruns the search.
 func TestKeyed_PageCap(t *testing.T) {
 	t.Parallel()
 	for _, s := range pagedSources() {
@@ -396,9 +394,8 @@ func TestKeyed_PageCap(t *testing.T) {
 	}
 }
 
-// checkCappedRun checks a run capped at two pages: the check completed with the
-// cap in its key after asking for exactly two pages, recorded only their names,
-// and warned once that the result was truncated.
+// checkCappedRun verifies request count, keyed cap, retained discoveries and one truncation
+// warning.
 func checkCappedRun(t *testing.T, w *world, s pagedSource) {
 	t.Helper()
 	if st, _ := stateOf(w, s.stage); st != "done" {

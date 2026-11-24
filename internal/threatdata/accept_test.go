@@ -62,8 +62,7 @@ func TestCheckShrink_Message(t *testing.T) {
 	}
 }
 
-// A list dated at or after 00:00 UTC two days from now is refused: up to the end of tomorrow, UTC,
-// passes, however the clock's zone places it.
+// Date acceptance ends at tomorrow UTC regardless of the supplied clock's local zone.
 func TestCheckDate(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)

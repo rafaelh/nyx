@@ -1,5 +1,5 @@
-// Package dnsname has the pure name manipulation DNS stages need: reverse
-// names, parent zones, registrable domains, SRV values and permutation generation.
+// Package dnsname supplies pure helpers for reverse names, zones, registrable roots, SRV
+// records and name generation.
 package dnsname
 
 import (
@@ -11,10 +11,10 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// ReverseName is the PTR owner name of an address (in-addr.arpa or ip6.arpa).
+// ReverseName builds IPv4/IPv6 PTR owner names.
 func ReverseName(a netip.Addr) string { return reverse(a) + suffix(a, "in-addr.arpa", "ip6.arpa") }
 
-// CymruOrigin is the Team Cymru origin TXT name of an address.
+// CymruOrigin builds an address's origin-AS TXT query name.
 func CymruOrigin(a netip.Addr) string {
 	return reverse(a) + suffix(a, "origin.asn.cymru.com", "origin6.asn.cymru.com")
 }
@@ -40,14 +40,13 @@ func reverse(a netip.Addr) string {
 	return strings.Join(parts, ".")
 }
 
-// Normalise trims, lowercases and drops the trailing dot of a hostname.
+// Normalise trims whitespace, lowercases and removes the final DNS dot.
 func Normalise(h string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), ".")
 }
 
-// SRV reads an SRV value as egress writes it, "priority weight port target".
-// ok is false for the null target "." (a service that is not offered) and for a
-// value that is not well formed.
+// SRV parses "priority weight port target" and rejects malformed records or the null target
+// ".", which means no service.
 func SRV(value string) (port uint16, target string, ok bool) {
 	f := strings.Fields(value)
 	if len(f) != 4 || f[3] == "." {
@@ -60,7 +59,7 @@ func SRV(value string) (port uint16, target string, ok bool) {
 	return uint16(p), f[3], true
 }
 
-// Under reports whether name is zone or a name below it. Both must be normalised.
+// Under compares normalised names on label boundaries, including equality.
 func Under(name, zone string) bool { return name == zone || strings.HasSuffix(name, "."+zone) }
 
 // ETLDPlusOne is the registrable domain of name.
@@ -69,8 +68,7 @@ func ETLDPlusOne(name string) (string, bool) {
 	return d, err == nil
 }
 
-// Registrable is the registrable domain of name, or the normalised name itself
-// when it has none (a public suffix, a single label).
+// Registrable falls back to the normalised name for public suffixes and single labels.
 func Registrable(name string) string {
 	if d, ok := ETLDPlusOne(name); ok {
 		return d
@@ -78,8 +76,8 @@ func Registrable(name string) string {
 	return Normalise(name)
 }
 
-// Parents returns the ancestors of name, nearest first, down to and including
-// its registrable domain. A registrable domain (or a public suffix) has none.
+// Parents returns ancestors nearest first through the registrable domain. Registrable domains
+// and public suffixes have no returned parents.
 func Parents(name string) []string {
 	name = Normalise(name)
 	reg, ok := ETLDPlusOne(name)
@@ -98,7 +96,7 @@ func Parents(name string) []string {
 	return out
 }
 
-// ValidLabel reports whether s is a valid hostname label.
+// ValidLabel validates one hostname component.
 func ValidLabel(s string) bool {
 	if s == "" || len(s) > 63 || s[0] == '-' || s[len(s)-1] == '-' {
 		return false
@@ -111,10 +109,9 @@ func ValidLabel(s string) bool {
 	return true
 }
 
-// Permute returns up to max variants of label built with words: digit
-// changes first, then joins with "-", ".", or nothing, word before and after.
-// The output is deterministic, unique, valid, and never contains label itself.
-// A "." join yields two labels (the name is label.word.parent), checked per part.
+// Permute deterministically generates unique label variants up to max, trying digit changes
+// before word joins. Dotted joins form two separately validated labels. The original label is
+// excluded.
 func Permute(label string, words []string, max int) []string {
 	var out []string
 	seen := map[string]bool{label: true}

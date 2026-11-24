@@ -33,31 +33,23 @@ func Crtsh(ctx context.Context, c egress.Clients, q url.Values) ([]byte, error) 
 	return Get(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: "https://crt.sh/?" + q.Encode(), Timeout: 90 * time.Second})
 }
 
-// ErrNotFound is a 404. Sources that answer 404 for "no data" treat it as an
-// empty result; for the rest it is a transient error like any other status.
+// ErrNotFound lets sources distinguish a meaningful empty 404 from a retryable status failure.
 var ErrNotFound = errors.New("HTTP 404")
 
-// Get performs a request and maps the failures every source shares. For a
-// keyed request a 401, 403 or 429 aborts the stage: the key is bad or the
-// quota is spent, so nothing may be recorded as done. A 404 is ErrNotFound.
-// A truncated body or any other non-200 status is a transient error.
+// Get shares source error handling. Keyed 401/403/429 responses abort the stage; 404 returns
+// ErrNotFound. Truncated bodies and other non-200 responses fail the check for later retry.
 func Get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
 	return get(ctx, c, req, 0)
 }
 
-// GetQuota is Get for a source that answers 429 when its free quota is spent:
-// the 429 of an unkeyed request, which Get treats as a failed check, returns
-// run.ErrQuota, so the stage stops instead of sending the checks that remain.
-// Get is left alone because most sources' 429 is no reason to stop the stage
-// (one range publisher refusing must not stop the others).
+// GetQuota additionally aborts on unkeyed 429 quota exhaustion. Plain Get keeps those as
+// individual failures so one refusing range publisher does not stop unrelated publishers.
 func GetQuota(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
 	return get(ctx, c, req, 429)
 }
 
-// GetCredits is Get for a keyed source that answers 402 when the key has no query
-// credits left (Shodan's search): the 402 returns run.ErrQuota, so the stage stops
-// and the checks that remain are retried on a later run. Get treats a 402 as a
-// failed check, which the stages that spend one credit per page accept.
+// GetCredits additionally maps keyed 402 responses to run.ErrQuota, stopping credit-exhausted
+// searches until a later run.
 func GetCredits(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
 	return get(ctx, c, req, 402)
 }
@@ -72,8 +64,7 @@ func get(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest, sp
 	return body(req, resp, spent)
 }
 
-// Body is Get's mapping of a response to req, for a stage that sends the
-// request itself in order to act on some statuses first.
+// Body applies Get's common response handling after a caller handles source-specific statuses.
 func Body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse) ([]byte, error) {
 	return body(req, resp, 0)
 }
@@ -96,8 +87,8 @@ func body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse, spent in
 	return resp.Body, nil
 }
 
-// JoinLabels turns labels relative to root ("www", "*.cfe") into names. An empty
-// label and the bare wildcard "*" are the root itself, which is not a new name.
+// JoinLabels expands relative subdomain labels. Empty and bare-wildcard labels denote the root
+// and add no new name.
 func JoinLabels(root string, labels []string) []string {
 	var names []string
 	for _, l := range labels {
@@ -109,8 +100,7 @@ func JoinLabels(root string, labels []string) []string {
 	return names
 }
 
-// GetNames GETs u from a source with a free quota (GetQuota) and turns the body
-// into names with parse; a 404 is no names.
+// GetNames fetches through GetQuota and parses names, treating 404 as an empty result.
 func GetNames(ctx context.Context, c egress.Clients, u string, parse func([]byte) ([]string, error)) ([]string, error) {
 	body, err := GetQuota(ctx, c, egress.ThirdPartyRequest{Method: "GET", URL: u})
 	if errors.Is(err, ErrNotFound) {
@@ -122,11 +112,8 @@ func GetNames(ctx context.Context, c egress.Clients, u string, parse func([]byte
 	return parse(body)
 }
 
-// HackerTargetLines returns the lines of a HackerTarget reply, trimmed and
-// without the empty ones. An empty body and its "nothing found" replies give no
-// lines. Its spent quota is a 200 reply with a text body, which is run.ErrQuota,
-// the same as its 429 (GetQuota). The reply rules are written once, for every
-// stage that asks HackerTarget.
+// HackerTargetLines normalises response lines, treats "nothing found" as empty and converts
+// text quota replies to run.ErrQuota, matching GetQuota's 429 handling.
 func HackerTargetLines(body []byte) ([]string, error) {
 	lines, quota := ipsource.HackerTargetLines(body)
 	if quota {
@@ -135,9 +122,8 @@ func HackerTargetLines(body []byte) ([]string, error) {
 	return lines, nil
 }
 
-// QuotaError makes an error that wraps ipsource.ErrQuota also wrap run.ErrQuota,
-// so the stage stops, and reads as it always has: the text of the error, then
-// run.ErrQuota's. Any other error is returned as it is.
+// QuotaError adds run.ErrQuota to ipsource.ErrQuota errors while preserving their message.
+// Other errors pass through unchanged.
 func QuotaError(err error) error {
 	if err == nil || !errors.Is(err, ipsource.ErrQuota) || errors.Is(err, run.ErrQuota) {
 		return err

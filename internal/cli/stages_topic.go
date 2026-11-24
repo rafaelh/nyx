@@ -10,8 +10,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// stageHelp is what nyx help stages says about one stage: the key it needs ("" for none; in
-// brackets when it works without one) and what it does.
+// stageHelp supplies key requirements and purpose. Bracketed keys are optional; empty means
+// unkeyed.
 type stageHelp struct{ key, does string }
 
 // stageHelps describes every stage of defaultStages, by name.
@@ -61,15 +61,15 @@ var stageHelps = map[string]stageHelp{
 // stagesHeading is the heading of the stages topic.
 const stagesHeading = "Stages, in the order each pass runs them:"
 
-// stagesFooter is what the stages topic says after its table.
+// stagesFooter explains stage controls after the table.
 const stagesFooter = `Third-party stages ask public sources and resolvers, and run under --passive. Target stages
 contact the target's own systems: they are skipped under --passive, and unless --authorised
 has confirmed, on this run or an earlier one, that you are authorised. A stage with a KEY needs keys.<KEY> and is not-configured without it; a key in
 brackets is optional. --redo <stage> performs every check of one stage again, and --skip <stage>
 turns one off, except the stages marked *, which other stages' safety depends on.`
 
-// stagesHelp is the stages topic for s: a table of stages in registry order with whom each
-// contacts, the key it needs and what it does, then how --passive, --redo and --skip treat them.
+// stagesHelp lists stages in registry order, their contacts, keys and purpose, followed by
+// --passive, --redo and --skip behaviour.
 func stagesHelp(s layout.Stream, stages []run.Stage) string {
 	return renderHelp(stagesBlocks(stages), s)
 }
@@ -77,7 +77,7 @@ func stagesHelp(s layout.Stream, stages []run.Stage) string {
 // stageRow is a row of the stages table.
 type stageRow struct{ name, contact, key, does string }
 
-// stageRows are the rows of the stages table, the stages in registry order.
+// stageRows preserves registry execution order in help.
 func stageRows(stages []run.Stage) []stageRow {
 	var rows []stageRow
 	for _, s := range stages {
@@ -95,7 +95,7 @@ func stageRows(stages []run.Stage) []stageRow {
 	return rows
 }
 
-// stagesBlocks are the blocks of nyx help stages: its heading, its table and its footer.
+// stagesBlocks assembles the stages topic's heading, table and footer.
 func stagesBlocks(stages []run.Stage) []helpBlock {
 	rows := stageRows(stages)
 	var b helpBuilder
@@ -107,8 +107,7 @@ func stagesBlocks(stages []run.Stage) []helpBlock {
 	return b.blocks
 }
 
-// plainStagesTable is the table's text for a stream that is not a terminal: its columns padded to
-// their widest cell.
+// plainStagesTable pads columns to their widest cell for non-terminal output.
 func plainStagesTable(rows []stageRow) []string {
 	all := append([]stageRow{{"STAGE", "CONTACT", "KEY", "WHAT IT DOES"}}, rows...)
 	var wName, wContact, wKey int
@@ -123,8 +122,8 @@ func plainStagesTable(rows []stageRow) []string {
 	return lines
 }
 
-// stagesTable is the table of stages for s: a stage's name in the info colour, whom it contacts in
-// the success colour for a third party and the warning colour for the target, and its key muted.
+// stagesTable colours stage names as information, third-party contact as success, target
+// contact as warning and key names as muted.
 func stagesTable(s layout.Stream, rows []stageRow) layout.Table {
 	text := func(g palette.Group, entry string) func(string) string {
 		return func(x string) string { return s.Depth.Text(g, entry, x) }

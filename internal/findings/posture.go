@@ -8,12 +8,9 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// webPosture derives the low web-posture findings from the web_posture
-// evidence: one per service and condition. Services addressed by an IP literal
-// and services a SaaS platform serves have none: the first is not the target's
-// name to fix, and the second is not the target's configuration. A missing
-// HttpOnly flag is evidence only, and HTTP services have no HSTS or Secure
-// findings.
+// webPosture derives one low-severity finding per service and condition. IP-literal and SaaS
+// services are excluded. Missing HttpOnly remains evidence only; HSTS and Secure findings apply
+// only to HTTPS.
 func (d *deriver) webPosture() []Finding {
 	var out []Finding
 	for _, r := range d.current(kinds.WebPosture) {

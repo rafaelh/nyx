@@ -101,8 +101,7 @@ func checkThreatKeys(t *testing.T, h *harness) {
 	}
 }
 
-// checkThreatListDates checks that each list's dates are written as its source dates it: Spamhaus's
-// in RFC 3339 UTC, ipapi.is's as YYYY-MM-DD.
+// checkThreatListDates verifies source-specific UTC timestamp/day formatting.
 func checkThreatListDates(t *testing.T, env threatEnvelope) {
 	t.Helper()
 	if got := len(env.Data.Lists); got != len(tdListNames) {

@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// A field a Spamhaus row leaves empty is left out of its line, with no stray comma or space.
+// Missing DROP metadata leaves no stray punctuation or spacing.
 func TestRender_DropBlankFieldsLeaveNoGaps(t *testing.T) {
 	t.Parallel()
 	rec := Record{Address: "34.68.34.70", Hostnames: []string{}, Kind: "public",

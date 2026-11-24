@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// SaaSServed is true when a CNAME on the chain, an address's ASN or an address range is SaaS.
+// SaaS detection accepts chain, ASN and range evidence.
 func TestSaaSServed(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
@@ -31,10 +31,10 @@ func TestSaaSServed(t *testing.T) {
 	for host, want := range map[string]bool{
 		"help.example.com":  true,  // CNAME chain
 		"shop.example.com":  true,  // ASN
-		"pages.example.com": true,  // address range, no CNAME (apex)
+		"pages.example.com": true,  // apex SaaS range without CNAME
 		"cdn.example.com":   false, // a CDN is not SaaS
 		"www.example.com":   false,
-		"app.example.com":   false, // PaaS: the company's own app
+		"app.example.com":   false, // customer application on PaaS
 		"unknown.test":      false,
 		"185.199.108.153":   true, // an IP literal in a SaaS range
 		"203.0.113.22":      false,
@@ -45,8 +45,7 @@ func TestSaaSServed(t *testing.T) {
 	}
 }
 
-// ProviderServed is wider than SaaSServed: any provider CNAME on the chain, or an
-// address in shared provider space, counts.
+// Provider detection includes all shared provider classes, beyond SaaS alone.
 func TestProviderServed(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data
@@ -84,7 +83,7 @@ func TestProviderServed(t *testing.T) {
 	}
 }
 
-// ProviderHosts carries the matched entry, with its fingerprint.
+// Provider matches retain their fingerprint entry.
 func TestProviderHostEntry(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data

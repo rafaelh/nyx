@@ -22,9 +22,8 @@ func docPage(t *testing.T, name string) string {
 // unitBreak ends a sentence, a paragraph, a list item or a table cell.
 var unitBreak = regexp.MustCompile(`[.;:]\s|\n\s*\n|\n\s*[-*]\s|\|`)
 
-// docUnit is the first sentence, list item or table cell of text that holds every word (in lower
-// case), or "" when none does. "threat data" also matches "threat-data", so either way of writing
-// it reads the same.
+// docUnit finds a sentence/list/table unit containing every normalised word, accepting spaced
+// or hyphenated threat data.
 func docUnit(text string, words ...string) string {
 	for _, u := range unitBreak.Split(text, -1) {
 		u = flatWords(u)
@@ -53,9 +52,7 @@ func tableRow(text, cell string) string {
 	return ""
 }
 
-// Spamhaus is credited wherever a DROP match is described: the nyx ip keys, the risk file, and
-// the finding types in nyx help findings. The abusive-networks page gives Spamhaus's copyright
-// line and its terms, and the README's credits name it.
+// Keep Spamhaus credit beside documented matches/findings and in guide/README credits.
 func TestThreatDocs_CreditSpamhaus(t *testing.T) {
 	t.Parallel()
 	ip := docPage(t, "ip.md")
@@ -124,9 +121,8 @@ func TestThreatDocs_Location(t *testing.T) {
 	}
 }
 
-// The passive boundary names both hosts an update contacts, and says nyx contacts Spamhaus and
-// ipapi.is only when the user asks for an update. No page still says that nyx never contacts
-// ipapi.is.
+// Document source contact as explicit-update-only and remove obsolete claims that no contact
+// ever occurs.
 func TestThreatDocs_PassiveBoundary(t *testing.T) {
 	t.Parallel()
 	boundary, whole := docsSection(t, "## Passive boundary")
@@ -152,9 +148,7 @@ func TestThreatDocs_PassiveBoundary(t *testing.T) {
 	}
 }
 
-// The nyx ip page says it reads the downloaded threat data when there is one, and that its
-// result depends on the threat data in use; its sources table names the built-in and the
-// downloaded copies.
+// IP documentation names active downloaded data as well as built-in copies.
 func TestThreatDocs_IPPage(t *testing.T) {
 	t.Parallel()
 	ip := docPage(t, "ip.md")
@@ -184,8 +178,7 @@ func TestThreatDocs_IPPage(t *testing.T) {
 	}
 }
 
-// The setup page describes the update as setup's one use without the editor, its exit codes, and
-// the files it writes besides the config file.
+// Document non-interactive updates, their exit codes and files separately from config editing.
 func TestThreatDocs_SetupPage(t *testing.T) {
 	t.Parallel()
 	section, _ := docsSection(t, "## Setup")
@@ -204,9 +197,7 @@ func TestThreatDocs_SetupPage(t *testing.T) {
 	}
 }
 
-// nyx setup --help describes the update as well as the editor: it names the flag, the files it
-// writes besides the config file, and its exit codes, and no longer says setup edits only the
-// config file.
+// Setup help describes both editing and updates, including additional files and outcome codes.
 func TestThreatDocs_SetupHelp(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -262,8 +253,7 @@ func TestThreatDocs_ExitCodes(t *testing.T) {
 	}
 }
 
-// The contributor notes name make threat-data, the new packages, and the flock allowlist of both
-// packages that take a lock; nothing names make abusive-data any more.
+// Contributor notes name current refresh targets/packages and both lock users.
 func TestThreatDocs_ContributorNotes(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile("../../CLAUDE.md")

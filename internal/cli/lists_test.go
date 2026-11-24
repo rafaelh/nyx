@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// The permutation tests use few words so the arithmetic is easy to follow. With
-// W words a root check queries W names, and a seed check queries 2 + 6W (two
-// digit variants, then six joins per word): 26 names for 4 words. A root check
-// also queries the five well-known labels, so it queries W + 5: 9 for 4 words.
+// Small wordlists make budgets predictable: W words yield W+5 root queries and 2+6W seed
+// queries. Four words therefore cost 9 and 26 queries.
 const (
 	fourWords = "dev\ntest\nbeta\nold\n"
 	rootNames = 4 + 5
@@ -38,9 +36,8 @@ func permRun(w *world, wl string, args ...string) int {
 	return w.run(append(full, "example.com")...)
 }
 
-// Roots come before seeds, and seeds are taken in name order. A seed that would
-// pass the cap is deferred whole, with every seed after it; the next run does
-// them. A seed that exactly fills the cap is taken.
+// Process sorted roots before seeds, admitting exact-fit checks and deferring the first
+// overflow plus all later checks.
 func TestListsPermutations_RootsBeforeSeedsAndDeferralIsWhole(t *testing.T) {
 	t.Parallel()
 	w, wl := worldWithSeeds(t, fourWords)
@@ -94,8 +91,7 @@ func TestListsPermutations_SeedIsNeverSplit(t *testing.T) {
 	}
 }
 
-// The first check of the run is taken even if it alone exceeds the cap, so a
-// small cap cannot stop the stage making progress.
+// Always admit the run's first check so a tiny cap cannot prevent progress.
 func TestListsPermutations_RootAloneOverCapIsTaken(t *testing.T) {
 	t.Parallel()
 	w, wl := worldWithSeeds(t, "dev\ntest\nbeta\nold\nqa\nuat\nstg\nprod\nint\nlab\n")
@@ -115,8 +111,7 @@ func TestListsPermutations_RootAloneOverCapIsTaken(t *testing.T) {
 	}
 }
 
-// Names under a zone already known to be a wildcard are not generated, for a
-// root or for a seed whose parent is that zone; other zones are unaffected.
+// Known wildcard zones suppress generation only beneath those zones.
 func TestListsPermutations_NoNamesUnderWildcardZone(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -149,8 +144,7 @@ func TestListsPermutations_NoNamesUnderWildcardZone(t *testing.T) {
 	}
 }
 
-// A seed that is itself a wildcard zone is still permuted beside it (api-dev,
-// devapi, ...), but no generated name directly under it (dev.api) is queried.
+// A wildcard seed can produce siblings but not direct children beneath its wildcard zone.
 func TestListsPermutations_SeedThatIsAWildcardZone(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -291,9 +285,8 @@ func twoServices(t *testing.T) (*risk, []*site) {
 	return x, []*site{x.plain("203.0.113.5", 80, tiers), x.plain("203.0.113.6", 80, tiers)}
 }
 
-// Requests are taken entry by entry in severity order, then by service, so
-// every service gets its highest-severity paths first; what does not fit waits
-// for later runs, which do not repeat what was done.
+// Path budgets prioritise severity across services and resume remaining requests without
+// repeating completed work.
 func TestListsSensitive_SeverityOrderAcrossServices(t *testing.T) {
 	t.Parallel()
 	x, sites := twoServices(t)
@@ -319,8 +312,7 @@ func TestListsSensitive_SeverityOrderAcrossServices(t *testing.T) {
 		t.Errorf("hits = %v", got)
 	}
 
-	// The next run takes up where this one stopped and repeats nothing: the rest of
-	// high-two, then medium on both services; low is still behind them.
+	// Resume at the remaining high-severity path before medium paths; low remains deferred.
 	x.mustRun("--crawl-pages", "0", "--sensitive-paths", file, "--sensitive-path-max-requests", "3")
 	if total(sites, "/high-two") != 2 || total(sites, "/medium-one") != 2 || total(sites, "/low-one") != 0 {
 		t.Errorf("second run (cap 3): high-two %d, medium %d, low %d", total(sites, "/high-two"), total(sites, "/medium-one"), total(sites, "/low-one"))
@@ -339,8 +331,7 @@ func TestListsSensitive_SeverityOrderAcrossServices(t *testing.T) {
 	}
 }
 
-// A hit from an earlier run stays current in a run that defers other
-// requests, even a redo that repeats only the first of them.
+// Deferral preserves older hits even when redo only repeats some checks.
 func TestListsSensitive_EarlierHitStaysCurrentWhenDeferring(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "sensitive-paths")

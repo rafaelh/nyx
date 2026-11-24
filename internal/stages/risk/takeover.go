@@ -11,9 +11,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// Takeover is the takeover stage: one GET of "/" for each live web service whose
-// host is on a provider with an unclaimed-resource fingerprint. DNS
-// evidence needs no request and is derived by the findings package.
+// Takeover checks live provider-backed services against unclaimed-resource HTTP fingerprints.
+// Findings derives DNS-only evidence without another request.
 type Takeover struct{}
 
 // NewTakeover returns the takeover stage.
@@ -24,7 +23,7 @@ func (*Takeover) Contact() run.Contact              { return run.Target }
 func (*Takeover) Sources() []string                 { return nil }
 func (*Takeover) Configured(run.Env) (bool, string) { return true, "" }
 
-// RetiresUnlistedChecks: a check of an edited entry supersedes the old one's evidence.
+// RetiresUnlistedChecks replaces evidence from edited provider fingerprints.
 func (*Takeover) RetiresUnlistedChecks() {}
 
 type takeoverInput struct {
@@ -33,9 +32,8 @@ type takeoverInput struct {
 	ph      inventory.ProviderHost
 }
 
-// Checks yields one check per current, visible service and matched fingerprint
-// entry. The key carries a hash of the entry only, so editing one fingerprint
-// re-checks just the services it matches.
+// Checks versions each visible service/fingerprint pair with the entry hash, limiting reruns to
+// edited fingerprints.
 func (*Takeover) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		byHost := map[string][]inventory.ProviderHost{}
@@ -55,9 +53,8 @@ func (*Takeover) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, er
 	}
 }
 
-// Run requests the service's root. A body matching the fingerprint is a
-// takeover_http observation; anything else, including a refusal, completes
-// with nothing. A transport error is transient.
+// Run records takeover_http for a matching root response. Nonmatches/refusals complete empty;
+// transport failures remain retryable.
 func (*Takeover) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(takeoverInput)
 	res, err := e.HTTP.Get(ctx, egress.Root(in.svc.Host, in.svc.Scheme, in.svc.Port))

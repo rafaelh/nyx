@@ -1,11 +1,6 @@
-// Package shodan is what Shodan (keyed) knows about the in-scope addresses: the
-// net: search of each netblock (the shodan stage), the lookup of single
-// addresses outside what the search covered (shodan-host), and the DNS records
-// of the roots (shodan-dns).
-//
-// Whatever Shodan reports is recorded as a claim. The ports it names become
-// reported_port records, which are shown but which nothing that decides contact
-// reads, so a Shodan port never widens what nyx connects to.
+// Package shodan retrieves netblock search results, individual hosts not covered by search and
+// root DNS claims. Reported services use reported_port and never expand permission to contact
+// targets.
 package shodan
 
 import (
@@ -31,10 +26,8 @@ import (
 // maxPages caps the result pages read per netblock (each page past the first costs a credit).
 const maxPages = 10
 
-// reportedPort is the reported_port observation for one service Shodan lists:
-// nothing for a UDP service, whose ports nyx never checks, or an address that is
-// not one. A service with no transport is TCP. The timestamp is Shodan's
-// ("2026-10-30T01:02:03.456789"); the record keeps its date.
+// reportedPort accepts TCP services, treating missing transport as TCP and rejecting UDP or
+// invalid addresses. It keeps the date from Shodan's timestamp.
 func reportedPort(ip string, port int, transport, banner, timestamp string) (run.Observation, bool) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil || port < 1 || port > 65535 || !isTCP(transport) {
@@ -51,8 +44,7 @@ func reportedPort(ip string, port int, transport, banner, timestamp string) (run
 		IP: addr.String(), Port: port, Banner: kinds.ShodanBanner(banner), LastSeen: seen}), true
 }
 
-// shodanAPI is embedded by every stage that queries the Shodan API with the
-// key of the shodan stage.
+// shodanAPI shares the configured Shodan credential across API stages.
 type shodanAPI struct{}
 
 func (shodanAPI) Contact() run.Contact { return run.ThirdParty }
@@ -68,16 +60,15 @@ func New() *Stage { return &Stage{} }
 
 func (*Stage) Name() string { return "shodan" }
 
-// CandidateSources: what Shodan holds is passive DNS.
+// CandidateSources classifies Shodan evidence as passive DNS.
 func (*Stage) CandidateSources() map[string]string {
 	return map[string]string{"shodan": candidates.PassiveDNS}
 }
 
-// Notes says which netblock searches stopped at the page cap with matches
-// unread, so that the addresses they missed are not mistaken for ones Shodan
-// knows nothing about.
+// Notes reports capped netblock searches so missing results are not mistaken for Shodan having
+// no data.
 func (*Stage) Notes(v run.View) []string {
-	// shodan-host shares this stage's key, so only --skip can leave it out.
+	// Host lookup shares the search credential; --skip controls it independently.
 	then := "shodan-host looks up the addresses in it that the search missed"
 	if slices.Contains(v.Settings().Skip, (&Host{}).Name()) {
 		then = "shodan-host is skipped, so addresses in it may be missing"
@@ -89,8 +80,7 @@ func (*Stage) Notes(v run.View) []string {
 	return notes
 }
 
-// truncated are the in-scope netblocks whose search stopped at the page cap with
-// matches unread, in the order of their CIDRs as text.
+// truncated lists capped, incomplete netblock searches sorted by textual CIDR.
 func truncated(v run.View) []netip.Prefix {
 	sc := v.Scope()
 	var out []netip.Prefix
@@ -129,9 +119,8 @@ type search struct {
 	Total int `json:"total"`
 }
 
-// Run searches net:<cidr> and records each address, the hostnames and the TCP
-// ports Shodan has for it, and whether the search stopped at the page cap with
-// matches unread.
+// Run searches net:<cidr>, recording addresses, names, TCP services and whether the page cap
+// left results unread.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	var obs []run.Observation
 	seen := map[string]bool{}
@@ -177,7 +166,6 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 			break
 		}
 	}
-	// Truncated by the rule the other paged sources use: the page cap was reached
-	// with fewer matches read than the search holds.
+	// Warn when the page cap leaves fewer read matches than the reported total.
 	return append(obs, kinds.ShodanNetblock.Obs(c.Key, kinds.ShodanNetblockAttrs{Truncated: !complete})), nil
 }

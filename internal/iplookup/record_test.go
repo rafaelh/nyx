@@ -94,7 +94,7 @@ func TestBannerText(t *testing.T) {
 	if len(long) != MaxBanner {
 		t.Errorf("a long banner is %d bytes, want %d", len(long), MaxBanner)
 	}
-	// A cut through the middle of a character drops the character, not half of it.
+	// Byte caps must not leave partial UTF-8 characters.
 	split := BannerText([]byte(strings.Repeat("x", MaxBanner-1) + "é" + "tail"))
 	if !utf8.ValidString(split) || strings.ContainsRune(split, utf8.RuneError) {
 		t.Errorf("a split character reached the text: %q", split[len(split)-4:])

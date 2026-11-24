@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 )
 
-// Every error code has its exit code; the table is part of the stable interface.
+// Pin exit mappings because callers depend on these status codes.
 func TestExitCodes(t *testing.T) {
 	t.Parallel()
 	for code, want := range map[clierr.Code]int{
@@ -24,7 +24,7 @@ func TestExitCodes(t *testing.T) {
 			t.Errorf("ExitCode(%s) = %d, want %d", code, got, want)
 		}
 	}
-	// The names themselves are the interface.
+	// Pin public error-code names.
 	for code, name := range map[clierr.Code]string{
 		clierr.NetworkError: "NETWORK_ERROR", clierr.Timeout: "TIMEOUT", clierr.RateLimited: "RATE_LIMITED",
 		clierr.UpstreamError: "UPSTREAM_ERROR", clierr.AuthFailed: "AUTH_FAILED", clierr.Unexpected: "UNEXPECTED_ERROR",
@@ -37,8 +37,7 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
-// Problems become one usage error: every message, the distinct hints, and each
-// failing value under its argument's name, always as a list.
+// Combine problems with all messages, unique hints and consistently list-valued input fields.
 func TestProblemsUsage(t *testing.T) {
 	t.Parallel()
 	var p clierr.Problems
@@ -72,7 +71,7 @@ func TestProblemsUsage(t *testing.T) {
 		t.Errorf("input = %s, want %s", b, want)
 	}
 
-	// No hint of its own: the default. No named argument: no input.
+	// Use default guidance and null input when a problem supplies neither.
 	var q clierr.Problems
 	q.Merge(errors.New("plain"))
 	if e := q.Usage("nyx recon --help"); e.Hint != "nyx recon --help" || e.Input != nil || e.Message != "plain" {

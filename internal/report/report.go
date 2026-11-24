@@ -1,5 +1,4 @@
-// Package report turns run events into console lines, and a finished run into the human summary
-// or the --json envelope.
+// Package report formats progress events, final human summaries and JSON envelopes.
 package report
 
 import (
@@ -15,9 +14,8 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Event is one thing that happened in a run. Types: run_start, stage, found, count, warning and
-// debug. They drive the console log; the result of the run is the Summary, not an event. A debug
-// event is one failed check.
+// Event drives console progress: run_start, stage, found, count, warning and debug. Summary
+// output is separate. Debug events include failed-check details.
 type Event struct {
 	Type   string
 	Fields map[string]any
@@ -31,7 +29,7 @@ type redacting struct {
 	r    *config.Redactor
 }
 
-// WithRedactor scrubs every string in each event before it reaches next.
+// WithRedactor cleans every event string before forwarding it.
 func WithRedactor(next Emitter, r *config.Redactor) Emitter { return redacting{next, r} }
 
 func (e redacting) Emit(ev Event) {
@@ -41,7 +39,7 @@ func (e redacting) Emit(ev Event) {
 	e.next.Emit(ev)
 }
 
-// Only passes the events of one type to next and drops the rest.
+// Forward only the requested event type.
 func Only(typ string, next Emitter) Emitter { return only{typ, next} }
 
 type only struct {
@@ -55,8 +53,7 @@ func (f only) Emit(ev Event) {
 	}
 }
 
-// Say is a function that emits each message it is given as an event of type typ, the shape of
-// every warning and debug line.
+// Say adapts a formatted-message callback to an event type for warnings/debug output.
 func Say(em Emitter, typ string) func(string) {
 	return func(msg string) { em.Emit(Event{Type: typ, Fields: map[string]any{"message": msg}}) }
 }
@@ -90,23 +87,16 @@ func (l Level) Label() string {
 
 var levelLabels = palette.Labels(palette.Level)
 
-// Line formats one log line from the time t as it is to be shown, from a message of plain text.
-// Nothing here sanitises or redacts, so a caller does both first.
-//
-// A plain line is "HH:MM:SS | LEVEL | message"; a coloured one has the timestamp and separators in
-// the palette's chrome colours and a level badge. On a stream that is not a terminal the message is
-// written literally: it is not wrapped, and each line after its first is indented to the message
-// column. On a terminal the message is wrapped to the stream's width, after the prefix, and each
-// continuation line starts at the message column, 19 cells in a plain line and 21 in a coloured
-// one. The message of a terminal line holds no escape of its own: LineSpans styles one.
+// Line formats already sanitised and redacted plain text with time and level. Plain streams
+// preserve message lines, indenting continuations under the message. Terminals wrap after the
+// prefix and align continuations at column 19, or 21 with colour. Use LineSpans for styled
+// message text.
 func Line(s layout.Stream, t time.Time, l Level, msg string) string {
 	return LineSpans(s, t, l, layout.Plain(msg))
 }
 
-// LineSpans is Line for a message in styled parts. The text of each span is plain, sanitised and
-// redacted; the styles come from the palette. A line is broken first and styled afterwards, so
-// every escape byte of the message comes from a style and none crosses a line break. On a stream
-// that is not a terminal the message is its text with the styles applied and nothing is wrapped.
+// LineSpans formats sanitised/redacted text with palette styles. Wrapping precedes styling so
+// escapes cannot cross breaks. Non-terminal streams retain literal lines without wrapping.
 func LineSpans(s layout.Stream, t time.Time, l Level, msg []layout.Span) string {
 	d := s.Depth
 	sep := " | "
@@ -121,29 +111,26 @@ func LineSpans(s layout.Stream, t time.Time, l Level, msg []layout.Span) string 
 	return strings.Join(layout.Hang(prefix, msg, width, mode), "\n")
 }
 
-// ConsoleOptions are what NewConsole needs.
+// ConsoleOptions supplies output streams, filtering and redaction.
 type ConsoleOptions struct {
 	Log       io.Writer // the log lines (stderr)
 	LogStream layout.Stream
 	Min       Level // the lowest level of log line written
 	Clock     func() time.Time
 	Location  *time.Location // the time zone lines are shown in
-	// Redactor masks the configured keys in the text of each event, after it has been sanitised,
-	// so that a key which sanitising joins back together is masked too. Nil masks nothing.
+	// Redactor masks configured keys after sanitisation, including keys whose characters
+	// sanitisation rejoined. Nil disables masking.
 	Redactor *config.Redactor
 }
 
-// Console renders events as log lines. Each event has a level (see Emit) and
-// is written only when it reaches Min. The end-of-run summary is not an event
-// (WriteSummary writes it), nor is the error that ends a failed command (cli
-// writes it).
+// Console prints events meeting Min level. Summary and final command errors are written
+// separately by WriteSummary and cli.
 type Console struct {
 	mu sync.Mutex
 	o  ConsoleOptions
 }
 
-// NewConsole returns the console renderer. A nil Clock is time.Now and a nil
-// Location is time.Local.
+// NewConsole defaults nil Clock/Location to time.Now/time.Local.
 func NewConsole(o ConsoleOptions) *Console {
 	if o.Clock == nil {
 		o.Clock = time.Now
@@ -154,12 +141,12 @@ func NewConsole(o ConsoleOptions) *Console {
 	return &Console{o: o}
 }
 
-// str is the text of a field as a line shows it: sanitised, then with any configured key masked.
+// str sanitises an event field, then masks configured keys.
 func (c *Console) str(f map[string]any, k string) string {
 	return c.o.Redactor.Redact(str(f, k))
 }
 
-// str is the text of a field with whatever could act on a terminal removed.
+// str removes terminal controls from an event field.
 func str(f map[string]any, k string) string {
 	switch v := f[k].(type) {
 	case nil:
@@ -171,20 +158,19 @@ func str(f map[string]any, k string) string {
 	}
 }
 
-// Emit renders one event. run_start, found and count are INFO; stage is INFO,
-// or ERROR when its state is failed; warning is WARN and debug is DEBUG.
-// Unknown types print nothing.
+// Emit maps run_start/found/count to INFO, stage failures to ERROR, other stages to INFO,
+// warnings to WARN and debug to DEBUG. Unknown types are ignored.
 func (c *Console) Emit(ev Event) {
 	level, ok := eventLevel(ev)
 	if !ok || level < c.o.Min {
-		return // before the line is built: most debug events are dropped
+		return // defer formatting until after event filtering
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	fmt.Fprintln(c.o.Log, LineSpans(c.o.LogStream, c.o.Clock().In(c.o.Location), level, c.message(ev)))
 }
 
-// eventLevel is the level of an event's line. ok is false for an event type with no line.
+// eventLevel returns display severity and whether the event has a log line.
 func eventLevel(ev Event) (level Level, ok bool) {
 	switch ev.Type {
 	case "run_start", "found", "count":
@@ -202,9 +188,7 @@ func eventLevel(ev Event) (level Level, ok bool) {
 	return 0, false
 }
 
-// textStyle is the style of a semantic or chrome entry for the text of a line, or none when the
-// stream does not colour text: the message of a line is coloured beyond its badges only on a
-// terminal at a colour depth.
+// textStyle resolves a palette role for message text only on coloured terminals.
 func textStyle(s layout.Stream, g palette.Group, name string) func(string) string {
 	if !s.Terminal || !s.Coloured() {
 		return nil
@@ -212,8 +196,8 @@ func textStyle(s layout.Stream, g palette.Group, name string) func(string) strin
 	return func(x string) string { return s.Depth.Text(g, name, x) }
 }
 
-// stateStyle is the style of a stage's state word: running is info, done and done-previously are
-// success, failed is error and not-configured is muted.
+// stateStyle maps running to info, completion to success, failure to error and unconfigured to
+// muted.
 func stateStyle(s layout.Stream, state string) func(string) string {
 	switch state {
 	case "running":
@@ -228,14 +212,14 @@ func stateStyle(s layout.Stream, state string) func(string) string {
 	return nil
 }
 
-// badgeSpan is a value as palette's Value writes it in category c (padded to the category's width,
-// and with a space either side when coloured): one token that is never broken.
+// badgeSpan keeps a padded palette value whole during wrapping, including its coloured side
+// margins.
 func badgeSpan(s layout.Stream, c palette.Category, value string) layout.Span {
 	return layout.Span{Text: value, Style: func(x string) string { return s.Depth.Value(c, x) }, Keep: true}
 }
 
-// stageSpans is the message of a stage line. The name is padded and kept whole, the state word is
-// coloured on a coloured terminal and the reason and counts are plain.
+// stageSpans keeps the padded stage name whole, colours its state on terminals and leaves
+// reason/counts plain.
 func stageSpans(s layout.Stream, name, state, reason, checks, failed string) []layout.Span {
 	spans := []layout.Span{
 		{Text: fmt.Sprintf("%-14s", name), Keep: true},
@@ -255,9 +239,8 @@ func stageSpans(s layout.Stream, name, state, reason, checks, failed string) []l
 	return spans
 }
 
-// foundSpans is the message of a found line: the + in the success colour, the severity badge when
-// there is one and then either the event's own text or category: value, with the category in the
-// info colour.
+// foundSpans combines the success "+", optional severity badge and custom text or
+// category/value pair. Categories use the info colour.
 func foundSpans(s layout.Stream, category, value, text, severity string) []layout.Span {
 	spans := []layout.Span{{Text: "+", Style: textStyle(s, palette.Semantic, "success")}, {Text: " "}}
 	if severity != "" {
@@ -269,7 +252,7 @@ func foundSpans(s layout.Stream, category, value, text, severity string) []layou
 	return append(spans, layout.Span{Text: category, Style: textStyle(s, palette.Semantic, "info")}, layout.Span{Text: ": " + value})
 }
 
-// message is the message of the line of an event that has one (eventLevel's ok).
+// message extracts display text for an event recognised by eventLevel.
 func (c *Console) message(ev Event) (msg []layout.Span) {
 	s, str, f := c.o.LogStream, c.str, ev.Fields
 	switch ev.Type {

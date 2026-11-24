@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The closing margin ends an unfinished line first, is written once, and an empty write opens
+// Finalise incomplete lines before the closing margin; repeated close and empty writes add
 // nothing.
 func TestMargin_Close(t *testing.T) {
 	t.Parallel()

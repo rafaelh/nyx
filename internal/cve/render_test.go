@@ -200,13 +200,10 @@ func TestRender_Wraps(t *testing.T) {
 	}
 }
 
-// injected is NVD text that would act on a terminal: escape sequences, a
-// newline and a tab. Each word is 13 bytes with its escapes and 4 without.
+// injected supplies source text whose control/escape bytes differ from its visible cell width.
 var injected = strings.Repeat("\x1b[31mword\x1b[0m ", 30)
 
-// The NVD's text is cleaned before it is wrapped: newlines and tabs become
-// spaces and escape sequences go, so lines are as wide as what shows. At a
-// colour depth the palette's own codes are kept.
+// Clean source text before measuring/wrapping while preserving palette-generated styles.
 func TestRender_CleansBeforeWrapping(t *testing.T) {
 	t.Parallel()
 	r := log4shell()
@@ -277,8 +274,7 @@ func widest(s string) int {
 
 var colourDepths = []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16}
 
-// The bar is as wide as the layout: the ID at the left and the severity label
-// at the right, all in the severity's badge style but the last two spaces.
+// Header bars span the layout width except the final plain margin.
 func TestBar_Coloured(t *testing.T) {
 	t.Parallel()
 	for _, d := range colourDepths {
@@ -396,8 +392,7 @@ References (1)
 `
 }
 
-// A record on a terminal: the bar, headings with no rule, labels without a colon
-// and values at one column in each section, and indented text.
+// Terminal records use bars, rule-free headings, aligned labels and indented body text.
 func TestRender_Terminal(t *testing.T) {
 	t.Parallel()
 	got := renderTerm(t, []Record{log4shell()}, "all", palette.None, 80)
@@ -474,8 +469,7 @@ func TestRender_TerminalRecordsAreSeparatedByABlankLine(t *testing.T) {
 	}
 }
 
-// Coloured, the record opens with the severity's bar and its headings and labels take the
-// palette's styles: bold info for a heading, bold for a label, no rule.
+// Coloured records use severity bars and semantic heading/label styles.
 func TestRender_TerminalColour(t *testing.T) {
 	t.Parallel()
 	for _, d := range colourDepths {
@@ -503,8 +497,7 @@ func TestRender_TerminalColour(t *testing.T) {
 	}
 }
 
-// A list shown only as its count names the flag that lists it after its heading, in the muted
-// timestamp colour, and the heading keeps its own style.
+// Count-only headings add muted expansion flags without changing heading styling.
 func TestRender_TerminalColourListTip(t *testing.T) {
 	t.Parallel()
 	for _, d := range colourDepths {
@@ -696,8 +689,7 @@ func TestRender_TerminalWritesOnlyPaletteSequences(t *testing.T) {
 	}
 }
 
-// The NVD's text is cleaned before it is wrapped and laid out, so no layout lets
-// an escape sequence, an OSC or a bidi override through, wherever the lines break.
+// No layout path may pass through source escapes, OSC payloads or bidi overrides.
 func TestRender_TerminalCleansTheNVDText(t *testing.T) {
 	t.Parallel()
 	injected := strings.Repeat("\x1b[31mword\x1b[0m\u202e ", 30) + strings.Repeat("a\x1b[2Jb\x1b]8;;https://evil.example/\x07c", 30) +
@@ -730,8 +722,7 @@ func TestRender_TerminalCleansTheNVDText(t *testing.T) {
 	}
 }
 
-// Under a stream that is not a terminal, the records are today's layout whatever the depth
-// the stream reports, wrapped at the width it reports (100 when it reports none).
+// Non-terminal rendering keeps plain layout even when the stream reports colour depth.
 func TestRender_NotATerminalKeepsTheOldLayout(t *testing.T) {
 	t.Parallel()
 	for _, width := range []int{0, 200} {
@@ -760,11 +751,8 @@ func renderRedacted(t *testing.T, r Record, s layout.Stream, red *config.Redacto
 	return renderWith(t, []Record{r}, View{Fields: selectFields(t, "all")}, s, red, time.UTC)
 }
 
-// A configured key in the NVD's text never reaches the output, whole or in part,
-// wherever the layout breaks a line, with or without a terminal. A key inside a
-// long word is masked before the word is broken, and a key that cleaning joins
-// back together (a control character, an escape sequence or a bidi override in
-// the middle) is masked too, in every field.
+// Clean/redact every field before wrapping so controls cannot reconstruct exposed keys and long
+// words cannot split them before masking.
 func TestRender_RedactsKeys(t *testing.T) {
 	t.Parallel()
 	const key = "sk-live-Qx7Rt2Zk9Vb4Nm8Lp3"
@@ -797,8 +785,8 @@ func TestRender_RedactsKeys(t *testing.T) {
 	}
 }
 
-// assertNoKey fails when any piece of key of 8 characters, or the key whole, is in
-// the output stripped of colour, or when nothing was masked.
+// assertNoKey rejects full keys/eight-character fragments and requires visible evidence that
+// masking occurred.
 func assertNoKey(t *testing.T, name, got, key string) {
 	t.Helper()
 	plain := strip(got)
@@ -832,8 +820,7 @@ func TestRender_RedactorLeavesOtherTextAlone(t *testing.T) {
 	}
 }
 
-// sectionLines is the heading of a section and its body, as laid out: the lines
-// from the one that starts with name to the next blank line.
+// sectionLines extracts a heading and body through the next blank line.
 func sectionLines(t *testing.T, out, name string) []string {
 	t.Helper()
 	var got []string
@@ -860,9 +847,7 @@ const (
 	tippedRefs             = "References (--fields references to show)"
 )
 
-// Each list's section says how many entries there are, as the count and the
-// shown list each put it, in the plain layout and on a terminal, where the
-// body is the plain layout's indented two spaces.
+// List sections agree on counts/content across plain and indented terminal layouts.
 func TestRender_ListsAndCounts(t *testing.T) {
 	t.Parallel()
 	long := FromNVD(loadEntry(t, "long-lists.json"))
@@ -918,9 +903,7 @@ func TestRender_ReferenceCounts(t *testing.T) {
 	}
 }
 
-// checkSection checks the section named section of rec's record cut by view, in
-// the plain layout at width and on a terminal as wide, where its body is the
-// plain layout's indented two spaces.
+// checkSection compares one projected section across plain and same-width terminal output.
 func checkSection(t *testing.T, name string, rec Record, view View, section string, width int, want []string) {
 	t.Helper()
 	plain := renderView(t, []Record{rec}, view, stream(false, palette.None, width))
@@ -937,8 +920,7 @@ func checkSection(t *testing.T, name string, rec Record, view View, section stri
 	}
 }
 
-// A default record is no longer for long lists: it is as many lines as one
-// whose lists have an entry each, and shows no entry of either.
+// Default output height remains bounded by counts, without list entries.
 func TestRender_DefaultDoesNotGrowWithTheLists(t *testing.T) {
 	t.Parallel()
 	long, one := FromNVD(loadEntry(t, "long-lists.json")), FromNVD(loadEntry(t, "one-each.json"))
@@ -956,8 +938,7 @@ func TestRender_DefaultDoesNotGrowWithTheLists(t *testing.T) {
 	}
 }
 
-// The NVD's text in a list is cleaned, and a key in it is masked, after the cut
-// has been made on the text as the NVD wrote it.
+// Match original source text before cleaning/redacting selected list entries.
 func TestRender_CutListsAreRedacted(t *testing.T) {
 	t.Parallel()
 	const key = "nvd-Qx7Rt2Zk9Vb4Nm8Lp3Zz"

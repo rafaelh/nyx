@@ -1,6 +1,5 @@
-// Package origin decides which addresses may be the origin server behind a hostname that a CDN or
-// WAF fronts, and whether one that answered really is. Both decisions are pure: the origincheck
-// stage and the findings call the same functions on the same records, so they cannot disagree.
+// Package origin selects and confirms possible servers behind CDN/WAF hostnames. Stages and
+// findings share these pure decisions so checked and reported origins agree.
 package origin
 
 import (
@@ -33,17 +32,15 @@ type HistoricalAddr struct {
 	LastSeen string
 }
 
-// Service is a probed web service of a hostname: its page title and the DNS names its certificate
-// carries.
+// Service supplies a probed title and certificate names for sibling matching.
 type Service struct {
 	Host, Title string
 	Names       []string
 }
 
-// Candidate is an address that may be the origin of Host, how it was found (in the order of the
-// constants above) and whether it may be contacted: it is port-eligible, which is to say inside an
-// in-scope netblock, or the current address of an in-scope host with a known, dedicated owner, and
-// is not excluded.
+// Candidate pairs a fronted host with a possible origin address and discovery method. Contact
+// requires port eligibility and no exclusion: an in-scope netblock or a known dedicated address
+// used by an in-scope host.
 type Candidate struct {
 	Host, Provider string
 	Addr           netip.Addr
@@ -51,12 +48,10 @@ type Candidate struct {
 	Contactable    bool
 }
 
-// Candidates returns, for each fronted hostname in name order, up to max candidate addresses:
-// historical addresses most recent first, then the addresses of siblings in sibling name order. An
-// address qualifies only if its owner is known and it is not shared provider infrastructure. A
-// sibling is another in-scope, non-wildcard-only hostname that is not itself behind a CDN or WAF
-// and has a service whose certificate names the fronted host, or whose title is the fronted host's
-// (neither empty nor on the list of CDN, WAF and default-server titles).
+// Candidates returns up to max addresses per fronted hostname in name order. Recent historical
+// addresses precede sibling-derived addresses. Candidates need known, non-shared ownership.
+// Siblings are in-scope, non-wildcard hosts outside CDN/WAF hosting whose certificate names the
+// fronted host or whose meaningful page title matches it.
 func Candidates(fronts []Front, hist []HistoricalAddr, services []Service, inv *inventory.Inventory, sc *scope.Scope, max int) []Candidate {
 	fronts = slices.SortedFunc(slices.Values(fronts), func(a, b Front) int { return strings.Compare(a.Host, b.Host) })
 	addrs := inv.Addrs()
@@ -100,9 +95,8 @@ func Candidates(fronts []Front, hist []HistoricalAddr, services []Service, inv *
 // The ways a sibling matches a fronted host, as bits.
 const byCert, byTitl = 1, 2
 
-// siblings are the in-scope, non-wildcard-only hosts with an address that are not themselves
-// fronted, in name order, and the siblings (by index, so in name order) that each certificate
-// name and each title points at.
+// siblings indexes unfronted in-scope hosts by certificate names and titles. Host indexes
+// preserve name order for deterministic candidate selection.
 type siblings struct {
 	names          []string
 	bySAN, byTitle map[string][]int
@@ -135,8 +129,8 @@ func newSiblings(addrs map[string][]netip.Addr, services []Service, inv *invento
 	return s
 }
 
-// matches maps the index of each sibling that matches the fronted host to how it matches: a
-// certificate that names the host, or the host's title (neither empty nor a default title).
+// matches identifies siblings whose certificates name the fronted host or whose meaningful
+// titles match it.
 func (s *siblings) matches(f Front) map[int]int {
 	match := map[int]int{}
 	for _, n := range CertNames(f.Host) {
@@ -162,8 +156,7 @@ type candidateSet struct {
 	at    map[netip.Addr]int // the index in found of each address
 }
 
-// add records that an address was found a way. An address qualifies only if its owner is known
-// and it is not shared provider infrastructure.
+// add records a discovery method only for addresses with known, dedicated ownership.
 func (c *candidateSet) add(a netip.Addr, how string) {
 	a = a.Unmap()
 	if i, ok := c.at[a]; ok {
@@ -172,7 +165,7 @@ func (c *candidateSet) add(a netip.Addr, how string) {
 		}
 		return
 	}
-	// Past the cap a new address is dropped; one already kept may still gain a way.
+	// After the cap, existing candidates can gain evidence but new addresses are dropped.
 	if len(c.found) >= c.max || !c.inv.OwnerKnown(a, c.sc) || c.inv.Shared(a) {
 		return
 	}
@@ -180,14 +173,14 @@ func (c *candidateSet) add(a netip.Addr, how string) {
 	c.found = append(c.found, Candidate{Host: c.front.Host, Provider: c.front.Provider, Addr: a, Found: []string{how}, Contactable: c.inv.PortEligible(a, c.sc)})
 }
 
-// Probe is what the probe saw of a fronted hostname: its status, title and body length.
+// Probe holds the fronted site's status, title and body length for comparison.
 type Probe struct {
 	Status  int
 	Title   string
 	BodyLen int
 }
 
-// Answer is what a candidate origin answered for the hostname.
+// Answer holds a candidate origin's response for the fronted hostname.
 type Answer struct {
 	Status        int
 	Title         string
@@ -201,10 +194,9 @@ const (
 	ByBody  = "status-body-certificate"
 )
 
-// Confirmed reports whether the answer shows the candidate serves the hostname's site, and by what:
-// a non-empty title equal to the probe's that is not a CDN, WAF or default-server title, or the
-// same status, a body length within 10% of the probe's and a certificate that names the host. A
-// certificate alone is not enough, and a redirect confirms nothing.
+// Confirmed requires a meaningful matching title, or matching status plus body length within
+// 10% and a certificate naming the host. Certificates alone and redirects do not confirm an
+// origin.
 func Confirmed(p Probe, a Answer) (by string, ok bool) {
 	if a.Status >= 300 && a.Status < 400 {
 		return "", false
@@ -225,9 +217,8 @@ func abs(n int) int {
 	return n
 }
 
-// defaultTitles are the phrases that mark a title as one a CDN, a WAF or a default server page
-// shows, in lower case. A title that contains one is not evidence of anything: the same page is
-// served to every host in front of that product.
+// defaultTitles excludes generic CDN/WAF/server titles because the same page can appear for
+// unrelated hosts.
 var defaultTitles = []string{
 	"attention required", "just a moment", "access denied", "access forbidden", "403 forbidden", "404 not found",
 	"bad gateway", "gateway time-out", "service unavailable", "request blocked", "request rejected",
@@ -237,14 +228,14 @@ var defaultTitles = []string{
 	"checking your browser", "security check", "one moment, please",
 }
 
-// DefaultTitle reports whether a title is one a CDN, a WAF or a default server page shows.
+// DefaultTitle identifies generic CDN/WAF/server pages unsuitable for matching.
 func DefaultTitle(title string) bool {
 	t := strings.ToLower(strings.TrimSpace(title))
 	return t != "" && slices.ContainsFunc(defaultTitles, func(d string) bool { return strings.Contains(t, d) })
 }
 
-// CertNames are the certificate DNS names, in lower case, that name the host: the host itself and,
-// if it has a parent, the wildcard that stands for its first label.
+// CertNames returns lowercase exact and single-label wildcard certificate names that could
+// cover host.
 func CertNames(host string) []string {
 	host = strings.ToLower(host)
 	names := []string{host}

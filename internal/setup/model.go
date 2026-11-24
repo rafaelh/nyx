@@ -53,32 +53,28 @@ type keyRow struct {
 	orig, cur   config.Secret
 	origProblem string
 	problem     string
-	// gen is the edit generation: it changes whenever the key does, and a test result carries the
-	// one it was started with.
+	// gen rejects stale asynchronous test results after a key changes.
 	gen    int
 	cancel context.CancelFunc // set while a test runs
 	result *TestResult
 	record *KeyRecord // the file's record of orig
 }
 
-// changed reports whether the row holds something to save: a new key, a fixed problem, or a test
-// result the file does not record yet.
+// changed detects unsaved key edits, problem fixes and test results missing from the file.
 func (r *keyRow) changed() bool { return r.keyChanged() || r.tested() }
 
-// keyChanged reports whether the key itself is to be written: a new value, or one whose problem
-// was fixed.
+// keyChanged includes newly entered keys and edits resolving key problems.
 func (r *keyRow) keyChanged() bool {
 	return r.cur != r.orig || (r.origProblem != "" && r.problem == "")
 }
 
-// tested reports whether a test this session accepted or rejected the key as it is now.
+// tested accepts only this session's result matching the current key.
 func (r *keyRow) tested() bool { return r.result != nil && r.result.Status != TestUnknown }
 
-// recordShownFor is how long a key record is shown: an older one says nothing, so that an old test
-// is not taken for a recent one.
+// recordShownFor limits how long saved test results appear current to the user.
 const recordShownFor = 90 * 24 * time.Hour
 
-// today is the calendar day of the clock, as a key record dates it.
+// today uses the clock's local calendar date for key records.
 func (m *model) today() time.Time {
 	now := time.Now()
 	if m.o.Now != nil {
@@ -88,9 +84,8 @@ func (m *model) today() time.Time {
 	return time.Date(y, mo, d, 0, 0, 0, 0, time.UTC)
 }
 
-// fileRecord is the file's record of the row's key as the row holds it, and whether it is still
-// shown. It is nil for an edited key, for one the file records nothing of, and for a record dated
-// after today, which cannot be trusted.
+// fileRecord returns a visible, trustworthy saved test record. Edited keys, missing records and
+// future-dated records return nil.
 func (m *model) fileRecord(r *keyRow) (rec *KeyRecord, shown bool) {
 	if r.record == nil || r.cur != r.orig {
 		return nil, false
@@ -102,8 +97,8 @@ func (m *model) fileRecord(r *keyRow) (rec *KeyRecord, shown bool) {
 	return r.record, age < recordShownFor
 }
 
-// newRecord is the record a save writes for the row's key, if it needs one: a test result from this
-// session, or "not tested" for a key the file has no record of.
+// newRecord chooses what to save: this session's test result, or an untested record for a key
+// without one.
 func (m *model) newRecord(r *keyRow) (KeyRecord, bool) {
 	switch {
 	case r.cur == "":
@@ -122,12 +117,11 @@ func (m *model) newRecord(r *keyRow) (KeyRecord, bool) {
 // testing reports whether a test of the key is running.
 func (r *keyRow) testing() bool { return r.cancel != nil }
 
-// threatEntry is one threat-data list on the Threat data tab: the copy in use, and what the last
-// update of this session said of it.
+// threatEntry combines an active list with its latest update result from this session.
 type threatEntry struct {
 	list ThreatList
-	// outcome and text are the last update's word on the list; text is empty before one, and while
-	// one runs.
+	// outcome/text describe the latest list update, with text cleared before/during
+	// updates.
 	outcome ThreatOutcome
 	text    string
 }
@@ -145,8 +139,8 @@ func (r *settingRow) changed() bool {
 	return r.set != r.orig.Set || r.text != r.orig.Text || (r.orig.Problem != "" && r.problem == "")
 }
 
-// relative is the line that says a path resolves against the directory nyx runs from. It belongs to
-// the value the file holds, so an edited row has none.
+// relative describes the file's original path value. Editing the row removes that explanation
+// because it no longer describes the entry.
 func (r *settingRow) relative() string {
 	if r.set == r.orig.Set && r.text == r.orig.Text {
 		return r.orig.Relative
@@ -186,8 +180,7 @@ func (s *skipState) toggle(name string) {
 	s.list = ""
 }
 
-// entries is the whole list to write: the entries left in place in file order, those that are
-// problems after the stages, then the stages toggled on.
+// entries preserves file order, retains problem entries and appends newly enabled stages.
 func (s *skipState) entries() []string {
 	out := []string{}
 	for _, name := range s.on {
@@ -213,14 +206,14 @@ type editState struct {
 	f   *field
 }
 
-// dialogState is what the conflict dialog says beyond its fixed text.
+// dialogState stores variable conflict-dialog content.
 type dialogState struct {
 	thenQuit bool     // the save that met the conflict was asked for by the quit dialog
 	path     string   // the file the problems are about
 	problems []string // what a reload found
 }
 
-// model is the state of nyx setup. It holds keys as config.Secret, and formats without any state.
+// model holds editor state and config.Secret keys. Its formatting methods do not expose state.
 type model struct {
 	b       Backend
 	o       Options
@@ -234,8 +227,8 @@ type model struct {
 	keys []*keyRow
 	sets []*settingRow
 	skip skipState
-	// threat is the lists of the Threat data tab, and updating is whether an update of them runs.
-	// Neither is part of the file: changes and edits know nothing of them.
+	// threat and updating track threat-data lists and update progress independently of
+	// config-file changes and edits.
 	threat   []threatEntry
 	updating bool
 
@@ -245,29 +238,29 @@ type model struct {
 	mode mode
 	ed   *editState
 	dlg  dialogState
-	// notice is the lines under the body (at most two), and noticeRole the role they are drawn in.
+	// notice holds up to two status lines with one display role.
 	notice     []string
 	noticeRole string
 
 	width, height int
 	quitting      bool
 
-	// seen holds every key the file held or the user typed, so no text of any kind can carry one.
+	// seen registers every stored/entered key for all output redaction.
 	seen   []config.Secret
 	typing config.Secret
-	// red is the redactor scrub last built, for the first redSeen of seen and redTyping: seen only
-	// grows, so the two say when it is stale.
+	// red caches the redactor for the first redSeen secrets and current redTyping value;
+	// growing seen invalidates it.
 	red       *config.Redactor
 	redSeen   int
 	redTyping config.Secret
 }
 
-// Format prints nothing of the state: the model holds keys.
+// Format hides model state because it contains secrets.
 func (m model) Format(s fmt.State, _ rune) {
 	fmt.Fprint(s, "setup.model{}")
 }
 
-// newModel opens the file through b and builds the model from it. ctx ends any key test running.
+// newModel loads the backend and binds running key tests to ctx.
 func newModel(ctx context.Context, b Backend, o Options) (*model, error) {
 	snap, err := b.Open()
 	if err != nil {
@@ -292,7 +285,7 @@ func newModel(ctx context.Context, b Backend, o Options) (*model, error) {
 	return m, nil
 }
 
-// secret registers a key with the caller and with the model's own scrubbing.
+// secret registers keys with both caller and model redactors.
 func (m *model) secret(v config.Secret) {
 	if strings.TrimSpace(v.Reveal()) == "" {
 		return
@@ -305,7 +298,7 @@ func (m *model) secret(v config.Secret) {
 	}
 }
 
-// scrub removes every key the model has seen from s.
+// scrub masks every key seen by the editor.
 func (m *model) scrub(s string) string {
 	if m.red == nil || m.redSeen != len(m.seen) || m.redTyping != m.typing {
 		vals := make([]string, 0, len(m.seen)+1)
@@ -313,18 +306,18 @@ func (m *model) scrub(s string) string {
 			vals = append(vals, v.Reveal())
 		}
 		vals = append(vals, m.typing.Reveal())
-		// The longest first, so a key is masked whole before a shorter one inside it can split it.
+		// Mask longer secrets before shorter substrings can split them.
 		slices.SortFunc(vals, func(a, b string) int { return len(b) - len(a) })
 		m.red, m.redSeen, m.redTyping = config.NewRedactor(vals...), len(m.seen), m.typing
 	}
 	return m.red.Redact(s)
 }
 
-// text is s made safe to draw: no key in it and no terminal control, on one line.
+// text produces one sanitised, redacted display line.
 func (m *model) text(s string) string { return sanitize.Line(m.scrub(s)) }
 
-// load makes snap the baseline, discarding the edits. A key's test state is kept when keep is set
-// and the key is the one the test was for.
+// load replaces the baseline and discards edits. keep preserves test state only when the key
+// still matches.
 func (m *model) load(snap Snapshot, keep bool) {
 	old := m.keys
 	m.snap = snap
@@ -339,7 +332,8 @@ func (m *model) load(snap Snapshot, keep bool) {
 			if keep && prev.cur == row.cur {
 				row.gen, row.cancel = prev.gen, prev.cancel
 				if !prev.tested() {
-					// An accepted or rejected result was just saved: the file's record shows it now.
+					// The saved file record now represents this session's
+					// result.
 					row.result = prev.result
 				}
 			} else {
@@ -379,7 +373,7 @@ func (r *keyRow) abandon() {
 	r.cancel, r.result = nil, nil
 }
 
-// changes is the number of fields with unsaved changes. The skip list is one field.
+// changes counts unsaved fields, treating the entire skip list as one.
 func (m *model) changes() int {
 	n := 0
 	for _, r := range m.keys {
@@ -412,7 +406,7 @@ func (m *model) tabChanged(t tabID) bool {
 	return false
 }
 
-// invalid is the first message of an invalid value on a tab, and whether the tab has one.
+// invalid finds the first validation problem on a tab.
 func (m *model) invalid(t tabID) (string, bool) {
 	named := func(name, msg string) string {
 		if strings.HasPrefix(msg, name) {
@@ -485,8 +479,8 @@ func (m *model) edits() Edits {
 	return e
 }
 
-// say sets the notice: at most two lines under the body, in role. A second line takes the body's last
-// line until the next key press.
+// say displays at most two notice lines. A second line borrows one body row until the next
+// keypress.
 func (m *model) say(role string, lines ...string) {
 	m.notice, m.noticeRole = nil, role
 	for _, l := range lines[:min(len(lines), 2)] {
@@ -494,7 +488,7 @@ func (m *model) say(role string, lines ...string) {
 	}
 }
 
-// quit ends the program, and any key test with it.
+// quit stops the editor and any running credential test.
 func (m *model) quit() tea.Cmd {
 	m.quitting = true
 	m.stop()
@@ -631,7 +625,7 @@ func (m *model) clearRow() {
 	}
 }
 
-// clearSkip removes the problem entry at row i, clears the whole-list problem, or turns a stage off.
+// clearSkip removes one invalid entry, clears a list conflict or disables a stage.
 func (m *model) clearSkip(i int) {
 	stages := len(m.info.Stages)
 	switch {
@@ -647,7 +641,7 @@ func (m *model) clearSkip(i int) {
 	m.move(0)
 }
 
-// setKey makes v the row's key. A key that changes ends the test of the old one and drops its result.
+// setKey cancels tests and discards results when their key changes.
 func (m *model) setKey(r *keyRow, v config.Secret) {
 	if v != r.cur {
 		r.abandon()
@@ -657,7 +651,7 @@ func (m *model) setKey(r *keyRow, v config.Secret) {
 	r.cur, r.problem = v, ""
 }
 
-// typedText is the text a key press types, or "" when it is a command.
+// typedText separates entered text from editing commands.
 func typedText(k tea.KeyPressMsg) string {
 	key := k.Key()
 	if key.Mod&(tea.ModCtrl|tea.ModAlt) != 0 || key.Text == "" {
@@ -704,7 +698,7 @@ func (m *model) onPaste(content string) {
 	m.typed()
 }
 
-// typed notes what is in a key field after every change, so a panic cannot find a key unregistered.
+// typed registers every intermediate secret so panics cannot expose partially entered keys.
 func (m *model) typed() {
 	if m.ed.tab != tabKeys {
 		return
@@ -790,12 +784,12 @@ func (m *model) onTestDone(d testDone) {
 	r.cancel, r.result = nil, &res
 }
 
-// threatDone is the end of an update of the threat data.
+// threatDone carries an asynchronous update result.
 type threatDone struct{ res ThreatResult }
 
-// startUpdate is u on the Threat data tab. The update runs under the model's base context, so
-// quitting ends it, and under no deadline of its own: the backend bounds each request. With nowhere
-// to keep the data it runs nothing and says why.
+// startUpdate handles u on the Threat data tab. Quitting cancels through the base context; the
+// backend bounds individual requests. Without a storage directory it displays the reason
+// instead of starting work.
 func (m *model) startUpdate() tea.Cmd {
 	switch {
 	case m.updating:
@@ -814,8 +808,7 @@ func (m *model) startUpdate() tea.Cmd {
 	}
 }
 
-// onThreatDone shows each list's result in its row. A list the result does not hold keeps its row as
-// it was.
+// onThreatDone updates rows present in the result and preserves omitted rows.
 func (m *model) onThreatDone(d threatDone) {
 	m.updating = false
 	for i := range m.threat {
@@ -852,14 +845,14 @@ func (m *model) quitKey(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// save writes the edits. thenQuit asks to quit once they are written.
+// save applies edits and optionally quits after success.
 func (m *model) save(thenQuit bool) tea.Cmd {
 	if why, bad := m.firstInvalid(); bad {
 		m.say(roleBad, "Cannot save while a value is invalid:", why)
 		return nil
 	}
-	// A "not tested" record for a key the file has none of is written with a save, but is not a
-	// change of its own.
+	// Saving may add missing "not tested" records, but that alone does not mark the editor
+	// changed.
 	if m.changes() == 0 {
 		m.say(roleHelp, "No changes to save")
 		return nil
@@ -877,7 +870,7 @@ func (m *model) firstInvalid() (string, bool) {
 	return "", false
 }
 
-// saved is what follows a Save or an Overwrite.
+// saved handles Save/Overwrite results.
 func (m *model) saved(snap Snapshot, err error, thenQuit bool) tea.Cmd {
 	switch {
 	case err == nil:
@@ -909,7 +902,7 @@ func (m *model) conflictKey(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// reload reads the file again and drops the edits. A file with problems keeps them.
+// reload discards edits only after successfully reading a valid file.
 func (m *model) reload() {
 	snap, err := m.b.Open()
 	var fe *FileError

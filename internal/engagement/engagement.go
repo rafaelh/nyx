@@ -1,6 +1,5 @@
-// Package engagement opens an engagement directory: it recognises nyx's own
-// directories, takes the single-run lock and holds scope inputs, the
-// authorisation acknowledgement and the netblock approval.
+// Package engagement recognises engagement directories and manages their single-run lock, scope
+// inputs, authorisation and netblock approval.
 package engagement
 
 import (
@@ -85,10 +84,8 @@ func Open(dir string, o Options) (*Engagement, error) {
 	return &Engagement{dir: dir, lock: lock, st: st, clock: clock}, nil
 }
 
-// OpenReadOnly opens the state database of an existing engagement for reading
-// only. It creates nothing (no directory, no .nyx, no lock file) and takes no
-// lock, so it works while a run holds the engagement. A directory that does not
-// exist, or has no .nyx/state.db, is an error.
+// OpenReadOnly opens existing engagement state without creating files or taking a lock,
+// including during active runs. Missing directories or state databases are errors.
 func OpenReadOnly(dir string) (*store.ReadOnly, error) {
 	fi, err := os.Stat(dir)
 	switch {
@@ -106,7 +103,7 @@ func OpenReadOnly(dir string) (*store.ReadOnly, error) {
 	return st, err
 }
 
-// State is what a directory holds, as far as an engagement goes.
+// State classifies existing directory contents for engagement use.
 type State int
 
 // The states Probe reports.
@@ -169,9 +166,8 @@ func Probe(dir string) (State, error) {
 	return Absent, nil
 }
 
-// List names the subdirectories of outputDir that hold an engagement's state
-// database (those Probe says exist), sorted. An output directory that cannot be
-// read gives none.
+// List returns sorted engagement subdirectories recognised by Probe. Unreadable output
+// directories return no names.
 func List(outputDir string) []string {
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {

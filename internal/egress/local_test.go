@@ -12,7 +12,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 )
 
-// localFixture is an Egress whose "this machine's resolver" is the fake server.
+// localFixture replaces machine DNS with a fake resolver.
 func localFixture(t *testing.T, opts egress.Options) (egress.LocalResolver, *egresstest.DNS) {
 	t.Helper()
 	d := egresstest.NewDNS(t)
@@ -72,7 +72,7 @@ func TestLocalAddrsNXDomainIsNotFound(t *testing.T) {
 func TestLocalAddrsNoAddressesIsNotFound(t *testing.T) {
 	t.Parallel()
 	l, d := localFixture(t, egress.Options{})
-	d.TXT("txtonly.corp.example", "hello") // the name exists, with neither A nor AAAA
+	d.TXT("txtonly.corp.example", "hello") // successful no-address response
 	got, err := l.Addrs(context.Background(), "txtonly.corp.example")
 	if err != nil || len(got) != 0 {
 		t.Errorf("Addrs = %v %v, want no addresses and no error", got, err)
@@ -148,7 +148,7 @@ func TestLocalPTRIPv6(t *testing.T) {
 	}
 }
 
-// A name that is not a valid hostname is left out, and the valid names beside it are the answer.
+// Discard invalid PTR names while retaining usable names in the same response.
 func TestLocalPTRKeepsTheValidNames(t *testing.T) {
 	t.Parallel()
 	l, d := localFixture(t, egress.Options{})
@@ -189,13 +189,13 @@ func TestLocalPTRServFailIsAnError(t *testing.T) {
 	}
 }
 
-// Lookups share the DNS rate limiter.
+// Local queries use the shared DNS limiter.
 func TestLocalLookupsAreRateLimited(t *testing.T) {
 	t.Parallel()
 	l, d := localFixture(t, egress.Options{RateDNS: 10})
 	d.A("a.corp.example", "192.0.2.50")
 	start := time.Now()
-	for range 13 { // the first ten use the burst; each of the rest waits 100ms
+	for range 13 { // consume burst first, then wait 100 ms per query
 		if _, err := l.Addrs(context.Background(), "a.corp.example"); err != nil {
 			t.Fatal(err)
 		}

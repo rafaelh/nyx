@@ -10,9 +10,8 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// NS, SOA, TXT and CAA rows are not addresses, aliases or zones: adding them,
-// even with values that look like addresses or provider hosts, changes
-// nothing the inventory reports.
+// Root DNS metadata must not change address/alias/zone inventory even when values resemble
+// those types.
 func TestRootRecordRowsChangeNothing(t *testing.T) {
 	t.Parallel()
 	var base inventory.Data

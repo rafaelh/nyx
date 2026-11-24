@@ -15,8 +15,8 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// failureWriter writes the one error of a failed call to stderr, at most
-// once: the second signal and the normal exit may both ask for it.
+// failureWriter prints at most one error even when normal exit and a second signal race to
+// report it.
 type failureWriter struct {
 	w     io.Writer
 	json  bool
@@ -39,8 +39,7 @@ func (f *failureWriter) setRedactor(r *config.Redactor) {
 	f.mu.Unlock()
 }
 
-// errorLine is the JSON error: exactly these five keys, in this order. It is
-// also each meta.errors entry of a lookup command (nyx cve, nyx ip).
+// errorLine defines the five ordered JSON error keys, also used for lookup meta.errors entries.
 type errorLine struct {
 	Error     string  `json:"error"`
 	Code      string  `json:"code"`
@@ -49,8 +48,7 @@ type errorLine struct {
 	Transient bool    `json:"transient"`
 }
 
-// newErrorLine is e as the JSON error, with every API key masked; an empty
-// hint is null.
+// newErrorLine redacts JSON error fields and encodes empty hints as null.
 func newErrorLine(e *clierr.Error, red *config.Redactor) errorLine {
 	l := errorLine{Error: red.Redact(e.Message), Code: string(e.Code), Input: red.Any(e.Input), Transient: e.Transient}
 	if e.Hint != "" {
@@ -60,8 +58,7 @@ func newErrorLine(e *clierr.Error, red *config.Redactor) errorLine {
 	return l
 }
 
-// write writes e, unless an error has been written already. Every API key is
-// masked in either mode.
+// write emits one redacted error in the chosen mode and ignores later attempts.
 func (f *failureWriter) write(e *clierr.Error) {
 	f.once.Do(func() {
 		f.mu.Lock()
@@ -91,8 +88,8 @@ func (f *failureWriter) write(e *clierr.Error) {
 	})
 }
 
-// signalInfo is the exit code (128 plus the signal's number, as a shell
-// reports it) and the name of each signal that ends a command.
+// signalInfo maps termination signals to names and shell-style status codes, 128 plus signal
+// number.
 type signalInfo struct {
 	code int
 	name string
@@ -102,8 +99,7 @@ var signalInfos = map[os.Signal]signalInfo{
 	os.Interrupt: {130, "SIGINT"}, unix.SIGTERM: {143, "SIGTERM"}, unix.SIGHUP: {129, "SIGHUP"},
 }
 
-// signalOf is how a command signal s ended exits and is named; any other
-// signal counts as SIGINT.
+// signalOf supplies signal name/status, defaulting unknown signals to SIGINT.
 func signalOf(s os.Signal) signalInfo {
 	if i, ok := signalInfos[s]; ok {
 		return i
@@ -118,9 +114,8 @@ type signals struct {
 	done  chan struct{}
 }
 
-// watchSignals records the first signal and cancels the command; a second
-// calls second, which does not return. A signal already waiting when the
-// command starts is taken at once, before any work.
+// watchSignals cancels on the first signal and calls the non-returning second handler on the
+// next. Already queued signals are handled before work starts.
 func watchSignals(ch <-chan os.Signal, cancel func(), second func(os.Signal)) *signals {
 	s := &signals{done: make(chan struct{})}
 	if ch == nil {

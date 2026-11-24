@@ -20,7 +20,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// The names of the files the tool reads from -dir, as `make threat-data` fetches them.
+// Input filenames match make threat-data downloads under -dir.
 const (
 	fetchedV4       = "drop_v4.json"
 	fetchedV6       = "drop_v6.json"
@@ -29,7 +29,7 @@ const (
 	fetchedASNs     = "asns.html"
 )
 
-// options are what one refresh reads and writes. now is the clock, in UTC.
+// options supplies refresh paths and a UTC clock.
 type options struct {
 	dir         string // the fetched files
 	spamhaus    string // the bundle to replace
@@ -38,10 +38,9 @@ type options struct {
 	now         time.Time
 }
 
-// run is one refresh: args are the command's arguments (-dir, -spamhaus, -ipapi and
-// -allow-shrink), what changed goes to stdout, and failures to stderr. now is the clock, which the
-// future-date rule reads. It returns the exit code: 0 when every source was written or left as it
-// is, 1 when a source failed (after writing the other), and 2 for a usage error.
+// run refreshes built-in data, writing changes to stdout and failures to stderr. now controls
+// future-date validation. It returns 0 for success/unchanged, 1 for a source failure after
+// trying both sources, and 2 for invalid usage.
 func run(args []string, stdout, stderr io.Writer, now time.Time) int {
 	o := options{now: now.UTC()}
 	fs := flag.NewFlagSet("refresh", flag.ContinueOnError)
@@ -82,8 +81,8 @@ func readFetched(o options, name string) ([]byte, error) {
 	return b, nil
 }
 
-// writeAtomic writes data to a temporary file beside path and renames it into place, so the file
-// is the old one or the new one and never half of either.
+// writeAtomic replaces path through a neighbouring temporary file so readers see complete old
+// or new data.
 func writeAtomic(path string, data []byte) (err error) {
 	f, err := os.CreateTemp(filepath.Dir(path), ".refresh-*.tmp")
 	if err != nil {
@@ -111,9 +110,8 @@ func writeAtomic(path string, data []byte) (err error) {
 	return os.Rename(f.Name(), path)
 }
 
-// accept applies the rules a list that is newer than the built-in copy must pass beside its
-// format: it has entries, and (unless the maintainer allows it) not under half the copy's. A
-// first refresh has no copy to compare with.
+// accept requires replacement lists to be nonempty and at least half the built-in size unless
+// shrink is allowed. A first refresh has no prior count to compare.
 func accept(o options, list string, entries, inUse int, hasCopy bool) error {
 	if err := threatdata.CheckEmpty(list, entries); err != nil {
 		return err
@@ -126,8 +124,8 @@ func accept(o options, list string, entries, inUse int, hasCopy bool) error {
 
 // ---- Spamhaus ----
 
-// refreshSpamhaus checks the three fetched lists against the built-in bundle, prints what changed
-// and replaces the bundle as a whole, unless no list is newer.
+// refreshSpamhaus validates fetched lists, reports changes and replaces the bundle only when at
+// least one list is newer.
 func refreshSpamhaus(o options, out io.Writer) error {
 	var files [3][]byte
 	for i, name := range []string{fetchedV4, fetchedV6, fetchedASN} {
@@ -151,14 +149,12 @@ func refreshSpamhaus(o options, out io.Writer) error {
 	if down.ASNs, err = spamhaus.ParseASNDrop(files[2]); err != nil {
 		return fmt.Errorf("%s: %w", spamhaus.ListASN, err)
 	}
-	// Every list is checked, newer or not (the date here, the format above); one that is not
-	// newer is then left as it is, and the empty and shrink rules apply to one that replaces the
-	// copy.
+	// Validate dates and format even for older lists. Apply empty/shrink rules only to
+	// lists that will replace the active copy.
 	next := prev
 	var report strings.Builder
 	newer := false
-	// replaces says whether the download of a list replaces the built-in copy, and reports a list
-	// that does not.
+	// replaces chooses newer downloads and reports retained lists.
 	replaces := func(name string, date, inUse time.Time, entries, was int) (bool, error) {
 		if err := threatdata.CheckDate(name, date, o.now); err != nil {
 			return false, err
@@ -169,7 +165,7 @@ func refreshSpamhaus(o options, out io.Writer) error {
 		}
 		return true, accept(o, name, entries, was, hasPrev)
 	}
-	// was is a list's date in the built-in copy, "" when there is none.
+	// was formats a built-in list date, or "" for no copy.
 	was := func(t time.Time) string {
 		if !hasPrev {
 			return ""
@@ -205,8 +201,7 @@ func refreshSpamhaus(o options, out io.Writer) error {
 		fmt.Fprintf(&report, "Update docs/abusive-networks.md to give the new Spamhaus dates: %s %s, %s %s, %s %s.\n",
 			spamhaus.ListV4, next.V4.Meta.Updated(), spamhaus.ListV6, next.V6.Meta.Updated(), spamhaus.ListASN, next.ASNs.Meta.Updated())
 	}
-	// The report is printed before the file is replaced, so that every error this returns, a
-	// failed print included, leaves the bundle as it was.
+	// Print before replacing so output errors also leave the original bundle intact.
 	if _, err := io.WriteString(out, report.String()); err != nil {
 		return err
 	}
@@ -216,9 +211,8 @@ func refreshSpamhaus(o options, out io.Writer) error {
 	return writeAtomic(o.spamhaus, spamhaus.Bundle(next.V4.Raw, next.V6.Raw, next.ASNs.Raw))
 }
 
-// readBundle is the built-in bundle, and whether there is one. A missing file is no copy yet. A
-// file that cannot be read is an error, so that a refresh never replaces what it could not
-// understand.
+// readBundle distinguishes a missing initial copy from unreadable existing data, which must not
+// be overwritten blindly.
 func readBundle(path string) (spamhaus.Lists, bool, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -239,7 +233,7 @@ var (
 	asnDropFields = []string{"as_name", "country", "domain", "rir"}
 )
 
-// orNone is a field's text, or "none" for a field the list leaves null.
+// orNone renders missing optional source fields as none.
 func orNone(s string) string { return cmp.Or(s, "none") }
 
 func networkEntries(l *spamhaus.NetworkList) []entry {
@@ -263,8 +257,8 @@ func asnDropEntries(l *spamhaus.ASNList) []entry {
 
 // ---- ipapi.is ----
 
-// refreshIpapi checks the two fetched pages against the built-in snapshot, prints what changed and
-// replaces the snapshot as a whole, unless no list is newer.
+// refreshIpapi validates fetched pages, reports changes and replaces the snapshot only when a
+// list is newer.
 func refreshIpapi(o options, out io.Writer) error {
 	netPage, err := readFetched(o, fetchedNetworks)
 	if err != nil {
@@ -321,16 +315,14 @@ func refreshIpapi(o options, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(&report, "Update docs/abusive-networks.md to give the new ipapi.is dates: networks %s, ASNs %s.\n", next.Nets.Updated, next.ASNs.Updated)
-	// The report is printed before the file is replaced, so that every error this returns, a
-	// failed print included, leaves the snapshot as it was.
+	// Print before replacing so output errors also leave the original snapshot intact.
 	if _, err := io.WriteString(out, report.String()); err != nil {
 		return err
 	}
 	return writeAtomic(o.ipapi, abusive.Marshal(next))
 }
 
-// dayNewer reports whether the list dated date (YYYY-MM-DD) replaces the one dated inUse, which
-// is "" when the snapshot has none.
+// dayNewer compares source days, allowing replacement when no previous date exists.
 func dayNewer(date, inUse string) bool {
 	if inUse == "" {
 		return true
@@ -340,9 +332,8 @@ func dayNewer(date, inUse string) bool {
 	return err1 != nil || err2 != nil || threatdata.Newer(d, u)
 }
 
-// readSnapshot is the built-in snapshot, and whether there is one. A missing file is no copy yet.
-// A file that cannot be read is an error, so that a refresh never replaces what it could not
-// understand.
+// readSnapshot distinguishes a missing initial copy from unreadable existing data, which must
+// not be overwritten blindly.
 func readSnapshot(path string) (abusive.Snapshot, bool, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -358,8 +349,7 @@ func readSnapshot(path string) (abusive.Snapshot, bool, error) {
 	return s, true, nil
 }
 
-// ipapiFields name the fields a change of an ipapi.is entry is reported in. The rank is left out,
-// so a rank that alone moved is no change.
+// ipapiFields defines reported change fields. Rank-only changes are intentionally ignored.
 var ipapiFields = []string{"score_tag", "abuse_score", "org", "org_type"}
 
 func ipapiNetworks(s abusive.Snapshot) []entry {
@@ -385,16 +375,15 @@ func ipapiEntry(id, tag string, score float64, org, typ string) entry {
 
 // ---- the summary ----
 
-// entry is one entry of a list as the summary compares and prints it: the key that identifies
-// it, the fields a change is reported in, and the line to print when it is added or removed.
+// entry identifies a list item, its comparable fields and its addition/removal display text.
 type entry struct {
 	id     string
 	fields []string
 	line   string
 }
 
-// diff lists what was added, removed and changed, each as the line the summary prints, in the
-// order of the lists. names name the fields of an entry.
+// diff formats added, removed and changed entries in list order, using names for changed-field
+// labels.
 func diff(before, after []entry, names []string) (added, removed, changed []string) {
 	byID := func(es []entry) map[string]entry {
 		m := make(map[string]entry, len(es))

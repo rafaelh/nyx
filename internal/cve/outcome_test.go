@@ -111,7 +111,7 @@ func TestOutcome_Rows(t *testing.T) {
 	}
 }
 
-// Each meta.errors entry is the failure's error with the argument, as given, as its input.
+// Per-item errors preserve original argument text as input.
 func TestOutcome_MetaErrorEntries(t *testing.T) {
 	t.Parallel()
 	_, metaErrs, _ := Outcome([]Result{ok("CVE-2021-44228"), limited(" cve-2024-3094", 5*time.Second)}, command)

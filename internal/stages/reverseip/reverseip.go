@@ -21,22 +21,16 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// maxSecurityTrailsPages caps the result pages read for one address (one query
-// credit each). An address that needs more is shared hosting for any sensible
-// reverseip.max_domains.
+// maxSecurityTrailsPages bounds credits per reverse-IP lookup; larger result sets already imply
+// shared hosting beyond useful domain caps.
 const maxSecurityTrailsPages = 10
 
-// Stage asks HackerTarget's reverse IP lookup (unkeyed, IPv4 only) and, when
-// keys.securitytrails is set, SecurityTrails' list of domains whose current A or
-// AAAA record is the address, for every recorded address that may be port-checked:
-// one in an in-scope netblock, or dedicated to the organisation and not excluded.
-// It never walks a netblock: only an address some other stage recorded is asked.
+// Stage looks up recorded port-eligible addresses using HackerTarget for IPv4 and optionally
+// SecurityTrails for A/AAAA data. It does not expand netblocks.
 //
-// An address that returns more distinct registrable domains than
-// reverseip.max_domains is unrecognised shared hosting, and nothing is recorded
-// for it. The cap is in the check key, so changing it asks again. The key carries
-// no scope: a hostname under a root promoted later was recorded only as a
-// candidate root until --redo reverseip. It never calls Shodan.
+// Results exceeding reverseip.max_domains are discarded as shared hosting. The cap is part of
+// check keys; scope is not, so names beneath newly promoted roots need --redo reverseip for
+// reclassification. Shodan is queried separately.
 type Stage struct{}
 
 // New returns the reverseip stage.
@@ -50,8 +44,7 @@ func (*Stage) Sources() []string    { return []string{"api.hackertarget.com", "a
 // key adds a source.
 func (*Stage) Configured(run.Env) (bool, string) { return true, "" }
 
-// input is the Check.Input. The scope travels in it so that Run can tell a
-// hostname under an in-scope root from any other name.
+// input carries scope so Run can distinguish in-scope hostnames from external candidate roots.
 type input struct {
 	addr  netip.Addr
 	sc    *scope.Scope
@@ -59,10 +52,8 @@ type input struct {
 	keyed bool // keys.securitytrails was set when the check was made
 }
 
-// Checks yields, in address order, each recorded address that may be port-checked
-// (which excludes shared, excluded and unknown-owner addresses). An IPv6 address
-// is yielded only with a SecurityTrails key, since HackerTarget cannot answer it;
-// it gets its check when a key is added.
+// Checks lists eligible recorded addresses in order. IPv6 requires a SecurityTrails key and
+// becomes eligible for a check when one is added.
 func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		set := v.Settings()
@@ -82,17 +73,16 @@ func (*Stage) CandidateSources() map[string]string {
 	return map[string]string{"reverseip": candidates.ReverseIP}
 }
 
-// Evidence is the address, under the source "reverseip". The item leaves out the cap, so changing it does not count an
-// address twice, and a root seen on two addresses has two pairs.
+// Evidence uses the address without the cap so cap changes cannot duplicate support, while two
+// addresses still count as two items.
 func (*Stage) Evidence(checkKey string) (source, item string) {
 	addr, _, _ := strings.Cut(checkKey, "|")
 	return "reverseip", addr
 }
 
-// Run asks each source and merges the names. A name the scope classifies in scope
-// or excluded is a hostname (scope lists it as a subdomain or as excluded); any
-// other contributes its registrable domain as a candidate root and the hostname is
-// dropped. No names is a completed check.
+// Run merges source names. In-scope/excluded names remain hostname records; other names
+// contribute only their registrable domain as a candidate root. Empty results complete
+// normally.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(input)
 	f := found{seen: map[string]bool{}, domains: map[string]bool{}}
@@ -117,8 +107,8 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	return obs, nil
 }
 
-// found is the names an address returned, cleaned and without repeats, each with
-// its registrable domain ("" when it has none), and the set of those domains.
+// found deduplicates cleaned names and tracks their registrable domains for shared-hosting
+// limits.
 type found struct {
 	names   []struct{ name, root string }
 	seen    map[string]bool
@@ -139,13 +129,11 @@ func (f *found) add(names []string) {
 	}
 }
 
-// over reports whether the names span more registrable domains than the cap: the
-// address is shared hosting.
+// over detects shared hosting from too many distinct registrable domains.
 func (f *found) over(limit int) bool { return len(f.domains) > limit }
 
-// gather asks HackerTarget (IPv4 only) and then, with a key, SecurityTrails. An
-// address HackerTarget already shows to be shared hosting is not asked of
-// SecurityTrails, whose pages each spend a credit.
+// gather asks HackerTarget first for IPv4, then keyed SecurityTrails. Results already proving
+// shared hosting skip the credit-consuming second source.
 func gather(ctx context.Context, e egress.Clients, in input, f *found) error {
 	if in.addr.Is4() {
 		names, err := httpsrc.GetNames(ctx, e, "https://api.hackertarget.com/reverseiplookup/?"+url.Values{"q": {in.addr.String()}}.Encode(), reverseLines)
@@ -160,10 +148,8 @@ func gather(ctx context.Context, e egress.Clients, in input, f *found) error {
 	return securityTrails(ctx, e, in, f)
 }
 
-// reverseLines reads HackerTarget's reverse lookup reply, one name per line. Its
-// quota (a 429, or the text reply it sends with a 200) is run.ErrQuota. A line
-// that is not a name means the reply is not a list, which is an error and not "no
-// names".
+// reverseLines validates HackerTarget's name list. Quota replies map to run.ErrQuota even with
+// status 200. Invalid name lines fail the check rather than completing an empty result.
 func reverseLines(body []byte) ([]string, error) {
 	lines, quota, err := ipsource.ReverseLines(body)
 	if quota {
@@ -172,10 +158,9 @@ func reverseLines(body []byte) ([]string, error) {
 	return lines, err
 }
 
-// securityTrails adds the domains whose current A or AAAA record is the address.
-// It reads pages until the cap is passed (the address is then shared hosting and
-// more would only spend credits), the pages run out, or maxSecurityTrailsPages.
-// A 401, 403 or 429 aborts the stage (httpsrc.Get): HackerTarget lookups included.
+// securityTrails reads until exhaustion, the domain cap or maxSecurityTrailsPages. Passing the
+// cap stops credit use. Keyed 401/403/429 aborts the whole stage, including later HackerTarget
+// checks.
 func securityTrails(ctx context.Context, e egress.Clients, in input, f *found) error {
 	field := "ipv4"
 	if in.addr.Is6() {

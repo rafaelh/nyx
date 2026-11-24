@@ -16,27 +16,24 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// Config is what a lookup needs from its caller.
+// Config supplies lookup dependencies and selected output fields.
 type Config struct {
-	// Fields are the keys the caller selected; only the sources they need are asked. Its mode
-	// (Fields.Active) is whether --active was given: the shared check, the local resolver and the
-	// probes.
+	// Fields selects record keys and required sources. Fields.Active additionally enables
+	// shared-host checks, local resolution and target probes.
 	Fields Fields
-	// ThirdParty reaches the sources. It must be built for every source host the lookup asks.
+	// ThirdParty must permit every source host required by the lookup.
 	ThirdParty egress.ThirdPartyHTTP
 	// DNS is the public resolver set; Local is this machine's resolver.
 	DNS   egress.Resolver
 	Local egress.LocalResolver
-	// ProbeOptions are what the target clients for one contacted address are built from, under a
-	// Policy that holds that address alone. Only used under --active.
+	// ProbeOptions builds per-address active clients with a policy limited to that address.
 	ProbeOptions egress.Options
-	// Abusive is the snapshot of abusive networks and ASNs the addresses are checked against; nil
-	// means the one built into the binary. No request is made for it.
+	// Abusive supplies local matching data; nil uses the embedded snapshot without
+	// requests.
 	Abusive *abusive.Snapshot
-	// Drop is Spamhaus's DROP, DROPv6 and ASN-DROP lists the addresses are checked against; nil
-	// means the ones built into the binary. No request is made for them.
+	// Drop supplies local DROP matching data; nil uses embedded lists without requests.
 	Drop *spamhaus.Lists
-	// Warn receives each warning once (a latched source, an RDAP referral problem).
+	// Warn receives deduplicated source/referral warnings.
 	Warn func(string)
 	// Debug, when set, receives diagnostic lines.
 	Debug func(string)
@@ -44,7 +41,7 @@ type Config struct {
 
 // Resolved is the inputs after their hostnames have resolved.
 type Resolved struct {
-	// Inputs holds one result per input, in input order, with the addresses each gave.
+	// Inputs preserves each original input's result and resolved addresses.
 	Inputs []InputResult
 	// Addresses are the distinct addresses to look up, in record order.
 	Addresses []Address
@@ -60,9 +57,8 @@ type hostResolution struct {
 	err   *clierr.Error
 }
 
-// Resolve resolves the plan's hostnames (A and AAAA through the public resolvers; under Active a
-// name they do not know, and a single-label name, through this machine's resolver) and builds the
-// distinct address list. The error is a cap error (exit 2) or the context's.
+// Resolve uses public A/AAAA lookups, adding local resolution in Active mode for unknown or
+// single-label names. It returns deduplicated addresses, a cap error or context error.
 func Resolve(ctx context.Context, cfg Config, plan Plan) (Resolved, error) {
 	if n := plan.LiteralCount(); n > MaxAddresses {
 		return Resolved{}, plan.capError(n, false) // before any request
@@ -108,7 +104,7 @@ func Resolve(ctx context.Context, cfg Config, plan Plan) (Resolved, error) {
 	return out, nil
 }
 
-// hostAddresses are a hostname's addresses as text, IPv4 first, each in address order, once each.
+// hostAddresses formats unique resolved addresses in sorted IPv4/IPv6 order.
 func hostAddresses(addrs []netip.Addr) []string {
 	as := slices.Compact(canonical(addrs))
 	out := make([]string, len(as))
@@ -133,7 +129,7 @@ func resolveHost(ctx context.Context, cfg Config, in Input) hostResolution {
 	return r
 }
 
-// notFound is the error of a name with no address. nxdomain says the name does not exist.
+// notFound distinguishes nonexistent names from names without address records.
 func notFound(name string, nxdomain, active bool) *clierr.Error {
 	msg := name + " has no A or AAAA records"
 	if nxdomain {
@@ -146,7 +142,7 @@ func notFound(name string, nxdomain, active bool) *clierr.Error {
 	return &clierr.Error{Code: clierr.NotFound, Message: msg, Hint: hint}
 }
 
-// resolverFailure is the error of a resolver that did not answer. A deadline is TIMEOUT.
+// resolverFailure classifies unanswered DNS queries, including deadline timeouts.
 func resolverFailure(ctx context.Context, name string, err error) *clierr.Error {
 	if timedOut(ctx, err) {
 		return &clierr.Error{Code: clierr.Timeout, Message: fmt.Sprintf("resolving %s timed out", name), Hint: "raise --timeout, or retry", Transient: true}
@@ -154,8 +150,8 @@ func resolverFailure(ctx context.Context, name string, err error) *clierr.Error 
 	return &clierr.Error{Code: clierr.NetworkError, Message: fmt.Sprintf("resolving %s: %v", name, err), Hint: "check the network connection and retry", Transient: true}
 }
 
-// resolvePublic asks the public resolvers for A and AAAA. One of them answering with addresses is
-// enough; when neither does, a failure of either is the failure, else the name has no address.
+// resolvePublic accepts addresses from either A or AAAA lookup. If both return no addresses,
+// any lookup failure wins; otherwise the name has no address.
 func resolvePublic(ctx context.Context, cfg Config, name string) hostResolution {
 	type answer struct {
 		addrs    []netip.Addr
@@ -216,8 +212,8 @@ func resolveLocal(ctx context.Context, cfg Config, name string) hostResolution {
 	return out
 }
 
-// lookupConcurrency is how many addresses are looked up at once: the sources are paced, and an
-// address probed under --active opens a connection for each of its ports.
+// lookupConcurrency bounds simultaneous addresses, each of which may open several active-probe
+// connections.
 func lookupConcurrency(active bool) int {
 	if active {
 		return 16
@@ -225,10 +221,9 @@ func lookupConcurrency(active bool) int {
 	return 32
 }
 
-// Lookup asks every source each address needs, and probes the contacted ones under Active, with
-// the addresses a few at a time. It returns one result per address, in the order of r.Addresses.
-// It returns early, with whatever finished, when ctx is cancelled; the caller reports the cause.
-// A deadline is not an early end: each source that has not answered is a timed-out failure.
+// Lookup processes addresses concurrently and returns results in r.Addresses order. Active mode
+// also probes eligible addresses. Cancellation returns completed work early; deadline expiry
+// instead becomes a timeout for each unanswered source.
 func Lookup(ctx context.Context, cfg Config, r Resolved) []AddressResult {
 	st := newState(cfg)
 	out := make([]AddressResult, len(r.Addresses))
@@ -243,8 +238,8 @@ func Lookup(ctx context.Context, cfg Config, r Resolved) []AddressResult {
 	return out
 }
 
-// contact decides whether --active contacts the address, and probes it when it does and the
-// selection shows what a probe finds. in describes a and rec.
+// contact applies active-mode contact rules and probes only when selected fields need probe
+// results. in describes the address and record.
 func (s *state) contact(ctx context.Context, a Address, rec *Record, in contactInput, runs *sourceRuns) {
 	addr := in.Addr
 	rec.Ports, rec.TLS, rec.Web = []Port{}, []TLSEntry{}, []WebEntry{}

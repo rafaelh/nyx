@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// unmargined is output written to a terminal without the blank lines that set it apart from the
-// shell prompts, and fails the test when either is missing.
+// unmargined verifies and removes the blank lines separating terminal output from prompts.
 func unmargined(t *testing.T, out string) string {
 	t.Helper()
 	if !strings.HasPrefix(out, "\n") || !strings.HasSuffix(out, "\n\n") {
@@ -37,9 +36,8 @@ func TestMargin_OnlyOnATerminal(t *testing.T) {
 	}
 }
 
-// When both streams are terminals they share one margin: the opening line goes to the stream
-// written first and the closing line to the stream written last, and a stream nothing is written
-// to stays empty.
+// Terminal streams share opening/closing margins on the first/last written stream; unused
+// streams remain empty.
 func TestMargin_SharedByBothStreams(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, someFindings())

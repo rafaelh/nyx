@@ -1,12 +1,8 @@
 package kinds
 
-// WebIdentifier is one identifier found on the pages of a web service that can
-// be pivoted on to related sites: a tracking ID, the hash of the favicon, or
-// the copyright line of the root page. Each identifier is a record of its own,
-// keyed "<service>|<type>|<value>", so the union over the pages the probe and
-// the crawl fetched is the store's ordinary merge: each stage observes what it
-// saw, and an identifier stays current while either still sees it. A record is
-// shown while its host is in scope.
+// WebIdentifier stores a tracking ID, favicon hash or root-page copyright line for related-site
+// discovery. Keys use "<service>|<type>|<value>". Probe and crawl observations merge normally,
+// keeping an identifier current while either sees it. Visibility follows the host's scope.
 var WebIdentifier = defineJoined(Kind{Name: "web_identifier", HostAttr: "host"},
 	func(a *WebIdentifierAttrs) []*string { return []*string{&a.Service, &a.Type, &a.Value} })
 
@@ -18,9 +14,7 @@ const (
 	IdentifierCopyright = "copyright" // the first copyright line of the root page
 )
 
-// WebIdentifierAttrs: Service is the web service's origin (the web_service
-// key), Host its host, Type one of the Identifier constants and Value the
-// identifier.
+// WebIdentifierAttrs identifies the service origin, host, identifier type and value.
 type WebIdentifierAttrs struct {
 	Service string `json:"service"`
 	Host    string `json:"host"`

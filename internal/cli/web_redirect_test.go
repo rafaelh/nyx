@@ -172,10 +172,8 @@ func TestRedirect_RedirectToSelfOrAnIPAddsNoHostname(t *testing.T) {
 	}
 }
 
-// A name that only the permutation stage found must never become a seed
-// because its own service redirects to itself or lists itself in a SAN: those
-// observations are made by the web stages, but only names first seen by a stage
-// other than the permutation stage are seeds.
+// Self-redirects and certificate SANs must not turn permutation-only names into independent
+// generator seeds.
 func TestRedirect_PermutationOnlyNameIsNeverSeededByItsOwnService(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)

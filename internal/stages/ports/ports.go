@@ -1,6 +1,5 @@
-// Package ports is the ports stage: it finds which of the configured TCP ports
-// the target's own addresses accept connections on, connecting only as any
-// client would.
+// Package ports checks configured TCP ports on eligible target addresses through ordinary
+// connections.
 package ports
 
 import (
@@ -40,8 +39,8 @@ func (*Ports) Configured(e run.Env) (bool, string) {
 // timeout, so the sweep needs far more workers than other stages.
 func (*Ports) Workers(s config.Settings) int { return s.PortConcurrency }
 
-// portCheck is a check's input: the address and port, and whether a third party
-// reported the port, so that the outcome is recorded when nyx does not open it.
+// portCheck preserves whether a third party reported the port so closed or silent outcomes can
+// qualify that report.
 type portCheck struct {
 	ap       netip.AddrPort
 	reported bool
@@ -51,17 +50,12 @@ type portCheck struct {
 // the plain check of it had already completed.
 const recheckSuffix = "|reported"
 
-// Checks yields one check per eligible address and port, port by port. The
-// transport rate-limits each address, so the order keeps every worker off the
-// same host.
+// Checks walks ports before addresses to spread workers across per-host rate limits. Only
+// configured ports on eligible addresses are checked.
 //
-// A port a third party reported carries that in its check, so a check that has
-// not run yet records what nyx found (closed or silent) as it connects. A
-// check that completed before the report existed is run once more under the key
-// "<address:port>|reported", but only while nyx has neither opened the port nor
-// recorded what it found: a port is never connected to a third time on account
-// of a report. Only the ports of the configured list, on eligible addresses, are
-// ever yielded, whatever a third party reports.
+// Reported ports carry that context into execution. If a check completed before the report
+// existed, one "|reported" check can record its outcome, unless nyx already opened or checked
+// the reported port. Reports therefore cannot cause a third connection attempt.
 func (*Ports) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		addrs := eligible(ctx, v)
@@ -96,10 +90,8 @@ func (*Ports) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 	}
 }
 
-// eligible lists the addresses to check, built once per Checks call: every
-// distinct address of the in-scope IPv4 netblocks, then the other found
-// addresses (hostname-resolved, or IPv6 inside an in-scope netblock), keeping
-// those the single eligibility decision allows.
+// eligible combines the IPv4 netblock sweep with other discovered addresses, deduplicating and
+// applying the shared port-eligibility decision.
 func eligible(ctx context.Context, v run.View) []netip.Addr {
 	sc := v.Scope()
 	var out []netip.Addr
@@ -132,13 +124,10 @@ func eligible(ctx context.Context, v run.View) []netip.Addr {
 	return out
 }
 
-// Run connects. Open is an open_port observation. Closed and Filtered are
-// completed checks with nothing found, except for a port a third party reported,
-// where the outcome is a port_check: closed (rejected) takes the report out of
-// what is shown, and silent leaves it unconfirmed. Refused cannot happen for a
-// check the stage yielded (the policy is built from the same scope and
-// inventory), so it is a failure rather than a result that would permanently
-// skip an address that later becomes eligible.
+// Run records open ports. Closed/silent checks normally complete empty; reported ports
+// additionally store port_check evidence, hiding rejected reports while leaving silent ones
+// unconfirmed. Policy refusal is retryable because enumeration and egress should agree, and
+// completing it would prevent a later eligible retry.
 func (*Ports) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(portCheck)
 	ap := in.ap

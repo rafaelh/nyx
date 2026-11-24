@@ -22,22 +22,19 @@ import (
 const (
 	// maxEndpointsPerScript caps the URLs recorded from one script.
 	maxEndpointsPerScript = 500
-	// parserVersion changes whenever the extraction changes in a way the pattern
-	// and the caps do not show, so that scripts are read again.
+	// parserVersion versions extraction changes not represented by patterns or caps.
 	parserVersion = 1
 )
 
-// parserHash identifies the extraction rules. It is part of every check key, so
-// changing them reads each script again.
+// parserHash versions check keys when extraction rules change.
 var parserHash = func() string {
 	sum := sha256.Sum256(fmt.Appendf(nil, "%d|%s|%d|%d", parserVersion, endpointPattern, maxEndpointsPerScript, egress.MaxScriptBody))
 	return hex.EncodeToString(sum[:4])
 }()
 
-// JSParse is the jsparse stage: it reads the script files the crawl saw on
-// in-scope hosts, one GET each, and records the URLs and hostnames in scope that
-// their text names. Nothing it finds is ever requested: it asks egress only for
-// the script URLs the crawl recorded, and the crawl queues only links from pages.
+// JSParse fetches recorded in-scope scripts and extracts URLs/hostnames. Extracted endpoints
+// are recorded without requests. Egress permits only crawl-recorded script URLs; the crawl
+// follows page links rather than parsed script endpoints.
 type JSParse struct{}
 
 // NewJSParse returns the jsparse stage.
@@ -48,14 +45,12 @@ func (*JSParse) Contact() run.Contact              { return run.Target }
 func (*JSParse) Sources() []string                 { return nil }
 func (*JSParse) Configured(run.Env) (bool, string) { return true, "" }
 
-// RetiresUnlistedChecks: when a re-crawl stops referencing a script, its check
-// is retired and the URLs only it found stop being current; a changed parser
-// reads the scripts again.
+// RetiresUnlistedChecks removes evidence from scripts no longer referenced by crawling. Parser
+// changes create new checks for remaining scripts.
 func (*JSParse) RetiresUnlistedChecks() {}
 
-// Evidence is what a name jsparse found rests on: the script it was read from.
-// The check key also carries the parser hash, which must not count as another
-// piece of support when the parser changes.
+// Evidence uses the script URL independently of parser-version check keys, avoiding duplicate
+// support after parser changes.
 func (*JSParse) Evidence(checkKey string) (source, item string) {
 	item, _, _ = strings.Cut(checkKey, "|p=")
 	return "jsparse", item
@@ -66,13 +61,10 @@ type scriptInput struct {
 	sc  *scope.Scope
 }
 
-// Checks yields one check per current script on a host that may be fetched: a
-// probe hostname (in scope, resolved, not excluded, not wildcard-only) or an
-// in-scope address, and not one a SaaS platform serves. Per script origin the
-// first jsparse.max_scripts are yielded, scripts already read before the rest, so
-// a script that was fetched is never pushed out of the cap, and so never retired,
-// by a new script that sorts ahead of it. The key carries the parser, not the
-// scope: a root added later is picked up only by --redo jsparse.
+// Checks selects current scripts on eligible probe hosts or in-scope IPs, excluding SaaS.
+// Per-origin caps prefer already-read scripts so newly sorted URLs cannot evict existing work.
+// Parser version is keyed; scope is not, so extracting names under newly added roots needs
+// --redo jsparse.
 func (*JSParse) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		parsed := map[string]bool{}
@@ -96,8 +88,7 @@ func (*JSParse) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 	}
 }
 
-// scriptsByOrigin groups the current scripts on hosts that may be fetched, and
-// that no SaaS platform serves, by their origin.
+// scriptsByOrigin groups eligible non-SaaS scripts by origin.
 func scriptsByOrigin(v run.View) map[string][]string {
 	probe := map[string]bool{}
 	for _, h := range v.ProbeHostnames() {
@@ -115,9 +106,8 @@ func scriptsByOrigin(v run.View) map[string][]string {
 	return byOrigin
 }
 
-// capScripts sorts one origin's script URLs and keeps at most limit of them:
-// those already read first, then the rest in URL order. It returns the URLs
-// kept, sorted, and how many were left out.
+// capScripts prioritises already-read scripts, fills remaining slots in URL order, then returns
+// sorted selections and the omitted count.
 func capScripts(urls []string, parsed map[string]bool, limit int) ([]string, int) {
 	slices.Sort(urls)
 	skipped := len(urls) - limit
@@ -144,8 +134,7 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// fetchableHost reports whether a script host may be requested: a probe
-// hostname, or an IP literal that is in scope and not excluded.
+// fetchableHost accepts probe hostnames or non-excluded in-scope IP literals.
 func fetchableHost(v run.View, probe map[string]bool, host string) bool {
 	if _, isIP := input.IPLiteral(host); isIP {
 		return v.Scope().WebHostInScope(host)
@@ -153,9 +142,8 @@ func fetchableHost(v run.View, probe map[string]bool, host string) bool {
 	return probe[host]
 }
 
-// Run reads one script. A completed check always leaves a script_parsed marker,
-// whether or not the script answered or had anything to say. A timeout is a
-// transient failure; every other outcome is a completed check.
+// Run marks completed script checks with script_parsed even for empty/unusable responses.
+// Timeouts remain transient and uncompleted.
 func (*JSParse) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := chk.Input.(scriptInput)
 	obs := []run.Observation{kinds.ScriptParsed.Obs(in.url)}
@@ -199,9 +187,8 @@ func (*JSParse) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run
 
 var errScriptTimeout = errors.New("no complete response within the HTTP timeout")
 
-// fetchScript GETs the script and follows a redirect only to the same host. ok is
-// false when nothing usable came back: a non-2xx status, a redirect elsewhere or
-// a refusal.
+// fetchScript follows same-host redirects. Non-2xx, external redirects and policy refusals
+// return ok=false.
 func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string) (egress.Response, bool, error) {
 	req := egress.Script(scriptURL)
 	visited := map[string]bool{scriptURL: true}
@@ -234,8 +221,7 @@ func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string) 
 	}
 }
 
-// isMarkup reports whether a response is a page and not a script: it says
-// text/html, or its body starts with "<".
+// isMarkup rejects script responses declaring HTML or starting with markup.
 func isMarkup(r egress.Response) bool {
 	if r.ContentType() == "text/html" {
 		return true

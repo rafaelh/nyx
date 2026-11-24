@@ -17,9 +17,8 @@ import (
 // maxHops is how many redirects a probe, the crawl or jsparse follows.
 const maxHops = 10
 
-// Probe is the httpprobe stage: it finds the HTTP and HTTPS services of every
-// probe hostname and of every in-scope IP with an open port, and records each
-// with what an ordinary browser would see.
+// Probe finds HTTP/HTTPS services on probe hostnames and in-scope addresses with open ports,
+// recording their responses.
 type Probe struct{}
 
 // NewProbe returns the httpprobe stage.
@@ -44,10 +43,9 @@ type probeInput struct {
 	addr   netip.AddrPort
 }
 
-// Checks yields h:80 and h:443 for every probe hostname, one detection
-// check per open port with no banner whose representative has not already
-// been given one on that port, and h:port for the other names on each
-// address that answered HTTP. A key may repeat; the runner keeps the first.
+// Checks starts with hostname ports 80/443, detects protocols on other bannerless open ports,
+// then adds other hostnames sharing HTTP addresses. Duplicate keys are harmless because the
+// runner deduplicates them.
 func (*Probe) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		if _, err := fingerprints(); err != nil {
@@ -72,9 +70,8 @@ func (*Probe) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 // probeEmit yields one check, reporting whether to go on.
 type probeEmit func(key string, in probeInput) bool
 
-// detectionChecks yields one detection check per open port with no banner
-// whose representative has not already been given one on that port. It
-// reports whether to go on.
+// detectionChecks yields unrepresented bannerless open ports for protocol detection, returning
+// whether enumeration should continue.
 func detectionChecks(v run.View, emit probeEmit) bool {
 	sc := v.Scope()
 	detecting := map[string]bool{} // "rep:port" of the detection checks yielded
@@ -112,9 +109,8 @@ func detectionChecks(v run.View, emit probeEmit) bool {
 	return true
 }
 
-// sharedAddressChecks yields h:port for the other names on each address that
-// answered HTTP, unless a representative already answered on that port, on
-// whichever address.
+// sharedAddressChecks adds other names on HTTP-speaking addresses unless a representative
+// already answered on that port.
 func sharedAddressChecks(v run.View, emit probeEmit) {
 	reps := map[string]bool{}
 	ports := v.Records(kinds.HTTPPort)
@@ -136,9 +132,8 @@ func sharedAddressChecks(v run.View, emit probeEmit) {
 	}
 }
 
-// Run probes one service. A live answer (any status) is recorded; NoService and
-// Refused complete the check with nothing. On an undecided port https is
-// tried first, then http unless the connection was refused.
+// Run records any live HTTP response. NoService/Refused complete empty. Undecided protocols try
+// HTTPS then HTTP unless the connection itself was refused.
 func (p *Probe) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(probeInput)
 	schemes := []string{in.scheme}
@@ -182,8 +177,7 @@ type obsSet struct {
 
 func newObsSet() *obsSet { return &obsSet{seen: map[string]bool{}} }
 
-// add adds o unless the set has an observation of its record already, and
-// returns o's index in the list, or -1 if it was not added.
+// add deduplicates observations by record identity, returning the appended index or -1.
 func (s *obsSet) add(o run.Observation) int {
 	if k := o.Kind + "\x00" + o.Key; !s.seen[k] {
 		s.seen[k] = true
@@ -204,9 +198,8 @@ func isRedirect(status int) bool {
 // redirectTarget is the normalised absolute URL a redirect response points to.
 func redirectTarget(r egress.Response) (string, bool) { return resolve(r.URL(), r.Location) }
 
-// otherHost is host as a hostname observation, if it is a domain other than
-// self. The probed host itself would turn a permutation-only name into a seed,
-// and an IP literal would land in candidates.csv.
+// otherHost records only a different domain name. Recording self would incorrectly promote
+// permutation-only names to generator seeds; IP literals are not hostname candidates.
 func otherHost(host, self string) (string, bool) {
 	if host == strings.ToLower(self) {
 		return "", false
@@ -218,8 +211,7 @@ func otherHost(host, self string) (string, bool) {
 	return d, err == nil
 }
 
-// service builds the web_service record from the first response and the page
-// the redirect chain ends on, following in-scope redirects.
+// service combines first-response metadata with the final page after in-scope redirects.
 func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first egress.Response, e egress.Clients) ([]run.Observation, error) {
 	obs := newObsSet()
 	chain, err := followRedirects(ctx, in, first, e, obs)
@@ -255,9 +247,8 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 	return append([]run.Observation{kinds.WebService.Obs(attrs.URL, attrs), kinds.WebPosture.Obs(attrs.URL, posture(in.host, chain))}, obs.list...), nil
 }
 
-// followRedirects follows the in-scope redirects from first, at most maxHops
-// of them, recording each hop's URL, any other hostname it names and any
-// storage reference it is. It returns the chain of responses, first included.
+// followRedirects follows up to maxHops in-scope redirects, recording URLs, other hosts and
+// storage references. The returned response chain includes first.
 func followRedirects(ctx context.Context, in probeInput, first egress.Response, e egress.Clients, obs *obsSet) ([]*hop, error) {
 	last := first
 	chain := []*hop{newHop(first)}
@@ -298,9 +289,8 @@ func followRedirects(ctx context.Context, in probeInput, first egress.Response, 
 	return chain, nil //nolint:nilerr // a redirect that cannot be followed ends the chain, which is a result, not a failure
 }
 
-// recordHop records the URL a redirect from last points to, the hostname it
-// names if that is another domain, and the storage reference it is, if any. It
-// returns the URL observation's index in obs, or -1 if it was there already.
+// recordHop records redirect URL, any different domain and storage reference. It returns the
+// new URL observation's index, or -1 for a duplicate.
 func recordHop(obs *obsSet, self string, last egress.Response, hopURL kinds.URLAttrs) int {
 	target := hopURL.URL
 	hopIdx := obs.add(kinds.URL.Obs(target, hopURL))
@@ -316,8 +306,7 @@ func recordHop(obs *obsSet, self string, last egress.Response, hopURL kinds.URLA
 	return hopIdx
 }
 
-// certAttrs fills in the TLS certificate attributes from the first response's
-// leaf certificate, and records each other name it covers as a hostname.
+// certAttrs records certificate metadata and other valid DNS names as hostname observations.
 func certAttrs(attrs *kinds.WebServiceAttrs, first egress.Response, host string, obs *obsSet) {
 	leaf := first.PeerCerts[0]
 	sans := append([]string(nil), leaf.DNSNames...)
@@ -332,8 +321,8 @@ func certAttrs(attrs *kinds.WebServiceAttrs, first egress.Response, host string,
 	attrs.TLSTrust = first.CertTrust()
 	attrs.TLSSelfSigned = &isSelfSigned
 	for _, name := range leaf.DNSNames {
-		// A wildcard contributes its base name; malformed names, IP literals
-		// and public suffixes are skipped.
+		// Wildcard SANs contribute base names; invalid names, IPs and public suffixes
+		// are ignored.
 		if d := input.CleanName(name); d != "" && d != strings.ToLower(host) {
 			obs.add(kinds.Hostname.Obs(d, kinds.HostnameAttrs{}))
 		}

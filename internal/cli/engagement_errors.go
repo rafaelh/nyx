@@ -13,9 +13,8 @@ import (
 // maxListedEngagements is how many existing engagements a NOT_FOUND hint names.
 const maxListedEngagements = 10
 
-// engagementNotFound is the NOT_FOUND error of an engagement that does not exist in outputDir,
-// with given (the -e value as typed) as its input. Its hint lists the engagements that do; for a
-// command that can start one (recon), it then says how to.
+// engagementNotFound reports the original -e value and lists available engagements. Recon also
+// gets a hint explaining how to start one.
 func engagementNotFound(outputDir, name, given string, canStart bool) *clierr.Error {
 	names := engagement.List(outputDir)
 	var hint string
@@ -46,10 +45,9 @@ func foreignProblem(probs *clierr.Problems, given, dir string) {
 		"choose another engagement name with -e, or move "+dir+" away")
 }
 
-// probeEngagement probes the engagement directory of name in outputDir before anything opens it.
-// It adds the problem of a directory that is not an engagement, with given (the value the name
-// came from, as typed) as its input, and reports whether the engagement does not exist. With no
-// name or output directory (already a problem) it probes nothing.
+// probeEngagement checks a directory before opening can create it. Foreign directories become
+// validation problems using the original input value. It returns whether the engagement is
+// missing and skips checks when name or outputDir is already invalid.
 func probeEngagement(probs *clierr.Problems, outputDir, name, given string) (absent bool, err error) {
 	if name == "" || outputDir == "" {
 		return false, nil
@@ -69,9 +67,8 @@ func probeEngagement(probs *clierr.Problems, outputDir, name, given string) (abs
 	return false, nil
 }
 
-// openError turns the error of engagement.Open, which can still say the directory is foreign or
-// locked after the probe found it fine, into the error to report. given is the value the name came
-// from, as typed, which a foreign directory's problem names as its input, as the probe's does.
+// openError translates late Open failures, such as a newly acquired lock or foreign directory,
+// into CLI errors using the original input value.
 func openError(err error, given string) error {
 	var ne *engagement.NotEngagementError
 	var locked *engagement.LockedError

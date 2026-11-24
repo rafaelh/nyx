@@ -1,8 +1,5 @@
-// Package orgname is the word rule that decides whether a name belongs to an
-// organisation input: the name must contain every word of the organisation,
-// ignoring case, punctuation and legal suffixes ("Pty", "Ltd", "Inc"). Stages
-// that look an organisation up in a registry apply it to the registry's names,
-// so they all keep the same matches.
+// Package orgname matches organisation inputs by requiring every meaningful word, ignoring
+// case, punctuation and legal suffixes. Registry stages share this rule for consistent matches.
 package orgname
 
 import (
@@ -28,12 +25,11 @@ func Tokens(org string) []string {
 	return out
 }
 
-// Matches reports whether name contains every word of org. An organisation
-// with no words (only legal suffixes, or nothing) matches nothing.
+// Matches requires every meaningful organisation word; empty/legal-suffix-only inputs never
+// match.
 func Matches(org, name string) bool { return New(org).Matches(name) }
 
-// Org is an organisation name split into its words once, for a caller that
-// matches many names against it.
+// Org caches tokenised input for repeated name comparisons.
 type Org struct{ words []string }
 
 // New returns org ready to match names against.

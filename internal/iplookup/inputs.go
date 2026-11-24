@@ -13,7 +13,7 @@ import (
 // MaxAddresses is the most distinct addresses one call holds.
 const MaxAddresses = 256
 
-// Class is what an input is.
+// Class identifies an input's parsed category.
 type Class int
 
 // The classes of an input.
@@ -24,9 +24,9 @@ const (
 	ClassHostname              // a name that stands for the addresses it resolves to
 )
 
-// Input is one argument, or one line of stdin, as it was classified.
+// Input holds one classified argument or stdin line.
 type Input struct {
-	// Raw is the input as given, trimmed of surrounding space.
+	// Raw preserves the input text after trimming outer whitespace.
 	Raw   string
 	Class Class
 	// Addr is the address of a ClassAddress input, unmapped and without a zone.
@@ -35,22 +35,20 @@ type Input struct {
 	Prefix netip.Prefix
 	// Hostname is the name of a ClassHostname input: lower case, punycode, with no trailing dot.
 	Hostname string
-	// SingleLabel is true for a ClassHostname input of one label, which only this machine's
-	// resolver may resolve.
+	// SingleLabel restricts this hostname to local resolution.
 	SingleLabel bool
 	// Err is why a ClassInvalid input is: INVALID_INPUT, with a hint.
 	Err *clierr.Error
 }
 
-// Plan is the inputs of a call, classified, in the order given.
+// Plan preserves classified inputs in invocation order.
 type Plan struct {
 	Inputs []Input
 }
 
-// ParseInputs classifies each of the raw inputs, in the order given. active says whether a
-// single-label name is a hostname. Surrounding space is trimmed. An address is unmapped (an
-// IPv4-mapped IPv6 address is the IPv4 address) and loses its zone: a zoned link-local address is
-// reported but never contacted, so the zone is no use to it. A CIDR has its host bits masked.
+// ParseInputs trims and classifies inputs in order. Active mode permits single-label hostnames.
+// Addresses are unmapped and stripped of zones; zoned non-public addresses are reported without
+// contact. CIDRs have host bits masked.
 func ParseInputs(raw []string, active bool) Plan {
 	p := Plan{Inputs: make([]Input, len(raw))}
 	for i, r := range raw {
@@ -59,7 +57,7 @@ func ParseInputs(raw []string, active bool) Plan {
 	return p
 }
 
-// guide is the hint of an input that is none of an address, a CIDR or a hostname.
+// guide explains accepted input forms for invalid values.
 const guide = "give an address, a hostname or a CIDR, such as 192.0.2.1, example.com or 192.0.2.0/30"
 
 // invalid is an invalid input.
@@ -102,8 +100,7 @@ func classify(raw string, active bool) Input {
 	return Input{Raw: raw, Class: ClassHostname, Hostname: host, SingleLabel: !strings.Contains(host, ".")}
 }
 
-// Problems are the invalid inputs as problems of the "input" argument, in the order given, for a
-// call that exits 2 with every one of them.
+// Problems returns ordered invalid-input details for combined usage errors.
 func (p Plan) Problems() clierr.Problems {
 	var out clierr.Problems
 	for _, in := range p.Inputs {
@@ -119,7 +116,7 @@ func (p Plan) AllInvalid() bool {
 	return len(p.Inputs) > 0 && !slices.ContainsFunc(p.Inputs, func(in Input) bool { return in.Class != ClassInvalid })
 }
 
-// Hostnames are the distinct hostnames to resolve, in the order they were given.
+// Hostnames returns distinct lookup names in input order.
 func (p Plan) Hostnames() []Input {
 	var out []Input
 	seen := map[string]bool{}
@@ -132,11 +129,10 @@ func (p Plan) Hostnames() []Input {
 	return out
 }
 
-// maxCount is where a count of addresses stops growing: far past the cap, and far short of an
-// overflow however many ranges are added.
+// maxCount saturates address counts well beyond the cap but below possible overflow.
 const maxCount = 1 << 40
 
-// size is how many addresses the prefix holds, as a count that stops at maxCount.
+// size counts prefix addresses, saturating at maxCount.
 func size(p netip.Prefix) int {
 	host := p.Addr().BitLen() - p.Bits()
 	if host >= 40 {
@@ -145,9 +141,8 @@ func size(p netip.Prefix) int {
 	return 1 << host
 }
 
-// LiteralCount is how many distinct addresses the literal addresses and the CIDRs give, counted
-// without expanding any CIDR, so a /8 or a /0 is a number and never a list. The count stops at a
-// large number (it only has to say whether the cap is passed).
+// LiteralCount counts distinct literal/CIDR addresses without expanding ranges. It saturates
+// once the count is large enough to exceed the cap, so even /0 needs no address list.
 func (p Plan) LiteralCount() int {
 	var prefixes []netip.Prefix
 	var literals []netip.Addr
@@ -160,8 +155,8 @@ func (p Plan) LiteralCount() int {
 		case ClassInvalid, ClassHostname:
 		}
 	}
-	// Prefixes nest or are apart. Sorted by address, then by size, a prefix is covered exactly
-	// when the last one kept holds it.
+	// Sorted prefixes either nest or are disjoint, so only the last retained prefix can
+	// cover the next.
 	slices.SortFunc(prefixes, func(a, b netip.Prefix) int {
 		if c := a.Addr().Compare(b.Addr()); c != 0 {
 			return c
@@ -188,9 +183,8 @@ func (p Plan) LiteralCount() int {
 	return total
 }
 
-// ProvisionalCount is the number of addresses the deadline is first worked out from, before the
-// hostnames resolve: each hostname and each address counts as one and each CIDR as its size,
-// whether or not they repeat. Invalid inputs count nothing.
+// ProvisionalCount estimates the deadline before DNS: each literal or hostname counts once per
+// occurrence; each CIDR contributes its size. Invalid inputs contribute zero.
 func (p Plan) ProvisionalCount() int {
 	total := 0
 	for _, in := range p.Inputs {
@@ -209,7 +203,7 @@ func (p Plan) ProvisionalCount() int {
 // Found is how an address came to be in the call.
 type Found uint8
 
-// The ways an address is found. An address found more than one way has each flag.
+// Discovery flags accumulate when several input forms produce the same address.
 const (
 	FoundLiteral   Found = 1 << iota // given as an address
 	FoundCIDR                        // inside a CIDR
@@ -217,9 +211,9 @@ const (
 	FoundLocalDNS                    // a hostname's answer from this machine's resolver
 )
 
-// OnlyPublicDNS reports whether only the public resolvers gave the address: a hostile name could
-// otherwise point --active at the operator's own machine, so a non-public address found only this
-// way is not contacted.
+// OnlyPublicDNS identifies addresses obtained solely through public resolvers. Active probing
+// rejects non-public addresses found only this way to prevent hostile DNS pointing at the
+// operator's machine.
 func (f Found) OnlyPublicDNS() bool { return f == FoundPublicDNS }
 
 // Address is one distinct address of the call.
@@ -238,15 +232,13 @@ type Resolution struct {
 	Found Found
 }
 
-// Addresses is every distinct address of the plan, once each, at its first appearance as the
-// inputs are read in order: a literal is one address, a CIDR gives its addresses in address order
-// (its first and last included), and a hostname gives its resolved addresses in resolved at the
-// place of the hostname, IPv4 first then IPv6, each in address order. A later appearance adds its
-// flag and its hostname to the address. A hostname with no entry in resolved gives none, and the
-// map is keyed by Input.Hostname.
+// Addresses deduplicates in input order. CIDRs expand in address order including endpoints;
+// hostname results replace their input position, sorted IPv4 before IPv6. Repeated addresses
+// accumulate hostnames and discovery flags. resolved is keyed by Input.Hostname; missing
+// entries contribute nothing.
 //
-// It fails with CapError, and gives no list, when the literal addresses and CIDRs alone pass
-// MaxAddresses (decided by size before any CIDR is expanded) or when the whole list does.
+// CapError returns no list if literal/CIDR counts exceed MaxAddresses before expansion, or
+// resolved results exceed it afterwards.
 func (p Plan) Addresses(resolved map[string]Resolution) ([]Address, error) {
 	if n := p.LiteralCount(); n > MaxAddresses {
 		return nil, p.capError(n, false)
@@ -287,14 +279,14 @@ func (p Plan) Addresses(resolved map[string]Resolution) ([]Address, error) {
 	return out, nil
 }
 
-// capError is CapError with the plan's invalid inputs listed before the cap, so that a call that
-// exits 2 reports every one of its problems together.
+// capError combines invalid inputs before the cap problem so usage errors report all issues
+// together.
 func (p Plan) capError(count int, resolved bool) *clierr.Error {
 	return append(p.Problems(), CapProblem(count, resolved)).Usage("")
 }
 
-// canonical is a hostname's addresses unmapped and without a zone, in address order (IPv4 sorts
-// before IPv6), in a new slice.
+// canonical copies, unmaps and deduplicates addresses, removing zones and sorting IPv4 before
+// IPv6.
 func canonical(addrs []netip.Addr) []netip.Addr {
 	as := make([]netip.Addr, len(addrs))
 	for i, a := range addrs {
@@ -304,8 +296,8 @@ func canonical(addrs []netip.Addr) []netip.Addr {
 	return as
 }
 
-// CapProblem is the problem of a call that holds count addresses, which is more than MaxAddresses.
-// resolved says the count includes what the hostnames resolved to.
+// CapProblem reports count exceeding MaxAddresses, distinguishing DNS-expanded totals when
+// resolved is true.
 func CapProblem(count int, resolved bool) clierr.Problem {
 	shown := fmt.Sprintf("%d addresses", count)
 	if count > 1<<20 {
@@ -318,7 +310,7 @@ func CapProblem(count int, resolved bool) clierr.Problem {
 	return clierr.Problem{Name: "input", Message: msg, Hint: "split the inputs into calls of at most 256 addresses, or use a smaller CIDR"}
 }
 
-// CapError is CapProblem as the error of a call, which exits 2.
+// CapError carries cap-validation problems for a usage failure.
 func CapError(count int, resolved bool) *clierr.Error {
 	return clierr.Problems{CapProblem(count, resolved)}.Usage("")
 }

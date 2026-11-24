@@ -17,7 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// syncBuffer is an output buffer the Program writes while the test reads it.
+// syncBuffer permits concurrent Program writes and test reads.
 type syncBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer
@@ -35,7 +35,7 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-// session is a Program run in the background, fed keys through a pipe.
+// session runs the Program with pipe-fed input in the background.
 type session struct {
 	t      *testing.T
 	in     *io.PipeWriter
@@ -64,7 +64,6 @@ func startSession(t *testing.T, b Backend, mod func(*Options)) *session {
 	return s
 }
 
-// send writes raw input.
 func (s *session) send(text string) {
 	s.t.Helper()
 	if _, err := io.WriteString(s.in, text); err != nil {
@@ -104,10 +103,10 @@ func TestRun_EditsSavesAndQuitsThroughARealProgram(t *testing.T) {
 	b := newFake()
 	s := startSession(t, b, nil)
 	s.waitOut("nyx setup")
-	s.send("\r")               // edit the first key
-	s.send("abcdefghijklmnop") // type it
-	s.send("\r")               // accept
-	s.send("\x13")             // ctrl+s
+	s.send("\r")
+	s.send("abcdefghijklmnop")
+	s.send("\r")
+	s.send("\x13")
 	until(t, "the save", func() bool { n, _, _ := b.counts(); return n == 1 })
 	s.send("q")
 	if err := s.result(); err != nil {
@@ -128,7 +127,7 @@ func TestRun_QuitWithNoChangeWritesNothing(t *testing.T) {
 	b := newFake()
 	s := startSession(t, b, nil)
 	s.waitOut("nyx setup")
-	s.send("\x03") // ctrl+c
+	s.send("\x03")
 	if err := s.result(); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -168,7 +167,7 @@ func TestRun_ASaveUnderWayCompletesWhenTheFirstSignalArrives(t *testing.T) {
 	s.send("\r")
 	s.send("\x13")
 	<-started
-	s.cancel() // the first signal
+	s.cancel() // simulate first-signal cancellation
 	select {
 	case err := <-s.done:
 		t.Fatalf("Run returned %v before the save finished", err)
@@ -225,12 +224,12 @@ func TestRun_APanicInUpdateIsReturnedWithoutTheKeyAndTheTerminalRestored(t *test
 	s.waitOut("nyx setup")
 	s.send("\r")
 	s.send(key)
-	s.send("\r") // accept the key
-	s.send("\t") // Settings
+	s.send("\r")
+	s.send("\t")
 	s.send("\x1b[B")
 	s.send("\r")
 	s.send("12")
-	s.send("\r") // Check panics
+	s.send("\r") // inject a backend validation panic
 	err := s.result()
 	var pe *clierr.PanicError
 	if !errors.As(err, &pe) {
@@ -276,7 +275,7 @@ func TestRoot_APanicInViewIsRecovered(t *testing.T) {
 	t.Parallel()
 	killed := false
 	g := &guard{kill: func() { killed = true }}
-	r := &root{g: g} // no model: View dereferences nil
+	r := &root{g: g} // exercise panic recovery before a model exists
 	_ = r.View()
 	if g.panicErr == nil || !killed {
 		t.Fatalf("panic %v killed %v", g.panicErr, killed)

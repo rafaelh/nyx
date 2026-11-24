@@ -22,15 +22,13 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// Helpers of the tests of nyx setup --update-threat-data. They give each test its own built-in copy,
-// dated 20 days before the clock, never the embedded one, whose dates move with each refresh of the
-// built-in data. A download is dated two days after the built-in copy (d2), and a downloaded copy
-// already in place one day after it (d1).
+// Update tests use fixed built-ins at d0, existing downloads at d1 and responses at d2,
+// avoiding moving embedded dates.
 
-// tdDay is t's UTC date as ipapi.is lists are dated.
+// tdDay formats the UTC source date for ipapi fixtures.
 func tdDay(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 
-// tdStamp is t as a Spamhaus list's date, and every time in the envelope, is written.
+// tdStamp formats second-precision UTC update timestamps.
 func tdStamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
 // The credit the generated Spamhaus files carry, as Spamhaus's own do.
@@ -100,7 +98,7 @@ func tdSpamhausAt(date time.Time, from int) tdSpamhausFiles {
 	return tdSpamhausFiles{tdDropFile(tdV4Row, date, from, 80), tdDropFile(tdV6Row, date, from, 20), tdDropFile(tdASNRow, date, from, 20)}
 }
 
-// tdBundle is a downloaded Spamhaus copy as nyx keeps it: each file after its marker line.
+// tdBundle preserves list bytes after source markers in a downloaded bundle.
 func tdBundle(f tdSpamhausFiles) []byte { return spamhaus.Bundle(f.v4, f.v6, f.asn) }
 
 func tdNetEntry(i int) abusive.NetworkEntry {
@@ -127,7 +125,7 @@ func tdIpapiAt(date time.Time, from int) abusive.Snapshot {
 	return s
 }
 
-// tdIpapiFile is a downloaded ipapi.is copy as nyx keeps it.
+// tdIpapiFile constructs downloaded snapshot JSON.
 func tdIpapiFile(s abusive.Snapshot) []byte {
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -136,7 +134,7 @@ func tdIpapiFile(s abusive.Snapshot) []byte {
 	return b
 }
 
-// tdHeaderOrg is the organisation column's header as ipapi.is spells it.
+// tdHeaderOrg selects the source's organisation-column spelling.
 const tdHeaderOrg = "Organization" //nolint:misspell // the page's own spelling
 
 func tdPageDate(d time.Time) string { return d.UTC().Format("January 2, 2006") }
@@ -170,8 +168,7 @@ func tdASNsPage(d time.Time, from, n int) []byte {
 	return []byte(b.String())
 }
 
-// tdBuiltIn is the built-in copy of the update's tests, dated d0: the Spamhaus lists of
-// tdSpamhausAt and the ipapi.is lists of tdIpapiAt, each from entry 0.
+// tdBuiltIn combines fixed Spamhaus/ipapi fixtures at d0 starting from entry zero.
 func tdBuiltIn(d0 time.Time) (*threatdata.BuiltIn, error) {
 	f := tdSpamhausAt(d0, 0)
 	v4, err := spamhaus.ParseDrop(f.v4, false)
@@ -189,8 +186,7 @@ func tdBuiltIn(d0 time.Time) (*threatdata.BuiltIn, error) {
 	return &threatdata.BuiltIn{Spamhaus: spamhaus.Lists{V4: v4, V6: v6, ASNs: asn}, Ipapi: tdIpapiAt(d0, 0)}, nil
 }
 
-// tdReply is a fake host's answer to one path. A gate, when set, holds the answer until it is
-// closed or the request ends.
+// tdReply can hold a fake response behind a gate until release or request cancellation.
 type tdReply struct {
 	status int
 	body   []byte
@@ -318,9 +314,8 @@ func newThreatWorld(t *testing.T) *threatWorld {
 	return newThreatWorldOn(t, newHarness(t))
 }
 
-// newThreatWorldOn is newThreatWorld on a harness the caller made. Each source's fake answers a
-// download that is newer than the built-in copy: every list dated d2, from entry 5, so that each
-// list adds 5 entries and removes 5.
+// newThreatWorldOn returns newer shifted lists, each adding/removing five entries, on an
+// existing harness.
 func newThreatWorldOn(t *testing.T, h *harness) *threatWorld {
 	t.Helper()
 	w := &threatWorld{t: t, h: h, sh: newTDFake(t), ip: newTDFake(t)}
@@ -643,9 +638,7 @@ func (h *harness) threatLine(list string) string {
 	return ""
 }
 
-// threatFailure is the error of an update that failed (exit 1) or failed in part (exit 7), with
-// the per-source lines a human-mode error may carry after it: stderr's first line is the error,
-// then its hint and retry lines, then a line for each failed source.
+// threatFailure verifies full/partial update errors and human per-source detail lines.
 func (h *harness) threatFailure(jsonMode bool) failure {
 	h.t.Helper()
 	if jsonMode {

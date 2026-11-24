@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// A field a Spamhaus row leaves out leaves no empty parentheses or double space in the cells, the
-// detail or the found line, and a drop-asn finding reads as its AS and name.
+// Optional missing fields must not leave empty parentheses or doubled spaces in finding text.
 func TestDrop_BlankFieldsLeaveNoGaps(t *testing.T) {
 	t.Parallel()
 	w := newAbusiveWorld()

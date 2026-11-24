@@ -1,14 +1,7 @@
-// Package candidates ranks the candidates (roots, hostnames, netblocks,
-// autonomous systems and organisations found but not in scope) by how many
-// independent signals support them, and orders and lists them. It is pure: it
-// reads no store, scope or file.
-//
-// A candidate's evidence is a list of (source, item) pairs: the source is the
-// stage or mechanism that observed it, the item is what linked it (an
-// organisation, an address, a netblock, a root, a service). Sources are grouped
-// into families, and the confidence is decided by how many families agree and
-// by which. Each stage names the family of its sources (Families); see Score
-// for the rules.
+// Package candidates ranks discoveries outside scope by the independent evidence supporting
+// them. Evidence pairs a source with the item linking a candidate to the engagement. Stages
+// group sources into families; confidence depends on which families agree. This package
+// performs no I/O and does not read scope or the store.
 package candidates
 
 import (
@@ -20,10 +13,9 @@ import (
 	"github.com/rafaelh/nyx/internal/shellquote"
 )
 
-// Confidence is how far a candidate's evidence supports promoting it to scope.
+// Confidence indicates how strongly the evidence supports adding a candidate to scope.
 type Confidence string
 
-// The confidence levels.
 const (
 	Low    Confidence = "low"
 	Medium Confidence = "medium"
@@ -41,20 +33,18 @@ func (c Confidence) rank() int {
 	}
 }
 
-// Evidence is one source and the item that linked the candidate, with the
-// family of the source (Families.Of). An empty Family is a family of its own,
-// named after the source.
+// Evidence links a candidate to a source and supporting item. An empty Family gives the source
+// its own independent family.
 type Evidence struct{ Source, Item, Family string }
 
-// Rank is the ranking of one candidate.
 type Rank struct {
 	Sources    []string // the distinct sources, sorted
 	Count      int      // the distinct (source, item) pairs
 	Confidence Confidence
 }
 
-// The families the stages put their sources in. A source no stage puts in one
-// is a family of its own, named after it.
+// Stages group related sources into these families. Undeclared sources each form their own
+// family.
 const (
 	CertTransparency = "certificate transparency"
 	WebArchive       = "web archive"
@@ -65,25 +55,22 @@ const (
 	WebIdentifier    = "web identifier"
 )
 
-// retired are the families of the sources no stage runs any more (otx and
-// anubis), so that what an engagement stored from them still counts as passive
-// DNS, not as a family of its own.
+// retired preserves the passive-DNS classification of OTX and Anubis evidence saved by older
+// versions.
 var retired = map[string]string{"otx": PassiveDNS, "anubis": PassiveDNS}
 
-// Families maps each source the stages name to its family.
+// Families groups evidence sources by discovery mechanism.
 type Families struct{ m map[string]string }
 
-// NewFamilies returns the families of the named sources (a source to its
-// family), and of the sources no stage runs any more.
+// NewFamilies combines stage-declared source families with mappings for retired sources.
 func NewFamilies(named map[string]string) Families {
 	m := maps.Clone(retired)
 	maps.Copy(m, named)
 	return Families{m}
 }
 
-// Of is the family a source belongs to. A source may carry what it found after
-// a colon ("identifier-pivot:G-ABC123"): it belongs to the family of the part
-// before the colon, so that each such value is not a family of its own.
+// Of returns a source's family. A suffix after a colon, such as "identifier-pivot:G-ABC123",
+// identifies a result rather than a new source family.
 func (f Families) Of(source string) string {
 	if fam, ok := f.m[source]; ok {
 		return fam
@@ -96,27 +83,20 @@ func (f Families) Of(source string) string {
 	return source
 }
 
-// Sources lists every source the families name, sorted: the values the sources
-// column can hold for a source with a family, apart from a source that carries
-// what it found after a colon (see Of), which is listed by the name before the
-// colon.
+// Sources returns sorted source names for display. Sources with result-specific suffixes are
+// listed under the name before the colon.
 func (f Families) Sources() []string {
 	return slices.Sorted(maps.Keys(f.m))
 }
 
-// Score ranks a candidate's evidence. orgs are the --org inputs.
+// Score calculates confidence from independent evidence families. Confidence is high with three
+// families, or a registrant match plus another family. It is medium with two families,
+// self-hosted name-server/mail evidence, reverse-IP evidence on multiple addresses, or a
+// registrant match alone. Otherwise it is low.
 //
-// The confidence is high when a registrant-family match of an input
-// organisation is joined by any other family, or three or more families agree;
-// medium with two families, or a shared name server or mail host, or reverse IP
-// on two or more addresses, or a registrant match alone; low otherwise. A
-// registrant match is evidence from a registrant-family source whose item is an
-// input organisation, that is, a source that was asked about that organisation
-// (a registry lookup applies the word rule of package orgname to the names it
-// gets back where it can; a search by organisation name leaves it to the
-// service), so without an --org input the rule never applies. A shared
-// name server or mail host is shared-infrastructure evidence: its stage reports
-// only self-hosted ones.
+// A registrant match requires evidence from a registrant-family source queried for an --org
+// input. Registry lookups apply orgname's word matching where possible; organisation search
+// services perform their own matching.
 func Score(ev []Evidence, orgs []string) Rank {
 	pairs := map[Evidence]bool{}
 	sources := map[string]bool{}
@@ -148,8 +128,7 @@ func Score(ev []Evidence, orgs []string) Rank {
 	return r
 }
 
-// The types of candidate the roll-up and Promote tell apart: the names of the
-// record kinds the candidates are.
+// Candidate types correspond to the record kinds used by ranking and scope promotion.
 const (
 	typeRoot         = "root"
 	typeHostname     = "hostname"
@@ -158,42 +137,34 @@ const (
 	typeOrganisation = "organisation"
 )
 
-// Candidate is one candidate and the evidence of the completed checks that
-// observe it. Type is the kind of record it is ("root", "hostname",
-// "netblock", "asn" or "organisation").
+// Candidate pairs a discovered entity with the evidence from its completed checks. Type is its
+// record kind: root, hostname, netblock, asn or organisation.
 type Candidate struct {
 	Type, Value string
 	Current     bool
 	Evidence    []Evidence
 }
 
-// Key names a candidate.
 type Key struct{ Type, Value string }
 
-// Ranked is a candidate and its rank.
 type Ranked struct {
 	Type, Value string
 	Current     bool
 	Rank
 }
 
-// RankAll ranks the candidates, in the order given. last is the rank each
-// candidate last had while it was current.
+// RankAll preserves input order and calculates ranks from current evidence. Candidate roots
+// also inherit evidence from current candidate hostnames beneath them, allowing root and
+// hostname discoveries to corroborate each other. Hostnames retain their own ranks.
 //
-// A current candidate root also counts the evidence of every current candidate
-// hostname under it (or equal to it), so that stages that report roots and
-// stages that report hostnames can corroborate each other; the hostnames keep
-// their own rank. A candidate that is no longer current keeps its last rank. So
-// does a current candidate with no evidence of its own: it is observed only by
-// checks a redo has forgotten and that have not run again (evidence rolled up
-// from hostnames does not make a root current), and it keeps its last rank
-// until they do, so that a candidate they no longer find shows the rank it had
-// while supported. A candidate with no rank to keep is left out.
+// Non-current candidates keep their last rank. Current candidates without direct evidence also
+// keep their rank while redo checks are pending; inherited hostname evidence alone cannot make
+// a root current. Candidates without a rank to preserve are omitted.
 func RankAll(cs []Candidate, last map[Key]Rank, orgs []string) []Ranked {
 	support := make([][]Evidence, len(cs))
 	roots := map[string]int{} // the current candidate roots, by value
 	for i, c := range cs {
-		support[i] = slices.Clip(c.Evidence) // so that the roll-up does not write to the caller's array
+		support[i] = slices.Clip(c.Evidence) // clone before appending rolled-up evidence to avoid changing the caller's slice
 		if c.Current && c.Type == typeRoot {
 			roots[c.Value] = i
 		}
@@ -226,8 +197,8 @@ func RankAll(cs []Candidate, last map[Key]Rank, orgs []string) []Ranked {
 	return out
 }
 
-// Listed are the candidates the summary lists, best first: the current ones
-// of high confidence. The rest are in candidates.csv only.
+// Listed returns current high-confidence candidates, best first, for the summary. Other
+// candidates remain in candidates.csv.
 func Listed(rs []Ranked) []Ranked {
 	var out []Ranked
 	for _, r := range rs {
@@ -244,7 +215,7 @@ func Listed(rs []Ranked) []Ranked {
 	return out
 }
 
-// Entry is what the sort order looks at.
+// Entry supplies the fields used to sort candidates.
 type Entry struct {
 	Value      string
 	Current    bool
@@ -252,9 +223,8 @@ type Entry struct {
 	Count      int
 }
 
-// Compare is the sort order of candidates.csv: rows that are current first,
-// then high before medium before low, then more evidence, then by value. A row
-// that is not current keeps the confidence it last had, and sorts last.
+// Compare orders candidates.csv by current status, confidence, evidence count and value.
+// Non-current rows retain their previous confidence but sort after current rows.
 func Compare(a, b Entry) int {
 	if a.Current != b.Current {
 		if a.Current {
@@ -269,9 +239,8 @@ func Compare(a, b Entry) int {
 	)
 }
 
-// Promote is the input that brings a candidate of the type into scope, as the
-// user would type it: a root or hostname as a positional domain, a netblock as
-// --cidr, an autonomous system as --asn and an organisation as --org.
+// Promote returns the CLI input that adds a candidate to scope: a positional domain, --cidr,
+// --asn or --org value.
 func Promote(typ, value string) string {
 	switch typ {
 	case typeNetblock:

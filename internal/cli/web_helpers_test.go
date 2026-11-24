@@ -215,8 +215,7 @@ func (s *site) sniSeen() []string {
 	return slices.Clone(s.snis)
 }
 
-// filterListener hands HTTP connections to the server and gives TLS ones
-// (first byte 0x16, a ClientHello) to onTLS, so a test can reset or hang them.
+// filterListener routes TLS ClientHello connections to onTLS while passing HTTP to the server.
 type filterListener struct {
 	net.Listener
 	ch    chan net.Conn
@@ -282,11 +281,8 @@ func (f *filterListener) Close() error {
 
 type openPort struct{ addr, banner string }
 
-// refusedAddr is a loopback address that refuses connections. Port 1 is below
-// every system's ephemeral range, so no test's listener (always on port 0) can be
-// given it. A port freed by closing a listener could not stand in: under parallel
-// load another test's server can be given that port, and connections meant to be
-// refused reach a live server.
+// refusedAddr uses loopback port 1, outside ephemeral allocation, to avoid parallel freed-port
+// reuse races.
 const refusedAddr = "127.0.0.1:1"
 
 // checkRefused reports whether refusedAddr refuses a connection on this machine.
@@ -302,10 +298,8 @@ var checkRefused = sync.OnceValue(func() error {
 	return nil
 })
 
-// web is a world with fake web servers. Every address a name resolves to, and
-// every port a test declares open, is mapped to a loopback address: a real
-// server where the test serves one, and refusedAddr elsewhere, so nothing ever
-// leaves the machine.
+// web maps every possible fixture address/port to a local server or refusal endpoint,
+// containing all traffic.
 type web struct {
 	*world
 	ips    map[string]bool

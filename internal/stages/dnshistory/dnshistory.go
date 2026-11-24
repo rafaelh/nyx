@@ -1,5 +1,5 @@
-// Package dnshistory is the dnshistory stage: the addresses a hostname behind a CDN or WAF resolved
-// to in the past, which may be where its origin server is.
+// Package dnshistory retrieves past addresses of CDN/WAF-fronted hosts as possible
+// origin-server evidence.
 package dnshistory
 
 import (
@@ -24,16 +24,13 @@ import (
 // maxPages caps the result pages read for one hostname and record type (one query credit each).
 const maxPages = 5
 
-// Stage asks SecurityTrails for the historical A and AAAA records of every in-scope hostname that
-// currently resolves to a known CDN or WAF provider. Each historical address is a historical_address
-// record and an ip record, so it appears in ips.csv and is looked up for its owner. It is never a
-// current address: only resolution records are, so nothing here makes an address probed, port-checked
-// or wildcard-tested, and nothing that decides contact reads historical_address.
+// Stage queries SecurityTrails A/AAAA history for in-scope CDN/WAF hosts. It records
+// historical_address and ip evidence for reporting and ownership lookup, never current DNS
+// resolution or permission to probe.
 //
-// The check is the hostname, so a history is fetched again only by --redo dnshistory. The key
-// carries no scope or provider data: a host that is fronted later is asked then. The stage is
-// budgeted by dnshistory.max_hosts, one hostname per check, in name order; the rest wait for the
-// next run.
+// Each hostname is fetched once unless --redo dnshistory is used. Hosts becoming fronted later
+// become eligible then. dnshistory.max_hosts budgets checks in name order, leaving the rest for
+// later runs.
 type Stage struct{}
 
 // New returns the dnshistory stage.
@@ -78,9 +75,8 @@ type history struct {
 	Records []record `json:"records"`
 }
 
-// Run asks for the A and then the AAAA history. A host SecurityTrails does not know (404) is a
-// completed check with nothing found. An address seen in several periods is one record, from the
-// earliest first_seen to the latest last_seen.
+// Run fetches A then AAAA history. A 404 completes without discoveries. Repeated address
+// periods merge using earliest first_seen and latest last_seen.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	host := c.Input.(string)
 	sp := &spans{byAddr: map[netip.Addr]*span{}}
@@ -111,9 +107,7 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	return obs, nil
 }
 
-// historyAddr parses an address of a history of record type typ ("a" or
-// "aaaa"). ok is false for an address that does not parse, is not global
-// unicast, or is not of that type.
+// historyAddr accepts global-unicast addresses matching the requested A/AAAA family.
 func historyAddr(typ, s string) (netip.Addr, bool) {
 	a, err := netip.ParseAddr(s)
 	if err != nil || !a.IsGlobalUnicast() {
@@ -160,8 +154,7 @@ func date(s string) string {
 	return s
 }
 
-// fetch reads the pages of one record type for a host. It stops at the last page the answer
-// reports or at maxPages, and says so when it stopped early.
+// fetch paginates one host/type through the reported last page or maxPages, warning if capped.
 func fetch(ctx context.Context, e egress.Clients, host, typ string) ([]record, error) {
 	var out []record
 	for page := 1; ; page++ {
@@ -190,6 +183,6 @@ func fetch(ctx context.Context, e egress.Clients, host, typ string) ([]record, e
 	}
 }
 
-// HistoricalAddresses marks the stage as one whose addresses come from DNS history (run.Historical):
-// an address only it names is not one the engagement is known to use.
+// HistoricalAddresses marks DNS-history evidence, which alone cannot establish that the
+// engagement still uses an address.
 func (*Stage) HistoricalAddresses() {}

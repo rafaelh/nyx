@@ -14,23 +14,18 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// NetblockOwner finds the origin AS of the addresses inside the in-scope netblocks, from Team
-// Cymru through the public resolvers, once for each covering /24 (IPv4) or /48 (IPv6), or once
-// for an in-scope netblock that is smaller (see scope.OwnerUnit). Prefixes longer than those are
-// filtered from the global routing table, so one answer is the origin of the whole unit.
+// NetblockOwner queries Cymru once per occupied /24 (IPv4), /48 (IPv6), or narrower in-scope
+// netblock. These units reflect global routing prefix limits.
 //
-// The AS is kept in its own kind, netblock_owner, which the scope build never reads: it is used
-// only to flag an address in an abusive AS, and changes nothing about whether an address is shared
-// provider infrastructure, contacted, excluded or a candidate. ipowner does the same for addresses
-// outside the netblocks, one lookup each, and records them as ip_owner.
+// Results use netblock_owner solely for abuse findings. Scope and contact decisions do not read
+// them. ipowner separately records per-address ownership outside these blocks as ip_owner.
 type NetblockOwner struct{ base }
 
 // NewNetblockOwner returns the netblockowner stage.
 func NewNetblockOwner() *NetblockOwner { return &NetblockOwner{base{"netblockowner"}} }
 
-// Checks yields one check per unit that holds a current ip record, in address order. An address
-// that only DNS history names is not left out: the answer applies to the whole unit, and ipowner
-// asks about such addresses too.
+// Checks lists occupied ownership units in address order, including history-only IPs because
+// the answer describes the entire unit.
 func (*NetblockOwner) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		sc := v.Scope()
@@ -54,8 +49,8 @@ func (*NetblockOwner) Checks(ctx context.Context, v run.View) iter.Seq2[run.Chec
 	}
 }
 
-// Run asks for the origin AS of the unit's first address. A unit Team Cymru does not know
-// (NXDOMAIN, AS0) is a completed check with no record; any other failure is transient.
+// Run queries the unit's first address. NXDOMAIN and AS0 complete without a record; other
+// failures are retried later.
 func (*NetblockOwner) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	unit := c.Input.(netip.Prefix)
 	owner, found, err := ipsource.Origin(ctx, e.DNS, unit.Addr())

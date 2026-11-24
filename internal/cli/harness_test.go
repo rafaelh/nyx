@@ -55,10 +55,8 @@ type harness struct {
 	cwd                      string            // the working directory nyx reports; "" means the process's
 	getwdPanicAfter          int               // when positive, the call of Getwd after this many panics, to force a panic in nyx setup
 	getwdCalls               atomic.Int32
-	// The threat data built into nyx for this test's runs (see builtInThreat): ipapi.is's lists
-	// (abusive) and Spamhaus's (drop). When either is set, the other is empty, so a test sees only
-	// the entries it gives; when neither is, the runs use the copies embedded in the binary.
-	// threatBuiltIn, when set, is the whole built-in copy, and abusive and drop are ignored.
+	// Test threat data can replace either source, leaving the other empty. threatBuiltIn
+	// overrides both; no override uses real embedded data.
 	abusive       *abusive.Snapshot
 	drop          *spamhaus.Lists
 	threatBuiltIn *threatdata.BuiltIn
@@ -79,8 +77,8 @@ func newHarness(t *testing.T, stages ...run.Stage) *harness {
 	// change a result and tests can run in parallel.
 	cfgHome := t.TempDir()
 	env := map[string]string{"TERM": "xterm", "XDG_CONFIG_HOME": cfgHome, "HOME": cfgHome}
-	// A user who has set nyx up has a config file, so a run does not hint at nyx setup. A test of
-	// that hint removes it.
+	// Create a default config to suppress setup hints except in tests explicitly exercising
+	// them.
 	if err := os.MkdirAll(filepath.Join(cfgHome, "nyx"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -154,10 +152,8 @@ func (h *harness) deps() cli.Deps {
 	}
 }
 
-// builtInThreat is the built-in copy of the threat data the runs see, as the fields abusive, drop and
-// threatBuiltIn describe; nil means the embedded copies. A list the test does not give is empty and
-// dated the day before the clock, so it is neither stale nor newer than a test's downloaded copy
-// dated after it.
+// builtInThreat dates unspecified empty lists yesterday so they are neither stale nor newer
+// than test downloads.
 func (h *harness) builtInThreat() *threatdata.BuiltIn {
 	if h.threatBuiltIn != nil {
 		return h.threatBuiltIn
@@ -191,8 +187,7 @@ func (h *harness) getwd() (string, error) {
 // unset.
 func (h *harness) setenv(name, val string) { h.env[name] = val }
 
-// set puts a setting, named by its dotted key (keys.shodan, archive.max_urls), in the default config
-// file of the runs that follow, which it rewrites; nil removes it. It replaces whatever the file held.
+// set rewrites the test's default config with the supplied dotted setting; nil removes it.
 func (h *harness) set(key string, val any) {
 	h.t.Helper()
 	if h.file == nil {
@@ -282,11 +277,8 @@ type failure struct {
 // humanErrorLine is the error line of human mode: "error: <message> (<CODE>)".
 var humanErrorLine = regexp.MustCompile(`^error: (.*) \(([A-Z_]+)\)$`)
 
-// failed asserts that the last call failed as the contract says: the exit
-// code, an empty stdout, and exactly one error on stderr, which it returns. In
-// human mode the error is the last lines of stderr, after any log lines; under
-// --json (jsonMode) it is one compact line with exactly the five keys, in
-// order, and the only thing on stderr besides DEBUG lines.
+// failed verifies status, empty stdout and one stderr error. Human errors follow logs; JSON
+// errors retain ordered keys and allow only debug lines alongside them.
 func (h *harness) failed(code, want int, jsonMode bool) failure {
 	h.t.Helper()
 	if code != want {
@@ -420,9 +412,8 @@ type event map[string]any
 func (e event) str(k string) string { s, _ := e[k].(string); return s }
 func (e event) num(k string) int    { f, _ := e[k].(float64); return int(f) }
 
-// recorder is the tap cli.Deps.Events gives a test. It writes each event as the JSON line the
-// event once was on stdout, so a reader sees what a JSON consumer would: a number is a float64.
-// A recorder that kept the maps would let every comparison of a count against zero pass.
+// recorder JSON-round-trips events so tests see real consumer types, including float64 counts,
+// rather than permissive in-memory maps.
 type recorder struct {
 	mu    sync.Mutex
 	lines []string
@@ -454,10 +445,8 @@ func (r *recorder) reset() {
 	r.mu.Unlock()
 }
 
-// events are the events of the last call, parsed from the tap's JSON lines, then the summary event
-// that the envelope on stdout makes (see summaryOf), when stdout holds one. The parse is kept
-// until another event arrives, the recorder is reset or stdout changes length, so callers that ask
-// in a loop parse once; each gets its own slice.
+// events combines captured events with a synthetic summary from stdout. Parsing is cached until
+// events/output change, and callers receive separate slices.
 func (h *harness) events() []event {
 	h.t.Helper()
 	r := &h.rec
@@ -482,9 +471,8 @@ func tryEnvelope(s string) (report.Envelope, bool) {
 	return env, true
 }
 
-// summaryOf is the summary of an envelope as a map, in the shape the summary event had: counts,
-// failed and deferred as objects keyed by name, a candidate's sources joined with ";", a finding's
-// missing detail as "", and the changes as counts keyed by kind then change.
+// summaryOf adapts envelopes to existing event assertions, including name-keyed counts, joined
+// sources and empty missing details.
 func summaryOf(env report.Envelope) event {
 	d := env.Data
 	totals, failed, deferred := map[string]any{}, map[string]any{}, map[string]any{}
@@ -557,10 +545,8 @@ type logLine struct{ time, level, msg string }
 // logLayout is the start of a plain log line: "HH:MM:SS | LEVEL | ".
 var logLayout = regexp.MustCompile(`^(\d\d:\d\d:\d\d) \| (DEBUG|INFO |WARN |ERROR|CRIT ) \| `)
 
-// logLines parses stderr's plain log lines. A line wrapped on a terminal, or a message of several
-// lines, has continuation lines indented to the message column (19 cells, or 21 once escapes are
-// removed from a coloured one); each is folded into the line before it, joined by a space, so the
-// message reads as it was written. A line in another form (the error and its hint) is skipped.
+// logLines folds wrapped/multiline continuations into messages using the 19/21-cell message
+// columns. It skips closing errors and hints.
 func (h *harness) logLines() []logLine {
 	var out []logLine
 	last := false // the previous line was a log line or a continuation of one
@@ -579,8 +565,7 @@ func (h *harness) logLines() []logLine {
 	return out
 }
 
-// continuation is the text of a line indented to the message column (19 or 21 cells, after
-// removing escapes), and whether it is one.
+// continuation recognises plain/coloured message-column indentation after removing escapes.
 func continuation(l string) (string, bool) {
 	l = stripSGR(l)
 	for _, indent := range []int{19, 21} {
@@ -591,7 +576,7 @@ func continuation(l string) (string, bool) {
 	return "", false
 }
 
-// logMsgs are the messages of the log lines of one level.
+// logMsgs filters parsed messages by level.
 func (h *harness) logMsgs(level string) []string {
 	var out []string
 	for _, l := range h.logLines() {
@@ -605,8 +590,7 @@ func (h *harness) logMsgs(level string) []string {
 // debugLines are the messages of the DEBUG lines on stderr.
 func (h *harness) debugLines() []string { return h.logMsgs("DEBUG") }
 
-// checkFailure is a check the last call's run failed, as the debug event the
-// runner emits for it reads: "<stage> check <key> failed: <error>".
+// checkFailure parses the runner's debug text for one failed stage/check.
 type checkFailure struct{ stage, key, err string }
 
 // failedChecks are the checks of a stage (of every stage for "") that the last
@@ -697,9 +681,8 @@ func lastState(evs []event, name string) event {
 	return se[len(se)-1]
 }
 
-// openDB is the engagement's state database, opened on first use and closed when
-// the test ends. A read sees what the runs since have committed, and an idle
-// connection holds no lock, so the same handle serves the whole test.
+// openDB lazily opens committed engagement state for the test lifetime. Idle connections do not
+// retain the run lock.
 func (h *harness) openDB(name string) *sql.DB {
 	h.t.Helper()
 	path := filepath.Join(h.out, name, ".nyx", "state.db")

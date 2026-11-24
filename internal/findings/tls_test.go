@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// tlsService adds an https web_service record as the probe stores it.
+// tlsService seeds probe-style HTTPS evidence.
 func (f *fixture) tlsService(host string, kv ...any) {
 	f.add(rec("web_service", "https://"+host, append([]any{"host", host, "scheme", "https", "tls_expiry", "2030-01-01",
 		"tls_subject", "CN=" + host, "tls_issuer", "CN=Test CA", "tls_trust", "trusted", "tls_self_signed", false}, kv...)...))
 }
 
-// A service that negotiated TLS 1.0 or 1.1 is a low legacy-tls finding; 1.2 and 1.3 are not.
+// Only negotiated TLS 1.0/1.1 produces low legacy-TLS findings.
 func TestLegacyTLSFinding(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -22,7 +22,7 @@ func TestLegacyTLSFinding(t *testing.T) {
 	f.tlsService("v11.example.com", "tls_version", "TLS 1.1")
 	f.tlsService("v12.example.com", "tls_version", "TLS 1.2")
 	f.tlsService("v13.example.com", "tls_version", "TLS 1.3")
-	f.tlsService("none.example.com") // probed before the version was recorded
+	f.tlsService("none.example.com") // older observation without negotiated-version data
 	got := f.derive(t)
 	wantSet(t, got, "certificates/legacy-tls=low", "certificates/legacy-tls=low")
 	for _, x := range got {
@@ -35,7 +35,7 @@ func TestLegacyTLSFinding(t *testing.T) {
 	}
 }
 
-// A certificate that does not name the probed host is a low finding, except for an IP literal or a provider-served host.
+// Hostname mismatch applies only where target-owned hostname configuration can be corrected.
 func TestHostnameMismatchFinding(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -43,7 +43,7 @@ func TestHostnameMismatchFinding(t *testing.T) {
 	f.host("help.example.com", "203.0.113.6")
 	f.host("cdn.example.com", "203.0.113.7")
 	f.host("app.example.com", "203.0.113.8")
-	f.host("pages.example.com", "185.199.108.153") // an address in a shared provider range, no CNAME
+	f.host("pages.example.com", "185.199.108.153") // shared hosting established by range rather than CNAME
 	f.host("ok.example.com", "203.0.113.9")
 	f.cname("help.example.com", "acme.zendesk.com")
 	f.cname("cdn.example.com", "d1.cloudfront.net")
@@ -62,7 +62,7 @@ func TestHostnameMismatchFinding(t *testing.T) {
 	}
 }
 
-// Findings of one service share one row with a ";"-joined type, in alphabetical order.
+// TLS conditions aggregate into one service row with sorted type names.
 func TestTLSFindingsCombine(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -74,7 +74,7 @@ func TestTLSFindingsCombine(t *testing.T) {
 	wantSet(t, got, "certificates/hostname-mismatch;legacy-tls;self-signed=low", "certificates/expired;legacy-tls=medium")
 }
 
-// A record stored before tls_trust existed gets its trust from tls_error and tls_self_signed.
+// Legacy TLS attributes reconstruct trust for older engagements.
 func TestHostnameMismatchFromOldRecord(t *testing.T) {
 	t.Parallel()
 	f := newFixture()

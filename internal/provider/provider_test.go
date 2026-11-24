@@ -94,8 +94,8 @@ func TestClassifyIndexMatchesLinearScan(t *testing.T) {
 		{Prefix: pfx("2001:db8:ff::/48"), Provider: "gcp"},
 		{Prefix: pfx("0.0.0.0/0"), Provider: "other"},
 	}
-	// A linear scan for the covering ranges, in order, classified by an index
-	// holding only those: the answer must not depend on how the index finds them.
+	// Compare indexed range lookup against an independent linear selection of covering
+	// ranges.
 	linear := func(a netip.Addr, owner provider.Owner) provider.Result {
 		var covering []provider.Range
 		for _, r := range ranges {

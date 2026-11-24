@@ -7,8 +7,7 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/dnshistory"
 )
 
-// dnshistory says its addresses come from DNS history, so that an address only it names is not
-// checked against the abusive lists: the runner reads the marker, and no code names the stage.
+// Historical exclusion uses the stage marker rather than special-casing the dnshistory name.
 func TestStageIsHistorical(t *testing.T) {
 	t.Parallel()
 	if _, ok := any(dnshistory.New()).(run.Historical); !ok {

@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-// ParsePorts parses a comma-separated list of ports and ranges ("80,443,8000-8100").
-// The result is sorted and de-duplicated.
+// ParsePorts accepts comma-separated ports/ranges and returns sorted unique ports.
 func ParsePorts(s string) ([]int, error) {
 	return parsePortItems(strings.Split(s, ","))
 }
@@ -56,8 +55,7 @@ func FormatPorts(ports []int) string {
 	return strings.Join(parts, ",")
 }
 
-// portsFlag is a pflag.Value that keeps the raw text; Load parses and
-// validates it so errors name the setting.
+// portsFlag defers raw-text parsing to Load for setting-specific errors.
 type portsFlag struct {
 	raw     *string
 	touched *bool
@@ -82,9 +80,8 @@ func (p portsFlag) Set(s string) error {
 
 func (p portsFlag) Type() string { return "ports" }
 
-// top100 is the nmap top 100 TCP ports plus the five default risky ports that
-// are not among them (1521, 6379, 9200, 11211 and 27017), so every risky port is
-// scanned by default.
+// top100 combines nmap's top 100 TCP ports with risky defaults missing from that set: 1521,
+// 6379, 9200, 11211 and 27017.
 var top100 = []int{
 	7, 9, 13, 21, 22, 23, 25, 26, 37, 53, 79, 80, 81, 88, 106, 110, 111, 113, 119, 135, 139, 143, 144, 179, 199,
 	389, 427, 443, 444, 445, 465, 513, 514, 515, 543, 544, 548, 554, 587, 631, 646, 873, 990, 993, 995,
@@ -94,7 +91,7 @@ var top100 = []int{
 	11211, 27017, 32768, 49152, 49153, 49154, 49155, 49156, 49157,
 }
 
-// DefaultPorts returns the default TCP port list (about the top 100, 105 ports).
+// DefaultPorts returns the top-port list extended with risky defaults.
 func DefaultPorts() []int { return slices.Clone(top100) }
 
 var defaultRisky = []int{21, 23, 445, 1433, 1521, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017}

@@ -30,8 +30,8 @@ func portWorld(closed ...string) *kinds.Visibility {
 	return kinds.NewVisibility(sc, inv)
 }
 
-// A reported port is shown while its address is port-eligible and nyx has not
-// found it closed; an open_port is not hidden by a closed report.
+// Port reports obey eligibility and confirmed-closed evidence; confirmed open records remain
+// authoritative.
 func TestReportedPortShown(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

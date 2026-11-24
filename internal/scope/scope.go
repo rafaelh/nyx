@@ -1,5 +1,5 @@
-// Package scope classifies hostnames and addresses against the engagement's
-// inputs. A Scope is immutable and its functions are pure.
+// Package scope classifies names and addresses using engagement inputs. Scope values are
+// immutable and classification performs no I/O.
 package scope
 
 import (
@@ -31,18 +31,18 @@ type Classification struct {
 	Reason string
 }
 
-// Config is everything a Scope is built from.
+// Config supplies inputs and DNS results for scope classification.
 type Config struct {
 	Roots       []string                // in-scope root domains
 	Netblocks   []netip.Prefix          // CIDR inputs and ASN netblocks
 	Exclusions  []input.Exclusion       // hostnames, wildcards and CIDRs
 	Resolutions map[string][]netip.Addr // hostname -> addresses
-	// WildcardOnly names resolve only because of a wildcard record; they do not
-	// make an address port-check eligible.
+	// WildcardOnly names do not establish address ownership for port checks because
+	// arbitrary names could resolve there.
 	WildcardOnly map[string]bool
-	// ASNs ("AS123") and Orgs are the --asn and --org inputs. They bring nothing
-	// into scope by themselves; they say which autonomous systems and
-	// organisations are already inputs, and so no longer candidates.
+	// ASNs and Orgs identify --asn and --org inputs so those entities are not candidates.
+	// ASN values use the canonical "AS123" form; expansion into netblocks happens
+	// separately.
 	ASNs, Orgs []string
 }
 
@@ -60,7 +60,6 @@ type Scope struct {
 	orgs      []orgname.Org
 }
 
-// New builds a Scope.
 func New(c Config) *Scope {
 	s := &Scope{roots: normaliseAll(c.Roots), netblocks: c.Netblocks, blockSet: map[netip.Prefix]bool{},
 		resolved: map[string][]netip.Addr{}, exclAddrs: map[netip.Addr]string{}, hostAddrs: map[netip.Addr]bool{},
@@ -127,11 +126,10 @@ func (s *Scope) cidrOf(a netip.Addr) (input.Exclusion, bool) {
 	return input.Exclusion{}, false
 }
 
-// HostInScope reports whether ClassifyHost puts host in scope.
 func (s *Scope) HostInScope(host string) bool { return s.ClassifyHost(host).Class == InScope }
 
-// ClassifyHost returns InScope, Candidate or Excluded (with the reason). A name
-// is excluded if it matches the exclusion list or resolves into an excluded CIDR.
+// ClassifyHost applies name exclusions and excluded resolved CIDRs before classifying a name as
+// in scope or a candidate.
 func (s *Scope) ClassifyHost(host string) Classification {
 	h := dnsname.Normalise(host)
 	if e, ok := s.matchName(h); ok {
@@ -150,8 +148,8 @@ func (s *Scope) ClassifyHost(host string) Classification {
 	return Classification{Candidate, ""}
 }
 
-// RootOf is the most specific in-scope root that host is equal to or under, or
-// "" when none covers it. It ignores exclusions: ClassifyHost decides those.
+// RootOf returns the most specific input root containing host, or "". It ignores exclusions;
+// ClassifyHost applies them.
 func (s *Scope) RootOf(host string) string {
 	h, best := dnsname.Normalise(host), ""
 	for _, r := range s.roots {
@@ -172,9 +170,8 @@ func (s *Scope) InScopeIP(a netip.Addr) bool {
 	return false
 }
 
-// WebHostInScope reports whether a web service or URL on host may be shown. It
-// is the one decision behind the summary counts and the web CSVs:
-// an IP literal is in an in-scope netblock and not excluded; a name is in scope.
+// WebHostInScope controls web-record visibility for reports and counts. Names must be in scope;
+// IP literals must belong to an in-scope netblock and pass exclusions.
 func (s *Scope) WebHostInScope(host string) bool {
 	h := dnsname.Normalise(host)
 	if a, ok := input.IPLiteral(h); ok {
@@ -184,9 +181,8 @@ func (s *Scope) WebHostInScope(host string) bool {
 	return h != "" && s.ClassifyHost(h).Class == InScope
 }
 
-// exclusion reports whether the address is in an excluded CIDR or is an
-// address of a host excluded by name, why, and whether it is the CIDR (which
-// excludes it regardless of shared infrastructure).
+// exclusion checks excluded CIDRs and addresses of name-excluded hosts. It returns the reason
+// and whether a CIDR matched, since CIDR exclusions also apply to shared infrastructure.
 func (s *Scope) exclusion(a netip.Addr) (why string, cidr, ok bool) {
 	if e, ok := s.cidrOf(a); ok {
 		return fmt.Sprintf("address %s in excluded %s", a, e.Entry), true, true
@@ -195,26 +191,21 @@ func (s *Scope) exclusion(a netip.Addr) (why string, cidr, ok bool) {
 	return why, false, ok
 }
 
-// ExcludedFor reports whether an exclusion refuses traffic to the address: an
-// excluded CIDR always does; the address of a host excluded by name does unless
-// it is shared provider infrastructure. An unknown owner is not shared.
+// ExcludedFor always blocks excluded CIDRs. An address belonging to a name-excluded host is
+// blocked unless it is known shared infrastructure. Unknown ownership does not count as shared.
 func (s *Scope) ExcludedFor(a netip.Addr, shared bool) (bool, string) {
 	why, cidr, ok := s.exclusion(a)
 	return ok && (!shared || cidr), why
 }
 
-// Owner reports what is known about who owns an address: whether it is shared
-// provider infrastructure, and whether anything is known about its owner at
-// all (false fails closed). An unknown owner is not shared.
+// Owner supplies shared-hosting and ownership status for an address. Unknown ownership fails
+// closed and does not imply shared infrastructure.
 type Owner func(netip.Addr) (shared, known bool)
 
-// PortEligible is the single decision whether an address may be port-checked,
-// used both by egress and by the ips.csv report. Exclusions apply first
-// (ExcludedFor). Then an address is eligible if it is in an in-scope netblock,
-// or if its owner is known, it is not shared, and an in-scope hostname that is
-// not wildcard-only resolves to it. owner is asked only when the decision needs
-// it, so an in-scope netblock address costs no owner lookup. excluded is true
-// when the refusal is an exclusion.
+// PortEligible applies the same rules for egress and ips.csv. Exclusions take priority. An
+// address then qualifies if it belongs to an in-scope netblock, or is known, dedicated and used
+// by an in-scope non-wildcard-only hostname. owner is called only when needed. excluded
+// distinguishes an exclusion from other refusals.
 func (s *Scope) PortEligible(a netip.Addr, owner Owner) (ok bool, why string, excluded bool) {
 	a = a.Unmap()
 	if why, cidr, ex := s.exclusion(a); ex {
@@ -240,12 +231,10 @@ func (s *Scope) PortEligible(a netip.Addr, owner Owner) (ok bool, why string, ex
 // Netblocks returns the in-scope netblocks.
 func (s *Scope) Netblocks() []netip.Prefix { return slices.Clone(s.netblocks) }
 
-// HasASN reports whether the autonomous system, in input.ParseASN's canonical
-// form ("AS123"), is an --asn input.
+// HasASN checks whether a canonical ASN such as "AS123" is an --asn input.
 func (s *Scope) HasASN(key string) bool { return s.asns[key] }
 
-// MatchesOrg reports whether the name belongs to an --org input, by the word
-// rule of package orgname.
+// MatchesOrg applies orgname's word matching to the --org inputs.
 func (s *Scope) MatchesOrg(name string) bool {
 	return slices.ContainsFunc(s.orgs, func(org orgname.Org) bool { return org.Matches(name) })
 }
@@ -259,8 +248,7 @@ func (s *Scope) HasNetblock(key string) bool {
 // ipv4Range is an inclusive range of IPv4 addresses held as integers.
 type ipv4Range struct{ lo, hi uint64 }
 
-// ipv4Ranges returns the in-scope IPv4 netblocks as sorted ranges with the
-// overlapping and adjacent ones merged, so each address is in exactly one.
+// ipv4Ranges merges overlapping and adjacent netblocks into sorted, disjoint IPv4 ranges.
 func (s *Scope) ipv4Ranges() []ipv4Range {
 	var ivs []ipv4Range
 	for _, p := range s.netblocks {
@@ -284,8 +272,8 @@ func (s *Scope) ipv4Ranges() []ipv4Range {
 	return out
 }
 
-// IPv4AddressCount is the number of distinct IPv4 addresses in the in-scope
-// netblocks; overlapping netblocks are counted once.
+// IPv4AddressCount counts unique in-scope IPv4 addresses, including overlapping netblocks only
+// once.
 func (s *Scope) IPv4AddressCount() uint64 {
 	var total uint64
 	for _, r := range s.ipv4Ranges() {
@@ -294,8 +282,7 @@ func (s *Scope) IPv4AddressCount() uint64 {
 	return total
 }
 
-// IPv4Addrs yields the distinct IPv4 addresses of the in-scope netblocks in
-// ascending order: the addresses IPv4AddressCount counts.
+// IPv4Addrs yields the addresses counted by IPv4AddressCount in ascending order.
 func (s *Scope) IPv4Addrs() iter.Seq[netip.Addr] {
 	return func(yield func(netip.Addr) bool) {
 		for _, r := range s.ipv4Ranges() {
@@ -308,10 +295,9 @@ func (s *Scope) IPv4Addrs() iter.Seq[netip.Addr] {
 	}
 }
 
-// OwnerUnit is the prefix that one origin-AS lookup answers for an address inside an in-scope
-// netblock: the covering /24 (IPv4) or /48 (IPv6), or the smallest in-scope netblock holding the
-// address when that is smaller, since longer prefixes are filtered from the global routing table.
-// ok is false for an address that is in no in-scope netblock.
+// OwnerUnit groups origin-AS lookups by /24 for IPv4 and /48 for IPv6, since longer prefixes
+// are filtered from global routing. A narrower in-scope netblock takes precedence. Addresses
+// outside all in-scope netblocks return ok=false.
 func (s *Scope) OwnerUnit(a netip.Addr) (unit netip.Prefix, ok bool) {
 	a = a.Unmap()
 	var holder netip.Prefix // the smallest in-scope netblock holding the address

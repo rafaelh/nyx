@@ -6,8 +6,7 @@ import (
 	"github.com/rafaelh/nyx/internal/banner"
 )
 
-// Parse reads the product and version a service names in its banner, and says whether the
-// version is a distribution's build.
+// Recognise protocol-specific products/versions and distinguish distribution package builds.
 func TestParse(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -39,7 +38,7 @@ func TestParse(t *testing.T) {
 		{"sendmail on debian", `220 mail.example.com ESMTP Sendmail 8.15.2/8.15.2/Debian-22ubuntu3; Tue, 17 Nov 2026`, "Sendmail", "8.15.2", true},
 		{"exchange", `220 EXCH01.example.com Microsoft ESMTP MAIL Service ready at Tue, 17 Nov 2026 10:00:00 +0000`, "Microsoft Exchange", "", false},
 		{"exchange with a version", `220 EXCH01.example.com Microsoft ESMTP MAIL Service, Version: 8.3.348.2 ready at Tue`, "Microsoft Exchange", "8.3.348.2", false},
-		// Neither
+		// Unrecognised greetings
 		{"an empty banner", ``, "", "", false},
 		{"an http banner", `HTTP/1.1 400 Bad Request`, "", "", false},
 		{"binary", "\x00\x00\x1e\xff", "", "", false},
@@ -56,8 +55,7 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// The product and version go into files people read, so terminal-acting characters in
-// the banner never reach them.
+// Banner controls must not enter product/version fields used in human output.
 func TestParse_ValuesAreSanitised(t *testing.T) {
 	t.Parallel()
 	product, version, _ := banner.Parse("SSH-2.0-OpenSSH_8.2p1\x1b[31m")
@@ -73,8 +71,7 @@ func TestParse_ValuesAreSanitised(t *testing.T) {
 	}
 }
 
-// Distro reads a version string that is not from a banner (a Wappalyzer technology's) the
-// same way Parse does.
+// Distribution detection also applies to Wappalyzer versions without full banners.
 func TestDistro(t *testing.T) {
 	t.Parallel()
 	for v, want := range map[string]bool{

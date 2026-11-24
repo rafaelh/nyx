@@ -83,7 +83,7 @@ func newTestClient(keyed bool, script ...answer) (*Client, *fakeNVD) {
 	return c, f
 }
 
-// failure is Get's error as a *Failure, failing the test otherwise.
+// failure requires Get to return *Failure.
 func failure(t *testing.T, err error) *Failure {
 	t.Helper()
 	var f *Failure
@@ -126,8 +126,7 @@ func TestClient_Found(t *testing.T) {
 	}
 }
 
-// expectFailure checks a Get that failed: its code, transient, the number of
-// requests made, and that its message and hint contain the given text.
+// expectFailure verifies code, retry status, request count and explanatory message/hint text.
 func expectFailure(t *testing.T, err error, f *fakeNVD, code clierr.Code, transient bool, calls int, msg, hint string) *Failure {
 	t.Helper()
 	fl := failure(t, err)
@@ -245,7 +244,7 @@ func TestClient_DeadlineDuringARequest(t *testing.T) {
 	_ = expectFailure(t, err, f, clierr.Timeout, true, 1, "no answer from the NVD before the deadline", "raise --timeout")
 }
 
-// A cancel that is not the deadline (a signal) is returned as the context's error.
+// Non-deadline cancellation returns the context error unchanged.
 func TestClient_Cancelled(t *testing.T) {
 	t.Parallel()
 	cl, _ := newTestClient(false, answer{hold: true})
@@ -257,9 +256,8 @@ func TestClient_Cancelled(t *testing.T) {
 	}
 }
 
-// Every attempt takes its own slot in the window: unkeyed, five requests go at
-// once and the sixth, whose slot is after the deadline, fails at once as a
-// rate limit with the wait in its hint.
+// Every retry consumes a window slot; the sixth unkeyed attempt beyond deadline fails
+// immediately with rate-limit guidance.
 func TestClient_WindowSlotPastTheDeadline(t *testing.T) {
 	t.Parallel()
 	cl, f := newTestClient(false, none)

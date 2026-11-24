@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// risk is a web world with some of the risk stages in the stage list.
+// risk adds selected exposure stages to a fake web world.
 type risk struct{ *web }
 
 func newRisk(t *testing.T, stages ...string) *risk {
@@ -16,10 +16,10 @@ func newRisk(t *testing.T, stages ...string) *risk {
 	return &risk{newWebWith(t, stages...)}
 }
 
-// rows is a risk-*.csv or other CSV of the engagement, by column name.
+// rows indexes an engagement CSV by column names.
 func (x *risk) rows(file string) []map[string]string { return x.table(eng, file) }
 
-// current keeps the rows that are current.
+// current filters historical CSV rows out.
 func current(rows []map[string]string) []map[string]string {
 	var out []map[string]string
 	for _, r := range rows {
@@ -30,7 +30,7 @@ func current(rows []map[string]string) []map[string]string {
 	return out
 }
 
-// typeURLs are the "type=url" of the current rows, sorted.
+// typeURLs returns sorted type/url pairs from current rows.
 func typeURLs(rows []map[string]string) []string {
 	var out []string
 	for _, r := range current(rows) {
@@ -40,7 +40,7 @@ func typeURLs(rows []map[string]string) []string {
 	return out
 }
 
-// col is the sorted values of a column.
+// col extracts sorted column values.
 func col(rows []map[string]string, name string) []string {
 	var out []string
 	for _, r := range rows {
@@ -50,7 +50,7 @@ func col(rows []map[string]string, name string) []string {
 	return out
 }
 
-// summaryFindings are the findings of the run's summary event.
+// summaryFindings extracts findings from the summary event.
 func (x *risk) summaryFindings() []map[string]any {
 	x.t.Helper()
 	var out []map[string]any
@@ -72,16 +72,15 @@ func (x *risk) summaryTargets() []string {
 
 func (x *risk) state(stage string) event { return lastState(x.h.events(), stage) }
 
-// --- fake storage services ---
+// Storage service fakes
 
-// bucket scripts a bucket or container: what an anonymous listing does, and
-// what a HEAD of each object does.
+// bucket supplies anonymous listing and per-object HEAD responses.
 type bucket struct {
-	list      int      // listing status: 200 lists keys, 403 is private, 0 or 404 does not exist
-	keys      []string // returned when list is 200
-	truncated bool     // the listing says there are more
+	list      int      // 200 lists objects; 403 is private; zero/404 means missing
+	keys      []string // object keys for successful listings
+	truncated bool     // whether results were truncated
 	objs      map[string]int
-	redirect  string // answer the listing with a 301 naming this region
+	redirect  string // simulate an S3 regional redirect
 }
 
 func xmlList(keys []string, truncated bool) string {
@@ -113,7 +112,7 @@ func numberedKeys(n int) []string {
 	return out
 }
 
-// bucketHandler serves S3- and GCS-style path-style requests for the buckets.
+// bucketHandler accepts path-style S3/GCS fixture requests.
 func bucketHandler(bs map[string]bucket) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
@@ -147,8 +146,7 @@ func bucketHandler(bs map[string]bucket) http.HandlerFunc {
 	}
 }
 
-// containerHandler serves Azure container requests: /<container>?restype=container&comp=list
-// and HEAD /<container>/<blob>.
+// containerHandler accepts Azure listing GETs and per-blob HEADs.
 func containerHandler(cs map[string]bucket) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
@@ -175,7 +173,7 @@ func containerHandler(cs map[string]bucket) http.HandlerFunc {
 	}
 }
 
-// listRequests are the listing GETs a fake received (any request with a query).
+// listRequests selects listing GETs from a fake's request log.
 func listRequests(s *source) []string {
 	var out []string
 	for _, r := range s.requestLog() {

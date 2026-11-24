@@ -33,9 +33,8 @@ type Row struct {
 	Category, Type, Severity, Meaning string
 }
 
-// table is the one severity table. Severities are fixed in code, documented in
-// nyx help findings and the docs, and not configurable. Unattributed storage is low by
-// construction, so it never reaches the summary's high and medium list.
+// table defines fixed finding severities, shared with help and documentation. Unattributed
+// storage stays low and is omitted from the high/medium summary list.
 var table = []Row{
 	{Takeover, "dns-nxdomain", High, "a CNAME dangles (NXDOMAIN) into a provider whose names anyone can claim"},
 	{Takeover, "http-fingerprint", High, "a provider-hosted name serves the page an unclaimed resource serves"},
@@ -88,10 +87,8 @@ func maxSeverity(a, b string) string {
 	return a
 }
 
-// Severity is the default severity of a type in a category. A type that lists
-// several kinds ("expired;self-signed") has the highest of them. A sensitive-path
-// type is the path, whose default is medium (the entry's own severity applies
-// to a hit). It is "" for an unknown type.
+// Severity returns a type's default, using the highest severity for semicolon-separated types.
+// Sensitive paths default to medium unless their entry overrides it. Unknown types return "".
 func Severity(category, typ string) string {
 	if category == SensitivePaths {
 		return Medium
@@ -111,7 +108,7 @@ func Severity(category, typ string) string {
 	return sev
 }
 
-// HelpTable is the severity table as it appears in nyx help findings.
+// HelpTable formats finding severities for CLI help.
 func HelpTable() string {
 	var b strings.Builder
 	for _, r := range table {
@@ -120,8 +117,7 @@ func HelpTable() string {
 	return b.String()
 }
 
-// StepDown is the severity one step below sev: what a finding known only from a
-// third party's report is given. Low stays low.
+// StepDown downgrades unconfirmed third-party findings by one level, leaving low unchanged.
 func StepDown(sev string) string {
 	switch sev {
 	case High:

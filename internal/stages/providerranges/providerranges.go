@@ -1,7 +1,6 @@
-// Package providerranges fetches the address ranges that AWS, GCP, Cloudflare,
-// Fastly, DigitalOcean, Oracle Cloud and Linode publish, which tell a dedicated
-// virtual machine from a CDN or load-balancer address. Azure publishes its
-// ranges at a URL that changes, so Azure is recognised by ASN alone.
+// Package providerranges fetches published ranges for provider classification. Supported
+// sources distinguish customer VMs from shared services. Azure uses ASN-only classification
+// because its range download URL changes.
 package providerranges
 
 import (
@@ -24,15 +23,14 @@ import (
 // rangeEntry is one parsed range. prefix is not yet validated.
 type rangeEntry struct{ prefix, service, region string }
 
-// list is one published range list, and so one check. key is the check's
-// stable name: it never changes, so a list is not fetched again once it is done.
+// list represents one publisher/check. Its stable key means successful downloads are reused
+// until redo.
 type list struct {
 	key, provider, url string
 	parse              func([]byte) ([]rangeEntry, error)
 }
 
-// lists are the published range lists, in the order their checks run. Cloudflare
-// publishes IPv4 and IPv6 as two files, so it has two.
+// lists preserves publisher check order, with separate Cloudflare IPv4 and IPv6 files.
 var lists = []list{
 	{"aws", "aws", "https://ip-ranges.amazonaws.com/ip-ranges.json", parseAWS},
 	{"gcp", "gcp", "https://www.gstatic.com/ipranges/cloud.json", parseGCP},
@@ -75,9 +73,8 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 	}
 }
 
-// Run downloads and parses one list. A list that cannot be fetched or read, or
-// that yields no ranges, is an error: the check is retried on a later run, and
-// the ranges of the last successful fetch keep applying meanwhile.
+// Run requires a readable, nonempty range list. Failures retry on later runs while the previous
+// successful ranges remain usable.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	l := c.Input.(list)
 	body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: l.url})
@@ -87,8 +84,7 @@ func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obs
 	return l.observations(body)
 }
 
-// observations parses a list's body into provider_range observations. Entries
-// whose prefix does not parse are skipped, and a body with none left is an error.
+// observations skips invalid prefixes and rejects bodies leaving no usable ranges.
 func (l list) observations(body []byte) ([]run.Observation, error) {
 	entries, err := l.parse(body)
 	if err != nil {
@@ -158,10 +154,8 @@ func parseGCP(body []byte) ([]rangeEntry, error) {
 	return out, nil
 }
 
-// parseLines reads a text list with one range a line: Cloudflare's plain
-// prefixes, and the geofeed (RFC 8805) DigitalOcean and Linode publish, whose
-// lines are "prefix,country,region,city,postcode". Blank and # lines are
-// skipped, and the region is the third field when there is one.
+// parseLines accepts plain prefixes and RFC 8805 geofeeds. It skips blanks/comments and uses
+// the third CSV field as region when present.
 func parseLines(body []byte) ([]rangeEntry, error) {
 	lines, err := input.ParseList(bytes.NewReader(body))
 	if err != nil {
@@ -194,8 +188,8 @@ func parseFastly(body []byte) ([]rangeEntry, error) {
 	return out, nil
 }
 
-// parseOracle reads Oracle's list, which tags each range (OCI, OSN, OBJECT_STORAGE).
-// A range with two tags is two entries, one per tag, so each is a service of its own.
+// parseOracle emits one range per service tag so overlapping OCI, OSN and OBJECT_STORAGE
+// classifications remain distinct.
 func parseOracle(body []byte) ([]rangeEntry, error) {
 	var doc struct {
 		Regions []struct {

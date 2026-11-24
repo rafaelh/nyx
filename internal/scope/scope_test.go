@@ -206,8 +206,7 @@ func TestPortEligibleAsksOwnerOnlyWhenNeeded(t *testing.T) {
 	}
 }
 
-// OwnerUnit is the prefix one origin lookup answers for an address of an in-scope netblock: the
-// covering /24 (IPv4) or /48 (IPv6), or the netblock itself when that is smaller.
+// Ownership units use /24 or /48 unless the containing in-scope netblock is narrower.
 func TestOwnerUnit(t *testing.T) {
 	t.Parallel()
 	pfx := netip.MustParsePrefix

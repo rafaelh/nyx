@@ -113,8 +113,7 @@ func TestIPOwnerFailureModes(t *testing.T) {
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// The netblockowner stage asks Team Cymru once for a unit (the covering /24, /48 or smaller
-// netblock), about the unit's first address, and records the AS under the unit's prefix.
+// Netblock ownership queries one first address per routing unit and keys the result by prefix.
 func TestNetblockOwnerRun(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -166,8 +165,7 @@ func TestNetblockOwnerFailureModes(t *testing.T) {
 	}
 }
 
-// The stage is a third-party DNS stage like ipowner: it declares no source host, always runs, and
-// is not told apart from the others by the registry.
+// Netblock ownership participates as an ordinary always-enabled third-party DNS stage.
 func TestNetblockOwnerContract(t *testing.T) {
 	t.Parallel()
 	st := dns.NewNetblockOwner()

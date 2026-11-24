@@ -1,26 +1,14 @@
-// This package holds a snapshot of ipapi.is's two lists of the most abusive networks and
-// ASNs, and says which entries an address falls under. An integration with their paid service will
-// be added in the future - the snapshot avoids spamming them with queries. It does no I/O: the
-// snapshot is one JSON file embedded in the binary, refreshed by running `make threat-data`, and
-// a copy downloaded by an update (parsed from ipapi.is's pages by [ParseNetworksPage] and
-// [ParseASNsPage], and kept in the same format) may supersede it. The package reads a snapshot and
-// matches against it; which copy is in use is for the caller to decide.
+// Package abusive matches addresses and origin ASNs against ipapi.is's network and ASN abuse
+// lists without I/O. It uses a JSON snapshot embedded by make threat-data or supplied by the
+// caller after an update.
 //
-// # Terms
+// Lists contain ranked entries with score tags, abuse percentages, organisations, types and
+// source dates. Network matches use inclusive address ranges; ASN matches use the announcing AS
+// number. Match results include the list date.
 //
-// An abusive network list is ipapi.is's "Most Abusive Networks": IP ranges, each ranked, with a
-// score tag, an abuse score (a percentage), the organisation that holds it and its type. An
-// abusive ASN list is its "Most Abusive ASNs": the same fields for an AS number. Each list has the
-// date ipapi.is says it was last updated.
-//
-// An entry is one row of a list. A match is an entry that applies to an address: the entry's
-// fields and its list's date, as [NetworkMatch] or [ASNMatch]. An address matches a network entry
-// when a listed range holds it, and an ASN entry when its origin AS is the listed one.
-//
-// The snapshot's file holds every entry as ipapi.is gave it, and the number of entries each page
-// stated: [Validate] and [ValidateCounts] check it, and
-// [Snapshot.Networks] and [Snapshot.ASN] sanitise the text of a match (organisation, score tag and
-// type) as other third-party text is, so no output carries it raw.
+// Snapshots preserve source text and stated counts for Validate and ValidateCounts. Load
+// prepares indexes; Networks and ASN return sanitised text so raw source strings do not reach
+// output.
 package abusive
 
 import (
@@ -52,7 +40,7 @@ import (
 //go:embed snapshot.json
 var embedded []byte
 
-// NetworkEntry is one row of the abusive network list: an inclusive range of one family.
+// NetworkEntry describes an inclusive single-family address range on the abuse list.
 type NetworkEntry struct {
 	Rank       int        `json:"rank"`
 	Start      netip.Addr `json:"start"`
@@ -63,7 +51,7 @@ type NetworkEntry struct {
 	OrgType    string     `json:"org_type"`
 }
 
-// ASNEntry is one row of the abusive ASN list.
+// ASNEntry describes one listed autonomous system.
 type ASNEntry struct {
 	Rank       int     `json:"rank"`
 	ASN        int     `json:"asn"`
@@ -73,16 +61,15 @@ type ASNEntry struct {
 	OrgType    string  `json:"org_type"`
 }
 
-// List is one list: its entries, the YYYY-MM-DD date ipapi.is says it was last updated, and the
-// number of entries its page says it lists.
+// List contains source entries, their YYYY-MM-DD update date and the page's stated entry count.
 type List[E any] struct {
 	Updated string `json:"updated"`
 	Stated  int    `json:"stated"`
 	Entries []E    `json:"entries"`
 }
 
-// Snapshot is both lists, as the file holds them. Network entries are sorted by start, then end,
-// and ASN entries by ASN. Only a snapshot from [Load] or [Default] can be matched against.
+// Snapshot holds both lists sorted by network endpoints or ASN. Use Load or Default to prepare
+// it for matching.
 type Snapshot struct {
 	Nets List[NetworkEntry] `json:"networks"`
 	ASNs List[ASNEntry]     `json:"asns"`
@@ -90,8 +77,8 @@ type Snapshot struct {
 	idx *index // built by Load
 }
 
-// NetworkMatch is a network entry that holds an address. Network is the range as rdap_netblock
-// writes one: a CIDR when the range is exactly one, otherwise start-end.
+// NetworkMatch identifies a containing range, formatted as one CIDR when exact, otherwise
+// start-end.
 type NetworkMatch struct {
 	Network    string  `json:"network"`
 	Rank       int     `json:"rank"`
@@ -102,7 +89,7 @@ type NetworkMatch struct {
 	Updated    string  `json:"updated"` // the list's date, YYYY-MM-DD
 }
 
-// ASNMatch is the ASN entry of an address's origin AS.
+// ASNMatch describes a matching origin AS and its source-list date.
 type ASNMatch struct {
 	ASN        int     `json:"asn"`
 	Rank       int     `json:"rank"`
@@ -118,8 +105,8 @@ var (
 	defaultSnap *Snapshot
 )
 
-// Default is the snapshot embedded in the binary, parsed once. It panics on a bad embed, as
-// provider.Default does: a test validates the file.
+// Default parses embedded data once. Invalid embedded data panics; tests validate the file
+// before release.
 func Default() *Snapshot {
 	defaultOnce.Do(func() {
 		s, err := Parse(embedded)
@@ -131,7 +118,7 @@ func Default() *Snapshot {
 	return defaultSnap
 }
 
-// Parse reads a snapshot file. It does not validate it (see Validate).
+// Parse decodes snapshot JSON; call Validate separately.
 func Parse(b []byte) (Snapshot, error) {
 	var s Snapshot
 	dec := json.NewDecoder(bytes.NewReader(b))
@@ -142,8 +129,8 @@ func Parse(b []byte) (Snapshot, error) {
 	return s, nil
 }
 
-// ParseLenient reads a snapshot file as Parse does, but ignores fields it does not know, so that a
-// file written by a newer nyx stays readable. It does not validate it (see Validate).
+// ParseLenient accepts unknown fields for compatibility with newer snapshot files. Call
+// Validate separately.
 func ParseLenient(b []byte) (Snapshot, error) {
 	var s Snapshot
 	dec := json.NewDecoder(bytes.NewReader(b))
@@ -156,12 +143,12 @@ func ParseLenient(b []byte) (Snapshot, error) {
 	return s, nil
 }
 
-// minShare is the share, in percent, of the entries a list states that it must hold: below it the
-// page was cut short or its layout has changed.
+// minShare detects incomplete pages or layout changes by requiring a minimum percentage of the
+// stated entries.
 const minShare = 90
 
-// ValidateCounts checks that each list states how many entries it has (at least 1) and holds at
-// least 90% of them.
+// ValidateCounts requires positive stated totals and at least 90% of each list's stated
+// entries.
 func ValidateCounts(s Snapshot) error {
 	if err := validCount("networks", s.Nets.Stated, len(s.Nets.Entries)); err != nil {
 		return err
@@ -179,9 +166,8 @@ func validCount(list string, stated, held int) error {
 	return nil
 }
 
-// ParsePages reads ipapi.is's most-abusive networks and ASNs pages into a snapshot that passes
-// Validate and ValidateCounts. A page dated later than tomorrow in UTC, by now, is refused. A page
-// is not refused for being old: whether a list is newer than the copy in use is for the caller.
+// ParsePages validates both source pages and their counts. Dates later than tomorrow UTC are
+// rejected. Age comparisons with active data belong to the caller.
 func ParsePages(networks, asns []byte, now time.Time) (Snapshot, error) {
 	nets, err := ParseNetworksPage(networks, now)
 	if err != nil {
@@ -194,8 +180,7 @@ func ParsePages(networks, asns []byte, now time.Time) (Snapshot, error) {
 	return Snapshot{Nets: nets, ASNs: as}, nil
 }
 
-// ParseNetworksPage reads the most-abusive networks page into its list, sorted, with the rules of
-// ParsePages for that list alone.
+// ParseNetworksPage parses and sorts network entries using ParsePages validation rules.
 func ParseNetworksPage(page []byte, now time.Time) (List[NetworkEntry], error) {
 	p, err := readPage(page, networkColumns, now)
 	if err != nil {
@@ -221,8 +206,7 @@ func ParseNetworksPage(page []byte, now time.Time) (List[NetworkEntry], error) {
 	return list, nil
 }
 
-// ParseASNsPage reads the most-abusive ASNs page into its list, sorted, with the rules of
-// ParsePages for that list alone.
+// ParseASNsPage parses and sorts ASN entries using ParsePages validation rules.
 func ParseASNsPage(page []byte, now time.Time) (List[ASNEntry], error) {
 	p, err := readPage(page, asnColumns, now)
 	if err != nil {
@@ -249,9 +233,8 @@ func ParseASNsPage(page []byte, now time.Time) (List[ASNEntry], error) {
 	return list, nil
 }
 
-// Marshal is the snapshot as its file holds it: JSON with one entry to a line, so that a refresh
-// diffs as the entries that changed. Text is not escaped for HTML, so an organisation reads as it
-// is written.
+// Marshal writes one JSON entry per line for readable refresh diffs, preserving characters
+// without HTML escaping.
 func Marshal(s Snapshot) []byte {
 	var b bytes.Buffer
 	b.WriteString("{\n")
@@ -261,7 +244,7 @@ func Marshal(s Snapshot) []byte {
 	return b.Bytes()
 }
 
-// writeList writes one list of the snapshot file, one entry to a line, and then sep.
+// writeList writes one entry per line followed by sep.
 func writeList[E any](b *bytes.Buffer, name string, l List[E], sep string) {
 	fmt.Fprintf(b, " %q: {\n  \"updated\": %q,\n  \"stated\": %d,\n  \"entries\": [\n", name, l.Updated, l.Stated)
 	for i, e := range l.Entries {
@@ -281,11 +264,9 @@ func writeList[E any](b *bytes.Buffer, name string, l List[E], sep string) {
 // maxASN is the largest AS number: 32 bits.
 const maxASN = 4294967295
 
-// Validate checks a snapshot file's contents: entries sorted and without repeats, each range
-// valid, of one family and in order, each AS number in 1 to 4294967295, each rank at least 1, each
-// abuse score 0 to 100, each date a day, and no C0 or C1 control character in any text. The
-// refresh calls it before writing, and a test calls it on the embedded file. It does not check the
-// stated counts (see ValidateCounts).
+// Validate checks ordering, uniqueness, range validity, AS numbers, ranks, scores, dates and
+// text controls. It is used before refresh writes and to test embedded data. ValidateCounts
+// checks stated totals separately.
 func Validate(s Snapshot) error {
 	if err := validNetworks(s.Nets); err != nil {
 		return err
@@ -344,7 +325,7 @@ func validASNs(l List[ASNEntry]) error {
 	return nil
 }
 
-// CompareNetworks orders network entries as the snapshot file holds them: by start, then end.
+// CompareNetworks sorts by start address, then end address, matching snapshot order.
 func CompareNetworks(a, b NetworkEntry) int {
 	if c := a.Start.Compare(b.Start); c != 0 {
 		return c
@@ -377,22 +358,21 @@ func validFields(at string, rank int, score float64, texts ...string) error {
 // HasControl reports whether the text holds a C0 or C1 control character (or DEL).
 func HasControl(s string) bool { return strings.ContainsFunc(s, unicode.IsControl) }
 
-// ScoreText is an abuse score as nyx writes it: the shortest decimal, with no exponent.
+// ScoreText formats abuse scores as short decimals without exponents.
 func ScoreText(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
-// network is a network entry as it is matched and reported.
+// network holds prepared match/output data for one range.
 type network struct {
 	start, end netip.Addr
 	sizeHi     uint64 // the range's size less one, as a 128-bit number
 	sizeLo     uint64
-	order      int // the entry's place in its list, the last tiebreak between matches
+	order      int // original list position for stable tie-breaking
 	match      NetworkMatch
 }
 
-// index is a snapshot ready to match: text formatted and sanitised once. nets is sorted by start
-// (every IPv4 range before every IPv6 one), and maxEnd[i] is the greatest end among nets[:i+1], so
-// a lookup finds the ranges that start at or before an address by binary search and walks back
-// only while one of them could still reach it.
+// index prepares sanitised match text and sorted network ranges. maxEnd tracks the furthest
+// endpoint through each index, letting lookups binary-search by start and stop scanning
+// backwards once no earlier range can match.
 type index struct {
 	nets   []network
 	maxEnd []netip.Addr
@@ -433,7 +413,7 @@ func build(s Snapshot) *index {
 	return ix
 }
 
-// span is end minus start, two addresses of one family, as the high and low halves of 128 bits.
+// span subtracts same-family endpoints into high/low 128-bit halves.
 func span(start, end netip.Addr) (hi, lo uint64) {
 	s, e := start.As16(), end.As16()
 	lo, borrow := bits.Sub64(binary.BigEndian.Uint64(e[8:]), binary.BigEndian.Uint64(s[8:]), 0)
@@ -441,15 +421,14 @@ func span(start, end netip.Addr) (hi, lo uint64) {
 	return hi, lo
 }
 
-// Networks returns every network entry that holds the address (unmapped, as nyx treats addresses
-// everywhere), the smallest range first and ranges of one size by rank. An IPv6 address matches
-// only IPv6 ranges. It returns an empty list when nothing holds it.
+// Networks unmaps the address and returns containing ranges, smallest first, then by rank.
+// Address families match separately; no match returns an empty list.
 func (s *Snapshot) Networks(a netip.Addr) []NetworkMatch {
 	a = a.Unmap()
 	var hits []network
 	ix := s.idx
-	// The ranges that start after a cannot hold it; of the others, none at or before i reaches a
-	// once maxEnd[i] is below it.
+	// Skip ranges starting after a; stop scanning backwards when no earlier endpoint can
+	// reach it.
 	i, _ := slices.BinarySearchFunc(ix.nets, a, func(n network, a netip.Addr) int {
 		if n.start.Compare(a) <= 0 {
 			return -1
@@ -483,7 +462,7 @@ func (s *Snapshot) Networks(a netip.Addr) []NetworkMatch {
 	return out
 }
 
-// ASN returns the entry of the AS: a list of one match, or an empty one when it is not listed.
+// ASN returns one matching entry or an empty list.
 func (s *Snapshot) ASN(n int) []ASNMatch {
 	if m, ok := s.idx.asns[n]; ok {
 		return []ASNMatch{m}
@@ -498,16 +477,15 @@ var (
 	statedRE  = regexp.MustCompile(`lists the ([\d,]+) most abusive`)
 )
 
-// parsedPage is what a fetched page gives before its rows are read.
+// parsedPage holds validated page metadata and raw table rows.
 type parsedPage struct {
 	updated string     // YYYY-MM-DD
-	stated  int        // the number of entries the page says it lists
-	rows    [][]string // the cells of each row, by the position of the header
+	stated  int        // source-stated entry count
+	rows    [][]string // row cells indexed by header position
 	col     map[string]int
 }
 
-// columns are the headers a page's table must have, by the name a row's reader asks for. A header
-// may be written more than one way.
+// columns maps logical field names to accepted HTML header spellings.
 type columns []struct {
 	name string
 	alts []string
@@ -528,9 +506,8 @@ func (c columns) String() string {
 	return strings.Join(names, ", ")
 }
 
-// readPage parses the HTML and checks what every list's page must say: its date (not later than
-// tomorrow), the number of entries it lists and a table with the headers. It returns the table's
-// rows.
+// readPage requires source date, stated count and expected table headers. It rejects dates
+// beyond tomorrow UTC and returns the table rows.
 func readPage(b []byte, cols columns, now time.Time) (parsedPage, error) {
 	doc, err := html.Parse(bytes.NewReader(rawC1(b)))
 	if err != nil {
@@ -580,14 +557,13 @@ func readPage(b []byte, cols columns, now time.Time) (parsedPage, error) {
 	return p, nil
 }
 
-// numRefRE is a whole numeric character reference, hex or decimal, its semicolon optional as HTML
-// allows. All its digits are taken, so &#x8F66; is one reference and never &#x8F followed by 66;.
+// numRefRE consumes a complete decimal or hexadecimal HTML numeric reference, including
+// optional semicolons, so longer code points cannot be mistaken for C1 prefixes.
 var numRefRE = regexp.MustCompile(`&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?`)
 
-// rawC1 writes each numeric reference to a C1 code point (0x80 to 0x9f) as the raw character, and
-// leaves every other reference as it is. The HTML parser would decode most C1 references through
-// Windows-1252 (&#x85; is an ellipsis), so the row's control check would never see them; raw, they
-// reach it and the page is refused.
+// rawC1 preserves C1 numeric references as control characters before HTML parsing. Otherwise
+// Windows-1252 decoding would turn values such as &#x85; into punctuation and bypass
+// control-character rejection.
 func rawC1(b []byte) []byte {
 	return numRefRE.ReplaceAllFunc(b, func(ref []byte) []byte {
 		m := numRefRE.FindSubmatch(ref)
@@ -602,9 +578,8 @@ func rawC1(b []byte) []byte {
 	})
 }
 
-// pageDate reads the "last updated" date and checks it against the clock: not later than tomorrow
-// in UTC, which lets ipapi.is's own time zone be a day ahead. How it compares with the copy in use
-// is not its business.
+// pageDate allows dates through tomorrow UTC to accommodate the source's time zone. Comparing
+// against active copies happens later.
 func pageDate(text string, now time.Time) (string, error) {
 	m := updatedRE.FindStringSubmatch(text)
 	if m == nil {
@@ -621,7 +596,7 @@ func pageDate(text string, now time.Time) (string, error) {
 	return date, nil
 }
 
-// findTable is the first table whose header cells include every column, and the position of each.
+// findTable locates the first table containing every required header and returns their indexes.
 func findTable(doc *html.Node, cols columns) (*html.Node, map[string]int) {
 	for _, table := range descendants(doc, "table") {
 		var heads []string
@@ -649,8 +624,7 @@ func findTable(doc *html.Node, cols columns) (*html.Node, map[string]int) {
 	return nil, nil
 }
 
-// descendants are the elements called tag below n, in document order, not looking into a nested
-// table.
+// descendants finds matching tags in document order without entering nested tables.
 func descendants(n *html.Node, tag string) []*html.Node {
 	var out []*html.Node
 	var walk func(*html.Node)
@@ -680,7 +654,7 @@ func directCells(tr *html.Node, tag string) []*html.Node {
 	return out
 }
 
-// textOf is the text of a node and everything in it, without scripts and styles.
+// textOf extracts descendant text while excluding scripts and styles.
 func textOf(n *html.Node) string {
 	var b strings.Builder
 	var walk func(*html.Node)
@@ -701,7 +675,7 @@ func textOf(n *html.Node) string {
 
 // ---- reading the rows ----
 
-// pageFields are the columns the two lists share, read.
+// pageFields holds the metadata fields shared by both list types.
 type pageFields struct {
 	rank          int
 	tag, org, typ string
@@ -731,7 +705,7 @@ func commonFields(row []string, col map[string]int) (pageFields, error) {
 	return f, nil
 }
 
-// parseRange reads "start - end": two addresses of one family, the start not after the end.
+// parseRange accepts ordered same-family endpoints separated by " - ".
 func parseRange(cell string) (start, end netip.Addr, err error) {
 	s, e, ok := strings.Cut(cell, " - ")
 	if !ok {
@@ -752,5 +726,5 @@ func parseRange(cell string) (start, end netip.Addr, err error) {
 	return start, end, nil
 }
 
-// headerOrg is the organisation column's header as ipapi.is spells it.
+// headerOrg selects the source's organisation-column spelling.
 const headerOrg = "Organization" //nolint:misspell // the page's own spelling

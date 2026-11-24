@@ -300,9 +300,8 @@ func TestSources_HolderNameFailureKeepsTheOrigin(t *testing.T) {
 	}
 }
 
-// The provider and HackerTarget need only the AS number, so a holder name that never answers
-// leaves neither waiting for the deadline: the call's one-address time holds when only the name is
-// slow.
+// A slow AS-name lookup cannot block provider/reverse-IP work, which only needs the known AS
+// number.
 func TestSources_HackerTargetDoesNotWaitForTheHolderName(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, false, "as_name,provider,reverse_ip,reverse_ip_count")

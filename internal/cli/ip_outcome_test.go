@@ -21,8 +21,8 @@ import (
 	"github.com/rafaelh/nyx/internal/cli"
 )
 
-// nyx ip: the time a call takes (paces, latches, the deadline), how a call ends (exit codes and the
-// retry hint), the human layout and the help. The world is ip_world_test.go's.
+// Outcome tests cover pacing, refusal latches, deadlines, retry hints, human layout and help
+// using ipWorld.
 
 // updateIP rewrites the files under testdata/ip instead of comparing with them:
 //
@@ -53,8 +53,8 @@ func ipoPartial(w *ipWorld, jsonMode bool, args ...string) failure {
 	return f
 }
 
-// ipoRetry splits the command a hint gives to run into the inputs it names and the flags after
-// them, each flag with its value, sorted so that the order the flags are written in is free.
+// ipoRetry parses hint inputs and flags, sorting flags so tests do not depend on their output
+// order.
 func ipoRetry(t *testing.T, hint string) (inputs, flags []string) {
 	t.Helper()
 	_, cmd, ok := strings.Cut(hint, "run: ")
@@ -75,7 +75,7 @@ func ipoRetry(t *testing.T, hint string) (inputs, flags []string) {
 	return f[:i], flags
 }
 
-// ipoFailuresOf are the failures of a record that are of the source.
+// ipoFailuresOf filters record failures to one source.
 func ipoFailuresOf(r ipRecord, source string) []ipFailure {
 	var out []ipFailure
 	for _, f := range r.failures() {
@@ -101,8 +101,7 @@ func ipoPath(r *http.Request) string { return strings.TrimPrefix(r.URL.Path, "/"
 // ipoExceeded is HackerTarget's reply to a lookup that is over the day's allowance.
 const ipoExceeded = "API count exceeded - Increase Quota with Membership"
 
-// ipoNotAsked is what a source's failure says of an address that was not asked because the source
-// had refused earlier in the call.
+// ipoNotAsked builds the expected explanation for a request suppressed after source refusal.
 const ipoNotAsked = "not asked: rate-limited earlier in this call"
 
 // ipoStamps is a source's handler that records when each request arrived, and answers it.
@@ -134,8 +133,7 @@ func (s *ipoStamps) gaps() []time.Duration {
 	return out
 }
 
-// ipoClosedExcept maps every probe port of the address that is not kept to a port nothing listens
-// on, so that a connection to it is refused.
+// ipoClosedExcept refuses all probe ports except those selected for the test.
 func ipoClosedExcept(w *ipWorld, addr string, keep ...int) {
 	w.t.Helper()
 	for _, p := range ipProbePorts {
@@ -147,9 +145,8 @@ func ipoClosedExcept(w *ipWorld, addr string, keep ...int) {
 
 // ---- time: paces, latches and the deadline ----
 
-// A 429 from InternetDB is a rate limit for the rest of the call: no address after it is asked, and
-// each records a transient RATE_LIMITED failure that says it was not asked, while the other sources
-// are asked for every address. One warning names the source.
+// An InternetDB 429 suppresses later requests to that source only and produces one warning plus
+// per-address transient failures.
 func TestIPTime_InternetDBRateLimitLatchesForTheRestOfTheCall(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -251,9 +248,8 @@ func TestIPTime_RDAPRateLimitLatchesThatRegistryOnly(t *testing.T) {
 	}
 }
 
-// HackerTarget's spent quota, as its "API count exceeded" reply or as a 429, latches: it is not
-// asked again, one warning says the quota resets daily, and each address that was not answered
-// records a quota failure (RATE_LIMITED, quota, not transient). The call still succeeds.
+// HackerTarget quota exhaustion stops later calls and warns once. Quota failures remain visible
+// but do not fail the batch or suggest immediate retry.
 func TestIPTime_HackerTargetQuotaLatches(t *testing.T) {
 	t.Parallel()
 	for _, reply := range []struct {
@@ -292,8 +288,7 @@ func TestIPTime_HackerTargetQuotaLatches(t *testing.T) {
 	}
 }
 
-// ipoCountQuota counts the records that have HackerTarget's names and those that have a quota
-// failure, and fails the test for a record that is neither.
+// ipoCountQuota requires every record to contain either reverse names or a quota failure.
 func ipoCountQuota(t *testing.T, records []ipRecord) (names, quota int) {
 	t.Helper()
 	for _, r := range records {
@@ -316,8 +311,8 @@ func ipoCountQuota(t *testing.T, records []ipRecord) (names, quota int) {
 	return names, quota
 }
 
-// With no pace set by the caller, nyx ip paces InternetDB at one request a second and RIPEstat at
-// four: the requests of a batch arrive no closer than that.
+// Default batch pacing separates InternetDB starts by one second and RIPEstat starts by a
+// quarter second.
 func TestIPTime_SourcesAreSlowedToTheirPaces(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -352,8 +347,8 @@ func TestIPTime_SourcesAreSlowedToTheirPaces(t *testing.T) {
 	}
 }
 
-// A source that has not answered by the call's deadline is a timed-out failure in the record: the
-// other addresses and sources are whole, and the call ends at the deadline.
+// Deadline expiry marks unanswered sources timed out while preserving completed data from other
+// addresses/sources.
 func TestIPTime_ASourceThatHangsPastTheTimeoutIsATimedOutFailure(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -434,9 +429,8 @@ func TestIPOutcome_EveryInputSucceedingExitsZero(t *testing.T) {
 	}
 }
 
-// A spent HackerTarget quota is listed in the record and in the warning and nowhere else: the call
-// exits 0, whether the quota was spent before any answer or after, and with a selection that needs
-// HackerTarget and nothing else but the owner.
+// HackerTarget quota-only failures remain in records/warnings while the command succeeds,
+// including with a minimal source selection.
 func TestIPOutcome_QuotaFailuresAloneExitZero(t *testing.T) { // mutation target
 	t.Parallel()
 	for _, c := range []struct {
@@ -477,8 +471,8 @@ func TestIPOutcome_QuotaFailuresAloneExitZero(t *testing.T) { // mutation target
 	}
 }
 
-// One failed source for one address of several exits 7: its hint is the command, with the flags
-// given, that looks up the failing addresses themselves, not the CIDR or hostname that gave them.
+// Partial retry hints preserve flags and name failed addresses directly rather than their
+// CIDR/hostname inputs.
 func TestIPOutcome_PartialHintRetriesTheFailingAddressesWithTheFlagsGiven(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -515,8 +509,7 @@ func TestIPOutcome_PartialHintRetriesTheFailingAddressesWithTheFlagsGiven(t *tes
 	}
 }
 
-// Quota failures are left out of the hint: of three addresses that all have one, only the address
-// with a failure worth retrying is named.
+// Retry hints omit quota-only failures and retain independently retryable failures.
 func TestIPOutcome_PartialHintLeavesOutQuotaFailures(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -531,10 +524,8 @@ func TestIPOutcome_PartialHintLeavesOutQuotaFailures(t *testing.T) {
 	}
 }
 
-// An address for which no needed source answered is a failed input and not a record: when it is the
-// only input the call exits 1 with the code of the first failing source in the order Team Cymru,
-// RDAP, PTR, RIPEstat, InternetDB and HackerTarget, and nothing on stdout. The snapshot of abusive
-// networks answers for itself, so these fields leave its key out (TestIPAbusive_EverySourceFailing has the rest).
+// Without local-only fields, all-source failure yields no record and uses the first source's
+// code. Separate tests cover local snapshot evidence preserving records.
 func TestIPOutcome_NoSourceAnsweringIsTheCodeOfTheFirstFailingSource(t *testing.T) {
 	t.Parallel()
 	const addr = "8.8.4.4"
@@ -589,8 +580,8 @@ func TestIPOutcome_NoSourceAnsweringIsTheCodeOfTheFirstFailingSource(t *testing.
 	}
 }
 
-// Every input a NOT_FOUND exits 3, every input invalid exits 2 with each problem listed, and a mix of
-// codes with no record exits 7 with nothing on stdout in human mode and an empty envelope in JSON.
+// Uniform failures retain NOT_FOUND/INVALID_INPUT status; mixed failure codes yield partial
+// output conventions even with no records.
 func TestIPOutcome_NoRecordTakesTheExitCodeOfTheOneCode(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -612,8 +603,7 @@ func TestIPOutcome_NoRecordTakesTheExitCodeOfTheOneCode(t *testing.T) {
 	}
 }
 
-// Mixed codes with no record exit 7. A transient failure of an address is retried by the hint, and a
-// name that does not exist is not.
+// Mixed-code failures retry transient addresses while excluding nonexistent names.
 func TestIPOutcome_MixedCodesWithNoRecordExitSeven(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -671,8 +661,8 @@ func TestIPOutcome_MoreThanTwentyFailuresPointAtTheErrors(t *testing.T) {
 	}
 }
 
-// A non-public address is a success even when its local PTR lookup (under --active) fails: it has
-// its record, the failure is listed in it, the call exits 0 and the address is not a failed input.
+// Local PTR failure stays visible on a successful non-public record without marking its input
+// failed.
 func TestIPOutcome_ANonPublicAddressWhoseLocalPTRFailsIsStillASuccess(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -709,8 +699,8 @@ func TestIPOutcome_ANonPublicAddressWhoseLocalPTRFailsIsStillASuccess(t *testing
 	}
 }
 
-// A signal in the middle of a lookup ends the call as interrupted (130, the code every command uses)
-// with nothing on stdout, however many addresses had their answers, and leaves no request running.
+// Signals discard buffered lookup stdout and cancel outstanding requests, even after other
+// addresses finished.
 func TestIPOutcome_ASignalEndsTheCallWithNothingLeftRunning(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -787,9 +777,8 @@ func goldenIP(t *testing.T, name, got string) {
 	}
 }
 
-// A record written to a stream that is not a terminal is plain text, whatever the colour variables
-// say: a header with the address, the hostnames that gave it and its kind, then a labelled section
-// for each category.
+// Non-terminal output remains plain regardless of colour variables, with address headers and
+// labelled sections.
 func TestIPRender_PlainRecordIsPinned(t *testing.T) {
 	t.Parallel()
 	var first string
@@ -816,8 +805,7 @@ func TestIPRender_PlainRecordIsPinned(t *testing.T) {
 	goldenIP(t, "record-plain", first)
 }
 
-// Under --active a record has its Not contacted, Ports, TLS and Web sections, after the default
-// sections and before Failures, each entry in the plain layout.
+// Active sections appear after default data and before failure details.
 func TestIPRender_ActiveRecordHasPortsTLSAndWeb(t *testing.T) {
 	t.Parallel()
 	const addr = "8.8.4.4"
@@ -887,9 +875,7 @@ func TestIPRender_ActiveRecordHasPortsTLSAndWeb(t *testing.T) {
 	}
 }
 
-// On a terminal each section has a heading with its rows indented beneath it, labels aligned in one
-// column, and no line is wider than the terminal. Colour changes no cell of the layout, and none is
-// written under NO_COLOR.
+// Terminal output aligns and wraps within width; removing colour does not change cell layout.
 func TestIPRender_TerminalLayout(t *testing.T) {
 	t.Parallel()
 	const width = 70
@@ -963,9 +949,8 @@ func ipoHostile(text string) string {
 	return "\x1b[31m" + text + "\x1b]0;pwned-title\x07\x1b[0m"
 }
 
-// ipoHostileCase is one source whose text is hostile: the address's facts, what its banner and its
-// page say, and the text of the hostile part that should still be shown once cleaned ("" when the
-// source may drop a value that is not a name).
+// ipoHostileCase describes hostile source/target text and the cleaned payload expected to
+// survive display.
 type ipoHostileCase struct {
 	name     string
 	fragment string
@@ -1009,9 +994,7 @@ func (c ipoHostileCase) run(t *testing.T, addr string, terminal bool) {
 	}
 }
 
-// What a source or a target says is shown only as text: escape sequences, control characters and
-// the payload of a terminal command never reach the output, in the plain layout or on a coloured
-// terminal.
+// Source text cannot execute terminal controls in plain or coloured output.
 func TestIPRender_HostileTextIsSanitised(t *testing.T) {
 	t.Parallel()
 	none := func(*ipFacts) {}
@@ -1110,8 +1093,7 @@ func ipoFieldNames() []string {
 	return append(slices.Clone(all[3:len(all)-1]), "all")
 }
 
-// The root help lists ip with its example, its flags and the names --fields accepts, and none of the
-// settings that only recon takes.
+// Root help exposes IP examples, flags and fields without recon-only settings.
 func TestIPHelp_RootListsIP(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -1151,9 +1133,8 @@ func TestIPHelp_RootListsIP(t *testing.T) {
 	}
 }
 
-// nyx help ip is the same as nyx ip --help: its examples are calls of nyx ip, it shows the flags,
-// the field names (the names only --active gives marked as such), the shared flags and the exit
-// codes, and it has no --config.
+// IP help aliases agree on examples, active-only fields, shared flags and exit codes without
+// --config.
 func TestIPHelp_IPHelpIsTheFullHelp(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

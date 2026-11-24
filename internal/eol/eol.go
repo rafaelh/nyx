@@ -1,9 +1,6 @@
-// Package eol holds the end of security support of the release cycles of the products nyx can
-// version, as endoflife.date records them. The data is embedded: one JSON file per product, as
-// endoflife.date publishes it, under data/; products.yaml, which says which detected names
-// (a Wappalyzer technology or a banner product) belong to which product and how a version names
-// its release cycle; and DATE, the day the data was taken. `make eol-data` refreshes all three.
-// The package does no I/O.
+// Package eol matches detected product versions to embedded endoflife.date security-support
+// cycles without I/O. products.yaml maps detection names and version patterns to product data;
+// DATE records the snapshot date. make eol-data refreshes product JSON and DATE.
 package eol
 
 import (
@@ -29,15 +26,14 @@ var dateFile string
 // cycleParts is how many dotted parts of a version a product's cycles are named by.
 var cycleParts = map[string]int{"major": 1, "minor": 2, "patch": 3}
 
-// cycleRecord is one release cycle as endoflife.date publishes it. EOL is the date security
-// support ends, or a boolean: false when no end is announced, true when the cycle has ended
-// on no known date.
+// cycleRecord follows endoflife.date: EOL is a security-support date, false for no announced
+// end, or true for ended support without a known date.
 type cycleRecord struct {
 	Cycle string `json:"cycle"`
 	EOL   any    `json:"eol"`
 }
 
-// product is a product with its cycles and how many parts of a version name one.
+// product associates support cycles with their version-prefix length.
 type product struct {
 	parts  int
 	cycles []cycleRecord
@@ -56,8 +52,8 @@ type entry struct {
 	Names   []string `yaml:"names"`
 }
 
-// load reads products.yaml and each product's data file. The embedded files are checked by
-// a test, so one that does not parse leaves its product out.
+// load reads embedded product mappings and cycles. Invalid product files are skipped; tests
+// validate embedded data.
 var load = sync.OnceValue(func() products {
 	var entries []entry
 	out := products{byName: map[string]*product{}}
@@ -86,9 +82,8 @@ var load = sync.OnceValue(func() products {
 // "7.4.3-4ubuntu2" give 1.3.5 and 7.4.3.
 var leadingNumber = regexp.MustCompile(`^v?(\d+(?:\.\d+)*)`)
 
-// find returns the cycle of version among cycles: the one named by its first parts dotted
-// numbers, or by fewer when there is none of that length. A cycle with no end announced
-// matches nothing, and one that ended on no known date has an empty end.
+// find matches a version's dotted prefix to a cycle, trying shorter prefixes if needed. Cycles
+// with no announced end are ignored; ended cycles without a date return an empty end.
 func find(parts int, cycles []cycleRecord, version string) (cycle, end string, ok bool) {
 	m := leadingNumber.FindStringSubmatch(strings.TrimSpace(version))
 	if m == nil {
@@ -115,10 +110,9 @@ func find(parts int, cycles []cycleRecord, version string) (cycle, end string, o
 	return "", "", false
 }
 
-// Lookup returns the cycle a version of the named product belongs to and the date its security
-// support ends (YYYY-MM-DD; empty when the cycle ended on no known date). The name is a
-// Wappalyzer technology or a banner product, in any case. ok is false for a name or version
-// the table cannot match, and for a cycle with no end announced.
+// Lookup accepts a case-insensitive detected product name and version. It returns the matched
+// cycle and support-end date, empty for ended cycles without a date. Unknown products/versions
+// and unannounced ends return ok=false.
 func Lookup(name, version string) (cycle, end string, ok bool) {
 	p := load().byName[strings.ToLower(strings.TrimSpace(name))]
 	if p == nil {

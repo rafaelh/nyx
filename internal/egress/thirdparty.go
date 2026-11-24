@@ -36,8 +36,8 @@ type ThirdPartyRequest struct {
 	KeySource, KeyHeader, KeyParam string
 	// KeyPrefix is put before the key in the KeyHeader value ("Bearer ").
 	KeyPrefix string
-	// KeyBodyField, with KeySource, sets this field of the JSON object in Body
-	// to the key, so a source that wants the key in the body never exposes it to the stage.
+	// KeyBodyField injects the configured key into a JSON body field without exposing the
+	// key value to the stage.
 	KeyBodyField string
 	// Timeout overrides the default HTTP timeout for this request (at most 120 s).
 	Timeout time.Duration
@@ -48,8 +48,8 @@ type ThirdPartyResponse struct {
 	Status int
 	Header map[string][]string
 	Body   []byte
-	// Truncated is set when the 10 MiB cap cut the body. A stage that needs the
-	// whole body must treat it as an error.
+	// Truncated marks the 10 MiB body cap. Consumers needing a complete document must
+	// reject it.
 	Truncated bool
 }
 
@@ -67,9 +67,8 @@ type thirdParty struct {
 	sources []string
 }
 
-// matchSource reports whether host is the source pattern: an exact host, "*.x"
-// (any name under x), or a pattern with one "*" label in the middle
-// ("s3.*.amazonaws.com"), which matches exactly one label of [a-z0-9-]+.
+// matchSource supports exact hosts, "*.x" subdomains and a single internal wildcard label such
+// as "s3.*.amazonaws.com". Internal wildcards match one [a-z0-9-]+ label.
 func matchSource(pattern, host string) bool {
 	if rest, ok := strings.CutPrefix(pattern, "*."); ok && !strings.Contains(rest, "*") {
 		return strings.HasSuffix(host, "."+rest)
@@ -128,8 +127,8 @@ func (t *thirdParty) Do(ctx context.Context, r ThirdPartyRequest) (ThirdPartyRes
 	return ThirdPartyResponse{Status: resp.StatusCode, Header: resp.Header, Body: data, Truncated: truncated}, nil
 }
 
-// sourceURL checks a request's method and URL against the stage's sources and the policy, and
-// returns the URL to send it to (rebased by Options.SourceBaseURLs) and the source pattern it matched.
+// sourceURL validates method, declared source and policy, returning the matched source pattern
+// and any test-rebased URL.
 func (t *thirdParty) sourceURL(r ThirdPartyRequest) (*url.URL, string, error) {
 	e := t.e
 	if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodHead {
@@ -157,10 +156,9 @@ func (t *thirdParty) sourceURL(r ThirdPartyRequest) (*url.URL, string, error) {
 	return u, pattern, nil
 }
 
-// policyRefusal refuses a source host that the current scope classifies as in scope or
-// excluded. A candidate is not refused: the host is one the stage declared as its source,
-// and so a third party by declaration, even when a redirect from an in-scope page has
-// recorded it (a provider endpoint such as a storage account, or a service's API host).
+// policyRefusal rejects source hosts classified in scope or excluded. Candidate status alone
+// does not reject a declared source: an in-scope redirect may have recorded an external storage
+// endpoint or API host as a candidate.
 func (t *thirdParty) policyRefusal(host string) error {
 	p := t.e.policy()
 	if p == nil || p.Scope == nil {
@@ -190,8 +188,8 @@ func (e *Egress) rebase(u *url.URL, host, pattern string) error {
 	return nil
 }
 
-// attachKey looks up the key r.KeySource names, if any, and puts it in the query parameter
-// and JSON body field the request asks for. The header is set by newRequest.
+// attachKey adds the configured key to requested query/body fields. newRequest handles key
+// headers.
 func (e *Egress) attachKey(r *ThirdPartyRequest, u *url.URL) (config.Secret, error) {
 	var key config.Secret
 	if r.KeySource == "" {
@@ -217,8 +215,8 @@ func (e *Egress) attachKey(r *ThirdPartyRequest, u *url.URL) (config.Secret, err
 	return key, nil
 }
 
-// newRequest builds the HTTP request for r to u, with the User-Agent, the content type and
-// Accept it asks for, and the key in KeyHeader when it names one.
+// newRequest builds the HTTP request, adding User-Agent, content type, Accept and any
+// configured key header.
 func (t *thirdParty) newRequest(ctx context.Context, r ThirdPartyRequest, u *url.URL, key config.Secret) (*http.Request, error) {
 	var body io.Reader
 	if len(r.Body) > 0 {

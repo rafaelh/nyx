@@ -1,6 +1,5 @@
-// Package banner reads the product and version a service names in its banner, for the SSH,
-// FTP and SMTP servers nyx recognises, and whether a version string (from a banner or
-// elsewhere) is a distribution's build. It does no I/O.
+// Package banner extracts recognised SSH, FTP and SMTP products/versions and detects
+// distribution builds without I/O.
 package banner
 
 import (
@@ -14,18 +13,15 @@ type rule struct {
 	re      *regexp.Regexp
 }
 
-// number is a version: digits, letters and dots only. That is what keeps terminal-acting
-// characters in the target's banner out of the version, and so out of the files and the console
-// (as sanitize.Text does for other target text); a rule must not capture more than this.
+// number limits captured versions to letters, digits and dots so banner control characters
+// cannot enter version output.
 const number = `([0-9][0-9A-Za-z.]*)`
 
-// word ends a product name (or its version) that is anywhere in the line: it must not run on
-// into a dot or a word, so the name in a hostname (220 postfix.example.com ESMTP Exim 4.94)
-// is not taken for the server.
+// word requires a product/version boundary that excludes hostname fragments, so
+// "postfix.example.com" is not mistaken for the mail server product.
 const word = `(?:[^.\w\n]|$)`
 
-// rules are tried in order and the first match wins. SSH banners start the line; the others
-// are anywhere in it.
+// First matching rule wins. SSH banners anchor at line start; other protocols allow prefixes.
 var rules = []rule{
 	{"OpenSSH", regexp.MustCompile(`(?m)^SSH-\d\.\d+-OpenSSH_` + number)},
 	{"Dropbear", regexp.MustCompile(`(?mi)^SSH-\d\.\d+-dropbear(?:_` + number + `)?`)},
@@ -39,20 +35,16 @@ var rules = []rule{
 	{"Microsoft Exchange", regexp.MustCompile(`Microsoft ESMTP MAIL Service(?:,\s*Version:\s*([0-9][0-9.]*))?`)},
 }
 
-// distro matches what a distribution adds to a version: its name, or the marks of its package
-// revisions (+deb12u3, ~bpo9, .el7, +dfsg).
+// distro recognises distribution names and package revision suffixes such as +deb12u3 or .el7.
 var distro = regexp.MustCompile(`(?i)debian|ubuntu|centos|red ?hat|rhel|fedora|suse|alpine|amazon linux|rocky|almalinux|raspbian|\+deb\d|~deb\d|~bpo|\+dfsg|[-.]el\d|\.fc\d`)
 
-// Distro reports whether a version carries a distribution suffix, such as 8.2p1 Ubuntu-4ubuntu0.5,
-// 7.4.3-4ubuntu2 or 1.18.0+deb11u1. A distribution build may carry fixes under its own version, so
-// its version alone does not show that it is out of date.
+// Distro detects distribution version suffixes. These builds may contain backported fixes, so
+// upstream version age alone does not establish missing support.
 func Distro(version string) bool { return distro.MatchString(version) }
 
-// Parse returns the product and version a banner's text names (a stored banner is decoded
-// with kinds.DecodeBanner first), and whether the version is a distribution's build. A banner
-// it does not recognise gives empty values, and a recognised one that names no version gives
-// an empty version. The version holds only digits, letters and dots (see number), so it is as
-// safe to print as sanitised text.
+// Parse extracts a recognised product/version and distribution-build flag. Decode stored
+// banners first with kinds.DecodeBanner. Unknown banners return empty values; missing versions
+// remain empty. Captured versions contain only letters, digits and dots.
 func Parse(text string) (product, version string, isDistro bool) {
 	for _, r := range rules {
 		loc := r.re.FindStringSubmatchIndex(text)
@@ -62,7 +54,7 @@ func Parse(text string) (product, version string, isDistro bool) {
 		if len(loc) > 3 && loc[2] >= 0 {
 			version = text[loc[2]:loc[3]]
 		}
-		// What the server adds after its name, on the same line: (Debian), Ubuntu-4ubuntu0.5.
+		// Inspect same-line suffixes such as (Debian) or Ubuntu package revisions.
 		rest, _, _ := strings.Cut(text[loc[1]:], "\n")
 		return r.product, version, Distro(rest)
 	}

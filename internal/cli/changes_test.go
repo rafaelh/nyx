@@ -95,8 +95,8 @@ func TestChanges_FirstRunReportsNothing(t *testing.T) {
 	}
 }
 
-// A second run lists what is new, what returned and what is gone, each with the
-// scope it has (a gone row, the scope it had) and the standard columns.
+// Compare new, returned and gone rows using current placement or saved placement for gone
+// entries.
 func TestChanges_NewReturnedAndGone(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"), host("h2.a.com"), webSvc("https://h2.a.com", "h2.a.com"))))
@@ -134,8 +134,8 @@ func TestChanges_NewReturnedAndGone(t *testing.T) {
 	}
 }
 
-// A run with no changes removes the file an earlier run wrote, still ends with
-// the block (counting nothing) and emits no change events.
+// No-change runs remove stale changes.csv output and keep an empty comparison summary without
+// change events.
 func TestChanges_NoChangesRemovesTheFile(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"))))
@@ -171,9 +171,7 @@ func TestChanges_NoChangesRemovesTheFile(t *testing.T) {
 	}
 }
 
-// A certificate that crosses its expiry date with no contact makes one finding
-// gone and another new, at the severity each had; the console block counts them
-// and lists the new one, and the summary event carries the same.
+// Date-only certificate changes update findings and comparison counts without new contact.
 func TestChanges_CertificateCrossesItsExpiryWithNoContact(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("old.a.com"), certSvc("old.a.com", "2026-11-20"))))
@@ -251,8 +249,7 @@ func TestChanges_ChangedSetting(t *testing.T) {
 	wantChanges(t, h, "gone finding certificates|expiring|https://w.a.com")
 }
 
-// A new exclusion hides a hostname that was shown: it is gone as a hostname and
-// new as an excluded name, and its web service is gone.
+// A new exclusion moves a visible hostname between categories and hides its web service.
 func TestChanges_NewExclusion(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, newSrc("crtsh", finds("k1", list(host("h1.a.com"), host("h2.a.com"), webSvc("https://h2.a.com", "h2.a.com")))))
@@ -268,9 +265,7 @@ func TestChanges_NewExclusion(t *testing.T) {
 	}
 }
 
-// A --passive run does not report a web service gone after a scope change,
-// because the stage that observed it did not run; a hostname a third-party stage
-// observed is still gone. An active run reports both.
+// Passive runs defer target-only disappearance reports until active checks can verify them.
 func TestChanges_PassiveRunDoesNotReportTargetRecordsGone(t *testing.T) {
 	t.Parallel()
 	for _, passive := range []bool{true, false} {
@@ -304,8 +299,7 @@ func TestChanges_PassiveRunDoesNotReportTargetRecordsGone(t *testing.T) {
 	}
 }
 
-// A budgeted stage's deferred checks are neither failed nor retired, so the
-// records of the checks it already ran are not gone when later ones wait.
+// Budget deferral preserves previous records rather than making them appear gone.
 func TestChanges_DeferredChecksAreNotGone(t *testing.T) {
 	t.Parallel()
 	checks := []run.Check{{Key: "c0", Cost: 1}}
@@ -325,9 +319,8 @@ func TestChanges_DeferredChecksAreNotGone(t *testing.T) {
 	wantChanges(t, h, "new hostname c1.a.com")
 }
 
-// An engagement last written by a nyx that kept no baseline gets one worked out
-// once from its stored records, so the first run with this nyx reports only what
-// changed, not everything.
+// Older engagements reconstruct one baseline so upgrading reports changes rather than every
+// stored record.
 func TestChanges_BaselineFromStoredRecords(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"), host("h2.a.com"))))
@@ -348,8 +341,7 @@ func TestChanges_BaselineFromStoredRecords(t *testing.T) {
 	wantChanges(t, h, "new hostname h3.a.com", "gone hostname h2.a.com")
 }
 
-// The changes of a run are the rows of changes.csv: the envelope counts them by kind and change, and
-// there are no change events, only the found events of the run.
+// Envelope changes count CSV rows; found events remain the only discovery events.
 func TestChanges_EnvelopeCountsTheRowsOfTheFile(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"), host("h2.a.com"))))
@@ -374,7 +366,7 @@ func TestChanges_EnvelopeCountsTheRowsOfTheFile(t *testing.T) {
 	if len(ofType(evs, "change")) != 0 {
 		t.Error("a change event: the rows are in changes.csv and in nyx recon export")
 	}
-	// The found events of the run are still emitted, as before.
+	// Ordinary found events remain available during comparison runs.
 	found := false
 	for _, e := range ofType(evs, "found") {
 		found = found || e.str("value") == "h3.a.com"
@@ -384,8 +376,8 @@ func TestChanges_EnvelopeCountsTheRowsOfTheFile(t *testing.T) {
 	}
 }
 
-// Changes are counted over what the files show: a hostname that returns counts as
-// new in the block, and only the six kinds are counted.
+// The comparison block counts returned entries as new and includes only its supported output
+// kinds.
 func TestChanges_BlockCountsReturnedAsNew(t *testing.T) {
 	t.Parallel()
 	crtsh := newSrc("crtsh", finds("k1", list(host("h1.a.com"), host("h2.a.com"))))

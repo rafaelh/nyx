@@ -39,8 +39,8 @@ func TestProbePolicy(t *testing.T) {
 	}
 }
 
-// The GET path of a probe: a request by hostname is pinned to the address and carries the
-// hostname as its Host header, and one for the bare address carries the literal.
+// Probe GETs stay pinned to one address while choosing hostname or literal Host headers
+// correctly.
 func TestProbeGetByHostnameAndByAddress(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -93,7 +93,7 @@ func TestProbeGetByHostnameAndByAddress(t *testing.T) {
 	}
 }
 
-// The probe policy still refuses what is not the one address, and a port that is not its own.
+// Per-address policy rejects other addresses and unselected ports.
 func TestProbePolicyRefusesOtherTargets(t *testing.T) {
 	t.Parallel()
 	a := addr("192.0.2.77")

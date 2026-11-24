@@ -1,34 +1,22 @@
-# Shared-infrastructure recognition. Embedded in the binary; edit and rebuild to extend.
+# Embedded provider recognition data. Changes take effect after rebuilding.
 #
-# cname: a CNAME target that ends with `suffix` (on a label boundary) is hosted by that provider.
-# asn:   an address whose origin AS is listed belongs to the provider. `class` is
-#        cdn and shared-hosting (shared), hyperscaler (shared unless a provider
-#        range proves the address is a dedicated virtual machine) or saas (a
-#        third-party platform serving other companies' content). A published
-#        range list (see internal/provider's rangeRules) takes precedence over
-#        the ASN, so these classes are the fallback when a list is missing:
-#        DigitalOcean's ranges make its addresses dedicated, Cloudflare's and
-#        Fastly's cdn.
+# cname matches CNAME suffixes at label boundaries. asn classifies addresses by origin AS.
+# CDN, SaaS and shared-hosting ASNs are shared. Hyperscalers fail closed unless published
+# ranges establish dedicated hosting. Range rules normally override ASN fallback;
+# CDN origin ASNs remain shared even inside dedicated-provider ranges.
 #
-# cname entries may also carry:
-#   class: saas      the host is served by a third-party SaaS platform, never requested for sensitive paths
-#   class: cdn, waf  the host is behind a content delivery network or a web application firewall
-#                    that fronts the site, so its origin server may be reachable another way
-#   nxdomain: true   a chain that dangles into the suffix can be claimed by anyone (a takeover)
-#   body: <RE2>      matches the page an unclaimed resource serves; a takeover when a probe sees it
-# and a `ranges:` list of static CIDRs (SaaS reached by apex A records).
+# Optional CNAME fields:
+#   class: saas      skip sensitive-path checks on third-party platforms
+#   class: cdn, waf  identify fronting providers for origin discovery
+#   nxdomain: true   flag dangling chains into claimable resources
+#   body: <RE2>      identify an unclaimed-resource response
+# Static ranges also identify SaaS reached through apex A records.
 #
-# txt:     a root TXT record that starts with `prefix` (case-insensitive) is a domain-ownership
-#          verification for `platform`. Only the platform is reported; the token is not.
-# domains: a domain that ends with `suffix` (on a label boundary) is operated by `provider`, such
-#          as the managed DNS service behind a name server, a mail service named by an SPF include,
-#          a DMARC report address or an MX host, or the SaaS platform behind a CNAME. A name server
-#          or MX host is looked up by its registrable domain, so an entry deeper than that never matches it.
-# The Salesforce prefix has not been re-confirmed against a live record. Amazon Route 53 name servers
-# (awsdns-NN.com, .net, .org and .co.uk) are not listed: their number is in the label, so a suffix cannot match them.
-# The fingerprints, ASNs and ranges below are a hand-curated starter set; they change only with the binary.
-# The Squarespace and Wix ASNs and the Squarespace ranges were taken from the providers' published
-# documentation and have not been re-confirmed against live data.
+# txt matches case-insensitive root TXT prefixes for ownership verification. Output names the
+# platform without exposing its token. domains labels external DNS/mail/SaaS dependencies by
+# suffix. NS/MX lookups use registrable domains, so deeper entries cannot match those mechanisms.
+# Route 53's numbered labels cannot use suffix matching. The Salesforce TXT prefix and the
+# documented Squarespace/Wix ASN/range entries have not been rechecked against live data.
 cname:
   - {suffix: cloudfront.net, provider: aws, service: CloudFront, class: cdn}
   - {suffix: elb.amazonaws.com, provider: aws, service: ELB}
@@ -144,8 +132,7 @@ domains:
   - {suffix: gandi.net, provider: Gandi}
   - {suffix: he.net, provider: Hurricane Electric}
   - {suffix: ovh.net, provider: OVHcloud}
-  # Mail and SaaS providers, written at the registrable domain so that an MX or NS row (which holds one)
-  # can match as well as an SPF include or a CNAME suffix of any depth.
+  # Registrable-domain entries match NS/MX rows as well as deeper SPF/CNAME names.
   - {suffix: google.com, provider: Google}
   - {suffix: googlemail.com, provider: Google}
   - {suffix: outlook.com, provider: Microsoft 365}

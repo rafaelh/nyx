@@ -5,7 +5,6 @@ import "strings"
 // Mode is how a block of text may be broken into lines.
 type Mode int
 
-// The modes. The zero value never breaks a line except at a newline.
 const (
 	// None breaks only at "\n". It is the mode of a table column that never wraps.
 	None Mode = iota
@@ -20,36 +19,23 @@ const (
 type Span struct {
 	// Text is plain: already sanitised and redacted, with no escape sequence.
 	Text string
-	// Style is a palette function, applied to each line's part of the text after
-	// the lines are broken. Nil means no style.
+	// Style applies palette formatting after wrapping; nil leaves text plain.
 	Style func(string) string
-	// Keep makes the span one unbreakable token, styled whole. Badges and padded
-	// names are Keep spans. A word that holds a Keep span is never broken.
+	// Keep makes a span unbreakable, including the rest of any word containing it. It is
+	// used for badges and padded names.
 	Keep bool
 }
 
 // Plain is a single unstyled span.
 func Plain(text string) []Span { return []Span{{Text: text}} }
 
-// Wrap lays spans out as lines at most width cells wide, for text that follows a
-// prefix first cells wide on its first line. The caller writes that prefix: the
-// first line returned does not include it. Each later line starts with rest
-// spaces, which Wrap writes. There is always at least one line.
+// Wrap returns at least one line, reserving first cells for a caller-written prefix and
+// indenting later lines by rest spaces. Newlines force breaks. Spaces are preserved except the
+// single space consumed at a wrap.
 //
-// Spaces are kept: a leading run, a run inside a line and a run at the end. Only
-// the single space at which a line is broken is consumed. "\n" is a hard break,
-// and the line after it starts at rest like any other continuation.
-//
-// A word longer than the space left moves to the next line when a word is
-// already on this one. When it is the first word of its line, or still too long
-// on the next line:
-//   - a protected word (Protected) or one holding a Keep span is left whole, and
-//     the line runs past width;
-//   - any other word is broken at width, counting cells.
-//
-// Lines are broken first and styled afterwards, run by run, so no escape sequence
-// crosses a break: a styled run that goes on to the next line is closed at the end
-// of one and opened again on the next.
+// Oversized words move to a fresh line, then split by cell width unless Protected or containing
+// Keep; those may overflow. Styling is applied after line breaks so escape sequences never span
+// lines.
 func Wrap(spans []Span, width, first, rest int, mode Mode) []string {
 	if mode == None {
 		width = 1 << 30
@@ -59,9 +45,8 @@ func Wrap(spans []Span, width, first, rest int, mode Mode) []string {
 	return e.render(spans)
 }
 
-// Hang lays spans out after prefix, which it writes at the start of the first line. Each later line
-// starts with as many spaces as prefix is wide (its escape sequences count zero), so the text hangs
-// under its first line. Otherwise it is Wrap.
+// Hang writes prefix and aligns continuation lines beneath the following text, measuring prefix
+// in cells without escapes. Other wrapping follows Wrap.
 func Hang(prefix string, spans []Span, width int, mode Mode) []string {
 	w := Measure(prefix)
 	lines := Wrap(spans, width, w, w, mode)
@@ -69,7 +54,7 @@ func Hang(prefix string, spans []Span, width int, mode Mode) []string {
 	return lines
 }
 
-// frag is a piece of a line: text in the style of one span.
+// frag pairs a line fragment with one span style.
 type frag struct {
 	text string
 	si   int // index into the spans, or -1 for no style
@@ -167,8 +152,8 @@ func tokenise(spans []Span) []tok {
 	return out
 }
 
-// unit is what can sit on a line or move to the next as a whole: a word, or in
-// Commas mode a run of words ending after a comma.
+// unit is an indivisible wrapping group: one word, or in Commas mode all words through the next
+// comma.
 type unit struct {
 	toks []tok
 	w    int
@@ -183,7 +168,7 @@ type engine struct {
 	pending     []frag
 }
 
-// feed lays out tokens: spaces are held back until the next word shows where they go.
+// feed delays spaces until the next word determines whether they fit or wrap.
 func (e *engine) feed(toks []tok, mode Mode) {
 	var u unit
 	closeUnit := func() {
@@ -272,7 +257,7 @@ func (e *engine) place(u unit) {
 		if !e.content {
 			break
 		}
-		// Break at the space before the unit; only one space is consumed.
+		// Consume only the break space, preserving additional whitespace.
 		if len(e.pending) > 0 {
 			e.pending = e.pending[1:]
 		}
@@ -288,7 +273,7 @@ func (e *engine) place(u unit) {
 		e.hardBreak(w)
 		return
 	}
-	// A segment too long for a line: lay its words out at spaces.
+	// Fall back to word wrapping inside an oversized comma segment.
 	for _, t := range u.toks {
 		if t.kind == tSpace {
 			e.pending = append(e.pending, t.sp)
@@ -316,9 +301,8 @@ type cell struct {
 	w  int
 }
 
-// hardBreak breaks a word that cannot be kept whole at the width, cell by cell.
-// A zero-width rune stays with the rune before it, and each line takes at least
-// one rune so the loop always ends.
+// hardBreak splits oversized words by cell width, keeping zero-width runes with the preceding
+// rune. Each iteration consumes at least one rune.
 func (e *engine) hardBreak(w word) {
 	var rs []cell
 	for _, f := range w.frags {
@@ -371,7 +355,7 @@ func (e *engine) addCells(rs []cell) {
 	}
 }
 
-// render styles each line, a run of same-span fragments at a time.
+// render styles consecutive fragments from the same span together on each line.
 func (e *engine) render(spans []Span) []string {
 	e.lines = append(e.lines, e.cur)
 	out := make([]string, len(e.lines))
@@ -407,10 +391,8 @@ func (e *engine) render(spans []Span) []string {
 	return out
 }
 
-// measureSpans is, from one pass over the spans, natural: the width of the widest
-// line when nothing wraps (every space kept, as Wrap keeps them); and unbreakable:
-// the width of the widest word that Wrap never breaks, a protected word or one
-// holding a Keep span.
+// measureSpans returns natural line width and the widest unbreakable token in one pass, using
+// Wrap's whitespace and protection rules.
 func measureSpans(spans []Span) (natural, unbreakable int) {
 	line := 0
 	for _, t := range tokenise(spans) {

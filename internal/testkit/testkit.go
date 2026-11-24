@@ -1,4 +1,4 @@
-// Package testkit has fakes for exercising the runner in tests.
+// Package testkit supplies configurable stage fakes for runner tests.
 package testkit
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// Stage is a configurable fake run.Stage that records what it executes.
+// Stage implements run.Stage while recording checks and concurrency.
 type Stage struct {
 	StageName string
 	Kind      run.Contact
@@ -20,7 +20,7 @@ type Stage struct {
 
 	ConfiguredFn func(run.Env) (bool, string)
 	ChecksFn     func(v run.View) []run.Check
-	ChecksErr    error // yielded after the checks, as if enumeration failed
+	ChecksErr    error // simulate enumeration failure after all supplied checks
 	RunFn        func(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error)
 
 	mu        sync.Mutex
@@ -81,21 +81,21 @@ func (s *Stage) Executed() []string {
 	return append([]string(nil), s.executed...)
 }
 
-// MaxActive is the highest number of checks that ran concurrently.
+// MaxActive reports peak concurrent checks.
 func (s *Stage) MaxActive() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.maxActive
 }
 
-// Reset forgets what has been executed.
+// Reset clears execution history.
 func (s *Stage) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.executed, s.maxActive = nil, 0
 }
 
-// Keys returns n checks keyed prefix000, prefix001, ...
+// Keys creates stable, zero-padded check IDs.
 func Keys(prefix string, n int) []run.Check {
 	out := make([]run.Check, n)
 	for i := range out {
@@ -104,11 +104,11 @@ func Keys(prefix string, n int) []run.Check {
 	return out
 }
 
-// Budgeted is a Stage with a per-run budget of Limit.
+// Budgeted adds a Limit-sized per-run budget to the fake stage.
 type Budgeted struct {
 	*Stage
 	Limit int
 }
 
-// Budget is the stage's per-run budget.
+// Budget supplies the configured Limit to the runner.
 func (b Budgeted) Budget(config.Settings) int { return b.Limit }

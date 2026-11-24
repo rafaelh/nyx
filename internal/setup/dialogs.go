@@ -6,7 +6,7 @@ import (
 	"github.com/rafaelh/nyx/internal/layout"
 )
 
-// wrap lays text out in lines at most w cells wide, with rest cells of indent after the first.
+// wrap limits text to w cells with rest-cell continuation indentation.
 func wrap(text string, w, rest int) []string {
 	return layout.Wrap(layout.Plain(text), max(w, 1), 0, rest, layout.Spaces)
 }
@@ -18,7 +18,7 @@ func plural(n int, one, many string) string {
 	return fmt.Sprintf("%d %s", n, many)
 }
 
-// plainLines are lines of text in one role, or unstyled when role is "".
+// plainLines applies one role to text lines; empty role leaves them plain.
 func (m *model) plainLines(role string, lines []string) []line {
 	out := make([]line, len(lines))
 	for i, l := range lines {
@@ -33,12 +33,12 @@ func (m *model) plainLines(role string, lines []string) []line {
 // title is a dialog's first line.
 func (m *model) title(s string) line { return line{m.strong(roleName, s)} }
 
-// choice is a dialog's line for a key: the key, then what it does.
+// choice formats a dialog shortcut and its description.
 func (m *model) choice(key, does string) line {
 	return line{plain("  "), m.paint(roleKey, key), plain(layout.PadRight("", 5-layout.Measure(key))), plain(does)}
 }
 
-// dialogLines is the body while a dialog is open, cut to room lines.
+// dialogLines limits an open dialog to available body rows.
 func (m *model) dialogLines(room int) []string {
 	w := m.width - 2
 	var lines []line

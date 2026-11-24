@@ -9,26 +9,15 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Visibility applies the showing rules for one Scope and Inventory. The rules
-// are evaluated on read, so an exclusion added later hides records found
-// earlier:
+// Visibility applies current scope and inventory rules when records are read, so later
+// exclusions also hide earlier discoveries. Web and hostname records need an in-scope host;
+// port records need a port-eligible address. Confirmed closed ports hide third-party reports.
+// OutsideAttr additionally requires an external domain. Entities use their kind's placement
+// rule; other records remain visible.
 //
-//   - a web record (a kind with HostAttr) is shown while its host is in scope;
-//   - a port record (PortKey) is shown while its address is port-eligible, so a
-//     reassigned cloud address is not reported as the target's, and a port a
-//     third party reported (ClosedHides) is not shown once nyx found it closed;
-//   - a record keyed by a hostname (HostKey) is shown while that name is in scope;
-//   - a record with an OutsideAttr is shown only while the domain it names is
-//     not in scope, on top of any other rule;
-//   - an entity record is never hidden: it is placed in scope, as a candidate
-//     or as excluded by its kind's own rule, which decides its summary category
-//     (see Placement);
-//   - a record of any other kind is always shown.
-//
-// The summary counts, the found lines, the files and the findings all ask the
-// same Visibility, so their totals agree. It decides each web host once, and is
-// safe for concurrent use. A nil *Visibility (no Scope built yet) shows only
-// the kinds whose rules need no scope.
+// Counts, events, files and findings share these decisions. Web-host results are cached and
+// safe for concurrent access. A nil Visibility shows only kinds whose rules do not require
+// scope.
 type Visibility struct {
 	sc  *scope.Scope
 	inv *inventory.Inventory
@@ -37,7 +26,7 @@ type Visibility struct {
 	hosts map[string]bool
 }
 
-// NewVisibility returns the Visibility of a Scope and Inventory, neither nil.
+// NewVisibility binds visibility rules to a non-nil scope and inventory.
 func NewVisibility(sc *scope.Scope, inv *inventory.Inventory) *Visibility {
 	return &Visibility{sc: sc, inv: inv, hosts: map[string]bool{}}
 }
@@ -55,7 +44,7 @@ func (v *Visibility) shown(k Kind, r store.Record) bool {
 	return v.hostShown(k, r) && v.outside(k, r)
 }
 
-// hostShown applies a kind's rule for the host or address a record belongs to.
+// hostShown applies the kind's host or address visibility rule.
 func (v *Visibility) hostShown(k Kind, r store.Record) bool {
 	switch {
 	case k.PortKey:
@@ -69,8 +58,7 @@ func (v *Visibility) hostShown(k Kind, r store.Record) bool {
 	return true
 }
 
-// outside reports whether the domain a record names is outside the scope, or
-// the record names none.
+// outside accepts records naming no domain or a domain outside scope.
 func (v *Visibility) outside(k Kind, r store.Record) bool {
 	if k.OutsideAttr == "" {
 		return true
@@ -90,8 +78,7 @@ func (v *Visibility) webHostInScope(host string) bool {
 	return in
 }
 
-// webHost is the host of a web record: its host attribute, or the host of its
-// key when it has none.
+// webHost reads a record's host attribute, falling back to the host in its URL key.
 func webHost(hostAttr string, r store.Record) string {
 	host := r.Str(hostAttr)
 	if host == "" {
@@ -102,10 +89,9 @@ func webHost(hostAttr string, r store.Record) string {
 	return host
 }
 
-// Printed reports whether a record seen for the first time is printed as a
-// found line: a printed kind, and for an entity only while it is in scope. The
-// kind is given by name, as the store reports a new record. A record of an
-// unknown kind is not printed.
+// Printed allows found events for printed kinds and, for entities, only in-scope records.
+// Unknown kinds are never printed. It accepts a kind name because the store callback reports
+// names.
 func (v *Visibility) Printed(kind string, r store.Record) bool {
 	k, ok := Get(kind)
 	switch {
@@ -120,8 +106,8 @@ func (v *Visibility) Printed(kind string, r store.Record) bool {
 	return v.shown(k, r)
 }
 
-// Category is the summary category a record of the kind is counted under, or
-// "" if it is not counted (a kind without a category, or a hidden record).
+// Category returns the visible record's summary category, or "" for hidden or uncounted
+// records.
 func (v *Visibility) Category(kind Named, r store.Record) string {
 	if v == nil {
 		return ""
@@ -148,13 +134,9 @@ func (v *Visibility) category(k Kind, r store.Record) string {
 	return k.Category // "" for an input
 }
 
-// Placement is where a record of an entity kind sits against the scope, by its
-// kind's own rule, the decision behind its summary category, so a candidate is
-// placed as one exactly when candidates.csv lists it. It is not placed (false)
-// when it stays on record without being listed: an organisation that neither
-// matches an --org input nor meets the candidate rule, or a netblock whose key
-// is not a CIDR. A record of any other kind is not placed either: it is shown
-// or hidden instead (see Shown). The Visibility must not be nil.
+// Placement applies an entity kind's classification rule consistently with candidates.csv and
+// summary counts. It returns false for unlisted entities, such as unqualified organisations or
+// invalid CIDRs, and for non-entity kinds. Visibility must be non-nil.
 func (v *Visibility) Placement(kind Named, r store.Record) (scope.Class, bool) {
 	return v.placement(kind.kind(), r)
 }
@@ -166,14 +148,10 @@ func (v *Visibility) placement(k Kind, r store.Record) (scope.Class, bool) {
 	return k.place(v.sc, v.inv, r.Key)
 }
 
-// ChangeLabel is the label a record is listed under in changes.csv, or "" if it
-// is not listed, and its scope column there. The label is the kind's Change,
-// and for an entity kind that of its placement: a candidate is listed as a
-// candidate and an excluded record as excluded, whatever their kind, and one
-// placed in scope under its kind's Change (a root that is in scope, an input,
-// not at all). Another kind's scope is in-scope when showing it depends on the
-// scope, and blank otherwise. It says nothing of whether the record is shown;
-// Shown, or a current entity's category, decides that.
+// ChangeLabel returns the changes.csv label and scope column independently of current
+// visibility. Entities use candidate/excluded labels or their in-scope kind label. Other kinds
+// have scope="in-scope" when visibility depends on scope, otherwise blank. Unlisted kinds
+// return "".
 func (v *Visibility) ChangeLabel(kind Named, r store.Record) (label, place string) {
 	k := kind.kind()
 	if !k.Entity() {
@@ -199,14 +177,12 @@ func (v *Visibility) ChangeLabel(kind Named, r store.Record) (label, place strin
 	return k.Change, scope.InScope.String()
 }
 
-// Totals counts the current records by summary category. Hosts and the
-// category of every non-entity kind are listed even when they are empty. An
-// excluded value is counted once, however many records (a hostname, a root, a
-// guard's excluded record) carry it, as excluded.csv lists it once.
+// Totals counts current visible records by summary category, retaining empty host and
+// non-entity categories. Excluded values are deduplicated across kinds to match excluded.csv.
 func (v *Visibility) Totals(recs map[string][]store.Record) map[string]int {
 	totals := map[string]int{Hosts: 0}
 	excluded := map[string]bool{}
-	// A port nyx confirmed is counted as confirmed only, whoever reported it.
+	// Count a port confirmed by nyx once, regardless of third-party reports.
 	confirmed := OpenedPorts(recs[OpenPort.Name()])
 	isConfirmed := func(key string) bool {
 		ap, ok := ParsePortKey(key)

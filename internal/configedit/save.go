@@ -10,23 +10,21 @@ import (
 	"github.com/rafaelh/nyx/internal/fault"
 )
 
-// maxLinkHops is how many symbolic links Save follows to the file it writes, as the kernel allows
-// (40 on Linux).
+// maxLinkHops bounds symlink resolution at the Linux kernel's 40-hop limit.
 const maxLinkHops = 40
 
-// errTooManyLinks is the reason for a link chain longer than maxLinkHops, worded as the kernel does.
+// errTooManyLinks uses standard symlink-loop wording.
 var errTooManyLinks = errors.New("too many levels of symbolic links")
 
-// SaveOptions are the knobs of Save a test turns.
+// SaveOptions supplies file-operation hooks for tests.
 type SaveOptions struct {
-	// NoFsync skips the fsync of the file and its directory, for tests: an fsync on macOS flushes
-	// the whole drive cache.
+	// NoFsync avoids costly macOS drive-cache flushes in tests.
 	NoFsync bool
-	// Rename replaces os.Rename, so a test can make the last step fail. nil means os.Rename.
+	// Rename injects final-replacement failures; nil uses os.Rename.
 	Rename func(oldpath, newpath string) error
 }
 
-// SaveError is a save that failed: the config path as the caller gave it, and the cause.
+// SaveError preserves the original config path and failure cause.
 type SaveError struct {
 	Path string
 	Err  error
@@ -35,14 +33,13 @@ type SaveError struct {
 func (e *SaveError) Error() string { return "cannot save " + e.Path + ": " + config.ErrorText(e.Err) }
 func (e *SaveError) Unwrap() error { return e.Err }
 
-// Reason is why the save failed, without the path, for a caller that shows the path on its own.
+// Reason omits the path for UIs displaying it separately.
 func (e *SaveError) Reason() string { return config.ErrorText(e.Err) }
 
-// Save writes data to the config file at path, replacing it atomically: a crash leaves the old file
-// or the new one, never a part of either. A symbolic link at path is followed, so the file it
-// points to is replaced and the link stays; a dangling one creates its target. Missing directories
-// are created readable by their owner only, and the file is always readable by its owner only,
-// which tightens a broader one. When it fails the file is unchanged and no temporary file is left.
+// Save atomically replaces a config file so crashes leave a complete old or new file. Symlinks
+// are followed, including dangling links, without replacing the link. Created directories and
+// the saved file are owner-only; existing broad file permissions are tightened. Failures leave
+// the file unchanged and remove temporary files.
 func Save(path string, data []byte, opts SaveOptions) (err error) {
 	defer func() {
 		if err != nil {
@@ -94,8 +91,8 @@ func Save(path string, data []byte, opts SaveOptions) (err error) {
 	return nil
 }
 
-// resolveLinks is the file that path names once its symbolic links are followed. A link is
-// resolved against its own directory, and a dangling one leads to the file it names.
+// resolveLinks follows symlinks relative to each link's directory. A dangling link resolves to
+// its intended target path.
 func resolveLinks(path string) (string, error) {
 	for hops := 0; ; hops++ {
 		fi, err := os.Lstat(path)
@@ -120,8 +117,8 @@ func resolveLinks(path string) (string, error) {
 	}
 }
 
-// syncDir flushes a directory's entries, so a rename in it survives a power cut. It is best effort:
-// the file is already in place.
+// syncDir best-effort syncs rename metadata after replacement so directory changes survive
+// power loss.
 func syncDir(dir string) {
 	if d, err := os.Open(dir); err == nil {
 		_ = d.Sync()

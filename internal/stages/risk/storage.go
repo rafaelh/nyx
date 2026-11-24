@@ -17,11 +17,9 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// Storage checks cloud storage: buckets and accounts that
-// in-scope names and pages reference, and names guessed from the roots and
-// organisations. It lists a bucket anonymously, HEADs one object, and never
-// fetches object contents. Everything it asks is a public provider endpoint,
-// so it runs under --passive.
+// Storage checks referenced and guessed cloud resources through public provider endpoints,
+// including passive runs. It lists anonymously and HEADs one object without downloading object
+// contents.
 type Storage struct{}
 
 // NewStorage returns the storage stage.
@@ -46,8 +44,8 @@ var (
 	regionRE      = regexp.MustCompile(`^[a-z0-9-]+$`)
 )
 
-// Checks yields the checks of this pass; a later pass picks up what these
-// found (an existing Azure account's containers, a listed bucket's first key).
+// Checks picks up resources discovered by earlier passes, such as containers in newly confirmed
+// accounts or objects found in bucket listings.
 func (*Storage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		emit := func(key string, in storageInput) bool { return yield(run.Check{Key: key, Input: in}, nil) }
@@ -62,9 +60,8 @@ func (*Storage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 // storageEmit yields one check, reporting whether to go on.
 type storageEmit func(key string, in storageInput) bool
 
-// bucketChecks yields a check for each bucket or Azure account a reference
-// names, then for each guessed from the roots and organisations. It reports
-// whether to go on.
+// bucketChecks prioritises referenced buckets/accounts before root- and organisation-based
+// guesses. Its result allows early enumeration stop.
 func bucketChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) bool {
 	bucket := func(provider, name string) bool {
 		if !safeName.MatchString(name) {
@@ -89,9 +86,8 @@ func bucketChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) b
 	return true
 }
 
-// containerChecks yields a check for each container of each Azure account
-// known to exist: the fixed list, and every one a reference names. It reports
-// whether to go on.
+// containerChecks combines fixed container names and references for known existing Azure
+// accounts, allowing early enumeration stop.
 func containerChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) bool {
 	for _, acct := range existingAccounts(v) {
 		for _, c := range accountContainers(acct, refs) {
@@ -114,8 +110,7 @@ func existingAccounts(v run.View) []string {
 	return accounts
 }
 
-// accountContainers are the fixed container names, then every other one a
-// reference to the account names.
+// accountContainers prioritises fixed names before additional referenced containers.
 func accountContainers(acct string, refs []cloudstorage.Reference) []string {
 	containers := slices.Clone(cloudstorage.AzureContainers)
 	for _, r := range refs {
@@ -126,8 +121,8 @@ func accountContainers(acct string, refs []cloudstorage.Reference) []string {
 	return containers
 }
 
-// objectChecks yields one HEAD for the first listed key and for every
-// referenced object of a bucket that exists, in key order.
+// objectChecks deduplicates and sorts HEAD requests for the first listed and referenced objects
+// of existing buckets.
 func objectChecks(v run.View, refs []cloudstorage.Reference, emit storageEmit) {
 	existing := map[string]storageInput{} // object inputs without the object
 	objs := map[string]storageInput{}
@@ -204,8 +199,7 @@ func escapePath(parts ...string) string {
 	return "/" + strings.Join(segs, "/")
 }
 
-// storageURL is the URL of a bucket or container, or of an object in it when
-// object is given. An S3 bucket is addressed path-style at its region's endpoint.
+// storageURL formats bucket/container or object endpoints. S3 uses regional path-style URLs.
 func storageURL(in storageInput, region string, object ...string) string {
 	host, base := "s3.amazonaws.com", in.name
 	switch in.provider {
@@ -253,13 +247,11 @@ func request(ctx context.Context, e egress.Clients, method string, in storageInp
 	return resp, region, err
 }
 
-// s3RegionHost captures the region of an S3 endpoint host: s3.<region>,
-// s3-<region> or s3.dualstack.<region>, optionally after the bucket.
+// s3RegionHost recognises dotted, hyphenated and dual-stack regional endpoints.
 var s3RegionHost = regexp.MustCompile(`(?:^|\.)s3[.-](?:dualstack\.)?([a-z]{2}(?:-[a-z]+)+-[0-9]+)\.amazonaws\.com$`)
 
-// redirectRegion is the region an S3 redirect points at: the
-// x-amz-bucket-region header, else the host of the Location header (a 307 for
-// a new bucket may carry only that), else the <Endpoint> of the error body.
+// redirectRegion reads S3's region header, Location host or XML Endpoint in that order,
+// covering new-bucket redirects with no region header.
 func redirectRegion(resp egress.ThirdPartyResponse) string {
 	if r := resp.HeaderValue("X-Amz-Bucket-Region"); r != "" {
 		return r
@@ -291,8 +283,7 @@ type listing struct {
 	NextMarker string   `xml:"NextMarker"`
 }
 
-// list lists a bucket or container anonymously and records whether it exists,
-// is listable, how many objects it has and its first keys.
+// list records anonymous existence/listability, object counts and initial keys.
 func list(ctx context.Context, e egress.Clients, in storageInput) ([]run.Observation, error) {
 	resp, region, err := request(ctx, e, "GET", in, func(r string) string { return listURL(in, r) })
 	if err != nil {
@@ -322,10 +313,9 @@ func list(ctx context.Context, e egress.Clients, in storageInput) ([]run.Observa
 		attrs.Exists, attrs.Listable = &yes, &no
 	case in.provider == cloudstorage.Azure && (resp.Status == 404 && strings.Contains(body, "ResourceNotFound") ||
 		resp.Status == 409 && strings.Contains(body, "PublicAccessNotPermitted")):
-		// Azure answers an anonymous request this way for a private container and
-		// for a missing one alike (and 409 for every container once the account
-		// disallows public access), so whether it exists is unknown: it is not
-		// listable, and is neither reported as existing nor as claimable.
+		// Azure uses the same anonymous response for private and missing containers.
+		// Keep existence unknown so privacy cannot be mistaken for a claimable
+		// resource.
 		attrs.Listable = &no
 	default:
 		return nil, fmt.Errorf("HTTP %d", resp.Status)

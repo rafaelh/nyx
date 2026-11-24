@@ -37,8 +37,8 @@ func TestSkipTab_TogglingStagesBuildsTheWholeListInOrder(t *testing.T) {
 	h := newTH(t, b)
 	h.press("tab", "tab")
 	mustHave(t, h.view(), "[ ] web", "[ ] dns", "[x] ports")
-	h.press("down", "enter") // ports skipped
-	h.press("up", "enter")   // dns runs
+	h.press("down", "enter") // initial skipped stage
+	h.press("up", "enter")   // initial enabled stage
 	mustHave(t, h.view(), "[x] dns", "[ ] ports")
 	h.press("ctrl+s")
 	if h.m.changes() != 0 {
@@ -61,12 +61,12 @@ func TestSkipTab_ProblemEntriesAreRemovedOneAtATime(t *testing.T) {
 	if n, _, _ := b.counts(); n != 0 {
 		t.Fatal("saved with problem entries still listed")
 	}
-	h.goTo(2, 4) // foo
+	h.goTo(2, 4) // unknown entry
 	h.press("x")
 	f := h.view()
 	mustNotHave(t, f, `unknown stage "foo"`)
 	mustHave(t, f, `stage "resolve" cannot be skipped`, "[ ] dns")
-	h.press("ctrl+s") // resolve is still invalid
+	h.press("ctrl+s") // retain unrelated invalid entry
 	if n, _, _ := b.counts(); n != 0 {
 		t.Fatal("saved with one problem entry left")
 	}
@@ -119,7 +119,7 @@ func TestSkipTab_TogglingBackIsNoChangeAndEmptyingTheListWritesAnEmptyList(t *te
 	if h.m.changes() != 0 {
 		t.Errorf("toggled and toggled back is %d changes", h.m.changes())
 	}
-	h.press("up", "enter") // dns runs again: the list is empty
+	h.press("up", "enter") // empty list enables DNS again
 	if h.m.changes() != 1 {
 		t.Fatalf("changes = %d", h.m.changes())
 	}
@@ -147,7 +147,7 @@ func TestSkipTab_ScrollsToKeepTheSelectionVisible(t *testing.T) {
 		mustHave(t, f, sel)
 		h.press("down")
 	}
-	// And back up again.
+	// Scroll back to the earlier row.
 	for i := 36; i >= 0; i-- {
 		mustHave(t, h.view(), fmt.Sprintf("stage%02d", i))
 		h.press("up")

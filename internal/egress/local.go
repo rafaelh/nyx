@@ -14,9 +14,8 @@ import (
 // ErrLocalTimeout is the error of a lookup that this machine's resolver did not answer in time.
 var ErrLocalTimeout = errors.New("this machine's resolver did not answer in time")
 
-// LocalResolver asks this machine's own resolver, which may know private names the public
-// resolvers do not. A name or address it answers has none of (NXDOMAIN, or a name with neither
-// A nor AAAA) is an empty answer and no error.
+// LocalResolver uses the machine's resolver for names public DNS may not know. NXDOMAIN and
+// names without A/AAAA return empty results without error.
 type LocalResolver interface {
 	Addrs(ctx context.Context, name string) ([]netip.Addr, error)
 	PTR(ctx context.Context, addr netip.Addr) ([]string, error)
@@ -40,9 +39,8 @@ func (e *Egress) localNet() *net.Resolver {
 	}}
 }
 
-// lookup runs fn under the DNS timeout, after the DNS rate limiter, and classifies its failure:
-// a cancelled ctx is its own error, a timeout is ErrLocalTimeout, and a name that does not exist
-// is the zero answer with no error.
+// lookup applies DNS pacing and timeout, preserving cancellation, mapping timeouts to
+// ErrLocalTimeout and treating nonexistent names as empty successful answers.
 func lookup[T any](ctx context.Context, e *Egress, fn func(context.Context, *net.Resolver) (T, error)) (T, error) {
 	var zero T
 	if err := wait(ctx, e.dnsLim); err != nil {
@@ -85,8 +83,8 @@ func (l *localResolver) Addrs(ctx context.Context, name string) ([]netip.Addr, e
 func (l *localResolver) PTR(ctx context.Context, addr netip.Addr) ([]string, error) {
 	names, err := lookup(ctx, l.e, func(ctx context.Context, r *net.Resolver) ([]string, error) {
 		names, err := r.LookupAddr(ctx, addr.Unmap().String())
-		// LookupAddr drops the names that are not valid hostnames and returns an error beside the
-		// rest: the valid ones are the answer, not a failure.
+		// LookupAddr keeps valid hostnames even if others are invalid, returning
+		// validation errors alongside usable results.
 		var de *net.DNSError
 		if err != nil && len(names) > 0 && errors.As(err, &de) && !de.IsTimeout && !de.IsNotFound {
 			return names, nil

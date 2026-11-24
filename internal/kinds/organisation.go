@@ -5,15 +5,12 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Organisation is a registrant name a registry gave for an address, keyed by
-// the name as the registry gives it. It is a candidate only while the rule of
-// Inventory.RegistrantCandidate holds, and the --org input that promotes it
-// searches the registries for the organisation's own netblocks. Otherwise it
-// stays on record and is not listed.
+// Organisation records a registry's registrant name. It is listed as a candidate only when
+// Inventory.RegistrantCandidate qualifies it. Adding --org promotes it and enables registry
+// searches for its netblocks; other names remain stored but unlisted.
 var Organisation = defineBare(Kind{Name: "organisation", Singular: "organisation", place: placeOrganisation})
 
-// placeOrganisation places an organisation in scope when it matches an --org
-// input, and as a candidate while Inventory.RegistrantCandidate holds.
+// placeOrganisation checks --org inputs first, then Inventory.RegistrantCandidate.
 func placeOrganisation(sc *scope.Scope, inv *inventory.Inventory, key string) (scope.Class, bool) {
 	switch {
 	case sc.MatchesOrg(key):

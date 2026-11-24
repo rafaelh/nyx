@@ -6,12 +6,9 @@ import (
 	"time"
 )
 
-// window paces request starts to the NVD's rolling limit: at most n in any
-// window of the given size. It records when each of the last n requests
-// started, or is due to, and a new one may start once the oldest has left the
-// window. Unlike a token bucket, that never admits more than n in a rolling
-// window, and a batch of up to n starts at once. One window is shared by
-// every request of a batch.
+// window limits request starts to n in any rolling interval. It tracks actual or reserved
+// starts and waits for the oldest to expire. Up to n requests can start together; unlike a
+// token bucket, refill cannot exceed the rolling limit. A batch shares one window.
 type window struct {
 	mu     sync.Mutex
 	n      int
@@ -24,9 +21,8 @@ func newWindow(n int, size time.Duration, now func() time.Time) *window {
 	return &window{n: n, size: size, starts: make([]time.Time, 0, n), now: now}
 }
 
-// reserve claims the next slot and returns how long until it. A slot after
-// ctx's deadline is not claimed: reserve returns at once, with ok false and
-// how long until that slot.
+// reserve claims the next request slot and returns its delay. Slots beyond ctx's deadline are
+// not claimed; the result includes their delay with ok=false.
 func (w *window) reserve(ctx context.Context) (wait time.Duration, ok bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -48,7 +44,7 @@ func (w *window) reserve(ctx context.Context) (wait time.Duration, ok bool) {
 	return wait, true
 }
 
-// sleep waits for d, or until ctx ends, and returns ctx's error if it ended first.
+// sleep stops early on context termination and returns its error.
 func sleep(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return ctx.Err()

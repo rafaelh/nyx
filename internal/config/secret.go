@@ -9,7 +9,7 @@ import (
 
 const mask = "****"
 
-// Secret is an API key. It never formats its value; use Reveal to read it.
+// Secret hides credentials during formatting; Reveal provides explicit value access.
 type Secret string
 
 func (Secret) String() string   { return mask }
@@ -26,10 +26,8 @@ func (s Secret) Reveal() string { return string(s) }
 // Redactor masks configured key values in strings.
 type Redactor struct{ values []string }
 
-// NewRedactor builds a Redactor from key values. Blank values are ignored: no
-// key is all whitespace, and masking one would mangle every line. Each value's
-// URL-encoded forms are masked too, since net/http errors embed the request
-// URL with any query-parameter key percent-encoded.
+// NewRedactor masks key values and their URL-encoded forms, including keys in HTTP error URLs.
+// Blank values are ignored to avoid corrupting every output line.
 func NewRedactor(values ...string) *Redactor {
 	r := &Redactor{}
 	for _, v := range values {
@@ -46,7 +44,7 @@ func NewRedactor(values ...string) *Redactor {
 	return r
 }
 
-// Redact replaces every key value in s with a mask. A nil Redactor passes s through.
+// Redact masks known keys. A nil redactor leaves text unchanged.
 func (r *Redactor) Redact(s string) string {
 	if r == nil {
 		return s
@@ -57,7 +55,7 @@ func (r *Redactor) Redact(s string) string {
 	return s
 }
 
-// Any redacts every string reachable in v (maps, slices and strings).
+// Any recursively redacts strings in map/slice/string values.
 func (r *Redactor) Any(v any) any {
 	if r == nil || len(r.values) == 0 {
 		return v

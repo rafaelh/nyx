@@ -153,8 +153,8 @@ func TestOutcome_OneFailedSourceIsPartial(t *testing.T) {
 	}
 }
 
-// The error a call ends with lists the inputs as given, not the addresses they gave, whichever
-// error it is; the meta.errors entries name the addresses.
+// Final errors preserve original inputs while per-address error entries identify resolved
+// addresses.
 func TestOutcome_TheErrorListsTheInputsAsGiven(t *testing.T) {
 	t.Parallel()
 	_, _, err := Outcome([]InputResult{given("example.com", "93.184.216.34")},
@@ -179,8 +179,8 @@ func TestOutcome_TheErrorListsTheInputsAsGiven(t *testing.T) {
 
 func TestOutcome_FirstFailingSourceGivesTheCode(t *testing.T) {
 	t.Parallel()
-	// Every needed source failed: the address is a failed input and has no record. The failures
-	// are given in the order they happened, which is not the record's order.
+	// Reverse failure arrival order to ensure all-source failure still chooses record-order
+	// precedence.
 	recs, metaErrs, err := Outcome([]InputResult{given("1.1.1.1", "1.1.1.1")},
 		[]AddressResult{with("1.1.1.1", []Source{SourceCymru, SourceRDAP, SourceInternetDB},
 			fail(SourceInternetDB, clierr.RateLimited, true), fail(SourceRDAP, clierr.UpstreamError, true), fail(SourceCymru, clierr.NetworkError, true))}, cmd)
@@ -361,8 +361,7 @@ func TestOutcome_RecordsKeepTheirOrder(t *testing.T) {
 	}
 }
 
-// A selected key the snapshot answers is a source that always answers: an address whose only failed
-// source is Team Cymru keeps its record, and the call ends partial.
+// Local snapshot evidence keeps a partial record when Cymru is the only failed network source.
 func TestOutcome_TheSnapshotAnswersWhenTeamCymruFails(t *testing.T) {
 	t.Parallel()
 	failed := AddressResult{Record: pub("1.1.1.1", fail(SourceCymru, clierr.Timeout, true)), Asked: []Source{SourceCymru}, Answered: true}

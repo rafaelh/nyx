@@ -14,13 +14,12 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// nvdTurnsOn is what the nvd key does: nyx cve is the only command that reads it, apart from the
-// stages' own shared use of the file.
+// nvdTurnsOn describes the NVD key's use by nyx cve.
 const nvdTurnsOn = "Increases cve requests from 5 per 30 seconds to 50"
 
-// keyTurnsOn is the one line that says what the key of source turns on, from the stages that name
-// it in their key column: those that need it, then those it adds to (a key in brackets). A key that
-// only adds to stages (Cert Spotter's) also works without one. It starts with a capital letter.
+// keyTurnsOn describes stages requiring or optionally using a source's key, in that order.
+// Optional-only keys, such as Cert Spotter's, are labelled accordingly. The text starts with a
+// capital letter.
 func keyTurnsOn(source string, stages []run.Stage) string {
 	if source == "nvd" {
 		return nvdTurnsOn
@@ -51,7 +50,7 @@ func keyTurnsOn(source string, stages []run.Stage) string {
 	return strings.ToUpper(line[:1]) + line[1:]
 }
 
-// setupSources are the key sources setup lists, with what each turns on.
+// setupSources lists credentials with their enabled features.
 func setupSources(stages []run.Stage) []setup.Source {
 	var out []setup.Source
 	for _, name := range keycheck.Sources() {
@@ -60,8 +59,7 @@ func setupSources(stages []run.Stage) []setup.Source {
 	return out
 }
 
-// setupStages are the stages setup offers to skip: those that can be skipped, in registry order,
-// each with its description as nyx help stages gives it.
+// setupStages lists skippable stages in registry order with their help descriptions.
 func setupStages(stages []run.Stage) []setup.Stage {
 	var out []setup.Stage
 	for _, s := range stages {
@@ -73,7 +71,7 @@ func setupStages(stages []run.Stage) []setup.Stage {
 	return out
 }
 
-// testKey tests key against source with one authenticated request to that source and nothing else.
+// testKey limits credential checks to one authenticated source request.
 func testKey(ctx context.Context, opts egress.Options, source string, key config.Secret) setup.TestResult {
 	r := keycheck.Run(ctx, opts, source, key)
 	switch r.Status {
@@ -86,8 +84,7 @@ func testKey(ctx context.Context, opts egress.Options, source string, key config
 	return setup.TestResult{Status: setup.TestUnknown, Reason: r.Reason}
 }
 
-// Info is the config file's description, with why the threat data cannot be updated when there is
-// nowhere to keep it.
+// Info includes config metadata and any missing threat-storage explanation.
 func (b setupBackend) Info() setup.Info {
 	info := b.Store.Info()
 	if b.dir == "" {
@@ -96,8 +93,8 @@ func (b setupBackend) Info() setup.Info {
 	return info
 }
 
-// ThreatData is the five threat-data lists in use. The credit sits on the drop_v4 row, and a source
-// whose downloaded copy is unreadable gives each of its lists the warning as its note.
+// ThreatData reports the five lists in use. Spamhaus credit belongs to drop_v4. An unreadable
+// downloaded source adds a warning to each of its lists.
 func (k threatKeeper) ThreatData() []setup.ThreatList {
 	set := k.load()
 	notes := map[string]string{}
@@ -115,8 +112,7 @@ func (k threatKeeper) ThreatData() []setup.ThreatList {
 	return lists
 }
 
-// UpdateThreatData runs the update nyx setup --update-threat-data runs, and gives each list as it
-// stands after it, with what happened to it.
+// UpdateThreatData shares command update logic and converts results into list rows.
 func (k threatKeeper) UpdateThreatData(ctx context.Context) setup.ThreatResult {
 	res := k.update(ctx)
 	sources := map[string]threatdata.SourceResult{}
@@ -141,7 +137,7 @@ func (k threatKeeper) UpdateThreatData(ctx context.Context) setup.ThreatResult {
 	return out
 }
 
-// threatOutcomeOf is the setup tab's outcome for an update's.
+// threatOutcomeOf maps updater status to the setup tab's status.
 func threatOutcomeOf(o threatdata.Outcome) setup.ThreatOutcome {
 	switch o {
 	case threatdata.Updated:

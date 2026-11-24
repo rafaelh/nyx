@@ -21,8 +21,8 @@ func cyclesOf(t *testing.T, doc string) []cycleRecord {
 	return c
 }
 
-// A version belongs to the cycle named by its first parts, as many as the product names
-// its cycles by, and a product with cycles of two shapes falls back to the shorter.
+// Cycle lookup tries the product's preferred dotted version length, then shorter supported
+// forms.
 func TestFind_CycleShapes(t *testing.T) {
 	t.Parallel()
 	mixed := cyclesOf(t, `[{"cycle":"12.1","eol":"2030-01-01"},{"cycle":"11","eol":"2025-01-01"},{"cycle":"9.4","eol":"2020-02-02"}]`)
@@ -57,8 +57,7 @@ func TestFind_CycleShapes(t *testing.T) {
 	}
 }
 
-// Lookup reads the embedded data: a name matches ignoring case, a product it does not
-// know or a version it has no cycle for gives nothing.
+// Embedded lookup is case-insensitive and returns nothing for unsupported products or versions.
 func TestLookup_EmbeddedData(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -94,9 +93,7 @@ func TestLookup_EmbeddedData(t *testing.T) {
 	}
 }
 
-// Every entry of products.yaml has a data file that parses, names at least one
-// product, and uses a known cycle length; no name is claimed twice; and no data file is
-// left over from a product the list dropped.
+// Validate product mappings, cycle lengths and one-to-one embedded file coverage.
 func TestProducts_EveryEntryHasData(t *testing.T) {
 	t.Parallel()
 	var entries []entry

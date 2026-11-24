@@ -2,8 +2,7 @@ package web
 
 import "testing"
 
-// The crawl's check key carries its limits; the evidence it gives for a
-// candidate is the service alone, so changing a limit never counts twice.
+// Crawl limits version work but cannot inflate candidate evidence beyond the service identity.
 func TestCrawlEvidenceDropsTheLimits(t *testing.T) {
 	t.Parallel()
 	var s *Crawl

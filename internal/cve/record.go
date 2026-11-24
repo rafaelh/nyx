@@ -1,15 +1,10 @@
-// Package cve looks CVEs up in the NVD by CVE ID. It owns the CVE record (the
-// tool's own flat shape for a CVE, converted from the NVD's entry in one
-// place) and its field table; the client that looks one ID up, paced to the
-// NVD's rate limit and with each failure classified into an error code of
-// clierr; the human layout of records; and the outcome of a batch of IDs. It
-// makes its requests through egress and does no other I/O. The command
-// (internal/cli) owns the flags, the worker pool and the writing.
+// Package cve fetches NVD records through egress, paces requests, classifies failures and
+// formats results. It owns the flat CVE record, field selection and batch outcome; internal/cli
+// owns flags, concurrency and output writing.
 //
-// The keys of the record are a stable interface: adding one is compatible,
-// and renaming, removing or retyping one is a breaking change. The one
-// deliberate break so far is that the default selection (DefaultFields) leaves
-// out the two lists, which hold their counts instead; all returns every key.
+// Record keys are a stable interface. Additions are compatible; removing, renaming or changing
+// types breaks callers. DefaultFields selects counts instead of the two lists; selecting all
+// includes every field.
 package cve
 
 import (
@@ -19,8 +14,7 @@ import (
 	"time"
 )
 
-// Timestamp is a time that encodes as RFC 3339 in UTC, to the second, and as
-// null when it is zero.
+// Timestamp encodes second-precision UTC RFC3339, or null for zero time.
 type Timestamp struct{ time.Time }
 
 // MarshalJSON encodes t as RFC 3339 in UTC, or null.
@@ -31,10 +25,8 @@ func (t Timestamp) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + t.UTC().Format(time.RFC3339) + `"`), nil
 }
 
-// Record is a CVE record: the only shape callers see. A nullable value is a
-// pointer and nothing is omitted, so the record has every key, and every list
-// is [] when empty. What --json writes is a Projected record: the selected keys
-// of it, with a count in front of each list.
+// Record is the complete CVE representation. Pointers encode unknown values as null, and empty
+// lists encode as []. JSON output uses Projected to select keys and include list counts.
 type Record struct {
 	ID           string    `json:"id"`
 	Status       string    `json:"status"`
@@ -52,16 +44,14 @@ type Record struct {
 	References       []Reference       `json:"references"`
 }
 
-// Reference is a URL about the CVE, with the NVD's tags for it, such as Vendor
-// Advisory or Patch.
+// Reference pairs a CVE-related URL with NVD tags such as Patch or Vendor Advisory.
 type Reference struct {
 	URL  string   `json:"url"`
 	Tags []string `json:"tags"`
 }
 
-// AffectedProduct is one vulnerable CPE match, with its version bounds.
-// Vendor, product and version come from the CPE, and each is null where the
-// CPE has * (any) or - (not applicable).
+// AffectedProduct holds a vulnerable CPE match and version bounds. Wildcard or inapplicable
+// vendor/product/version components become null.
 type AffectedProduct struct {
 	CPE                   string  `json:"cpe"`
 	Vendor                *string `json:"vendor"`
@@ -76,8 +66,7 @@ type AffectedProduct struct {
 // idPattern is the CVE ID form the NVD accepts.
 var idPattern = regexp.MustCompile(`^CVE-\d{4}-\d{4,}$`)
 
-// NormaliseID trims s and upper-cases it, and reports whether the result is a
-// CVE ID in the form the NVD accepts.
+// NormaliseID trims and uppercases IDs before validating NVD syntax.
 func NormaliseID(s string) (string, bool) {
 	id := strings.ToUpper(strings.TrimSpace(s))
 	return id, idPattern.MatchString(id)
@@ -103,8 +92,7 @@ func FromNVD(e *Entry) Record {
 	return rec
 }
 
-// description is the first English description, trimmed, else the first of
-// any language; nil when the entry has none.
+// description prefers the first English text, then any language, returning nil when absent.
 func description(ds []LangString) *string {
 	if len(ds) == 0 {
 		return nil
@@ -120,8 +108,7 @@ func description(ds []LangString) *string {
 	return &v
 }
 
-// weaknesses are the English CWE values across the entry's weaknesses,
-// de-duplicated in order.
+// weaknesses deduplicates English CWE values in source order.
 func weaknesses(ws []Weakness) []string {
 	values := []string{}
 	seen := map[string]bool{}
@@ -138,8 +125,8 @@ func weaknesses(ws []Weakness) []string {
 	return values
 }
 
-// affectedProducts walks every configuration node, nested ones included, and
-// keeps the vulnerable matches, each CPE with its version bounds once.
+// affectedProducts traverses nested configuration nodes and deduplicates vulnerable
+// CPE/version-bound combinations.
 func affectedProducts(configs []Configuration) []AffectedProduct {
 	products := []AffectedProduct{}
 	type match struct{ cpe, startIncluding, startExcluding, endIncluding, endExcluding string }
@@ -168,8 +155,8 @@ func affectedProduct(m CPEMatch) AffectedProduct {
 	// cpe:2.3:part:vendor:product:version:...
 	fields := splitCPE(m.Criteria)
 	field := func(i int) *string {
-		// Checked before unescaping: a bare * is "any" and a bare - is "not applicable", while \*
-		// is a literal asterisk.
+		// Distinguish wildcard/missing markers before decoding escaped literal
+		// asterisks/hyphens.
 		if i >= len(fields) || fields[i] == "*" || fields[i] == "-" {
 			return nil
 		}
@@ -188,8 +175,7 @@ func affectedProduct(m CPEMatch) AffectedProduct {
 	}
 }
 
-// splitCPE splits a CPE 2.3 formatted string on its unescaped colons, leaving
-// the escapes in place.
+// splitCPE separates unescaped colons without losing field escapes.
 func splitCPE(cpe string) []string {
 	var fields []string
 	start := 0
@@ -205,7 +191,7 @@ func splitCPE(cpe string) []string {
 	return append(fields, cpe[start:])
 }
 
-// unescapeCPE removes the backslashes that quote characters in a CPE field.
+// unescapeCPE decodes quoted CPE field characters.
 func unescapeCPE(field string) string {
 	var b strings.Builder
 	for i := 0; i < len(field); i++ {
@@ -229,7 +215,7 @@ func references(rs []NVDReference) []Reference {
 	return refs
 }
 
-// nonEmpty is s, or nil when s is empty.
+// nonEmpty converts empty strings to unknown pointers.
 func nonEmpty(s string) *string {
 	if s == "" {
 		return nil
@@ -237,10 +223,10 @@ func nonEmpty(s string) *string {
 	return &s
 }
 
-// nvdTime reads an NVD timestamp, which the NVD writes without a zone, in UTC.
-// One it cannot read is the zero time, written as null.
+// nvdTime treats NVD's zone-less timestamps as UTC. Invalid dates become zero time, encoded as
+// null.
 func nvdTime(s string) Timestamp {
-	// Parsing accepts the fractional seconds the NVD adds though the layout has none.
+	// Go's timestamp parser accepts NVD fractional seconds even without them in the layout.
 	t, err := time.Parse("2006-01-02T15:04:05", s)
 	if err != nil {
 		if t, err = time.Parse(time.RFC3339, s); err != nil {
@@ -257,9 +243,8 @@ type score struct {
 	primary                           bool
 }
 
-// preferredScore picks the score a record carries: the highest CVSS version
-// present, and within that version the first Primary score (the NVD's own),
-// else the version's first.
+// preferredScore chooses the highest CVSS version, then its first Primary score or first
+// available score.
 func preferredScore(m *Metrics) (score, bool) {
 	if m == nil {
 		return score{}, false
@@ -288,8 +273,7 @@ func preferredScore(m *Metrics) (score, bool) {
 	return score{}, false
 }
 
-// newScore is m's score. Its severity is the metric's own (version 2's), else
-// its data's.
+// newScore prefers metric-level v2 severity, then score-data severity.
 func newScore(version string, m CVSSMetric) score {
 	d := m.CVSSData
 	severity := cmp.Or(m.BaseSeverity, d.BaseSeverity)

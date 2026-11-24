@@ -8,9 +8,8 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// A control character anywhere in a row or in the metadata line refuses the list, in a field the
-// parser does not read as much as in one it does: in an unknown field's text, nested in its object
-// or array, or in its key. The rows are JSON escapes, so each file is still valid JSON.
+// Reject controls throughout JSON, including unknown nested values and keys, even when
+// syntactic JSON remains valid.
 func TestParse_ControlCharacterInAnUnknownField(t *testing.T) {
 	t.Parallel()
 	r1 := `{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":"arin"}`
@@ -75,8 +74,7 @@ func TestParseBundle_ControlCharacterInAnUnknownField(t *testing.T) {
 	}
 }
 
-// An unknown field whose text is clean, whatever its type or nesting, is ignored: the list reads,
-// and its entries and metadata are as they would be without it.
+// Ignore clean unknown fields regardless of type or nesting without changing recognised data.
 func TestParse_CleanUnknownFieldsPass(t *testing.T) {
 	t.Parallel()
 	l := mustDrop(t, withMeta(v4Time,

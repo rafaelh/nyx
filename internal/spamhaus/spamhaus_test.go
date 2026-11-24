@@ -30,13 +30,13 @@ const (
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// meta is a metadata line as Spamhaus writes one.
+// meta builds a source-format metadata line.
 func meta(at time.Time, records int) string {
 	return fmt.Sprintf(`{"type":"metadata","timestamp":%d,"size":1234,"records":%d,"copyright":"(c) 2026 The Spamhaus Project SLU","terms":"https://www.spamhaus.org/drop/terms/"}`,
 		at.Unix(), records)
 }
 
-// file is the lines, each ending in a newline, as Spamhaus serves a file.
+// file writes source lines with trailing newlines.
 func file(lines ...string) []byte {
 	var b strings.Builder
 	for _, l := range lines {
@@ -68,8 +68,8 @@ func mustASNDrop(t *testing.T, b []byte) spamhaus.ASNList {
 	return l
 }
 
-// The test lists: nested CIDRs out of order, one CIDR under two SBL IDs, a /32 with a null RIR, and
-// an IPv6 list with a /48 inside a /32.
+// Fixtures cover unordered nested CIDRs, distinct SBL IDs on one CIDR, absent RIR and nested
+// IPv6 ranges.
 var (
 	v4Rows = []string{
 		`{"cidr":"10.0.0.0/8","sblid":"SBL1","rir":"arin"}`,
@@ -110,8 +110,8 @@ func matched(ms []spamhaus.NetworkMatch) []string {
 	return out
 }
 
-// An address matches every entry whose CIDR holds it, the first and last addresses included; the
-// longest prefix comes first, and entries of one length keep their file order.
+// Network matches include endpoints and sort by longest prefix, retaining file order for equal
+// lengths.
 func TestNetworks_ContainmentAndOrder(t *testing.T) {
 	t.Parallel()
 	l := testLists(t)
@@ -163,8 +163,7 @@ func TestNetworks_ContainmentAndOrder(t *testing.T) {
 	}
 }
 
-// An IPv4 address, mapped or not, is matched against DROP alone, and an IPv6 address against
-// DROPv6 alone, even when a prefix of the other family would hold the same bits.
+// Unmap IPv4 before matching DROP; IPv6 matches DROPv6 only.
 func TestNetworks_EachFamilyItsOwnList(t *testing.T) {
 	t.Parallel()
 	l := spamhaus.Lists{
@@ -209,8 +208,8 @@ func TestNetworks_MatchCarriesTheEntryAndItsListsDate(t *testing.T) {
 	}
 }
 
-// An AS matches the ASN-DROP entry of the same number, with every field, an empty or absent one as
-// "", non-ASCII text as it is, and the list's date. An unlisted AS matches nothing.
+// ASN matches preserve metadata/text/date and normalise absent optional fields to empty
+// strings.
 func TestASN_Match(t *testing.T) {
 	t.Parallel()
 	l := testLists(t)
@@ -258,8 +257,8 @@ func TestMatches_JSON(t *testing.T) {
 	}
 }
 
-// Text that holds no control character, and so passes the parse, can still act on a terminal: a
-// match gives it sanitised, as other third-party text is.
+// Sanitise match text even after parsing because non-control Unicode can still affect terminal
+// display.
 func TestMatches_SanitiseText(t *testing.T) {
 	t.Parallel()
 	sbl, rir := "SBL\u202e9", "ri\u2066pe\u2069ncc"
@@ -283,8 +282,7 @@ func TestMatches_SanitiseText(t *testing.T) {
 	}
 }
 
-// A list's date is its metadata timestamp, written as RFC 3339 in UTC to the second, whatever zone
-// the time is held in.
+// Source timestamps always format in UTC, regardless of their original location.
 func TestMeta_Updated(t *testing.T) {
 	t.Parallel()
 	l := mustDrop(t, withMeta(v4Time, v4Rows...), false)
@@ -345,8 +343,7 @@ func v4Many(n int) []string {
 	return rows
 }
 
-// A list is refused for any of the reasons a downloaded copy is refused that are about its own text,
-// and an unknown field, a null or absent optional field and other harmless differences pass.
+// Reject corrupt source text while tolerating unknown fields and absent optional metadata.
 func TestParse_Rules(t *testing.T) {
 	t.Parallel()
 	r1 := `{"cidr":"192.0.2.0/24","sblid":"SBL1","rir":"arin"}`
@@ -475,7 +472,7 @@ func TestParse_Rules(t *testing.T) {
 	}
 }
 
-// A null or absent optional field is "", and an unknown field leaves the entry as it would be.
+// Normalise missing optional text and ignore unknown fields without changing entries.
 func TestParse_OptionalAndUnknownFields(t *testing.T) {
 	t.Parallel()
 	l := mustDrop(t, withMeta(v4Time,
@@ -503,8 +500,7 @@ func TestParse_OptionalAndUnknownFields(t *testing.T) {
 	}
 }
 
-// The bundle is each file after its marker line, in the order drop_v4, drop_v6, asndrop, with the
-// file's bytes as they are; a file with no final newline is given one.
+// Bundles preserve source bytes in fixed marker order, adding only missing final newlines.
 func TestBundle_Format(t *testing.T) {
 	t.Parallel()
 	got := spamhaus.Bundle([]byte("a\nb\n"), []byte("c\n"), []byte("d\ne\n"))
@@ -554,8 +550,7 @@ func TestParseBundle_RoundTrip(t *testing.T) {
 	}
 }
 
-// A bundle fails as a whole when any of its lists fails, or when its marker lines are not the three
-// lists in order.
+// Any invalid list or marker ordering rejects the entire bundle.
 func TestParseBundle_Refuses(t *testing.T) {
 	t.Parallel()
 	v4, v6, asn := withMeta(v4Time, v4Rows...), withMeta(v6Time, v6Rows...), withMeta(asnTime, asnRows...)

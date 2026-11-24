@@ -24,7 +24,7 @@ type setupOptions struct {
 	updateThreatData bool
 }
 
-// newSetupCommand builds the setup command: a full-screen editor for the config file.
+// newSetupCommand builds the interactive config editor command.
 func newSetupCommand(inv *invocation) *cobra.Command {
 	o := &setupOptions{}
 	cmd := &cobra.Command{
@@ -61,8 +61,8 @@ func newSetupCommand(inv *invocation) *cobra.Command {
 	return cmd
 }
 
-// secrets keeps every key value setup has seen, so that an error cannot carry one: the failure
-// writer's redactor is rebuilt as each new one is added.
+// secrets tracks every key setup has seen and rebuilds the failure redactor when new values
+// arrive.
 type secrets struct {
 	mu     sync.Mutex
 	inv    *invocation
@@ -79,21 +79,21 @@ func (s *secrets) add(vs ...string) {
 		}
 	}
 	if len(s.values) > n || n == 0 {
-		// The longest first: the values include each prefix of a key as it is typed, and a prefix
-		// masked first would leave the rest of the key in the text.
+		// Mask longest values first: masking a typed prefix first would expose the rest
+		// of the key.
 		vals := slices.Clone(s.values)
 		slices.SortStableFunc(vals, func(a, b string) int { return len(b) - len(a) })
 		s.inv.fw.setRedactor(config.NewRedactor(vals...))
 	}
 }
 
-// setupBackend is the configedit store, with the key test added.
+// setupBackend adds credential testing to configedit's file backend.
 type setupBackend struct {
 	*configedit.Store
-	threatKeeper // the Threat data tab's lists and its update, and the options of the key test's client
+	threatKeeper // shared client options for credential tests and threat-list updates
 }
 
-// Save and Overwrite give a failed save's reason alone: the editor shows the file's path beside it.
+// Return only save reasons here; the editor displays the path separately.
 func (b setupBackend) Save(snap setup.Snapshot, edits setup.Edits) (setup.Snapshot, error) {
 	snap, err := b.Store.Save(snap, edits)
 	return snap, saveReason(err)
@@ -115,10 +115,8 @@ func (b setupBackend) Test(ctx context.Context, source string, key config.Secret
 	return testKey(ctx, b.egress, source, key)
 }
 
-// runSetup checks what can be checked before the terminal is taken over, each failure a usage
-// error and in this order: an argument, no path to the config file, no terminal, a file that
-// cannot be edited. It then runs the editor. With --update-threat-data it updates the threat data
-// instead, after the argument check and with none of the others.
+// runSetup validates arguments, config path, terminal and editable file before starting the UI.
+// --update-threat-data branches after argument validation and skips editor-specific checks.
 func runSetup(ctx context.Context, inv *invocation, positional []string, o *setupOptions) error {
 	d := inv.d
 	if err := inv.problems().Err(); err != nil {
@@ -141,7 +139,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	}
 	abs := path
 	if !filepath.IsAbs(path) {
-		// Against the directory nyx was run from, as the editor resolves relative paths.
+		// Resolve paths from the same working directory as the editor.
 		if cwd, err := d.Getwd(); err == nil {
 			abs = filepath.Join(cwd, path)
 		} else if a, err := filepath.Abs(path); err == nil {
@@ -162,10 +160,10 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 		SkipEntry: func(name string) string { msg, _ := skipProblem(name, "", names); return msg },
 		Getwd:     d.Getwd, NoFsync: d.NoFsync,
 	})
-	// Every key the file holds is masked before anything can fail, the keys of sources nyx does
-	// not know included, which setup never shows.
+	// Register all stored keys for redaction before any failure, including unknown sources
+	// that setup does not display.
 	seen := &secrets{inv: inv}
-	held, _ := config.Load(nil, abs, d.Env) // the keys it holds are returned even when the file has problems
+	held, _ := config.Load(nil, abs, d.Env) // include usable keys for redaction even when validation fails
 	seen.add(held.KeyValues()...)
 	w, h := 0, 0
 	if d.WindowSize != nil {

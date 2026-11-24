@@ -11,8 +11,8 @@ import (
 // recordToday is the day the record tests run on.
 var recordToday = time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
 
-// onDay runs the model's clock at an hour into day, in a zone east of UTC, so the record is dated by
-// the calendar day the clock shows.
+// onDay fixes the displayed local date east of UTC so record dates follow the clock's calendar
+// day.
 func onDay(day time.Time) thOpt {
 	zone := time.FixedZone("AEDT", 11*3600)
 	at := time.Date(day.Year(), day.Month(), day.Day(), 1, 0, 0, 0, zone)

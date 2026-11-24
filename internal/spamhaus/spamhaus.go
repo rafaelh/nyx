@@ -1,21 +1,12 @@
-// Package spamhaus holds Spamhaus's three Don't Route Or Peer lists and says which entries an
-// address falls under. It does no I/O: it parses the files Spamhaus serves and the bundle nyx keeps
-// them in, checks them, and matches against them. A copy of the bundle is embedded in the binary.
+// Package spamhaus parses, validates and matches DROP, DROPv6 and ASN-DROP data without I/O. It
+// includes an embedded bundle.
 //
-// # Terms
+// Network entries identify a CIDR/SBL-ID pair; ASN entries identify an AS number. Metadata
+// supplies list date and stated record count. Matches add that date to entries covering an
+// address or its origin ASN.
 //
-// DROP and DROPv6 list netblocks, each a CIDR under an SBL ID, with its regional internet registry
-// (RIR). ASN-DROP lists AS numbers, each with its AS name, country, domain and RIR. Each list ends
-// with a metadata line, whose timestamp is the list's date and whose records count is the number of
-// entries the list says it has.
-//
-// An entry of DROP or DROPv6 is its (CIDR, SBL ID) pair, so one CIDR under two SBL IDs is two
-// entries. An entry of ASN-DROP is its ASN. A match is an entry that applies to an address, with
-// its list's date: an address matches a network entry when the CIDR holds it, and an ASN entry when
-// its origin AS is the listed one.
-//
-// A bundle is the three files, in the order drop_v4, drop_v6, asndrop, each after a marker line
-// such as {"list":"drop_v4"}, with the file's lines exactly as Spamhaus served them.
+// Bundles preserve all source bytes in drop_v4, drop_v6, asndrop order, each preceded by a JSON
+// list marker.
 package spamhaus
 
 import (
@@ -37,7 +28,7 @@ import (
 //go:embed builtin.jsonl
 var builtin []byte
 
-// minShare is the share, in percent, of the records a list's metadata gives that it must hold.
+// minShare enforces the metadata completeness threshold as a percentage.
 const minShare = 90
 
 // The names of the three lists, as the bundle's marker lines give them.
@@ -55,7 +46,7 @@ type Meta struct {
 	Terms     string    // "" when the line has none
 }
 
-// Updated is the list's date as nyx writes it: RFC 3339, in UTC, to the second.
+// Updated formats the source date as second-precision UTC RFC3339.
 func (m Meta) Updated() string { return m.Timestamp.UTC().Format(time.RFC3339) }
 
 // NetworkEntry is one row of DROP or DROPv6. RIR is "" when the row's is null or absent.
@@ -74,15 +65,14 @@ type ASNEntry struct {
 	RIR     string
 }
 
-// NetworkList is DROP or DROPv6 as parsed: its entries in file order, its metadata, and the file's
-// bytes, which a bundle holds as they are.
+// NetworkList preserves entries, metadata and original bytes for a DROP/DROPv6 list.
 type NetworkList struct {
 	Meta    Meta
 	Entries []NetworkEntry
 	Raw     []byte
 }
 
-// ASNList is ASN-DROP as parsed: its entries in file order, its metadata, and the file's bytes.
+// ASNList preserves ASN-DROP entries, metadata and source bytes.
 type ASNList struct {
 	Meta    Meta
 	Entries []ASNEntry
@@ -91,15 +81,14 @@ type ASNList struct {
 	byASN map[int]int // the index in Entries of each ASN, built by the parse; nil on a list made by hand
 }
 
-// Lists is the three lists, ready to match. Each list may come from a different parse.
+// Lists combines independently parsed sources for matching.
 type Lists struct {
 	V4   NetworkList
 	V6   NetworkList
 	ASNs ASNList
 }
 
-// NetworkMatch is a DROP or DROPv6 entry that holds an address, its text sanitised, with its list's
-// date (RFC 3339 UTC).
+// NetworkMatch adds sanitised text and a UTC source timestamp to a containing DROP entry.
 type NetworkMatch struct {
 	CIDR    string `json:"cidr"`
 	SBLID   string `json:"sbl_id"`
@@ -107,8 +96,7 @@ type NetworkMatch struct {
 	Updated string `json:"updated"`
 }
 
-// ASNMatch is the ASN-DROP entry of an address's origin AS, its text sanitised, with its list's
-// date (RFC 3339 UTC).
+// ASNMatch adds sanitised text and a UTC source timestamp to an origin-AS match.
 type ASNMatch struct {
 	ASN     int    `json:"asn"`
 	ASName  string `json:"as_name"`
@@ -118,11 +106,11 @@ type ASNMatch struct {
 	Updated string `json:"updated"`
 }
 
-// Builtin is the bundle embedded in the binary. The caller must not change it.
+// Builtin exposes embedded bundle bytes as read-only data.
 func Builtin() []byte { return builtin }
 
-// Default is the bundle embedded in the binary, parsed once. The caller must not change it. It
-// panics on a bad embed, as abusive.Default does: a test validates the file.
+// Default returns the once-parsed embedded bundle. Treat it as read-only. Invalid embedded data
+// panics and is checked by tests.
 var Default = sync.OnceValue(func() *Lists {
 	l, err := ParseBundle(builtin)
 	if err != nil {
@@ -131,11 +119,10 @@ var Default = sync.OnceValue(func() *Lists {
 	return &l
 })
 
-// ParseDrop reads and checks DROP (v6 false) or DROPv6 (v6 true) as Spamhaus serves it. It refuses
-// a row that does not parse or lacks its CIDR or SBL ID, a CIDR that is not canonical or not of the
-// list's family, a control character anywhere in a line (in a field it does not read too), an entry
-// listed twice, a list whose last line is not its metadata, and a list holding fewer than 90% of
-// the records its metadata gives. Fields it does not read are otherwise ignored.
+// ParseDrop validates DROP or DROPv6 according to v6. It requires canonical family-matching
+// CIDRs, SBL IDs, unique entries and final metadata. Control characters anywhere in a line are
+// rejected, including unknown fields. At least 90% of the stated records must be present; other
+// unknown fields are ignored.
 func ParseDrop(b []byte, v6 bool) (NetworkList, error) {
 	meta, rows, err := splitFile(b)
 	if err != nil {
@@ -188,8 +175,8 @@ func ParseDrop(b []byte, v6 bool) (NetworkList, error) {
 	return l, nil
 }
 
-// ParseASNDrop reads and checks ASN-DROP as Spamhaus serves it, with the rules of ParseDrop, and
-// an ASN that must be from 1 to 4294967295.
+// ParseASNDrop applies the same integrity checks as ParseDrop, requiring AS numbers in
+// 1..4294967295.
 func ParseASNDrop(b []byte) (ASNList, error) {
 	meta, rows, err := splitFile(b)
 	if err != nil {
@@ -232,7 +219,7 @@ func ParseASNDrop(b []byte) (ASNList, error) {
 // maxASN is the largest AS number: 32 bits.
 const maxASN = 4294967295
 
-// str is the text of an optional field: "" when it is null or absent.
+// str normalises absent/null optional text to "".
 func str(s *string) string {
 	if s == nil {
 		return ""
@@ -250,8 +237,7 @@ func hasControl(texts ...string) bool {
 	return false
 }
 
-// jsonHasControl reports whether any string of a valid JSON text, a key or a value at any depth,
-// holds a control character.
+// jsonHasControl checks all JSON keys/string values recursively, including unknown fields.
 func jsonHasControl(b []byte) bool {
 	d := json.NewDecoder(bytes.NewReader(b))
 	for {
@@ -265,7 +251,7 @@ func jsonHasControl(b []byte) bool {
 	}
 }
 
-// checkCount refuses a list that holds fewer than 90% of the records its metadata gives.
+// checkCount enforces 90% of the metadata's stated total.
 func checkCount(m Meta, held int) error {
 	if held*100 < m.Records*minShare {
 		return fmt.Errorf("the metadata gives %d records but the list holds %d (under %d%%)", m.Records, held, minShare)
@@ -279,7 +265,7 @@ type row struct {
 	line int
 }
 
-// splitFile splits a file into its data lines and its final metadata line, which it reads.
+// splitFile separates data rows from the required final metadata row.
 func splitFile(b []byte) (Meta, []row, error) {
 	var rows []row
 	for i, line := range bytes.Split(b, []byte{'\n'}) {
@@ -315,8 +301,8 @@ func splitFile(b []byte) (Meta, []row, error) {
 	return Meta{Timestamp: time.Unix(*m.Timestamp, 0).UTC(), Records: *m.Records, Copyright: str(m.Copyright), Terms: str(m.Terms)}, rows, nil
 }
 
-// Bundle is the bundle of the three files' bytes: each after its marker line, in the order
-// drop_v4, drop_v6, asndrop. A file that does not end in a newline is given one.
+// Bundle preserves the three source files after their markers in fixed order, adding a final
+// newline where needed.
 func Bundle(v4, v6, asn []byte) []byte {
 	var out bytes.Buffer
 	for _, f := range []struct {
@@ -332,8 +318,8 @@ func Bundle(v4, v6, asn []byte) []byte {
 	return out.Bytes()
 }
 
-// ParseBundle reads and checks a bundle. It fails as a whole when any list fails, or when the
-// marker lines are not the three lists in order.
+// ParseBundle validates all three lists and their marker order. Any invalid list rejects the
+// whole bundle.
 func ParseBundle(b []byte) (Lists, error) {
 	type section struct {
 		name       string
@@ -380,7 +366,7 @@ func ParseBundle(b []byte) (Lists, error) {
 	return l, nil
 }
 
-// marker reads a marker line, such as {"list":"drop_v4"}: an object whose one key is "list".
+// marker accepts a one-key JSON list marker.
 func marker(line []byte) (string, bool) {
 	var m map[string]json.RawMessage
 	if len(line) == 0 || line[0] != '{' || json.Unmarshal(line, &m) != nil || len(m) != 1 {
@@ -393,8 +379,8 @@ func marker(line []byte) (string, bool) {
 	return name, true
 }
 
-// Networks returns every DROP or DROPv6 entry whose CIDR holds the address (unmapped), the longest
-// prefix first and entries of one length in file order. It returns an empty list when none does.
+// Networks unmaps addresses and returns containing DROP/DROPv6 entries, longest prefix first
+// then file order. No match returns an empty list.
 func (l Lists) Networks(a netip.Addr) []NetworkMatch {
 	a = a.Unmap()
 	list := l.V6
@@ -416,8 +402,7 @@ func (l Lists) Networks(a netip.Addr) []NetworkMatch {
 	return out
 }
 
-// ASN returns the ASN-DROP entry of the AS: a list of one match, or an empty one when it is not
-// listed.
+// ASN returns one ASN-DROP match or an empty list.
 func (l Lists) ASN(n int) []ASNMatch {
 	i, ok := l.ASNs.byASN[n]
 	if l.ASNs.byASN == nil { // a list made by hand has no index

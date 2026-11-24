@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 )
 
-// Entry format, defaults and matching.
+// Cover sensitive-entry schema, default values and response matching.
 func TestSensitivePathEntries(t *testing.T) {
 	t.Parallel()
 	file := writeFile(t, `
@@ -66,7 +66,7 @@ func TestSensitivePathEntries(t *testing.T) {
 	}
 }
 
-// Invalid entries fail validation (exit 2 in the CLI).
+// Invalid entries become usage-validation problems.
 func TestSensitivePathValidation(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{

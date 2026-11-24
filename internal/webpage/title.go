@@ -12,9 +12,8 @@ import (
 // maxTitleRunes is the longest title Title returns.
 const maxTitleRunes = 200
 
-// Title is the text of the first <title> of the HTML body, with whitespace collapsed, invalid
-// UTF-8 replaced and at most maxTitleRunes runes. It is "" if there is none, or if the body does
-// not parse.
+// Title extracts the first HTML title, collapsing whitespace, replacing invalid UTF-8 and
+// limiting runes. Missing titles or parse failures return "".
 func Title(body []byte) string {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
@@ -28,8 +27,8 @@ func TitleOf(doc *html.Node) string {
 	return CutRunes(FirstText(doc, func(n *html.Node) bool { return n.Data == "title" }), maxTitleRunes)
 }
 
-// FirstText is the text of the first element under doc that match accepts, in document order,
-// with whitespace collapsed and invalid UTF-8 replaced; "" if there is none.
+// FirstText returns cleaned, whitespace-collapsed text from the first matching element in
+// document order, or "" if none matches.
 func FirstText(doc *html.Node, match func(*html.Node) bool) string {
 	for n := range doc.Descendants() {
 		if n.Type == html.ElementNode && match(n) {

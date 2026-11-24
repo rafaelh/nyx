@@ -124,8 +124,8 @@ func TestFields_Default(t *testing.T) {
 	}
 }
 
-// A count's keys depend on the flags and never on the data: matched only under
-// --match, and omitted only under --limit and only for a list that is shown.
+// Flags determine count keys independently of data; omitted counts apply only to displayed
+// limited lists.
 func TestView_CountKeysFollowTheFlags(t *testing.T) {
 	t.Parallel()
 	rec := FromNVD(loadEntry(t, "long-lists.json"))
@@ -156,7 +156,7 @@ func TestView_CountKeysFollowTheFlags(t *testing.T) {
 	}
 }
 
-// cutJSON is the long-lists fixture's record cut by the fields, the match and the limit, as JSON.
+// cutJSON applies field/list projection to the long-list fixture.
 func cutJSON(t *testing.T, spec, match string, limit int) (products, refs []json.RawMessage) {
 	t.Helper()
 	var got struct {
@@ -258,8 +258,7 @@ func TestView_LimitAfterMatch(t *testing.T) {
 	}
 }
 
-// The cut leaves the record it was given alone, and the limit and match of a list
-// that is not shown still count it.
+// Projection preserves input records and still counts matches for hidden lists.
 func TestView_ProjectDoesNotChangeTheRecord(t *testing.T) {
 	t.Parallel()
 	rec := FromNVD(loadEntry(t, "long-lists.json"))

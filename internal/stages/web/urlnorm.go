@@ -1,6 +1,5 @@
-// Package web has the stages that find web services and the URLs behind them:
-// httpprobe (what answers HTTP or HTTPS) and crawl (a light same-host crawl).
-// It never touches the network itself; every request goes through egress.
+// Package web implements service probing, crawling and script/endpoint discovery. All network
+// requests go through egress.
 package web
 
 import (
@@ -13,11 +12,9 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 )
 
-// NormaliseURL returns the canonical form of an absolute http or https URL:
-// lower-case scheme and host, an IP literal in its canonical
-// form (IPv6 bracketed), a decimal port with the default omitted, no fragment,
-// no userinfo, the query kept, and "/" for an empty path. ok is false for
-// anything else.
+// NormaliseURL accepts absolute HTTP(S), lowercases scheme/host, canonicalises IPs/ports,
+// removes credentials/fragments and default ports, preserves query and supplies "/" for empty
+// paths.
 func NormaliseURL(raw string) (string, bool) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -49,8 +46,7 @@ func NormaliseURL(raw string) (string, bool) {
 	return out.String(), true
 }
 
-// Origin is the key of a web service: scheme://host[:port] with the default
-// port omitted ("https://a.example.com", "http://[2001:db8::1]:8080").
+// Origin formats a canonical service key without default ports, including brackets for IPv6.
 func Origin(scheme, host string, port int) string {
 	return scheme + "://" + egress.HostPort(scheme, host, strconv.Itoa(port))
 }
@@ -78,9 +74,8 @@ func init() {
 	}
 }
 
-// IsStaticAsset reports whether a URL path ends in an image, stylesheet, font,
-// media, PDF or archive extension. The crawl records such links but never
-// fetches them, and archived URLs of this kind are dropped.
+// IsStaticAsset identifies images, styles, fonts, media, PDFs and archives by path extension.
+// Crawling records these links without fetching; archive selection drops them.
 func IsStaticAsset(p string) bool {
 	ext := strings.ToLower(strings.TrimPrefix(path.Ext(p), "."))
 	return ext != "" && staticExt[ext]

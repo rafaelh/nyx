@@ -187,8 +187,7 @@ func TestUpdate_AnInterruptedRequestIsCancelled(t *testing.T) {
 	}
 }
 
-// A directory made read-only after an earlier update, so its lock files are still there to open,
-// fails both sources before anything is sent.
+// Reused lock files must not hide an unwritable update directory; fail before requests.
 func TestUpdate_ADirectoryMadeReadOnlyLater(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {

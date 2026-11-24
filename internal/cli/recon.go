@@ -28,19 +28,17 @@ type reconOptions struct {
 	timeout                                                string
 }
 
-// configFlagUsage is the help of --config, for recon and for export.
+// configFlagUsage shares config-path guidance between recon and export.
 const configFlagUsage = "Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)"
 
-// reconEveryday are the recon flags the root help shows; the rest are tuning
-// settings, listed by nyx recon --help.
+// reconEveryday limits root help to common flags; command help includes tuning settings.
 var reconEveryday = []string{"domains-file", "org", "asn", "cidr", "exclude", "exclude-file", "engagement",
 	"passive", "authorised", "redo", "skip", "allow-large-netblocks", "timeout", "config", "output-dir"}
 
-// interruptedRecon is what to do after a signal ends a run.
+// interruptedRecon handles cleanup after a signal ends recon.
 const interruptedRecon = "completed work is saved; run the same command again to continue"
 
-// newReconCommand builds the recon command: everything nyx did before it had
-// commands.
+// newReconCommand builds engagement discovery and its controls.
 func newReconCommand(inv *invocation) *cobra.Command {
 	o := &reconOptions{}
 	names := stageNames(inv.d.Stages)
@@ -94,22 +92,21 @@ func newReconCommand(inv *invocation) *cobra.Command {
 	return cmd
 }
 
-// reconFooter is what recon's own help shows after its flags.
+// reconFooter supplies text after recon's flags.
 const reconFooter = `Configuration:
   Settings come from a YAML config file or flags; flags override the file. The default config
   file is $XDG_CONFIG_HOME/nyx/config.yaml (default ~/.config/nyx/config.yaml). No setting is
   read from the environment. API keys are never flags: set keys.<source> in the config file.
 `
 
-// runRecon checks every value and combination, reporting all problems in one
-// usage error before anything is created or contacted, then runs the
-// engagement.
+// runRecon collects validation problems before creating state or making requests, then executes
+// the engagement.
 func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, positional, names []string, o *reconOptions) error {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d
 	if o.palette {
-		// First, so that a broken config, a missing scope or stray inputs do not matter, and
-		// nothing is created or contacted.
+		// Handle this early so config/scope errors cannot cause side effects for a
+		// non-running invocation.
 		report.Sheet(d.Stdout, inv.helpStream(), d.Clock().In(d.Location))
 		return nil
 	}
@@ -125,9 +122,8 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	probs.Merge(perr)
 	noInputs := len(positional) == 0 && o.domainsFile == "" && len(o.orgs)+len(o.asns)+len(o.cidrs) == 0
 	name := reconEngagementName(probs, o.engagement, parsed.First, noInputs, perr == nil)
-	// Opening an engagement creates it, so the directory is probed first: one that is not
-	// an engagement is refused, and one that does not exist is refused when there is
-	// nothing to start it with.
+	// Probe before Open creates anything: reject foreign directories and require scope
+	// inputs to start a missing engagement.
 	given := o.engagement
 	if given == "" {
 		given = parsed.First
@@ -141,7 +137,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	if err := probs.Err(); err != nil {
 		return err
 	}
-	// A directory the probe could not read is reported only once every usage problem has been.
+	// Defer unreadable-directory errors until all usage problems have been collected.
 	if probeErr != nil {
 		return probeErr
 	}
@@ -156,7 +152,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	engOpen := true
 	defer func() {
 		if engOpen {
-			eng.Close() // the error that ended the run is the one reported
+			eng.Close() // preserve the run's terminating error
 		}
 	}()
 	if err := prepareEngagement(eng, parsed, name, o); err != nil {
@@ -176,9 +172,8 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 		Passive: o.passive, AllowLargeNetblocks: o.allowLarge, Redo: o.redo, NoFsync: d.NoFsync, Abusive: threat.Abusive, Drop: &threat.Drop,
 	})
 
-	// The deadline is a timer that cancels, not a context deadline: a rate limiter would fail the
-	// checks waiting on it before the context ended. Checks stop a reserve before the deadline so
-	// the files and the summary are written by it.
+	// Use a cancellation timer rather than a context deadline, which would make rate-limit
+	// waits fail early. Stop checks before the deadline to reserve time for output.
 	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	if timeout > 0 {
@@ -188,9 +183,8 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	res, runErr := runner.Run(runCtx)
 	deadline := errors.Is(runErr, errDeadline)
 
-	// The outcome is picked after the engagement has closed, so that a failure to save state is
-	// the run's only outcome: a signal, a fatal error, the netblock limit, the deadline, then
-	// failed checks.
+	// Choose the outcome after Close so state-save failures can be reported before
+	// interpreting signals, run errors or partial results.
 	engOpen = false
 	closeErr := eng.Close()
 	if err := reconFailure(ctx, inv, runErr, closeErr, deadline); err != nil {
@@ -199,8 +193,8 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	return reportRecon(inv, o, red, res, warnings, deadline)
 }
 
-// reconTimeout is --timeout as a duration, or zero when it was not given. A
-// value that is not a positive duration is recorded as a problem.
+// reconTimeout accepts a positive --timeout duration or zero when omitted, collecting invalid
+// values as problems.
 func reconTimeout(probs *clierr.Problems, cmd *cobra.Command, value string) time.Duration {
 	if !cmd.Flags().Changed("timeout") {
 		return 0
@@ -208,9 +202,7 @@ func reconTimeout(probs *clierr.Problems, cmd *cobra.Command, value string) time
 	return parseTimeout(probs, value, "--timeout 30m")
 }
 
-// reconEngagementName is the engagement's directory name: -e when given,
-// otherwise the first input once the inputs parsed. A run with neither -e nor
-// inputs is recorded as a problem.
+// reconEngagementName uses -e or the first parsed input. Missing both is a validation problem.
 func reconEngagementName(probs *clierr.Problems, engagement, first string, noInputs, parsed bool) string {
 	switch {
 	case engagement != "":
@@ -232,8 +224,8 @@ func reconEngagementName(probs *clierr.Problems, engagement, first string, noInp
 	return ""
 }
 
-// prepareEngagement merges this run's inputs into the engagement, refuses one
-// left with no scope, and records the --authorised acknowledgement.
+// prepareEngagement unions stored inputs, requires nonempty scope and persists explicit
+// authorisation.
 func prepareEngagement(eng *engagement.Engagement, parsed input.Parsed, name string, o *reconOptions) error {
 	if err := eng.MergeInputs(parsed); err != nil {
 		return err
@@ -253,10 +245,9 @@ func prepareEngagement(eng *engagement.Engagement, parsed input.Parsed, name str
 	return nil
 }
 
-// reconFailure is the error that ends a run before its summary, in order of
-// precedence: a fatal error or signal (the netblock limit as a usage error),
-// a failure to save state, then a signal during the deadline's wrap-up, after
-// which nothing is written. It is nil when the run reached its summary.
+// reconFailure resolves errors before summary output: fatal run errors/signals, state-save
+// failure, then a signal during deadline cleanup. Netblock limits become usage errors. Nil
+// means the summary can be written.
 func reconFailure(ctx context.Context, inv *invocation, runErr, closeErr error, deadline bool) error {
 	switch {
 	case runErr != nil && !deadline:
@@ -267,13 +258,13 @@ func reconFailure(ctx context.Context, inv *invocation, runErr, closeErr error, 
 	case closeErr != nil:
 		return closeErr
 	case deadline && ctx.Err() != nil:
-		return context.Cause(ctx) // a signal arrived during the deadline's wrap-up: nothing is written
+		return context.Cause(ctx) // interruption during deadline cleanup must leave stdout empty
 	}
 	return nil
 }
 
-// reportRecon writes the run's summary, as the --json envelope or as text, and
-// returns the partial error for a run that ended at its deadline or with failed checks.
+// reportRecon writes the summary as text or a JSON envelope, then returns any
+// deadline/check-failure partial error.
 func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run.Result, warnings *report.Warnings, deadline bool) error {
 	d := inv.d
 	env := report.Envelope{Data: res.Summary, Meta: report.Meta{Count: 1, DeadlineExceeded: deadline,
@@ -295,13 +286,12 @@ func reportRecon(inv *invocation, o *reconOptions, red *config.Redactor, res run
 	return nil
 }
 
-// unskippable are the stages other stages' safety depends on: resolve and wildcard decide which
-// names are real, ipowner and providerranges decide which addresses are shared infrastructure that
-// must not be port-checked.
+// unskippable lists stages supplying contact decisions: resolve/wildcard identify real names;
+// ipowner/providerranges identify shared addresses that must not be port-checked.
 var unskippable = []string{"resolve", "wildcard", "ipowner", "providerranges"}
 
-// validateSkip records a problem for each --skip (or skip setting) that names an unknown stage, a
-// stage that is also being redone, or a stage that cannot be skipped.
+// validateSkip collects unknown stages, redo conflicts and stages required for contact
+// decisions.
 func validateSkip(probs *clierr.Problems, skip []string, redo string, names []string) {
 	for _, n := range skip {
 		if msg, hint := skipProblem(n, redo, names); msg != "" {
@@ -310,8 +300,8 @@ func validateSkip(probs *clierr.Problems, skip []string, redo string, names []st
 	}
 }
 
-// skipProblem is why stage n cannot be skipped, with its hint, or "" when it can: it is unknown, it
-// is the stage being redone (redo "" for none), or other stages' safety depends on it.
+// skipProblem returns a reason and hint for an unknown, redone or required stage, otherwise
+// empty strings.
 func skipProblem(n, redo string, names []string) (msg, hint string) {
 	switch {
 	case !slices.Contains(names, n):

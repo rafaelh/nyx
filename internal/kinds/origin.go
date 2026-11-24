@@ -1,17 +1,15 @@
 package kinds
 
-// Origin exposure evidence. Neither kind is counted, and neither is read by anything that decides
-// what may be contacted: the findings package derives origin-exposure findings from them.
+// Origin evidence supports findings without affecting counts or permission to contact targets.
 
-// HistoricalAddress is an address a hostname resolved to in the past, from a passive DNS history. It
-// is shown while its host is in scope. It is never a current address: the scope, the inventory and
-// the wildcard check read resolution records only.
+// HistoricalAddress records a past DNS address for an in-scope host. It never counts as a
+// current resolution for scope, inventory or wildcard checks.
 var HistoricalAddress = defineJoined(Kind{Name: "historical_address", HostAttr: "host", Change: "historical address"},
 	func(a *HistoricalAddressAttrs) []*string { return []*string{&a.Host, &a.Type, &a.Addr} })
 
-// HistoricalAddressAttrs: the hostname, the address, the record type ("A" or "AAAA";
-// resolutions.csv shows it as "A-historical" or "AAAA-historical") and the dates (YYYY-MM-DD) the source first and last saw the
-// pair. The dates are blank when the source gave none. A record's key is "<host>|<type>|<address>".
+// HistoricalAddressAttrs identifies a host, address and A/AAAA type, plus optional first/last
+// observation dates. resolutions.csv adds "-historical" to the type. Keys use
+// "<host>|<type>|<address>".
 type HistoricalAddressAttrs struct {
 	Host      string `json:"host"`
 	Addr      string `json:"addr"`
@@ -20,14 +18,14 @@ type HistoricalAddressAttrs struct {
 	LastSeen  string `json:"last_seen"`
 }
 
-// OriginCheck is what one GET of "/" to a candidate origin address, with a hostname behind a CDN or
-// WAF as the server name and Host header, answered. Its key is "<host>|<address>".
+// OriginCheck records a GET / response from a candidate origin, using the CDN/WAF hostname for
+// SNI and Host. Keys use "<host>|<address>".
 var OriginCheck = defineJoined(Kind{Name: "origin_check", HostAttr: "host"},
 	func(a *OriginCheckAttrs) []*string { return []*string{&a.Host, &a.Addr} })
 
-// OriginCheckAttrs: the scheme that answered ("https" or "http"), the response's status, its title
-// and body length, and whether the certificate it presented names the host (always false for http).
-// No field is omitted when empty, so a later check replaces what an earlier one stored.
+// OriginCheckAttrs holds the responding scheme, status, title, body length and certificate-name
+// match. HTTP has no certificate match. Zero values are stored so later checks replace earlier
+// results completely.
 type OriginCheckAttrs struct {
 	Host          string `json:"host"`
 	Addr          string `json:"addr"`

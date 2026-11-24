@@ -16,9 +16,8 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// originFixture is an HTTPS and an HTTP server on loopback that stand in for a candidate origin.
-// DialMap sends the addresses the policy sees to them, so the policy decisions are made on the
-// real addresses and nothing leaves the machine.
+// originFixture routes logical candidate addresses to loopback HTTP/HTTPS without changing
+// address-based policy checks.
 type originFixture struct {
 	mu            sync.Mutex
 	hosts, snis   []string
@@ -106,8 +105,7 @@ func (f *originFixture) seen() (hosts, snis, methods, uris []string) {
 	return append([]string(nil), f.hosts...), append([]string(nil), f.snis...), append([]string(nil), f.methods...), append([]string(nil), f.uris...)
 }
 
-// The request is one GET of "/" to the address, on 443 for https and 80 for http, with the host as
-// both the TLS server name and the Host header, whichever address it is sent to.
+// Origin requests use GET / on standard scheme ports with the fronted hostname in SNI and Host.
 func TestOriginCheck_RequestShape(t *testing.T) {
 	t.Parallel()
 	f := newOriginFixture(t)
@@ -135,7 +133,7 @@ func TestOriginCheck_RequestShape(t *testing.T) {
 	}
 }
 
-// A 3xx is returned as it is: the redirect is not followed, and only one request is sent.
+// Return redirects without following them or sending another request.
 func TestOriginCheck_NeverFollowsARedirect(t *testing.T) {
 	t.Parallel()
 	f := newOriginFixture(t)
@@ -151,8 +149,8 @@ func TestOriginCheck_NeverFollowsARedirect(t *testing.T) {
 	}
 }
 
-// What the policy refuses is refused without a connection: an address nothing allows, an excluded
-// one, a host that is a candidate or excluded, a scheme or a run that may not contact the target.
+// Policy refusals happen before any connection, including host/address/scheme/contact
+// violations.
 func TestOriginCheck_Refusals(t *testing.T) {
 	t.Parallel()
 	f := newOriginFixture(t)
@@ -193,9 +191,8 @@ func TestOriginCheck_Refusals(t *testing.T) {
 	}
 }
 
-// The address need not be one the host resolves to: that is the one thing that separates this
-// request from RootAt. A host's address that is dedicated and known, or any address in an in-scope
-// netblock, is enough; the host is still the one the policy knows.
+// Origins may differ from current DNS addresses if otherwise eligible; the hostname still must
+// be in scope.
 func TestOriginCheck_AddressNeedNotBeTheHosts(t *testing.T) {
 	t.Parallel()
 	f := newOriginFixture(t)

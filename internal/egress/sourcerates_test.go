@@ -43,7 +43,7 @@ func TestSourceRatesFasterThanTheDefault(t *testing.T) {
 	}
 }
 
-// The pace is keyed by the source pattern, so a wildcard source is paced as one.
+// Wildcard hosts share one limiter keyed by the declared source pattern.
 func TestSourceRatesKeyedByPattern(t *testing.T) {
 	t.Parallel()
 	opts := egress.Options{RatePerSource: 1000, SourceRates: map[string]float64{"*.registry.example.net": 4}}

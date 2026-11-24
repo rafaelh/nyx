@@ -40,9 +40,8 @@ func TestVerification(t *testing.T) {
 	}
 }
 
-// A domain names its provider when its suffix is listed, on label boundaries: a name server's
-// domain, and the mail and SaaS providers, which are listed at their registrable domain so that a
-// record of any depth (an SPF include, an MX host, a CNAME target's suffix) names its provider.
+// Provider suffix matching respects label boundaries and works across dependency hostname
+// depths.
 func TestDomainOwner(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()

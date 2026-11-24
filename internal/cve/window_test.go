@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// fakeClock is a clock a test moves by hand. It starts at the real now, so a
-// context deadline set from it is a real time too.
+// fakeClock starts from real time so manually advanced timestamps still produce meaningful
+// context deadlines.
 type fakeClock struct {
 	mu sync.Mutex
 	t  time.Time

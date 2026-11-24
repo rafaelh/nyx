@@ -21,7 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// Options is what an update needs.
+// Options supplies update storage, data and I/O dependencies.
 type Options struct {
 	Dir     string                // the threat-data directory; see Dir
 	HTTP    egress.ThirdPartyHTTP // a client whose sources are SpamhausHost and IpapiHost
@@ -30,12 +30,11 @@ type Options struct {
 	Timeout time.Duration         // each request's; 0 means 30 s
 	BuiltIn *BuiltIn              // nil means the embedded copies
 
-	// Rename replaces os.Rename for putting a data file in place, so a test can make that step
-	// fail. nil means os.Rename.
+	// Rename injects replacement failures in tests. Nil uses os.Rename.
 	Rename func(oldpath, newpath string) error
 }
 
-// Outcome is how an update ended for a source or a list.
+// Outcome classifies source/list update results.
 type Outcome string
 
 // The outcomes, as the update's envelope gives them.
@@ -46,8 +45,8 @@ const (
 	Failed  Outcome = "failed"
 )
 
-// Result is what an update did: each source, in the order Spamhaus, ipapi.is, and each of the
-// five lists, in the order drop_v4, drop_v6, asndrop, networks, asns.
+// Result preserves source order (Spamhaus, ipapi.is) and list order (drop_v4, drop_v6, asndrop,
+// networks, asns).
 type Result struct {
 	Sources []SourceResult
 	Lists   []ListResult
@@ -58,25 +57,24 @@ type SourceResult struct {
 	Source  string // Spamhaus or Ipapi
 	Outcome Outcome
 
-	// LastContacted is when the source last sent an HTTP response: in this update, or, for a
-	// skipped source, the recorded time that made it skip; zero when it sent none in this update.
-	// NextUpdate is when it can next be updated: set when it was skipped, and when it failed after a
-	// response; otherwise zero.
+	// LastContacted is the response time, or the saved time for a skipped source; zero
+	// means no response this update. NextUpdate is set for skipped sources and failures
+	// after a response, otherwise zero.
 	LastContacted, NextUpdate time.Time
 
-	// Copyright and Terms are Spamhaus's credit, sanitised, as Set gives it after the update; ""
-	// for ipapi.is.
+	// Copyright and Terms carry sanitised post-update Spamhaus credit; ipapi.is leaves them
+	// empty.
 	Copyright, Terms string
 
-	// Code, Reason and Transient describe a failure: Reason is sanitised, and Transient is set for
-	// NETWORK_ERROR, TIMEOUT and RATE_LIMITED.
+	// Code/Reason/Transient describe failures with sanitised text and retryability for
+	// network, timeout and rate-limit errors.
 	Code      clierr.Code
 	Reason    string
 	Transient bool
 }
 
-// ListResult is how the update of one list ended. The Old fields describe the copy in use before
-// the update and the others the copy in use after it; they are equal unless the list was replaced.
+// ListResult compares the active copy before and after an update. Old and new values differ
+// only when a list was replaced.
 type ListResult struct {
 	List    string
 	Source  string
@@ -87,9 +85,9 @@ type ListResult struct {
 	Added, Removed         int
 }
 
-// Update downloads the five lists and replaces each source's downloaded copy that passes the
-// acceptance rules and is newer than the copy in use. The two sources are updated concurrently,
-// each under its own lock in dir, and each is replaced as a whole or not at all.
+// Update downloads and validates five lists, replacing only newer accepted data. Sources update
+// concurrently under separate directory locks; each source bundle is replaced in full or left
+// unchanged.
 func Update(ctx context.Context, o Options) Result {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -118,7 +116,7 @@ func Update(ctx context.Context, o Options) Result {
 
 const (
 	defaultTimeout = 30 * time.Second
-	// rateWindow is how long after a source's last response an update sends it nothing.
+	// rateWindow sets the no-request interval after any response.
 	rateWindow = time.Hour
 	// lockPoll is how often a waiting update tries a source's lock again.
 	lockPoll = 100 * time.Millisecond
@@ -145,8 +143,7 @@ type sourceRun struct {
 	lists  []ListResult
 }
 
-// source is what is fixed about a source: its name, the stem of its state and lock files, its data
-// file, and its lists and the URL of each.
+// source holds provider metadata, file names and list URLs.
 type source struct {
 	name, stem, file string
 	lists, urls      []string
@@ -172,21 +169,20 @@ var (
 	}
 )
 
-// sourceOps is what differs between the two sources in how their lists are read and their
-// downloaded copy is kept.
+// sourceOps abstracts source-specific parsing and bundle storage.
 type sourceOps interface {
 	// prepare reads the previous downloaded copy, once.
 	prepare(dir string)
-	// unreadable reports whether a previous downloaded copy exists and can't be used.
+	// unreadable detects existing downloads unusable by Load.
 	unreadable() bool
 	// hasPrevious reports whether a previous downloaded copy is readable.
 	hasPrevious() bool
-	// before describes the lists in use, and the credit, before the update.
+	// before reads pre-update active metadata and credit.
 	before() ([]view, string, string)
-	// parse reads the download of list i, keeping it, and describes it.
+	// parse retains one downloaded list and returns its metadata.
 	parse(i int, body []byte, now time.Time) (view, error)
-	// after describes the lists in use, and the credit, once the download of each list for which
-	// useDownload is set replaces the previous downloaded one, and gives the data file's bytes.
+	// after constructs the resulting active-list metadata, credit and bundle bytes using
+	// the selected downloads.
 	after(useDownload []bool) ([]view, string, string, []byte)
 }
 
@@ -223,8 +219,7 @@ func (r *srcRun) execute() sourceRun {
 	if r.st.LastChecked != nil && r.st.LastChecked.After(now) {
 		r.st.LastChecked = &now
 	}
-	// Writing the state back, unchanged or with the fix above, proves the directory is writable
-	// before anything is sent.
+	// Persist state before requesting to verify the directory can record contact times.
 	if err := r.writeState(); err != nil {
 		return r.fail(unexpected("cannot write to %s: %v", r.o.Dir, err))
 	}
@@ -252,8 +247,7 @@ func (r *srcRun) execute() sourceRun {
 	return r.replace(downloads)
 }
 
-// replace decides, once every list of the source has arrived, which downloads replace the copy in
-// use, and stores them.
+// replace waits for a complete source download before choosing and storing replacements.
 func (r *srcRun) replace(downloads []view) sourceRun {
 	before, copyright, terms := r.op.before()
 	forced := r.op.unreadable()
@@ -263,7 +257,8 @@ func (r *srcRun) replace(downloads []view) sourceRun {
 		if err := CheckEmpty(d.Name, d.Entries); err != nil {
 			return r.fail(&failure{clierr.UpstreamError, "refused: " + err.Error()})
 		}
-		// An unreadable copy counts as absent, so every list replaces the built-in one.
+		// Treat corrupt downloads as absent so valid fetched lists can repair the
+		// bundle.
 		newer[i] = forced || Newer(d.date, before[i].date)
 		if !newer[i] {
 			continue
@@ -308,8 +303,8 @@ func (r *srcRun) replace(downloads []view) sourceRun {
 		out.lists = append(out.lists, l)
 	}
 	if stateErr != nil {
-		// The new copy is in place and in use, so the lists are reported as they are now; only the
-		// check went unrecorded.
+		// Report the newly active data even though recording the successful check
+		// failed.
 		f := unexpected("the downloaded %s data was replaced, but its check could not be recorded: %v", r.src.name, stateErr)
 		out.source.Outcome, out.source.Code, out.source.Reason = Failed, f.code, sanitize.Line(f.reason)
 		out.source.NextUpdate = r.responded.Add(rateWindow)
@@ -323,8 +318,7 @@ func unchanged(v view, outcome Outcome) ListResult {
 		OldUpdated: v.Updated, NewUpdated: v.Updated, OldEntries: v.Entries, Entries: v.Entries}
 }
 
-// listResult describes a list that went from the copy in use before to the one after, counting the
-// entries that were added and removed.
+// listResult compares active copies and counts added/removed entries.
 func listResult(before, after view, outcome Outcome) ListResult {
 	l := unchanged(before, outcome)
 	l.NewUpdated, l.Entries = after.Updated, after.Entries
@@ -342,7 +336,7 @@ func listResult(before, after view, outcome Outcome) ListResult {
 	return l
 }
 
-// skipped is the result of a source that answered within the hour.
+// skipped reports a source still within its response cooldown.
 func (r *srcRun) skipped(last time.Time) sourceRun {
 	r.op.prepare(r.o.Dir)
 	before, copyright, terms := r.op.before()
@@ -354,7 +348,7 @@ func (r *srcRun) skipped(last time.Time) sourceRun {
 	return out
 }
 
-// fail is the result of a source that failed. Its lists are left as they were.
+// fail reports a source error while preserving its previous active-list metadata.
 func (r *srcRun) fail(f *failure) sourceRun {
 	r.op.prepare(r.o.Dir)
 	before, copyright, terms := r.op.before()
@@ -371,8 +365,7 @@ func (r *srcRun) fail(f *failure) sourceRun {
 
 func cancelled() *failure { return unexpected("the update was cancelled") }
 
-// lock takes the source's lock, polling until the context ends: a blocking flock can't be
-// cancelled. The returned function releases it.
+// lock polls cancellably for the source lock and returns its release function.
 func (r *srcRun) lock() (func(), *failure) {
 	f, err := os.OpenFile(r.path(r.src.stem+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -398,8 +391,8 @@ func (r *srcRun) lock() (func(), *failure) {
 	}
 }
 
-// removeTemporaryFiles removes what an interrupted update of this source left behind. It is safe
-// because only the holder of the source's lock writes them.
+// removeTemporaryFiles cleans this source's interrupted writes while its lock prevents
+// competing writers.
 func (r *srcRun) removeTemporaryFiles() {
 	entries, err := os.ReadDir(r.o.Dir)
 	if err != nil {
@@ -422,12 +415,11 @@ func (r *srcRun) writeState() error {
 	return r.write(r.src.stem+".state.json", append(b, '\n'), false)
 }
 
-// writeFile writes a data file, with the fault point between its sync and its rename, which
-// Options.Rename may replace.
+// writeFile exposes a crash checkpoint after sync and before the injectable rename.
 func (r *srcRun) writeFile(name string, b []byte) error { return r.write(name, b, true) }
 
-// write puts the file in place: it is written to a temporary file, synced (unless the options say
-// not) and renamed over the old one, so a reader sees the old file or the whole new one.
+// write syncs a temporary file unless disabled, then renames it over the destination for atomic
+// replacement.
 func (r *srcRun) write(name string, b []byte, point bool) (err error) {
 	f, err := os.CreateTemp(r.o.Dir, "."+r.src.stem+"-*.tmp")
 	if err != nil {
@@ -471,8 +463,8 @@ func (r *srcRun) write(name string, b []byte, point bool) (err error) {
 	return nil
 }
 
-// request asks for list i and returns the body of a 200. A response of any status is recorded at
-// once, as it starts the hour.
+// request records any HTTP response immediately because it starts the one-hour cooldown. Only a
+// 200 returns list data.
 func (r *srcRun) request(i int) ([]byte, *failure) {
 	name := r.src.lists[i]
 	ctx, cancel := context.WithTimeout(r.ctx, r.o.Timeout)

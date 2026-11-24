@@ -322,8 +322,8 @@ func TestRiskPlumbing_Help(t *testing.T) {
 	}
 }
 
-// Plumbing: a found line is printed once per engagement, including for a finding
-// derived on the interrupt path, and a resumed run does not print it again.
+// Announce findings once per engagement, including interrupt-derived findings, without
+// repeating them on resume.
 func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
 	t.Parallel()
 	var cancel context.CancelFunc
@@ -378,9 +378,7 @@ func TestRiskPlumbing_FoundOncePerEngagementAcrossInterrupt(t *testing.T) {
 	}
 }
 
-// Findings are derived after every stage that did work, not only when the
-// pass ends, so a later stage in the same pass (the hours-long port sweep) does
-// not delay them.
+// Derive after each working stage so a later long-running port sweep cannot delay findings.
 func TestFindingsDerivedAfterEachStage(t *testing.T) {
 	t.Parallel()
 	seed := &testkit.Stage{StageName: "seed", Kind: run.ThirdParty,
@@ -406,8 +404,8 @@ func TestFindingsDerivedAfterEachStage(t *testing.T) {
 	}
 }
 
-// Plumbing: an interrupted run still lists exactly the current high and medium findings in no summary,
-// and the run state shows the pseudo-stage `findings` is not a visible stage.
+// Interrupted findings remain current in files while the synthetic findings stage stays out of
+// progress output.
 func TestRiskPlumbing_FindingsPseudoStageHidden(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())

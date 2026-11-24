@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/cli"
 )
 
-// --version prints "nyx <version>" and exits without doing any work.
+// Version queries return immediately without starting recon.
 func TestVersionFlag(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -25,7 +25,7 @@ func TestVersionFlag(t *testing.T) {
 	h.untouched()
 }
 
-// With no Version in Deps (as the test harnesses build them), the version is "devel".
+// Missing injected versions display devel.
 func TestVersionFlagZeroDeps(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
@@ -38,7 +38,7 @@ func TestVersionFlagZeroDeps(t *testing.T) {
 	}
 }
 
-// --version is long-only; -v must not become a shorthand that could be mistaken for --verbose.
+// Reserve -v to avoid ambiguity with the familiar verbose shorthand.
 func TestNoVersionShorthand(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())

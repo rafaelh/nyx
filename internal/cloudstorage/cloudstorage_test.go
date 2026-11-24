@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/cloudstorage"
 )
 
-// ParseRef recognises S3, GCS and Azure hosts and URLs.
+// Cover provider reference formats across hosts and URLs.
 func TestParseRef(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -51,7 +51,7 @@ func TestParseRef(t *testing.T) {
 	}
 }
 
-// The c.storage.googleapis.com CNAME takes the bucket from the alias name.
+// GCS aliases supply bucket names when the CNAME target is generic.
 func TestParseCNAME(t *testing.T) {
 	t.Parallel()
 	got, ok := cloudstorage.ParseCNAME("assets.example.com", "c.storage.googleapis.com")
@@ -67,7 +67,7 @@ func TestParseCNAME(t *testing.T) {
 	}
 }
 
-// Bases, order, cap and provider rules.
+// Cover guess order, caps and provider-specific normalisation.
 func TestBases(t *testing.T) {
 	t.Parallel()
 	if got := cloudstorage.RootBases("example.com"); !slices.Equal(got, []string{"example", "example-com", "example.com"}) {
@@ -104,7 +104,7 @@ func TestGuessOrderAndCap(t *testing.T) {
 	if len(capped) != 7 || !slices.Equal(capped, all[:7]) {
 		t.Errorf("cap 7 = %v, want the first 7 of %v", capped, all[:7])
 	}
-	// Raising the cap keeps the earlier names: only new checks appear.
+	// Higher caps append guesses without replacing earlier work.
 	if wider := cloudstorage.Guess(bases, 12); !slices.Equal(wider[:7], capped) {
 		t.Errorf("raising the cap reorders names: %v vs %v", wider, capped)
 	}
@@ -160,7 +160,8 @@ func TestKeyAndURL(t *testing.T) {
 	}
 }
 
-// "public" is an anonymous HEAD of a known object succeeding; unknown without one.
+// Only successful anonymous object HEADs establish public access; no tested object means
+// unknown.
 func TestPublicState(t *testing.T) {
 	t.Parallel()
 	if got := cloudstorage.PublicState(nil); got != "unknown" {

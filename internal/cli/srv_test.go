@@ -11,9 +11,7 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// Service records and well-known hostnames. The dnsroot stage asks each
-// in-scope root for a fixed list of SRV names, as one check, and the
-// permutations stage always tries a few well-known labels under each root.
+// SRV tests pair fixed service-name queries with well-known hostname generation.
 
 var srvServices = []string{
 	"_sip._tls", "_sip._tcp", "_sipfederationtls._tcp", "_autodiscover._tcp", "_ldap._tcp",
@@ -34,9 +32,7 @@ func srvChecks(w *world) []string {
 	return out
 }
 
-// Each answer is a resolutions.csv row with the priority, weight, port and
-// target; every listed service name is asked once, and a name is never
-// treated as a hostname.
+// SRV output preserves service data without treating queried service names as hostnames.
 func TestSRV_AnswersAreRows(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -131,8 +127,7 @@ func TestSRV_Targets(t *testing.T) {
 	}
 }
 
-// A SERVFAIL or a timeout on any service fails the SRV check, and only it; the
-// next run retries it and repeats nothing else.
+// Transient SRV failures retry only the root's SRV check.
 func TestSRV_FailureFailsOnlyTheSRVCheck(t *testing.T) {
 	t.Parallel()
 	for name, fail := range map[string]func(w *world){
@@ -232,8 +227,7 @@ func TestSRV_PortsReportedNeverConnected(t *testing.T) {
 	p.dns.SRV("_xmpp-server._tcp.example.com", 5, 0, 5269, "voip.example.com")
 	p.dns.SRV("_xmpp-client._tcp.example.com", 5, 0, 600, "voip.example.com")
 	p.dns.SRV("_matrix._tcp.example.com", 5, 0, 8448, "other.example.com")
-	// A name outside the scope that an address points back to (rDNS) is no host of ours:
-	// the port its SRV record gives is not attached to that address.
+	// External reverse names cannot attach their advertised SRV ports to target addresses.
 	p.dns.SRV("_ldap._tcp.example.com", 5, 0, 389, "voice.chat-host.test")
 	p.dns.PTR("198.51.100.1", "voice.chat-host.test")
 	p.addrs("198.51.100.0", "198.51.100.1", "198.51.100.2", "198.51.100.3")
@@ -282,8 +276,7 @@ func TestSRV_PortsReportedNeverConnected(t *testing.T) {
 	}
 }
 
-// A service name is not a hostname: it is never tested as a wildcard zone, and
-// rows of type SRV from any source do not name zones or addresses.
+// SRV rows do not introduce hostnames, wildcard zones or addresses.
 func TestSRV_NoWildcardCheckForServiceNames(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -321,8 +314,7 @@ func TestSRV_NoWildcardCheckForServiceNames(t *testing.T) {
 	}
 }
 
-// A new third party is announced like any other, and a row that is no longer
-// current still shows its root, mechanism and domain.
+// Third-party history preserves root/mechanism/domain after retirement.
 func TestSRV_ThirdPartyAnnouncedAndKeptWhenNotCurrent(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -355,9 +347,8 @@ func TestSRV_ThirdPartyAnnouncedAndKeptWhenNotCurrent(t *testing.T) {
 
 // --- well-known labels ---
 
-// The five labels are tried under each root with a wordlist that lacks them,
-// once even when the wordlist has them, and not at all without permutations or
-// under a wildcard zone.
+// Well-known labels are deduplicated with wordlists and suppressed with disabled permutations
+// or known wildcards.
 func TestSRV_WellKnownLabelsAreAlwaysTried(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -398,8 +389,7 @@ func TestSRV_WellKnownLabelsAreAlwaysTried(t *testing.T) {
 	}
 }
 
-// The labels are part of the root check, which prices them: with a cap that
-// takes one root of four words and five labels, the other is deferred.
+// Root budgets include the well-known labels' query cost.
 func TestSRV_WellKnownLabelsAreCosted(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -432,7 +422,8 @@ func TestSRV_WellKnownLabelsRepeatRootChecksOnce(t *testing.T) {
 		if strings.HasPrefix(k, "root|") {
 			rootKey = k
 		} else if strings.Contains(k, "|wk=") {
-			// Seed checks do not use the labels, so their keys are what an older release wrote.
+			// Seed keys stay compatible because only root checks gained well-known
+			// labels.
 			t.Errorf("a seed check key carries the labels, so an upgrade would repeat it: %s", k)
 		}
 	}

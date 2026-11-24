@@ -98,7 +98,7 @@ func TestOutcome_TimeoutsSayToRaiseTheDeadline(t *testing.T) {
 	if err == nil || err.Code != clierr.Timeout || err.Hint != "run: nyx ip 1.1.1.1 --json, or raise --timeout" || !err.Transient {
 		t.Errorf("error = %+v", err)
 	}
-	// Mixed with a success, the error is PARTIAL and does not mention the timeout.
+	// Partial results use PARTIAL rather than presenting the timeout as the entire outcome.
 	_, err = batch.Outcome(cfg, 2, 1, []batch.Failure{f})
 	if err == nil || err.Code != clierr.Partial || strings.Contains(err.Hint, "--timeout") {
 		t.Errorf("partial error = %+v", err)
@@ -164,11 +164,11 @@ func TestOutcome_PartialCountsAndHint(t *testing.T) {
 
 func TestOutcome_RetryTextIsNotTheName(t *testing.T) {
 	t.Parallel()
-	// A CIDR failed on two of its addresses: it is shown by its name and retried by those addresses.
+	// Preserve the CIDR input for display but retry only its failed addresses.
 	cidr := fail("10.0.0.0/30", clierr.NetworkError, "no answer", "x", true)
 	cidr.Retry = "10.0.0.1 10.0.0.2"
 	skip := network("9.9.9.9")
-	skip.Retry = "" // a failure that is not worth retrying, whatever its error says
+	skip.Retry = "" // explicitly excluded from retry hints
 	_, err := batch.Outcome(cfg, 3, 1, []batch.Failure{cidr, skip})
 	if err == nil || err.Hint != "run: nyx ip 10.0.0.1 10.0.0.2 --json" || !err.Transient {
 		t.Errorf("error = %+v", err)
@@ -229,12 +229,12 @@ func TestOutcome_MoreThanTwentyPointAtTheFailures(t *testing.T) {
 	if err == nil || err.Hint != "check the 21 inputs that failed in meta.errors (or the error: lines)" {
 		t.Errorf("permanent: %+v", err)
 	}
-	// Exactly twenty are still listed.
+	// Keep the full list at the inclusive 20-item boundary.
 	_, err = batch.Outcome(cfg, 21, 1, transient[:20])
 	if err == nil || !strings.HasPrefix(err.Hint, "run: nyx ip 10.0.0.0 ") {
 		t.Errorf("twenty: %+v", err)
 	}
-	// The wait still leads the pointer.
+	// Preserve wait guidance before the metadata pointer.
 	transient[0].Wait = 2 * time.Second
 	_, err = batch.Outcome(cfg, 22, 1, transient)
 	if err == nil || !strings.HasPrefix(err.Hint, "after 2s, retry the 21 failed") {
@@ -260,8 +260,7 @@ func TestSeconds(t *testing.T) {
 	}
 }
 
-// The error's input lists each failure's Given inputs, each once and in order, and the Name of a
-// failure with none.
+// Deduplicate original failed inputs in order, falling back to Name when Given is absent.
 func TestOutcome_InputListsTheGivenInputs(t *testing.T) {
 	t.Parallel()
 	a, b, c := network("10.0.0.1"), network("10.0.0.2"), network("bad")
@@ -273,7 +272,7 @@ func TestOutcome_InputListsTheGivenInputs(t *testing.T) {
 	}
 }
 
-// Each calls fn once for every index, never with more than workers at a time.
+// Schedule every index once while respecting the worker limit.
 func TestEach(t *testing.T) {
 	t.Parallel()
 	var running, peak atomic.Int32

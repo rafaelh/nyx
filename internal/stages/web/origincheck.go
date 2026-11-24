@@ -11,15 +11,10 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// OriginCheck is the origincheck stage: for a hostname behind a CDN or WAF and an address that may
-// be its origin, one GET of "/" to that address with the hostname as the TLS server name and the
-// Host header, to see whether the address serves the site. The same pairs are the origin-exposure
-// findings, which decide from the answer whether the exposure is confirmed.
-//
-// A pair is checked only when the candidate may be contacted (see origin.Candidate) and the probe
-// has a 2xx status for the hostname's HTTPS service. The check key carries a hash of the probe's
-// title and certificate subject, and the stage retires the checks it no longer yields, so a changed
-// title or certificate checks the pair again and the old answer stops being evidence.
+// OriginCheck requests a candidate address using the fronted hostname's SNI and Host header. It
+// shares pairs with origin findings and checks only contactable candidates with a successful
+// HTTPS baseline. Title/certificate hashes version checks; obsolete checks retire so changed
+// baselines cannot keep old confirmation evidence.
 type OriginCheck struct{}
 
 // NewOriginCheck returns the origincheck stage.
@@ -30,10 +25,10 @@ func (*OriginCheck) Contact() run.Contact              { return run.Target }
 func (*OriginCheck) Sources() []string                 { return nil }
 func (*OriginCheck) Configured(run.Env) (bool, string) { return true, "" }
 
-// RetiresUnlistedChecks makes the runner retire a completed check the stage no longer yields.
+// RetiresUnlistedChecks removes evidence from completed pairs no longer yielded.
 func (*OriginCheck) RetiresUnlistedChecks() {}
 
-// Checks yields each contactable pair whose fronted host the probe saw answer 2xx.
+// Checks requires a contactable pair and a successful fronted-host HTTPS baseline.
 func (*OriginCheck) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, p := range v.OriginPairs() {
@@ -50,9 +45,9 @@ func (*OriginCheck) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check,
 	}
 }
 
-// Run sends one GET over HTTPS, and one over HTTP only if nothing answered on 443 (a TLS failure
-// is an answer of a kind: the address speaks something else on 443, and asking on 80 would be a
-// different question). Any response is recorded; no answer is a completed check with nothing.
+// Run tries HTTPS, falling back to HTTP only when 443 gives no answer. TLS failure counts as an
+// answer, so it does not trigger fallback. Responses are recorded; no answer completes without
+// evidence.
 func (*OriginCheck) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	p := c.Input.(origin.Pair)
 	for _, scheme := range []string{"https", "http"} {
@@ -76,8 +71,8 @@ func (*OriginCheck) Run(ctx context.Context, c run.Check, e egress.Clients) ([]r
 			}
 			return nil, nil
 		default:
-			// The policy that yielded the check is the one that refuses it, so this is a fault to
-			// retry, not a result that would skip the pair for good.
+			// Enumeration and egress share policy. Retry a disagreement rather than
+			// permanently completing the pair without evidence.
 			return nil, fmt.Errorf("%s refused: %v", c.Key, res)
 		}
 	}

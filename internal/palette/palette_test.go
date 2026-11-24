@@ -12,8 +12,8 @@ func env(kv map[string]string) func(string) string {
 	return func(k string) string { return kv[k] }
 }
 
-// The colour decision: a terminal, NO_COLOR unset or empty and TERM not dumb;
-// nothing else turns colour on, and the depth variables only choose the depth.
+// Colour requires a terminal, no NO_COLOR and non-dumb TERM; depth variables alone cannot
+// enable it.
 func TestDetect(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -73,7 +73,7 @@ func TestBadgeSequences(t *testing.T) {
 	}
 }
 
-// Every badge of every category is as wide as its category plus the side spaces.
+// Badge width includes category padding and side margins.
 func TestBadgeWidths(t *testing.T) {
 	t.Parallel()
 	want := map[palette.Category]int{palette.Level: 5, palette.Outcome: 7, palette.Severity: 8, palette.HTTPStatus: 3}
@@ -108,9 +108,7 @@ func stripEscapes(s string) string {
 	return b.String()
 }
 
-// A record value keeps its own text and case, is padded to the category's
-// width, and takes the style found case-insensitively; an unknown value takes
-// the DEBUG style and never fails.
+// Value styling preserves text/case, pads width and uses DEBUG for unknown labels.
 func TestValueBadge(t *testing.T) {
 	t.Parallel()
 	if got, want := palette.None.Value(palette.Severity, "high"), "high    "; got != want {
@@ -210,8 +208,7 @@ func TestBoldText(t *testing.T) {
 	}
 }
 
-// BadgeText is the badge of the label's style around the text exactly as given:
-// no padding and no added spaces. An unknown label takes DEBUG and None is plain.
+// BadgeText adds styles without padding; unknown labels use DEBUG and None remains plain.
 func TestBadgeText(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -239,8 +236,7 @@ func TestBadgeText(t *testing.T) {
 			t.Errorf("depth %v %s %s = %q, want %q", c.d, c.cat, c.label, got, c.out)
 		}
 	}
-	// The text is not padded: a text longer or shorter than the category's width
-	// comes back as given between the escapes.
+	// BadgeText preserves exact text length without category-width padding.
 	got := palette.TrueColor.BadgeText(palette.Severity, "LOW", " a bar ")
 	if want := "\x1b[38;2;236;208;143;48;2;61;52;32m a bar \x1b[0m"; got != want {
 		t.Errorf("exact text = %q, want %q", got, want)

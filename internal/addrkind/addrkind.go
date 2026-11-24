@@ -1,34 +1,21 @@
-// Package addrkind says what kind of address an IP address is: public, or which special-purpose
-// kind of non-public address (private, loopback, link-local and so on). It is pure.
+// Package addrkind classifies public and special-purpose IP addresses without I/O. Its table
+// follows IANA's IPv4/IPv6 special-purpose registries as checked on 2026-11-21.
 //
-// The table is written by hand from IANA's two special-purpose address registries,
-// iana-ipv4-special-registry-1.csv and iana-ipv6-special-registry-1.csv, and was checked row by
-// row against the files as published on 2026-11-21. The registries gain rows now and then, so
-// compare the table with the current files when changing it.
-//
-// An address is non-public when its row's "Globally Reachable" column is False or N/A, and public
-// when it is True or no row lists it. A more specific row beats a less specific one, so 192.0.0.0/24
-// (False) holds the reachable 192.0.0.9/32 and 192.0.0.10/32 (True). Terminated rows (the 6to4
-// relay anycast 192.88.99.0/24 and the deprecated ORCHID 2001:10::/28) are left out, so their
-// addresses take the row that covers them, if any; the live 6a44 relay row 192.88.99.2/32 inside
-// the terminated block is kept. A row whose reachable value is True has the kind Public.
-//
-// Two things are not in those registries. Multicast (224.0.0.0/4 and ff00::/8) has registries of
-// its own. And an IPv6 address outside 2000::/3 that no row lists is "reserved": that comes from
-// IANA's IPv6 Address Space registry, since only 2000::/3 is allocated for global unicast.
-//
-// An IPv4-mapped IPv6 address is looked up as the IPv4 address it carries.
+// Globally Reachable=True or no matching row means public; False/N/A means non-public. More
+// specific prefixes win. Terminated rows are omitted, while active exceptions remain. Multicast
+// comes from separate registries, and unmatched IPv6 outside global-unicast 2000::/3 is
+// reserved. IPv4-mapped IPv6 addresses use their embedded IPv4 classification.
 package addrkind
 
 import "net/netip"
 
-// Kind is the kind of an address: Public, or the name of a non-public kind.
+// Kind distinguishes public addresses from named special-purpose ranges.
 type Kind string
 
 // Public is an address that is globally reachable.
 const Public Kind = "public"
 
-// row is one registry entry. Its kind is Public when the registry marks it globally reachable.
+// row maps a registry prefix to its reachability class.
 type row struct {
 	prefix netip.Prefix
 	kind   Kind
@@ -36,7 +23,7 @@ type row struct {
 
 func p(s string, k Kind) row { return row{netip.MustParsePrefix(s), k} }
 
-// registry is the table. Order does not matter: the longest matching prefix wins.
+// registry uses longest-prefix matching regardless of row order.
 var registry = []row{
 	// IPv4 special-purpose address registry.
 	p("0.0.0.0/8", "this-network"),
@@ -96,11 +83,11 @@ var registry = []row{
 	p("ff00::/8", "multicast"),
 }
 
-// globalUnicast is the part of the IPv6 space that is allocated for global unicast; an address
-// outside it that no row lists is reserved.
+// globalUnicast bounds ordinary IPv6 global-unicast allocation. Unlisted addresses outside it
+// are reserved.
 var globalUnicast = netip.MustParsePrefix("2000::/3")
 
-// found is the row an address matched, or none.
+// found holds the matching registry row, when present.
 type found struct {
 	kind Kind
 	bits int
@@ -118,7 +105,7 @@ func lookup(a netip.Addr) found {
 	return best
 }
 
-// Of is the kind of a. An invalid address is "reserved", never Public.
+// Of classifies an address, treating invalid addresses as reserved.
 func Of(a netip.Addr) Kind {
 	if !a.IsValid() {
 		return "reserved"
@@ -133,14 +120,13 @@ func Of(a netip.Addr) Kind {
 	return Public
 }
 
-// names are the non-public kinds, in the order docs/ip.md lists them.
+// names preserves documentation order for non-public kinds.
 var names = []string{
 	"private", "ula", "loopback", "link-local", "cgnat", "multicast", "unspecified", "this-network",
 	"broadcast", "documentation", "benchmarking", "reserved", "ietf-protocol", "6to4", "teredo",
 	"nat64-local", "discard", "dummy", "srv6", "nat64-discovery", "6a44-relay", "ipv4-mapped",
 }
 
-// Names are the non-public kind names, in a stable order. (Public is not among them.) No address
-// has "ipv4-mapped": an IPv4-mapped address is looked up as the IPv4 address, but the registry's
-// row is kept so its name is not lost.
+// Names lists non-public kinds in stable order. ipv4-mapped remains a registry label even
+// though mapped addresses use their IPv4 classification.
 func Names() []string { return append([]string(nil), names...) }

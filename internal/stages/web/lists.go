@@ -10,11 +10,9 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 )
 
-// readLists fetches robots.txt and the sitemaps (sitemap.xml, those robots.txt
-// names and those a sitemap index names) and queues the same-origin URLs they
-// list at depth 1, as if the root page linked to them. They are depth-1 items
-// themselves, fetched only from the page budget the root's own links leave.
-// robots.txt is read for its paths, not obeyed.
+// readLists queues same-origin robots/sitemap URLs at depth one, using the page budget left
+// after root links. Sitemap indexes are followed; robots.txt supplies paths without exclusion
+// enforcement.
 func (c *crawler) readLists(robots, sitemap string) {
 	if c.in.depth < 1 {
 		return
@@ -63,9 +61,8 @@ func (c *crawler) readLists(robots, sitemap string) {
 	}
 }
 
-// fetchList GETs a robots.txt or sitemap and returns its body if it answered
-// 2xx on this origin. Only then is its URL recorded, so a service without one
-// adds no row.
+// fetchList records robots/sitemap URLs only after a same-origin 2xx response, avoiding rows
+// for missing lists.
 func (c *crawler) fetchList(abs string) ([]byte, bool) {
 	if len(c.queue)+c.gets >= c.in.pages {
 		return nil, false
@@ -98,8 +95,8 @@ func resolve(base, ref string) (string, bool) {
 	return NormaliseURL(t.String())
 }
 
-// parseRobots returns the paths of a robots.txt's Allow and Disallow lines,
-// each cut at its first wildcard ("*" or "$"), and the URLs of its Sitemap lines.
+// parseRobots reads Sitemap URLs and Allow/Disallow paths, stopping paths before
+// wildcard/end-anchor syntax.
 func parseRobots(body []byte) (paths, sitemaps []string) {
 	sc := bufio.NewScanner(bytes.NewReader(body))
 	for sc.Scan() {
@@ -126,8 +123,7 @@ func parseRobots(body []byte) (paths, sitemaps []string) {
 	return paths, sitemaps
 }
 
-// parseSitemap returns the <loc> values of a sitemap, and whether it is a
-// sitemap index (whose locs are further sitemaps rather than pages).
+// parseSitemap extracts loc values and distinguishes page lists from sitemap indexes.
 func parseSitemap(body []byte) (locs []string, index bool) {
 	d := xml.NewDecoder(bytes.NewReader(body))
 	d.Strict = false

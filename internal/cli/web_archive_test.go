@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// passive runs nyx with third-party sources only.
+// passive runs only third-party stages.
 func (x *web) passive(args ...string) int {
 	x.t.Helper()
 	x.fill()
@@ -22,14 +22,13 @@ func (x *web) mustPassive(args ...string) {
 	}
 }
 
-// partialPassive is passive for a run in which a check failed: exit 7 and a PARTIAL error, which it
-// returns.
+// partialPassive verifies partial output and returns the failed-check error.
 func (x *web) partialPassive(args ...string) failure {
 	x.t.Helper()
 	return x.h.partial(x.passive(args...), true)
 }
 
-// --- Archived URLs ---
+// Archive URL handling
 
 func TestArchive_ArchivedURLsUnderPassive(t *testing.T) {
 	t.Parallel()
@@ -94,8 +93,7 @@ func archiveWorld(t *testing.T) *web {
 	return x
 }
 
-// Archives return some URLs without a scheme; their hosts were always kept,
-// and so are the URLs.
+// Scheme-less archive entries must retain their URLs as well as hostnames.
 func TestArchive_ArchivedURLsWithoutASchemeAreKept(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)

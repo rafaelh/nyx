@@ -4,9 +4,8 @@ import "github.com/rafaelh/nyx/internal/kinds"
 
 var codeMentionColumns = []string{"repository", "path", "url", "hostnames", "root"}
 
-// codeMentionRows lists the code mentions of the in-scope roots. A mention that
-// is no longer current has no attributes, so it has no root to ask the showing
-// rule about: it is listed with only its URL, the key.
+// codeMentionRows lists mentions for in-scope roots. Non-current records have lost root
+// attributes, so only their URL key is listed.
 func codeMentionRows(s Snapshot) []Row {
 	var rows []Row
 	vis := s.vis()

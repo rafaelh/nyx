@@ -1,5 +1,5 @@
-// Package store is the SQLite-backed engagement state: inputs, completed
-// checks, records with per-stage observations and metadata.
+// Package store persists engagement inputs, completed checks, observations and record metadata
+// in SQLite.
 package store
 
 import (
@@ -53,11 +53,11 @@ type Obs struct {
 	Attrs     map[string]any
 }
 
-// Record is a record with its merged attributes.
+// Record combines an entity's metadata with attributes merged from its current observations.
 type Record struct {
 	Kind, Key           string
 	FirstSeen, LastSeen string
-	Current             bool // while at least one completed check still observes it
+	Current             bool // true while a completed check still observes the record
 	Attrs               map[string]any
 	Stages              []string // sorted stages currently observing the record
 }
@@ -71,15 +71,15 @@ type ObsRow struct{ Key, CheckKey string }
 // Input is a stored scope input or exclusion.
 type Input struct{ Kind, Value, AddedAt string }
 
-// op is a check's completion, or a barrier when done is set.
+// op queues a check completion, or a flush barrier when done is set.
 type op struct {
 	stage, check string
 	obs          []Obs
 	done         chan error
 }
 
-// Store is safe for concurrent use. Writes go through a single writer
-// goroutine that commits in batches.
+// Store serialises writes through one goroutine and commits them in batches. Its methods are
+// safe for concurrent use.
 type Store struct {
 	db    *sql.DB
 	clock func() time.Time
@@ -87,33 +87,33 @@ type Store struct {
 
 	ch chan op
 	wg sync.WaitGroup
-	// chMu is read-held across every send on ch and write-held by Close, so ch
-	// is never closed under a sender. The writer never takes it.
+	// chMu keeps Close from closing ch while a sender holds a read lock. The writer never
+	// takes this lock.
 	chMu   sync.RWMutex
 	closed bool       // guarded by chMu
 	mu     sync.Mutex // guards err, onNew, versions
 	err    error
 	onNew  func(kind, key string, attrs map[string]any)
-	// versions counts the committed transactions that changed records of a kind.
+	// versions tracks committed changes per record kind for cache invalidation.
 	versions map[string]uint64
 	once     sync.Once
 	stmts    writeStmts // the writer's statements, prepared once
 
-	// shown is the baseline as the store last read or saved it, when shownKnown (see SaveShown).
+	// shown caches the last baseline read or saved; shownKnown indicates whether the cache
+	// is valid.
 	shownMu    sync.Mutex
 	shown      []ShownRow
 	shownKnown bool
 }
 
-// writeStmts are the statements the writer runs for every observation, prepared once when the
-// store opens so a commit never parses SQL again.
+// writeStmts keeps prepared statements for repeated observation writes, avoiding SQL parsing on
+// every commit.
 type writeStmts struct {
 	insertRecord, touchRecord, upsertObs, checkObs, deleteObs, refresh, complete *sql.Stmt
 }
 
-// writeSQL is the text of each of writeStmts, in field order.
 var writeSQL = []string{
-	// A record is new exactly when this inserts it; one observed now is current.
+	// The insert identifies first sightings; any newly observed record becomes current.
 	"INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1) ON CONFLICT(kind,key) DO NOTHING",
 	"UPDATE records SET last_seen=?, current=1 WHERE kind=? AND key=?",
 	`INSERT INTO observations(kind,key,stage,check_key,attrs,seen) VALUES(?,?,?,?,?,?)
@@ -124,7 +124,6 @@ var writeSQL = []string{
 	"INSERT OR REPLACE INTO checks(stage,key,completed_at) VALUES(?,?,?)",
 }
 
-// prepare prepares the writer's statements on db.
 func (w *writeStmts) prepare(db *sql.DB) error {
 	ptrs := []**sql.Stmt{&w.insertRecord, &w.touchRecord, &w.upsertObs, &w.checkObs, &w.deleteObs, &w.refresh, &w.complete}
 	for i, q := range writeSQL {
@@ -146,7 +145,7 @@ func (w *writeStmts) close() {
 	}
 }
 
-// txStmts are writeStmts bound to one transaction.
+// txStmts binds the prepared writer statements to one transaction.
 type txStmts struct {
 	insertRecord, touchRecord, upsertObs, checkObs, deleteObs, refresh, complete *sql.Stmt
 }
@@ -185,19 +184,17 @@ func Open(path string, o Options) (*Store, error) {
 	return s, nil
 }
 
-// dsn is the database/sql name of the database at path with the query q.
-// SQLite decodes %HH in URI filenames, so escaping keeps ?, # and % in path literal.
+// dsn escapes the database path before adding URI options. Otherwise SQLite would interpret ?,
+// # and percent escapes as URI syntax.
 func dsn(path string, q url.Values) string {
 	return "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + q.Encode()
 }
 
-// ReadOnly is an existing state database opened for reading only. It has no
-// writer, so nothing can be written through it.
+// ReadOnly opens existing state without a writer, so it cannot queue changes.
 type ReadOnly struct {
 	path string
 	db   *sql.DB
-	// stamp is the database file's size and modification time when it was
-	// opened immutable, and nil when it was opened under WAL.
+	// stamp detects changes to an immutable-opened database. WAL connections leave it nil.
 	stamp *fileStamp
 }
 
@@ -206,12 +203,9 @@ type fileStamp struct {
 	mod  time.Time
 }
 
-// OpenReadOnly opens an existing state database for reading: it creates no
-// file and never runs the schema. A database that is not nyx's is an error.
-// While a run holds the database (it has a write-ahead log) the reads see the
-// committed state under WAL. With no log file there is no run, and the
-// database is opened immutable, because a read-only WAL connection would
-// create -wal and -shm files beside it (see View for a run that starts).
+// OpenReadOnly validates an existing nyx database without creating files or running migrations.
+// An existing WAL is read normally. Without a WAL, it uses immutable mode to avoid creating
+// -wal and -shm files; View handles a run starting later.
 func OpenReadOnly(path string) (*ReadOnly, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -238,12 +232,9 @@ func OpenReadOnly(path string) (*ReadOnly, error) {
 	return &ReadOnly{path: path, db: db, stamp: stamp}, nil
 }
 
-// View runs fn with a Reader over a single read transaction, so everything fn
-// reads is one consistent snapshot, whatever a run commits meanwhile. A
-// database opened immutable takes no lock, so a run that starts while fn reads
-// could checkpoint into the file under it: when the file changed or a log
-// appeared, View opens the database again and calls fn again. fn must
-// therefore start afresh on each call.
+// View gives fn a consistent read transaction. An immutable connection cannot lock out a run
+// that starts during reading, so View reopens and retries if the database changed or a WAL
+// appeared. fn must rebuild its result from scratch on every call.
 func (r *ReadOnly) View(fn func(Reader) error) error {
 	for range 3 {
 		err := r.view(fn)
@@ -269,8 +260,7 @@ func (r *ReadOnly) view(fn func(Reader) error) error {
 	return fn(Reader{tx})
 }
 
-// moved reports whether a database opened immutable may have changed since:
-// a run has a log beside it, or the file is not as it was opened.
+// moved detects a new WAL or a file change since immutable open.
 func (r *ReadOnly) moved() bool {
 	if r.stamp == nil {
 		return false
@@ -285,7 +275,7 @@ func (r *ReadOnly) moved() bool {
 // Close closes the database.
 func (r *ReadOnly) Close() error { return r.db.Close() }
 
-// checkDB reports whether db is a nyx state database this version reads.
+// checkDB validates the database's nyx application ID and supported schema version.
 func checkDB(db *sql.DB) error {
 	appID, version, err := dbIDs(db)
 	if err != nil {
@@ -305,8 +295,7 @@ func dbIDs(db *sql.DB) (appID, version int, err error) {
 	return appID, version, nil
 }
 
-// checkIDs reports whether an application id and schema version are those of
-// a nyx state database this version reads.
+// checkIDs validates the application ID and schema version this binary can read.
 func checkIDs(appID, version int) error {
 	switch {
 	case appID != applicationID:
@@ -355,15 +344,14 @@ func initDB(db *sql.DB) error {
 
 func (s *Store) today() string { return s.clock().UTC().Format(time.DateOnly) }
 
-// OnNew registers a callback invoked (from the writer goroutine, after commit)
-// for each record seen for the first time.
+// OnNew registers a writer-goroutine callback for first sightings, called after commit.
 func (s *Store) OnNew(fn func(kind, key string, attrs map[string]any)) {
 	s.mu.Lock()
 	s.onNew = fn
 	s.mu.Unlock()
 }
 
-// send queues o unless the store is closed, and reports whether it did.
+// send queues an operation unless the store has closed.
 func (s *Store) send(o op) bool {
 	s.chMu.RLock()
 	defer s.chMu.RUnlock()
@@ -374,8 +362,8 @@ func (s *Store) send(o op) bool {
 	return true
 }
 
-// CheckKey is the form in which a check key is stored (redacted). Compare
-// keys from Completed, and pass keys to FinishRedo, in this form.
+// CheckKey redacts a key into its stored form. Use this form when comparing Completed results
+// or passing valid keys to FinishRedo.
 func (s *Store) CheckKey(check string) string { return s.red.Redact(check) }
 
 // Complete queues the completion of a check with its observations.
@@ -443,10 +431,8 @@ func (s *Store) writer() {
 	}
 }
 
-// commit commits the batch, calls the new-record callback and then releases
-// the batch's barriers. A panic in the commit or the callback is the store's
-// sticky error, so the barriers are still released and Flush returns it
-// instead of waiting for ever.
+// commit saves the batch, announces new records and releases flush barriers. Panics become a
+// persistent store error and still release barriers so Flush cannot hang.
 func (s *Store) commit(batch []op) {
 	defer func() {
 		if v := recover(); v != nil {
@@ -473,9 +459,8 @@ func (s *Store) commit(batch []op) {
 	}
 }
 
-// KindVersion changes whenever a committed write adds, updates or drops an
-// observation of kind, so a caller can cache what it derives from the kind's
-// records. Call it after Flush to see the writes made so far.
+// KindVersion invalidates cached data whenever a committed write changes the kind's
+// observations. Flush first to include all queued writes.
 func (s *Store) KindVersion(kind string) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -535,9 +520,9 @@ func (s *Store) commitOps(batch []op) []Obs {
 	return news
 }
 
-// applyComplete adds the kind of every record it touches to kinds.
+// applyComplete records the kinds touched by a check completion for version updates.
 func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]bool) ([]Obs, error) {
-	// Later observations of the same record in one check win.
+	// For duplicate observations within a check, the last value wins.
 	type rk struct{ kind, key string }
 	seen := map[rk]Obs{}
 	var order []rk
@@ -561,7 +546,6 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		if err != nil {
 			return nil, fmt.Errorf("observation %s/%s attrs: %w", k.kind, k.key, err)
 		}
-		// The record holds an observation once this commits, so it is current.
 		res, err := st.insertRecord.Exec(k.kind, k.key, today, today)
 		if err != nil {
 			return nil, err
@@ -578,8 +562,8 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 		}
 		kinds[k.kind] = true
 	}
-	// Drop this check's observations that it no longer produces, and refresh the records that
-	// lost one: another check may still observe them.
+	// Remove observations this check no longer produces. Refresh affected records because
+	// other checks may still support them.
 	rows, err := st.checkObs.Query(o.stage, o.check)
 	stored, err := scanAll(rows, err, func(r *sql.Rows) (k rk, err error) {
 		err = r.Scan(&k.kind, &k.key)
@@ -604,7 +588,7 @@ func (s *Store) applyComplete(st txStmts, o op, today string, kinds map[string]b
 	return news, err
 }
 
-// refreshSQL sets a record current exactly when an observation of it is stored.
+// refreshSQL marks a record current while it has any stored observation.
 const refreshSQL = `UPDATE records SET current = EXISTS(SELECT 1 FROM observations o WHERE o.kind=records.kind AND o.key=records.key)
 		WHERE kind=? AND key=?`
 
@@ -613,7 +597,7 @@ func refreshCurrent(tx *sql.Tx, kind, key string) error {
 	return err
 }
 
-// Completed returns the keys of the completed checks of a stage, as CheckKey stores them.
+// Completed returns a stage's completed keys in their stored CheckKey form.
 func (s *Store) Completed(stage string) (map[string]struct{}, error) {
 	keys, err := queryAll(s.db, scanString, "SELECT key FROM checks WHERE stage=?", stage)
 	out := make(map[string]struct{}, len(keys))
@@ -623,18 +607,18 @@ func (s *Store) Completed(stage string) (map[string]struct{}, error) {
 	return out, err
 }
 
-// querier is what a Reader reads through: the database or one transaction of it.
+// querier lets readers use either a database connection or a transaction.
 type querier interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 }
 
-// queryAll runs query through q and returns its rows, each read by scan.
+// queryAll executes a query and decodes each row with scan.
 func queryAll[T any](q querier, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
 	rows, err := q.Query(query, args...)
 	return scanAll(rows, err, scan)
 }
 
-// scanAll reads the rows of a query that returned rows and err, each read by scan.
+// scanAll handles a query result and decodes each row with scan.
 func scanAll[T any](rows *sql.Rows, err error, scan func(*sql.Rows) (T, error)) ([]T, error) {
 	if err != nil {
 		return nil, err
@@ -651,25 +635,22 @@ func scanAll[T any](rows *sql.Rows, err error, scan func(*sql.Rows) (T, error)) 
 	return out, rows.Err()
 }
 
-// scanString reads a row of one string column.
 func scanString(r *sql.Rows) (s string, err error) {
 	err = r.Scan(&s)
 	return s, err
 }
 
-// Reader reads the records, inputs and observations of one view of the
-// database: all of the store's committed state at the time of each call
-// (Store.Records and the others), or the one snapshot of a ReadOnly.View.
+// Reader exposes committed records, inputs and observations. Store readers see committed state
+// at each call; ReadOnly.View readers share one transaction snapshot.
 type Reader struct{ q querier }
 
-// Records returns every record of a kind (current or not). Attrs merge the
-// current observations with stages later in order winning per field; stages
-// not in order sort first.
+// Records includes current and non-current records. Current observations merge field by field
+// in stage order, with later stages winning. Unlisted stages sort first.
 func (s *Store) Records(kind string, order []string) ([]Record, error) {
 	return Reader{s.db}.Records(kind, order)
 }
 
-// Records returns every record of a kind (current or not); see Store.Records.
+// Records reads all records of a kind using this reader's snapshot; see Store.Records.
 func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 	rank := map[string]int{}
 	for i, st := range order {
@@ -738,11 +719,9 @@ func (rd Reader) Observations(kind, stage string) ([]ObsRow, error) {
 // Observer is a completed check that observes a record.
 type Observer struct{ Stage, CheckKey string }
 
-// Observers lists, per record key, the completed checks that observe a record
-// of the kind now, by stage and then check key. An observation whose check is
-// not completed (a redo has forgotten it, and its stale observation awaits the
-// check running again) does not count: the support is what a check found, not
-// what an earlier run left behind.
+// Observers lists completed supporting checks by record key, ordered by stage and check key.
+// Redo removes completion markers before replacing old observations, so those stale
+// observations do not count as current support.
 func (s *Store) Observers(kind string) (map[string][]Observer, error) {
 	type row struct {
 		key string
@@ -798,9 +777,9 @@ func (rd Reader) Inputs() ([]Input, error) {
 	}, "SELECT kind,value,added_at FROM inputs ORDER BY kind,value")
 }
 
-// Redo forgets every completed check of a stage and marks the redo as pending.
-// The records its observations belong to keep them until the checks run again,
-// but they no longer count in Observers, so the version of each such kind moves.
+// Redo removes a stage's completion markers and marks it for a sweep. Old observations remain
+// until checks rerun, but no longer count in Observers. Affected kind versions change to
+// invalidate support caches.
 func (s *Store) Redo(stage string) error {
 	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
 		if _, err := tx.Exec("DELETE FROM checks WHERE stage=?", stage); err != nil {
@@ -819,8 +798,8 @@ func (s *Store) Redo(stage string) error {
 	})
 }
 
-// update flushes the queued writes, runs fn in a transaction and, once it
-// commits, bumps the version of every kind fn reports changing.
+// update flushes queued work before running fn in a transaction. After commit it increments
+// versions for the kinds fn changed.
 func (s *Store) update(fn func(*sql.Tx) (map[string]bool, error)) error {
 	if err := s.Flush(); err != nil {
 		return err
@@ -850,10 +829,9 @@ func (s *Store) PendingRedo() ([]string, error) {
 	return keys, err
 }
 
-// FinishRedo sweeps the stage's observations whose check is no longer
-// produced (valid holds the CheckKey form of the keys it still produces) and
-// clears the marker. valid must be the stage's complete set of checks. It
-// reports whether the sweep changed any record.
+// FinishRedo removes observations for checks absent from valid and clears the pending-redo
+// marker. valid needs every current check key in stored CheckKey form. The result reports
+// whether records changed.
 func (s *Store) FinishRedo(stage string, valid map[string]struct{}) (changed bool, err error) {
 	err = s.update(func(tx *sql.Tx) (map[string]bool, error) {
 		kinds, err := sweepObservations(tx, stage, valid)
@@ -867,11 +845,9 @@ func (s *Store) FinishRedo(stage string, valid map[string]struct{}) (changed boo
 	return changed && err == nil, err
 }
 
-// Retire forgets the completed checks of a stage that are not in valid (the
-// CheckKey form of every check the stage yields now), with their observations. Evidence from a superseded check, one whose key carries a hash
-// of an entry that has since changed, so stops being current, and a check
-// yielded again later is run again. valid must be the stage's complete set of
-// checks. It reports whether the sweep changed any record.
+// Retire removes obsolete completed checks and their observations. This makes superseded
+// evidence non-current and allows a removed check to run if it reappears. valid needs every
+// current key in CheckKey form. The result reports whether records changed.
 func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, err error) {
 	err = s.update(func(tx *sql.Tx) (map[string]bool, error) {
 		kinds, err := sweepObservations(tx, stage, valid)
@@ -887,7 +863,6 @@ func (s *Store) Retire(stage string, valid map[string]struct{}) (changed bool, e
 	return changed && err == nil, err
 }
 
-// retireChecks deletes the stage's completed checks whose key is not in valid.
 func retireChecks(tx *sql.Tx, stage string, valid map[string]struct{}) error {
 	keys, err := queryAll(tx, scanString, "SELECT key FROM checks WHERE stage=?", stage)
 	if err != nil {
@@ -904,8 +879,8 @@ func retireChecks(tx *sql.Tx, stage string, valid map[string]struct{}) error {
 	return nil
 }
 
-// sweepObservations deletes the stage's observations whose check is not in
-// valid, refreshes the records they belonged to and returns their kinds.
+// sweepObservations removes obsolete observations, refreshes affected records and returns their
+// kinds.
 func sweepObservations(tx *sql.Tx, stage string, valid map[string]struct{}) (map[string]bool, error) {
 	type obsKey struct{ kind, key, check string }
 	all, err := queryAll(tx, func(r *sql.Rows) (o obsKey, err error) {
@@ -931,40 +906,34 @@ func sweepObservations(tx *sql.Tx, stage string, valid map[string]struct{}) (map
 	return kinds, nil
 }
 
-// shownSchema is the table of the baseline a run compares against (see
-// SaveShown). It is created when missing, so an engagement an earlier nyx wrote
-// gains it when it is opened.
+// shownSchema stores the output baseline. Opening an older engagement creates this table if
+// needed.
 const shownSchema = `CREATE TABLE IF NOT EXISTS shown(kind TEXT NOT NULL, key TEXT NOT NULL, stages TEXT NOT NULL,
                   scope TEXT NOT NULL, severity TEXT NOT NULL, PRIMARY KEY(kind, key))`
 
-// shownMeta is the meta key that says a baseline was saved (its value is the day).
-// A table with no rows is a baseline of nothing shown only while it is set.
+// shownMeta records the date a baseline was saved, distinguishing an empty baseline from no
+// baseline at all.
 const shownMeta = "shown_saved"
 
-// ShownRow is one entry of the baseline a run compares against: something the
-// output files showed at the last render, under the label (Kind) and Key the
-// changes file lists it by, with the stages that observed it and the Scope and
-// Severity it had, which the store cannot give back once a record is no longer
-// current.
+// ShownRow preserves one previously visible output entry. Kind and Key identify its changes.csv
+// row; stages, scope and severity retain details that non-current records may lose.
 type ShownRow struct {
 	Kind, Key       string
 	Stages          []string
 	Scope, Severity string
 }
 
-// Equal reports whether two rows hold the same values.
 func (r ShownRow) Equal(o ShownRow) bool {
 	return r.Kind == o.Kind && r.Key == o.Key && r.Scope == o.Scope && r.Severity == o.Severity && slices.Equal(r.Stages, o.Stages)
 }
 
-// SaveShown replaces the baseline with rows, in one transaction. Once the store has read the
-// baseline (Shown) or saved one, it writes only the rows that differ from that one; rows must not
-// be modified after the call.
+// SaveShown atomically replaces the baseline. Once a baseline is cached by reading or saving
+// it, only changed rows are written. Treat rows as immutable after the call.
 func (s *Store) SaveShown(rows []ShownRow) error {
 	s.shownMu.Lock()
 	defer s.shownMu.Unlock()
 	err := s.update(func(tx *sql.Tx) (map[string]bool, error) {
-		var old map[shownKey]ShownRow // nil: the stored rows are not known, so all are replaced
+		var old map[shownKey]ShownRow // unknown baseline: replace all rows
 		if s.shownKnown {
 			old = make(map[shownKey]ShownRow, len(s.shown))
 			for _, r := range s.shown {
@@ -980,7 +949,7 @@ func (s *Store) SaveShown(rows []ShownRow) error {
 		return nil, err
 	})
 	if err != nil {
-		s.shown, s.shownKnown = nil, false // the next save rewrites the table
+		s.shown, s.shownKnown = nil, false // force a full rewrite on the next save
 		return err
 	}
 	s.shown, s.shownKnown = rows, true
@@ -989,8 +958,7 @@ func (s *Store) SaveShown(rows []ShownRow) error {
 
 type shownKey struct{ kind, key string }
 
-// writeShown makes the shown table, which holds old, hold rows: it writes each row that is new or
-// differs from old's, and deletes old's rows that rows lacks.
+// writeShown inserts or updates changed rows and removes rows absent from the new baseline.
 func writeShown(tx *sql.Tx, old map[shownKey]ShownRow, rows []ShownRow) error {
 	ins, err := tx.Prepare("INSERT OR REPLACE INTO shown(kind,key,stages,scope,severity) VALUES(?,?,?,?,?)")
 	if err != nil {
@@ -1025,9 +993,8 @@ func writeShown(tx *sql.Tx, old map[shownKey]ShownRow, rows []ShownRow) error {
 	return nil
 }
 
-// Shown returns the baseline, ordered by kind then key, and whether one was ever
-// saved: an engagement last written by a nyx that kept none has no baseline,
-// which is not the same as a baseline of nothing shown.
+// Shown returns the baseline sorted by kind and key, plus whether one has ever been saved. An
+// empty saved baseline differs from an older engagement with no baseline.
 func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 	var day string
 	switch err := s.db.QueryRow("SELECT value FROM meta WHERE key=?", shownMeta).Scan(&day); {
@@ -1047,16 +1014,14 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
-	// A copy, so a caller that changes the rows it was given cannot change what SaveShown
-	// compares with.
+	// Copy rows so callers cannot change the cached baseline used by SaveShown.
 	s.shownMu.Lock()
 	s.shown, s.shownKnown = slices.Clone(rows), true
 	s.shownMu.Unlock()
 	return rows, true, nil
 }
 
-// HasRecords reports whether the store holds a record of any kind, current or
-// not: an engagement with none has not been run.
+// HasRecords includes non-current records. A store without any records has never run.
 func (s *Store) HasRecords() (bool, error) {
 	var one int
 	err := s.db.QueryRow("SELECT 1 FROM records LIMIT 1").Scan(&one)

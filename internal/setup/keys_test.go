@@ -92,7 +92,7 @@ func TestKeysTab_EnterReplaceAndClearAKey(t *testing.T) {
 	b.snap.Keys["shodan"] = KeyState{Value: config.Secret("oldkey-oldkey-1234")}
 	h := newTH(t, b)
 	h.goTo(0, 1)
-	// Replace with a key that has surrounding spaces: it is stored trimmed.
+	// Trim replacement-key whitespace before storage.
 	h.press("enter")
 	h.typ("  newkey value 5678  ")
 	h.press("enter")
@@ -101,7 +101,7 @@ func TestKeysTab_EnterReplaceAndClearAKey(t *testing.T) {
 	if len(b.saves) != 1 || b.save(t, 0).Set["keys.shodan"] != "newkey value 5678" || len(b.save(t, 0).Clear) != 0 {
 		t.Fatalf("saved %+v", b.saves)
 	}
-	// Clear it with x.
+	// Clear the selected credential.
 	h.press("x")
 	mustHave(t, lineFor(h.view(), "shodan"), "not set")
 	h.press("ctrl+s")
@@ -155,7 +155,7 @@ func TestKeysTab_KeyHeldInRowWithCaseVariantsIsInvalidUntilEdited(t *testing.T) 
 		t.Fatal("saved while a row was invalid")
 	}
 	h.goTo(0, 1)
-	h.press("enter", "enter") // an empty entry clears it
+	h.press("enter", "enter") // empty accepted text removes the key
 	mustNotHave(t, h.view(), "set twice")
 	h.press("ctrl+s")
 	if len(b.saves) != 1 {

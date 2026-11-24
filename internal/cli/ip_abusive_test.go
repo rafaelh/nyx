@@ -10,10 +10,8 @@ import (
 	"github.com/rafaelh/nyx/internal/abusive"
 )
 
-// nyx ip's abusive_networks and abusive_asn keys: the entries of ipapi.is's two lists that hold the
-// address or its origin AS, from the copy built into nyx (the test's own here, the harness's abusive,
-// which Deps.ThreatBuiltIn carries, since the addresses of the tests are not on the real lists).
-// Nothing is requested for the lists.
+// Abuse-field tests supply fixed local snapshots because real lists do not contain fixture
+// addresses. Matching sends no requests.
 
 const ipAbusiveAddr = "93.184.216.34"
 
@@ -27,8 +25,8 @@ func ipAbusiveSnapshot() *abusive.Snapshot {
 
 var ipDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
-// The record carries every network entry that holds the address, the most specific first, and the
-// entry of its origin AS; numbers are numbers and the rest strings.
+// Return every containing network, most specific first, with the origin-AS match and correct
+// JSON types.
 func TestIPAbusive_TheRecordCarriesTheMatches(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -80,8 +78,8 @@ func TestIPAbusive_TheRecordCarriesTheMatches(t *testing.T) {
 	}
 }
 
-// Addresses and ASes the lists do not hold give empty lists; so does an address Team Cymru knows no
-// owner of, and its ASN key is null.
+// Unmatched networks/ASNs return empty lists; missing AS ownership leaves its scalar ASN field
+// null.
 func TestIPAbusive_NothingListedGivesEmptyLists(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -118,9 +116,8 @@ func TestIPAbusive_OnlyTheFirstOriginASIsChecked(t *testing.T) {
 	}
 }
 
-// When Team Cymru fails, the network matches still come out, the ASN match is null, the failure is
-// listed and the call ends partial (exit 7). The snapshot is a source that always answers, so the
-// record is kept even when Team Cymru is the only source asked.
+// Local network evidence preserves a partial record when Cymru fails, leaving ASN matches
+// unknown.
 func TestIPAbusive_TeamCymruFailing(t *testing.T) { // mutation target
 	t.Parallel()
 	for _, tc := range []struct {
@@ -183,8 +180,8 @@ func TestIPAbusive_NonPublicAddressHasNullKeys(t *testing.T) {
 	w.untouched()
 }
 
-// Each key can be picked alone. The network matches need nothing beyond resolving a hostname; the ASN
-// match asks Team Cymru; failures stays last.
+// Network selection needs no source; ASN selection needs Cymru. failures remains the last
+// field.
 func TestIPAbusive_FieldsPickTheKeysAlone(t *testing.T) {
 	t.Parallel()
 	t.Run("networks for an address", func(t *testing.T) {
@@ -339,8 +336,7 @@ func TestIPAbusive_HumanLayout(t *testing.T) {
 	}
 }
 
-// A match is information only: --active contacts exactly the addresses and ports it would without the
-// lists, and says the same of why it did not contact one.
+// Threat-list matches do not change active contact decisions or skipped-contact reasons.
 func TestIPAbusive_ActiveIsNotChangedByAMatch(t *testing.T) { // mutation target
 	t.Parallel()
 	type result struct {
@@ -414,9 +410,8 @@ func TestAbusive_ReconAndIPAgree(t *testing.T) {
 	}
 }
 
-// While abusive_networks is selected, as it is by default, the snapshot is a source that always
-// answers: an address whose every other source failed still has its record, with the network
-// matches and nulls, and the call is partial (exit 7) and not a failed input.
+// Selected local evidence keeps a record even when every network source fails, yielding a
+// partial outcome.
 func TestIPAbusive_EverySourceFailingStillHasARecord(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"

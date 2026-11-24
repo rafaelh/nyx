@@ -22,8 +22,7 @@ func TestTrustValuesMatchEgress(t *testing.T) {
 	}
 }
 
-// TLSTrust is the stored tls_trust, or the same value worked out from the
-// tls_error text and tls_self_signed of a record stored before it existed.
+// Older TLS records infer the same trust values from legacy error/self-signed attributes.
 func TestTLSTrust(t *testing.T) {
 	t.Parallel()
 	yes, no := true, false

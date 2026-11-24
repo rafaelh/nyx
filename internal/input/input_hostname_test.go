@@ -12,30 +12,30 @@ func TestParseHostname(t *testing.T) {
 	for _, tc := range []struct {
 		in          string
 		singleLabel bool
-		want        string // "" means an error
+		want        string // empty expectation denotes rejection
 	}{
 		{"www.example.com", false, "www.example.com"},
 		{"  WWW.Example.COM. ", false, "www.example.com"},
 		{"münchen.example", false, "xn--mnchen-3ya.example"},
 		{"a-b.example", false, "a-b.example"},
-		// Public suffixes are hostnames here, though ParseDomain refuses them.
+		// Lookup hostnames allow public suffixes even though scope domains reject them.
 		{"co.uk", false, "co.uk"},
 		{"example.com", false, "example.com"},
 		{"github.io", false, "github.io"},
-		// A single label needs the option.
+		// Single-label names require explicit allowance.
 		{"intranet", false, ""},
 		{"intranet", true, "intranet"},
 		{"Intranet.", true, "intranet"},
 		{"com", true, "com"},
 		{"com", false, ""},
-		// All digits and dots is an address or a typo, never a name.
+		// Reject digit/dot-only values as probable address typos.
 		{"123", true, ""},
 		{"1.2.3", false, ""},
 		{"1.2.3.4", false, ""},
 		{"1.2.3.4.5", false, ""},
 		{"1..2", false, ""},
 		{"123.abc", false, "123.abc"},
-		// Address literals, junk and bad labels.
+		// Cover address literals and malformed labels.
 		{"::1", true, ""},
 		{"2001:db8::1", false, ""},
 		{"", false, ""},
@@ -65,8 +65,7 @@ func TestParseHostname(t *testing.T) {
 	}
 }
 
-// The hostname form and the domain form share their checks: whatever ParseDomain accepts, the
-// hostname form accepts and normalises the same way.
+// Hostname/domain parsing shares normalisation for every accepted domain.
 func TestParseHostname_AgreesWithParseDomain(t *testing.T) {
 	t.Parallel()
 	for _, s := range []string{"example.com", "WWW.Example.com.", "münchen.example", "a.b.c.example.org", "xn--mnchen-3ya.example"} {
@@ -94,7 +93,7 @@ func TestBareHost(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		in   string
-		want string // "" means not recognised
+		want string // empty expectation denotes no recognised wrapper
 	}{
 		{"https://example.com", "example.com"},
 		{"https://example.com/", "example.com"},
@@ -111,12 +110,12 @@ func TestBareHost(t *testing.T) {
 		{"[2001:db8::1]:443", "2001:db8::1"},
 		{"[::1]:80", "::1"},
 		{"intranet:8080", "intranet"},
-		// Not a URL or a host with a port.
+		// Bare names/addresses have no wrapper to remove.
 		{"example.com", ""},
 		{"1.2.3.4", ""},
 		{"2001:db8::1", ""},
 		{"::1", ""},
-		{"2001:db8::1:80", ""}, // a bare IPv6 address, not host:port
+		{"2001:db8::1:80", ""}, // IPv6 literal without a port wrapper
 		{"10.0.0.0/8", ""},
 		{"example.com/path", ""},
 		{"example.com:", ""},

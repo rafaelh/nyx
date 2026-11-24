@@ -50,8 +50,7 @@ func TestCheck_AgreesWithLoad(t *testing.T) {
 	}
 }
 
-// Check, like Load, reads no setting or key from the env it is given: what the file says is what
-// it returns.
+// Check returns file settings independently of supplied environment values.
 func TestCheck_IgnoresSettingVariables(t *testing.T) {
 	t.Parallel()
 	s, err := config.Check([]byte("concurrency: 2\n"), "c.yaml", config.Env{"NYX_CONCURRENCY=3", "NYX_KEYS_SHODAN=envkey", "NVD_API_KEY=n"})

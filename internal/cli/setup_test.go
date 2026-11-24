@@ -15,7 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 )
 
-// The keys a script sends to the terminal. Each is what the terminal sends for one key press.
+// Script key chunks use real terminal key sequences.
 const (
 	keyDown  = "\x1b[B"
 	keyEnter = "\r"
@@ -25,8 +25,7 @@ const (
 	keyTab   = "\t"
 )
 
-// setupHarness is a harness whose stdin and stdout are a terminal of 100 by 30 cells, and whose
-// stdin is the keys the script sends.
+// setupHarness provides a 100×30 terminal and scripted key input.
 func setupHarness(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
@@ -42,8 +41,7 @@ func (h *harness) setup(args []string, keys ...string) int {
 	return h.execRootTimeout(append([]string{"setup"}, args...)...)
 }
 
-// execRootTimeout is execRoot, except that a call that never ends fails the test after a while
-// instead of hanging it: the interrupt it is ended with is what the test then sees.
+// execRootTimeout bounds hung UI tests, returning the injected interruption for assertions.
 func (h *harness) execRootTimeout(args ...string) int {
 	h.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -55,7 +53,7 @@ func (h *harness) execRootTimeout(args ...string) int {
 	return code
 }
 
-// loaded is the config at path as nyx recon reads it, with nothing from the environment.
+// loaded reads config through recon's loader with no environment settings.
 func loaded(t *testing.T, path string) config.Settings {
 	t.Helper()
 	s, err := config.Load(nil, path, config.Env{"HOME=" + t.TempDir()})
@@ -140,8 +138,7 @@ func TestSetup_NoPathExitsTwo(t *testing.T) {
 	}
 }
 
-// Without a terminal on stdin or stdout exit 2 is INVALID_INPUT, naming the file and saying to edit
-// it by hand, as the usual JSON error under --json. The file is not created.
+// Non-terminal setup fails before creating config and suggests editing the file manually.
 func TestSetup_NoTerminalExitsTwo(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -186,8 +183,8 @@ func TestSetup_ExitsTwoInOrder(t *testing.T) {
 	}
 }
 
-// A file that cannot be read or parsed, or holds an unknown key, exits 2 with every problem recon
-// reports for the file and the file's full path, before the UI opens. The environment is not read.
+// Report unreadable/invalid/unknown-key files before taking over the terminal, using recon's
+// validation problems.
 func TestSetup_FileProblemsExitTwo(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -232,9 +229,7 @@ func TestSetup_FileProblemsExitTwo(t *testing.T) {
 	}
 }
 
-// With nothing to change, setup writes nothing, exits 0 and leaves the terminal as it found it;
-// a missing file is not created. NYX_* variables and NVD_API_KEY are not read: they neither show
-// nor stop it.
+// An unchanged editor neither creates files nor reads key/settings environment variables.
 func TestSetup_QuitWithNoChangeWritesNothing(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, body string }{{"missing", ""}, {"existing", "concurrency: 7\n"}} {
@@ -282,8 +277,7 @@ func assertNoKeyBeyondItsEnd(t *testing.T, h *harness, key string) {
 	}
 }
 
-// Through the real Program: a key is entered, saved and quit. The file holds the key trimmed,
-// recon reads it, and nothing of it but its last four characters reaches the screen or stderr.
+// End-to-end editing saves a trimmed usable key while showing only its final four characters.
 func TestSetup_EditSaveAndQuit(t *testing.T) {
 	t.Parallel()
 	for _, debug := range []bool{false, true} {
@@ -318,8 +312,7 @@ func TestSetup_EditSaveAndQuit(t *testing.T) {
 	}
 }
 
-// A key entered and saved without a test is shown and recorded as not tested, dated by the clock,
-// and the record does not stop nyx recon reading the file.
+// Untested saved keys get dated records without preventing config use by recon.
 func TestSetup_EnteredKeyIsRecordedAsNotTested(t *testing.T) {
 	t.Parallel()
 	h := setupHarness(t)
@@ -355,8 +348,8 @@ func TestSetup_DiscardLeavesTheFile(t *testing.T) {
 	}
 }
 
-// A save keeps everything else in the file, and a later nyx cve with no NVD_API_KEY sends the nvd
-// key setup saved, exactly as typed.
+// Editing preserves unrelated config and makes saved NVD credentials available to later CVE
+// calls.
 func TestSetup_SavedNVDKeyIsUsedByCVE(t *testing.T) {
 	t.Parallel()
 	h := setupHarness(t)
@@ -414,8 +407,8 @@ var (
 	sigHup  os.Signal = syscall.SIGHUP
 )
 
-// sequence is a terminal input that hands each chunk of key presses over on its own read and runs
-// the hook of a chunk before it does, so that something can change between two key presses.
+// sequence separates keypress chunks and runs hooks before each read to simulate external
+// changes between frames.
 type sequence struct {
 	chunks []string
 	before map[int]func()
@@ -426,8 +419,8 @@ func (s *sequence) Read(p []byte) (int, error) {
 	if s.next >= len(s.chunks) {
 		return 0, io.EOF
 	}
-	// The editor draws about every 17 ms, so each chunk gets its own frame; a lone escape is given
-	// time to be told from the start of a longer sequence before the next chunk follows it.
+	// Pace chunks to separate Bubble Tea frames and allow lone Escape to resolve before the
+	// next sequence.
 	if s.next > 0 {
 		pause := 40 * time.Millisecond
 		if s.chunks[s.next-1] == keyEsc {
@@ -443,8 +436,7 @@ func (s *sequence) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// An edit while the file changed on disk does not write until the user chooses: reload drops the
-// edits, overwrite writes them over what is there now, and going back writes nothing.
+// External edits require an explicit reload/overwrite/back choice before saving.
 func TestSetup_ChangedFileAsksBeforeWriting(t *testing.T) {
 	t.Parallel()
 	const key = "changed-file-key-0123456789"
@@ -529,8 +521,7 @@ func TestSetup_InvalidValueBlocksSaving(t *testing.T) {
 	}
 }
 
-// Keys never reach the screen, stderr or an error, even when the editor panics: the failure is
-// UNEXPECTED_ERROR with the terminal given back, and --debug adds a stack with no key in it.
+// Editor panics restore the terminal and redact all keys, including debug stacks.
 func TestSetup_PanicLeaksNoKey(t *testing.T) {
 	t.Parallel()
 	const fileKey, typedKey1 = "file-key-ABCDEFGHIJKLMNOP-1234", "typed-key-ZYXWVUTSRQPONM-9876"

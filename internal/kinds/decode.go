@@ -8,13 +8,10 @@ import (
 	"sync"
 )
 
-// decode sets the fields of *dst from attrs, the map the store returns (JSON
-// numbers as float64, lists as []any), as json.Unmarshal of the stored JSON
-// would, except that a pointer field whose stored value has the wrong type
-// stays nil (unknown) where JSON would point it at a zero value.
-// Records are read on every pass, often by the thousand, so a struct
-// whose fields are all of the simple types below is filled directly; any
-// other destination goes through JSON, which is about ten times slower.
+// decode fills dst from stored attributes, including JSON-style float64 numbers and []any
+// lists. Wrongly typed pointer values remain nil to preserve "unknown". Common structs use a
+// cached direct decoder because records are read by the thousand on every pass; other types
+// fall back to JSON.
 func decode(attrs map[string]any, dst any) {
 	v := reflect.ValueOf(dst).Elem()
 	if p := planFor(v.Type()); p != nil {
@@ -49,8 +46,7 @@ func planFor(t reflect.Type) []field {
 
 var sizeType = reflect.TypeFor[Size]()
 
-// buildPlan returns the fields of t, or nil if t is not a struct of fields
-// decode can set directly.
+// buildPlan selects directly decodable fields, returning nil for unsupported struct layouts.
 func buildPlan(t reflect.Type) []field {
 	if t.Kind() != reflect.Struct {
 		return nil

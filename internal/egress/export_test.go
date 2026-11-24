@@ -1,6 +1,6 @@
 package egress
 
-// Exported for the external tests.
+// Expose the private classifier to external-package tests.
 var (
 	ClassifyDial  = classifyDial
 	UDPRoute      = udpRoute

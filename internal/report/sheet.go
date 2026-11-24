@@ -11,15 +11,9 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// Sheet writes the palette sheet: every entry of every table of the palette,
-// then one sample log line per level and one two-line message, all through the
-// formatter a run uses, so a new terminal or theme can be checked by eye. The
-// log lines carry the time now, as it is to be shown.
-//
-// On a terminal the sheet also shows the layout: a heading, a sample findings table, a CVE header
-// bar for each severity and for a missing and an unknown one, a stage line for each state, two
-// found lines and a log line longer than the layout width. Its category and group headings take
-// the heading style there. Elsewhere it is the sheet without these.
+// Sheet previews palette entries and real log formatting for checking terminal themes. It uses
+// now for sample timestamps. On terminals it also includes headings, tables, CVE bars, stage
+// states, found events and an over-width message to exercise wrapping.
 func Sheet(w io.Writer, s layout.Stream, now time.Time) {
 	if s.Terminal {
 		s = s.Fixed() // so the whole sheet has one width
@@ -63,7 +57,7 @@ const sampleLong = "a log line whose message is longer than the layout width, so
 	"continuation line starts under the message column instead of under the timestamp, with the " +
 	"words kept whole and a host such as www.example.com never broken"
 
-// writeLayoutSamples writes what the layout adds to the sheet on a terminal.
+// writeLayoutSamples previews terminal-specific formatting.
 func writeLayoutSamples(b *strings.Builder, s layout.Stream, now time.Time) {
 	b.WriteString(findingsTableText(s, []FindingRow{
 		{Severity: "high", Category: "exposed-admin", Target: "https://app.example.com/admin", Detail: new("a login page with no rate limit")},

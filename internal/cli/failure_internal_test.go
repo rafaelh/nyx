@@ -9,9 +9,8 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// A partial result from several targets adds one error line per failed target
-// in human mode, after the hint and the retry line; the JSON error keeps its
-// five keys.
+// Human partial errors list failed targets after retry guidance; JSON keeps the fixed error
+// shape.
 func TestFailureWriter_TargetLines(t *testing.T) {
 	t.Parallel()
 	e := &clierr.Error{Code: clierr.Partial, Message: "2 of 3 lookups failed", Hint: "run the same command again for the failed ones",
@@ -34,8 +33,7 @@ func TestFailureWriter_TargetLines(t *testing.T) {
 	}
 }
 
-// The error is written once, however many times it is asked for, and a key is
-// masked by the redactor the writer holds when it writes.
+// Error writing is idempotent and uses the latest redactor when output actually occurs.
 func TestFailureWriter_OnceAndRedacted(t *testing.T) {
 	t.Parallel()
 	var b bytes.Buffer

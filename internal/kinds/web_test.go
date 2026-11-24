@@ -7,8 +7,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// web_service and url name the attribute holding their host so
-// the summary and the CSVs filter them identically; http_port is internal.
+// Web record host attributes share filtering across summaries/CSV; protocol evidence stays
+// internal.
 func TestWebKinds(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"web_service", "url"} {
@@ -35,8 +35,7 @@ func TestWebKinds(t *testing.T) {
 	}
 }
 
-// web_identifier is shown while its service's host is in scope, and is internal:
-// never counted or printed.
+// Web identifiers obey host visibility without counts/events.
 func TestWebIdentifierKind(t *testing.T) {
 	t.Parallel()
 	k, ok := kinds.Get("web_identifier")

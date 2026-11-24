@@ -11,7 +11,7 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// rootWith is the tree with one more command, as a later command adds itself.
+// rootWith simulates registering a new command.
 func rootWith(t *testing.T) *cobra.Command {
 	t.Helper()
 	inv := newInvocation(withDefaults(Deps{Stages: nil}), nil)
@@ -31,9 +31,8 @@ func rootWith(t *testing.T) *cobra.Command {
 	return root
 }
 
-// A command added to the tree is in the root help, with its example, its
-// flags and the values of its fixed-set flags, and the pre-scan knows it,
-// with no second list of commands to keep in step.
+// Command-tree additions automatically appear in help and pre-scan classification without a
+// parallel registry.
 func TestRootHelp_CommandAddedLater(t *testing.T) {
 	t.Parallel()
 	root := rootWith(t)
@@ -66,8 +65,8 @@ func TestRootHelp_CommandAddedLater(t *testing.T) {
 	if sc := classify([]string{"--all", "kev", "CVE-1"}, root); sc.err == nil || sc.err.Hint != "nyx kev --all CVE-1" {
 		t.Errorf("--all before kev: %+v", sc.err)
 	}
-	// A flag both recon and kev took is the old form of a call when the first positional has a dot,
-	// as a domain does, and is ambiguous with no command otherwise.
+	// Shared flags need a dotted legacy positional value to imply old recon syntax;
+	// otherwise the invocation is ambiguous.
 	for _, c := range root.Commands() {
 		if c.Name() == "kev" || c.Name() == "recon" {
 			c.Flags().Bool("both", false, "")
@@ -105,9 +104,7 @@ func screens(t *testing.T) map[string][]helpBlock {
 	return out
 }
 
-// At 80 columns every line of every help screen is at most 80 cells wide, coloured or not, but for
-// a usage or example block, which is never broken and so is held to be written as it is, but for
-// an example's colour.
+// Help wraps within 80 cells except deliberately unbroken usage/examples.
 func TestHelp_EveryScreenFitsEighty(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor} {
@@ -147,8 +144,7 @@ func sgrStrip(s string) string {
 	}
 }
 
-// A protected word longer than the space left for it is left whole, so its line runs past the width
-// and no other line does.
+// Protected tokens may exceed width; unrelated lines must still fit.
 func TestHelp_ProtectedWordRunsPast(t *testing.T) {
 	t.Parallel()
 	const url = "https://example.com/a/path/that/is/much/longer/than/the/width/of/the/terminal/it/is/written/to/index.html"
@@ -168,9 +164,8 @@ func TestHelp_ProtectedWordRunsPast(t *testing.T) {
 	}
 }
 
-// Free text is split into blocks: a blank line ends a paragraph, an unindented line that ends in a
-// colon is a heading, a run of lines with one indent is a paragraph and a change of indent starts
-// another, and a named line is a list of values.
+// Free-text block parsing preserves paragraph, heading, indentation and labelled-value
+// boundaries.
 func TestFreeBlocks(t *testing.T) {
 	t.Parallel()
 	text := "Intro line one\nintro line two\n\nSection:\n  indented one\n  indented two\n    deeper\nFields accepted by --x: a, b\n\n\nEnd"

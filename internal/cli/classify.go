@@ -12,22 +12,19 @@ import (
 	"github.com/rafaelh/nyx/internal/shellquote"
 )
 
-// scan is what the pre-scan of the arguments decided: a usage error, the root
-// help, the version, or none of them (hand the arguments to cobra).
+// scan holds the pre-parser decision: usage error, help, version or normal Cobra handling.
 type scan struct {
 	err           *clierr.Error
 	help, version bool
 }
 
-// sharedShorts are the shorthands every command takes before or after its
-// name: -J (--json), -q (--quiet) and -h (--help).
+// Shared short flags work around every command: -J, -q and -h.
 const sharedShorts = "Jqh"
 
 // sharedLongs are the long flags every command takes before or after its name.
 var sharedLongs = []string{"json", "quiet", "debug", "help"}
 
-// isShared reports whether a is one of the shared flags, alone, with a value,
-// or as a cluster of shared shorthands.
+// isShared accepts standalone, valued and clustered forms of shared flags.
 func isShared(a string) bool {
 	if name, ok := strings.CutPrefix(a, "--"); ok {
 		name, _, _ = strings.Cut(name, "=")
@@ -51,9 +48,8 @@ func isSharedCluster(a string) bool {
 // isFlag reports whether a is a flag token; "-" and "--" are not.
 func isFlag(a string) bool { return strings.HasPrefix(a, "-") && a != "-" && a != "--" }
 
-// scanShared finds the shared flags in the arguments before a bare --,
-// without parsing them, so the error is in the mode asked for even when the
-// arguments do not parse.
+// scanShared detects shared flags before "--" without parsing them, so even invalid invocations
+// report errors in the requested output mode.
 func scanShared(args []string) shared {
 	var sh shared
 	boolFlag := func(a, name string) (bool, bool) {
@@ -84,15 +80,11 @@ func scanShared(args []string) shared {
 	return sh
 }
 
-// classify decides what a call is before cobra sees it, reading the command
-// names and the flag sets from the tree. Shared flags are skipped, and the
-// first other argument decides: a command name goes to cobra; nothing at all
-// is the root help (or the version, when only that was asked for); a word
-// that is no command is the old form of a call (export, or a word with a dot)
-// or an unknown command; a flag is "flags follow the command" when a command
-// name comes after it, else the old form of a call when only recon or its
-// children take it, or when recon and another command take it and the first
-// positional argument is an old-form word too.
+// classify reads command names and flags from the Cobra tree before parsing. After shared
+// flags, a command name goes to Cobra and no arguments means root help or version. Unknown
+// words are checked for legacy syntax. Flags before a command produce a placement error;
+// recon-specific flags, or shared flags with a legacy positional value, are treated as legacy
+// invocations.
 func classify(args []string, root *cobra.Command) scan {
 	commands := visibleCommands(root)
 	first, help, version := -1, false, false
@@ -158,10 +150,8 @@ func classify(args []string, root *cobra.Command) scan {
 	return scan{err: &clierr.Error{Code: clierr.InvalidInput, Message: "no command given", Hint: "nyx --help"}}
 }
 
-// helpWord is args with the word help read as --help when it is a command's first positional
-// argument, so nyx recon help, nyx recon export help and nyx cve help each print that command's
-// help as nyx help <command> does. Words that name subcommands are followed first, a flag's value
-// is skipped, and help after a bare -- or after another positional argument is left as it is.
+// helpWord treats a command's first positional "help" as --help, following subcommands and
+// skipping flag values. It leaves "help" unchanged after "--" or another positional argument.
 func helpWord(args []string, root *cobra.Command) []string {
 	c := root
 	for i := 0; i < len(args); i++ {
@@ -199,11 +189,10 @@ func subcommand(c *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
-// oldFormWord reports whether a positional argument marks the old form of a
-// call: export, or a word with a dot.
+// oldFormWord recognises legacy export syntax and domain-like dotted arguments.
 func oldFormWord(a string) bool { return a == "export" || strings.Contains(a, ".") }
 
-// visibleCommands are the names of the root's commands that are not hidden.
+// visibleCommands lists non-hidden root commands.
 func visibleCommands(root *cobra.Command) []string {
 	var names []string
 	for _, c := range root.Commands() {
@@ -214,7 +203,7 @@ func visibleCommands(root *cobra.Command) []string {
 	return names
 }
 
-// descendants are every command of the tree but the root.
+// descendants walks the command tree without its root.
 func descendants(root *cobra.Command) []*cobra.Command {
 	var out []*cobra.Command
 	var walk func(*cobra.Command)
@@ -238,9 +227,8 @@ func underRecon(c *cobra.Command) bool {
 	return false
 }
 
-// describeFlag finds the commands that take a flag token, and whether the
-// argument after it is its value. A token no command takes has no owners and
-// is taken to have no value.
+// describeFlag finds which commands accept a flag and whether it consumes the next argument.
+// Unknown flags have no owners and consume no value.
 func describeFlag(tok string, cmds []*cobra.Command) (owners []*cobra.Command, needsNext bool) {
 	if long, ok := strings.CutPrefix(tok, "--"); ok {
 		name, _, inline := strings.Cut(long, "=")
@@ -265,15 +253,14 @@ func describeFlag(tok string, cmds []*cobra.Command) (owners []*cobra.Command, n
 				takesValue = takesValue || f.NoOptDefVal == ""
 			}
 		}
-		// The first shorthand that is not shared decides; one that takes a
-		// value takes the rest of the cluster, or the next argument.
+		// The first command-specific shorthand owns the cluster; value-taking flags
+		// consume the remaining text or next argument.
 		return owners, takesValue && i == len(shorts)-1
 	}
 	return nil, false
 }
 
-// oldForm is the error of a call in the form nyx took before it had commands:
-// its hint is the same call with recon after nyx.
+// oldForm reports legacy syntax and suggests the same invocation with recon inserted after nyx.
 func oldForm(args []string, first string) *clierr.Error {
 	return &clierr.Error{Code: clierr.InvalidInput,
 		Message: "nyx now takes a command first: what nyx did on its own is the recon command",
@@ -281,7 +268,7 @@ func oldForm(args []string, first string) *clierr.Error {
 		Input:   map[string][]string{"argument": {first}}}
 }
 
-// unknownCommand is the error of a first word that is no command.
+// unknownCommand reports an unrecognised first command word.
 func unknownCommand(word string, root *cobra.Command) *clierr.Error {
 	return &clierr.Error{Code: clierr.InvalidInput,
 		Message: fmt.Sprintf("unknown command %q: the commands are %s", word, strings.Join(visibleCommands(root), ", ")),
@@ -289,8 +276,8 @@ func unknownCommand(word string, root *cobra.Command) *clierr.Error {
 		Input:   map[string][]string{"command": {word}}}
 }
 
-// flagFirst is the error of flags placed before the command at args[at]: its
-// hint is the same call with the command moved to directly after nyx.
+// flagFirst suggests moving the command before its flags, preserving the rest of the
+// invocation.
 func flagFirst(args []string, at int, flags []string) *clierr.Error {
 	moved := append([]string{args[at]}, args[:at]...)
 	moved = append(moved, args[at+1:]...)
@@ -298,9 +285,8 @@ func flagFirst(args []string, at int, flags []string) *clierr.Error {
 		Hint: "nyx " + shellquote.Join(moved), Input: map[string][]string{"flag": flags}}
 }
 
-// invocationHint is the caller's own call, shell-quoted, with --redo (and its value) left out after
-// the recon command and every other argument kept, and with insert directly after the command. It
-// is the call that carries on where a run stopped, without repeating a stage.
+// invocationHint builds a shell-quoted resume command from the original arguments. It removes
+// recon's --redo flag and value, then adds insert immediately after the command name.
 func invocationHint(args []string, insert ...string) string {
 	var out []string
 	inserted := false

@@ -1,7 +1,7 @@
 package cli
 
-// What the lookup commands (nyx cve and nyx ip) share: their arguments and stdin, the retry
-// command of their hints, how a call that failed in part still writes, and the --json envelope.
+// Shared lookup-command support covers input/stdin handling, retry hints, partial results and
+// JSON envelopes for nyx cve and nyx ip.
 
 import (
 	"bufio"
@@ -23,14 +23,13 @@ import (
 // maxStdinLine is the longest line a lookup command reads from stdin.
 const maxStdinLine = 64 << 10
 
-// stdinWords are the words of the errors of a lookup command's arguments and stdin, which differ
-// by what the command looks up.
+// stdinWords supplies lookup-specific input and error wording.
 type stdinWords struct {
 	// none is the message of a call with no arguments, before ", or - to read them from stdin".
 	none string
 	// key names an argument in an error's input: "id", "input".
 	key string
-	// plural names what the lines are, as in "no CVE IDs on stdin".
+	// plural names stdin entries in messages such as "no CVE IDs on stdin".
 	plural string
 	// perLine is the hint of a line that is too long, after "give".
 	perLine string
@@ -38,8 +37,8 @@ type stdinWords struct {
 	asArgs string
 }
 
-// lookupArgs adds to probs the problem of args that name nothing to look up, or that give - with
-// other arguments, and reports whether the inputs are read from stdin: a lone -.
+// lookupArgs validates nonempty inputs and the standalone "-" stdin form, collecting problems
+// in probs. It returns whether stdin was selected.
 func lookupArgs(probs *clierr.Problems, args []string, w stdinWords) (stdin bool) {
 	switch {
 	case len(args) == 0:
@@ -51,9 +50,8 @@ func lookupArgs(probs *clierr.Problems, args []string, w stdinWords) (stdin bool
 	return len(args) == 1 && args[0] == "-"
 }
 
-// readLines reads the lines of stdin that are not blank, each as given without
-// its line ending. The read is abandoned at the deadline or a signal, as a
-// stdin that is never closed would otherwise block the call.
+// readLines preserves nonblank input lines without their line endings. Cancellation or deadline
+// abandons a blocked read so open stdin cannot hang the command.
 func readLines(ctx context.Context, r io.Reader, w stdinWords) ([]string, error) {
 	type read struct {
 		lines []string
@@ -91,9 +89,8 @@ func readLines(ctx context.Context, r io.Reader, w stdinWords) ([]string, error)
 	}
 }
 
-// retryCommand is the command that looks the given inputs up again: nyx with the command's name,
-// the inputs, --json under it, then each of the named flags the caller set, as typed (a bool flag
-// only when true), shell-quoted.
+// retryCommand builds a shell-quoted invocation for failed inputs, preserving --json and
+// explicitly supplied flag values. Boolean flags are included only when true.
 func retryCommand(name string, jsonMode bool, fs *pflag.FlagSet, flags ...string) func(inputs []string) string {
 	var tail []string
 	if jsonMode {
@@ -116,9 +113,8 @@ func retryCommand(name string, jsonMode bool, fs *pflag.FlagSet, flags ...string
 	}
 }
 
-// endLookup is how a lookup call ends once outErr is known: with outErr alone when no record came
-// back (all failed with one code, so stdout stays empty), else after write has written the result,
-// with outErr, which is then PARTIAL or nil.
+// endLookup writes available records before returning a partial error. When every input fails
+// with one error code, it returns the error without writing output.
 func endLookup(outErr *clierr.Error, write func() error) error {
 	if outErr != nil && outErr.Code != clierr.Partial {
 		return outErr
@@ -138,9 +134,8 @@ type lookupEnvelope[T any] struct {
 	Meta lookupMeta `json:"meta"`
 }
 
-// lookupMeta is the envelope's meta. Every key is there every time: errors and warnings are empty
-// lists when there is none, and hint is null when the command has nothing to say about the result
-// (nyx cve's note on how to see the lists the default leaves out).
+// lookupMeta always includes every envelope key. Empty errors/warnings are lists; absent hints
+// are null. CVE uses the hint to explain how to include omitted lists.
 type lookupMeta struct {
 	Count    int         `json:"count"`
 	Errors   []errorLine `json:"errors"`
@@ -148,8 +143,7 @@ type lookupMeta struct {
 	Hint     *string     `json:"hint"`
 }
 
-// writeEnvelope writes the --json envelope of data, with the meta.errors entries, the warnings
-// and the hint, null when empty.
+// writeEnvelope emits lookup data, per-input errors, warnings and an optional hint.
 func writeEnvelope[T any](inv *invocation, data []T, metaErrs []*clierr.Error, warnings *report.Warnings, hint string, red *config.Redactor) error {
 	env := lookupEnvelope[T]{Data: data,
 		Meta: lookupMeta{Count: len(data), Errors: make([]errorLine, len(metaErrs)), Warnings: warnings.List()}}

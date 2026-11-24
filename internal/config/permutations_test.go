@@ -7,7 +7,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 )
 
-// Permutations are on by default, and --no-permutations or the config file turns them off.
+// Permutations default on and respect file/flag disablement.
 func TestPermutationsEnabled(t *testing.T) {
 	t.Parallel()
 	if s, err := load(t, nil, ""); err != nil || !s.Permutations.Enabled {
@@ -21,7 +21,7 @@ func TestPermutationsEnabled(t *testing.T) {
 	}
 }
 
-// A custom wordlist replaces the built-in one, and its content changes the hash.
+// Custom list contents replace defaults and version checks through their hash.
 func TestWordlistContentAndHash(t *testing.T) {
 	t.Parallel()
 	sa, err := load(t, nil, "", "--wordlist", writeFile(t, "# comment\nalpha\nbeta\n"))

@@ -8,8 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// findingsFile writes a findings file like the other CSV files. The findings
-// package decides its columns and rows; output only writes them.
+// findingsFile uses findings-owned columns/rows with the shared CSV writer.
 func findingsFile(f findings.File) File {
 	return File{Name: f.Name, Format: CSV, Columns: f.Columns, Rows: func(s Snapshot) []Row {
 		var rows []Row
@@ -37,8 +36,8 @@ func emailPostureRows(s Snapshot) []Row {
 	return rows
 }
 
-// selfHostedMX is the mail hosts of a ";"-joined list that the organisation runs
-// itself, in the same form. A row that is no longer current has no hosts.
+// selfHostedMX filters a semicolon-separated host list to self-hosted mail servers. Non-current
+// records have no hosts to filter.
 func selfHostedMX(s Snapshot, mx string) string {
 	var own []string
 	for h := range strings.SplitSeq(mx, ";") {

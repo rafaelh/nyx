@@ -1,5 +1,5 @@
-// Package input parses and validates the inputs given on the command line:
-// domains, organisations, ASNs, CIDRs and exclusions.
+// Package input validates and normalises command-line domains, organisations, ASNs, CIDRs and
+// exclusions.
 package input
 
 import (
@@ -32,7 +32,8 @@ type Raw struct {
 	ExcludeFile string
 }
 
-// Parsed holds canonical, de-duplicated inputs (sorted, except First).
+// Parsed holds normalised, deduplicated and sorted inputs. First preserves the original first
+// input for naming.
 type Parsed struct {
 	Roots      []string
 	Orgs       []string
@@ -42,13 +43,12 @@ type Parsed struct {
 	First      string   // first input, used to name the engagement
 }
 
-// Empty reports whether no scope inputs were given.
 func (p Parsed) Empty() bool {
 	return len(p.Roots)+len(p.Orgs)+len(p.ASNs)+len(p.CIDRs) == 0
 }
 
-// IPLiteral parses host as an IP address, unmapped. A zoned address is not a
-// literal egress will dial, and a bracketed form is a URL authority, not a host.
+// IPLiteral parses and unmaps a host address. It rejects zone identifiers and URL-style
+// brackets, which egress does not accept as dialable hosts.
 func IPLiteral(host string) (netip.Addr, bool) {
 	a, err := netip.ParseAddr(host)
 	if err != nil || a.Zone() != "" {
@@ -57,30 +57,28 @@ func IPLiteral(host string) (netip.Addr, bool) {
 	return a.Unmap(), true
 }
 
-// CleanName returns a name a source reported in canonical form: lower case,
-// punycode, with a trailing dot and a leading "*." removed, so a wildcard
-// certificate name yields its base name. It returns "" for anything that is not a
-// valid hostname: an address, a URL or a public suffix.
+// CleanName normalises a source-reported hostname to lowercase punycode, removing a trailing
+// dot and leading "*.". Invalid hostnames, addresses, URLs and public suffixes return "".
 func CleanName(n string) string {
-	n = strings.TrimPrefix(strings.TrimSpace(n), "*.") // ParseDomain does the rest of the normalising
+	n = strings.TrimPrefix(strings.TrimSpace(n), "*.")
 	d, _ := ParseDomain(n)
 	return d
 }
 
-// ParseDomain lowercases, converts to punycode and validates a root domain.
-// Public suffixes and IP literals are rejected.
+// ParseDomain normalises a domain to lowercase punycode and validates it, rejecting public
+// suffixes and IP literals.
 func ParseDomain(s string) (string, error) {
 	return parseName(s, nameOptions{noun: "domain", rejectSuffix: true})
 }
 
-// ParseHostname lowercases, converts to punycode and validates a hostname to look up. Unlike
-// ParseDomain it allows a public suffix ("co.uk"), and unless singleLabel is set it needs two or
-// more labels. A name of only digits and dots is never a hostname, and nor is an IP literal.
+// ParseHostname normalises a DNS name. Public suffixes such as "co.uk" are allowed;
+// single-label names require singleLabel. IP literals and names containing only digits and dots
+// are rejected.
 func ParseHostname(s string, singleLabel bool) (string, error) {
 	return parseName(s, nameOptions{noun: "hostname", needTwoLabels: !singleLabel, rejectDigits: true})
 }
 
-// nameOptions is what differs between the checks ParseDomain and ParseHostname make.
+// nameOptions controls the validation differences between domains and lookup hostnames.
 type nameOptions struct {
 	noun          string // what the name is called in an error
 	rejectSuffix  bool   // a public suffix is not a name
@@ -88,7 +86,7 @@ type nameOptions struct {
 	rejectDigits  bool   // a name of only digits and dots is not a name
 }
 
-// parseName is the one set of checks behind ParseDomain and ParseHostname.
+// parseName shares normalisation and validation between domain and hostname parsing.
 func parseName(s string, o nameOptions) (string, error) {
 	d := dnsname.Normalise(s)
 	if d == "" {
@@ -126,9 +124,8 @@ func parseName(s string, o nameOptions) (string, error) {
 	return ascii, nil
 }
 
-// BareHost recognises s as a URL (scheme://host[:port]/path), as host:port or as [v6]:port and
-// returns the host alone, lowercased and without brackets. ok is false for anything else, a bare
-// address or name included.
+// BareHost extracts a lowercase, unbracketed host from a URL or host:port value, optionally
+// with a path. Bare names and addresses return ok=false.
 func BareHost(s string) (host string, ok bool) {
 	s = strings.TrimSpace(s)
 	if strings.ContainsAny(s, " \t\r\n") {
@@ -144,7 +141,7 @@ func BareHost(s string) (host string, ok bool) {
 		}
 		return strings.ToLower(u.Hostname()), true
 	}
-	// host:port, optionally followed by a path.
+	// Accept host:port values with an optional path as well as full URLs.
 	authority, _, _ := strings.Cut(s, "/")
 	if rest, found := strings.CutPrefix(authority, "["); found {
 		h, port, found := strings.Cut(rest, "]")
@@ -157,7 +154,7 @@ func BareHost(s string) (host string, ok bool) {
 		return strings.ToLower(h), true
 	}
 	if strings.Count(authority, ":") != 1 {
-		return "", false // no port, or a bare IPv6 address
+		return "", false // a bare name or IPv6 address has no port to strip
 	}
 	h, port, _ := strings.Cut(authority, ":")
 	if h == "" || !validPort(port) {
@@ -205,9 +202,8 @@ func ParseASN(s string) (string, error) {
 	return "AS" + strconv.FormatUint(n, 10), nil
 }
 
-// RangeCIDRs splits the inclusive range of addresses into the fewest CIDR
-// prefixes that cover it exactly, in address order. It returns nil if the
-// ends are not both valid, of one family, and in order.
+// RangeCIDRs covers an inclusive address range with the fewest prefixes, in address order.
+// Invalid, mixed-family or reversed endpoints return nil.
 func RangeCIDRs(start, end netip.Addr) []netip.Prefix {
 	start, end = start.Unmap(), end.Unmap()
 	if !start.IsValid() || !end.IsValid() || start.Is4() != end.Is4() || start.Compare(end) > 0 {
@@ -215,7 +211,7 @@ func RangeCIDRs(start, end netip.Addr) []netip.Prefix {
 	}
 	var out []netip.Prefix
 	for {
-		// The largest block that starts at start, is aligned and ends by end.
+		// Choose the largest aligned block starting here that fits within the range.
 		bits := start.BitLen()
 		for bits > 0 {
 			p := netip.PrefixFrom(start, bits-1)
@@ -234,7 +230,6 @@ func RangeCIDRs(start, end netip.Addr) []netip.Prefix {
 	}
 }
 
-// last is the highest address of the prefix.
 func last(p netip.Prefix) netip.Addr {
 	b := p.Masked().Addr().AsSlice()
 	for i := p.Bits(); i < len(b)*8; i++ {
@@ -253,8 +248,8 @@ func ParseCIDR(s string) (netip.Prefix, error) {
 	return p.Masked(), nil
 }
 
-// Exclusion is a hostname, wildcard or CIDR exclusion entry. Entry is the
-// canonical entry; prefix is set for a CIDR only.
+// Exclusion represents an excluded hostname, wildcard or network. Entry is normalised; prefix
+// is set only for network exclusions.
 type Exclusion struct {
 	Entry  string
 	prefix netip.Prefix
@@ -293,7 +288,7 @@ func ParseExclusion(s string) (Exclusion, error) {
 	}
 	ascii, err := idna.Lookup.ToASCII(name)
 	if err != nil {
-		// Underscores are legal in real DNS names even though IDNA rejects them.
+		// Accept underscores used in DNS names even though IDNA rejects them.
 		ascii = name
 	}
 	if wild {
@@ -302,8 +297,7 @@ func ParseExclusion(s string) (Exclusion, error) {
 	return Exclusion{Entry: ascii}, nil
 }
 
-// ParseExclusions parses each entry with ParseExclusion, stopping at the first
-// that does not parse.
+// ParseExclusions validates entries in order and stops at the first error.
 func ParseExclusions(entries []string) ([]Exclusion, error) {
 	var out []Exclusion
 	for _, e := range entries {
@@ -316,7 +310,7 @@ func ParseExclusions(entries []string) ([]Exclusion, error) {
 	return out, nil
 }
 
-// MatchesHost reports whether the hostname is excluded by name. CIDR entries never match a name.
+// MatchesHost checks name exclusions only; network exclusions need an address.
 func (e Exclusion) MatchesHost(h string) bool {
 	if e.prefix.IsValid() {
 		return false
@@ -342,7 +336,7 @@ func ReadList(path string) ([]string, error) {
 	return ParseList(f)
 }
 
-// ParseList is ReadList for an open reader.
+// ParseList reads the same format as ReadList from an existing reader.
 func ParseList(r io.Reader) ([]string, error) {
 	var out []string
 	sc := bufio.NewScanner(r)
@@ -355,10 +349,8 @@ func ParseList(r io.Reader) ([]string, error) {
 	return out, sc.Err()
 }
 
-// Parse validates every input. All problems are reported together, as
-// clierr.Problems, each under the name of the argument it came from (domain,
-// domains-file, org, asn, cidr, exclude or exclude-file) with the value as
-// given.
+// Parse validates all inputs and returns their problems together as clierr.Problems. Each
+// problem includes the original argument name and value.
 func Parse(raw Raw) (Parsed, error) {
 	var probs clierr.Problems
 	var p Parsed
@@ -369,7 +361,6 @@ func Parse(raw Raw) (Parsed, error) {
 		}
 	}
 
-	// item is one value and the argument it came from.
 	type item struct{ name, value string }
 	named := func(name string, vals []string) []item {
 		out := make([]item, len(vals))
@@ -402,7 +393,7 @@ func Parse(raw Raw) (Parsed, error) {
 	}
 	for _, a := range raw.ASNs {
 		if canon, err := ParseASN(a); err == nil {
-			setFirst(canon) // "123" and "as123" both name the engagement "as123"
+			setFirst(canon) // Use the same engagement name for equivalent ASN inputs such as "123" and "as123".
 		} else {
 			setFirst(a)
 		}
@@ -448,9 +439,8 @@ func Parse(raw Raw) (Parsed, error) {
 
 var nameOK = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// EngagementName makes a safe directory name from a name given with -e, or
-// from the first input: lowercased, every character outside [a-z0-9._-]
-// replaced, and no path separators or leading dots left.
+// EngagementName derives a safe directory name from -e or the first input. It lowercases,
+// replaces characters outside [a-z0-9._-], and removes path separators and leading dots.
 func EngagementName(s string) (string, error) {
 	var b strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
@@ -474,8 +464,8 @@ func EngagementName(s string) (string, error) {
 	return name, nil
 }
 
-// RangeText is an inclusive range as text: the CIDR when the range is exactly one, otherwise
-// "start-end", and "" when the ends are not both valid, of one family and in order.
+// RangeText formats an inclusive range as one CIDR when possible, otherwise "start-end".
+// Invalid, mixed-family or reversed endpoints return "".
 func RangeText(start, end netip.Addr) string {
 	start, end = start.Unmap(), end.Unmap()
 	cidrs := RangeCIDRs(start, end)

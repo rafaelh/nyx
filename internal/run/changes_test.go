@@ -30,9 +30,8 @@ func byKey(cs []output.Change) map[string]output.Change {
 	return m
 }
 
-// A record shown at the end and absent at the start is new; shown at the end
-// and on record but not shown at the start is returned; shown at the start and
-// not shown at the end is gone. A record shown at both ends is no change.
+// Compare visibility transitions: absent→shown is new, hidden→shown returned, shown→hidden
+// gone, and shown→shown unchanged.
 func TestDiff_NewReturnedGone(t *testing.T) {
 	t.Parallel()
 	b := newBaseline([]store.ShownRow{
@@ -64,8 +63,8 @@ func TestDiff_NewReturnedGone(t *testing.T) {
 	}
 }
 
-// A finding's severity is the current one on a new row and the baseline's on a
-// gone row, which has no attributes left to read it from.
+// New findings use current severity; gone findings use baseline severity after attributes
+// disappear.
 func TestDiff_FindingSeverity(t *testing.T) {
 	t.Parallel()
 	b := newBaseline([]store.ShownRow{{Kind: "finding", Key: "certificates|expiring|https://a.com", Severity: "low", Stages: []string{"findings"}}}, map[entryKey]bool{{"finding", "certificates|expiring|https://a.com"}: true})
@@ -92,10 +91,8 @@ func TestDiff_FirstRun(t *testing.T) {
 	}
 }
 
-// A --passive run does not report a record gone when every stage that observed
-// it at the baseline made contact with the target, because those stages did not
-// run. A record a stage that makes no contact also observed, a finding and a
-// derived record (each observed by a pseudo-stage) are still reported gone. New and returned records are reported.
+// Passive comparisons carry target-only missing entries forward, but still report missing
+// third-party/derived records and all additions/returns.
 func TestDiff_PassiveRule(t *testing.T) {
 	t.Parallel()
 	rows := []store.ShownRow{
@@ -123,8 +120,7 @@ func TestDiff_PassiveRule(t *testing.T) {
 			t.Errorf("passive run missed %q: %v", k, passive)
 		}
 	}
-	// The two it left out are carried into the next baseline, so that a run that
-	// makes contact can report them.
+	// Carry unverified disappearances into the next active comparison.
 	_, carried := newBaseline(rows, nil).compare(cur, true, targets)
 	var carriedKeys []string
 	for _, r := range carried {
@@ -180,8 +176,8 @@ func entryOf(es []entry, label, key string) *entry {
 	return nil
 }
 
-// The files decide what is shown. A kind with no label (evidence and internal
-// kinds) is not listed; a record that is not current is on record but not shown.
+// Output labels define comparison entries; internal/evidence kinds are omitted and non-current
+// records count as hidden history.
 func TestEntriesOf_FollowTheFiles(t *testing.T) {
 	t.Parallel()
 	sc := scope.New(scope.Config{Roots: []string{"a.com"}})
@@ -257,9 +253,8 @@ func TestEntriesOf_WildcardOnlyHostIsNotShown(t *testing.T) {
 	}
 }
 
-// An excluded value carried by several records is one entry, like its one row in
-// excluded.csv; a claim and a resolution with one key are one entry, like their
-// one row in resolutions.csv; a port nyx and a third party both report is one.
+// Comparison entries deduplicate values exactly as output rows do across exclusions, DNS claims
+// and port reports.
 func TestEntriesOf_OneEntryPerFileRow(t *testing.T) {
 	t.Parallel()
 	sc := scope.New(scope.Config{Roots: []string{"a.com"}, Exclusions: nil})

@@ -19,8 +19,8 @@ import (
 // maxCells is the widest line of s in terminal cells, once escapes are removed.
 func maxCells(s string) int { return widest(strings.Split(s, "\n")) }
 
-// withoutErrorLines is stderr with the closing error, its hint and its retry line removed: they are
-// written as they always were, and are not laid out (under --json it is one line of JSON).
+// withoutErrorLines strips closing errors/hints, which bypass terminal layout, from log
+// assertions.
 func withoutErrorLines(s string) string {
 	var out []string
 	for l := range strings.SplitSeq(s, "\n") {
@@ -31,8 +31,8 @@ func withoutErrorLines(s string) string {
 	return strings.Join(out, "\n")
 }
 
-// assertNoKeyPieces fails when out holds the key, or any 8-character piece of it, as it stands or
-// with each line break (and the two-space indent or message column after it) taken out.
+// assertNoKeyPieces detects keys and eight-character fragments even across wrapped/indented
+// lines.
 func assertNoKeyPieces(t *testing.T, key, out string) {
 	t.Helper()
 	joined := regexp.MustCompile(`\n +`).ReplaceAllString(out, "")
@@ -46,7 +46,7 @@ func assertNoKeyPieces(t *testing.T, key, out string) {
 	}
 }
 
-// warnStage is a stage that raises each message as a warning.
+// warnStage emits supplied warning messages.
 func warnStage(msgs ...string) *testkit.Stage {
 	return &testkit.Stage{StageName: "warner", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
@@ -57,7 +57,7 @@ func warnStage(msgs ...string) *testkit.Stage {
 		}}
 }
 
-// ruleLength is the cells of the first line of stdout's rule beneath its first heading.
+// ruleLength measures the first heading's underline in cells.
 func ruleLength(t *testing.T, out string) int {
 	t.Helper()
 	lines := strings.Split(stripSGR(unmargined(t, out)), "\n")
@@ -67,8 +67,7 @@ func ruleLength(t *testing.T, out string) int {
 	return utf8.RuneCountInString(lines[1])
 }
 
-// A terminal stream's width is COLUMNS when that is a positive number, else the terminal's own
-// width, else 100, and never less than 60; the summary is laid out at it.
+// Summary width follows positive COLUMNS, terminal width or 100, with a 60-cell floor.
 func TestLayout_SummaryWidth(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -147,8 +146,8 @@ func TestLayout_StderrWidth(t *testing.T) {
 	}
 }
 
-// A long warning wraps on a terminal with continuation lines at the message column, 19 uncoloured
-// and 21 coloured, and logLines folds them back into the one message. Off a terminal it is one line.
+// Terminal warning continuations align at 19/21 cells; plain streams preserve one line and
+// logLines reconstructs the message.
 func TestLayout_LongWarningWraps(t *testing.T) {
 	t.Parallel()
 	msg := strings.TrimSpace(strings.Repeat("the quick brown fox jumps over the lazy dog ", 8))
@@ -180,8 +179,8 @@ func TestLayout_LongWarningWraps(t *testing.T) {
 	}
 }
 
-// checkWrapped checks the lines of one log line: a single line when indent is 0, and otherwise
-// several, each after the first starting at the message column, none wider than 80 cells.
+// checkWrapped validates single-line plain output or width-bounded, message-aligned
+// continuations.
 func checkWrapped(t *testing.T, lines []string, indent int) {
 	t.Helper()
 	if indent == 0 {
@@ -205,8 +204,7 @@ func checkWrapped(t *testing.T, lines []string, indent int) {
 	}
 }
 
-// Under --json a terminal stderr's --debug lines are log lines and are laid out, and stdout is the
-// envelope it is off a terminal.
+// JSON debug stderr uses terminal layout without changing stdout's envelope.
 func TestLayout_JSONDebugLinesWrap(t *testing.T) {
 	t.Parallel()
 	words := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 12))
@@ -235,8 +233,7 @@ func TestLayout_JSONDebugLinesWrap(t *testing.T) {
 	}
 }
 
-// The goal: at COLUMNS=80 every line of the summary and of the log is at most 80 cells, coloured or
-// not, for a run with no unbreakable token wider than its space.
+// All summary/log lines fit 80 cells when no protected token requires overflow.
 func TestLayout_RunFitsEightyColumns(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor, palette.Color16} {
@@ -259,8 +256,7 @@ func TestLayout_RunFitsEightyColumns(t *testing.T) {
 	}
 }
 
-// Every escape in the output of a run on terminals is a sequence the palette can produce at the
-// stream's depth, in the summary and the log.
+// Every log/summary escape must be produced by the selected palette depth.
 func TestLayout_RunWritesOnlyPaletteSequences(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
@@ -275,8 +271,7 @@ func TestLayout_RunWritesOnlyPaletteSequences(t *testing.T) {
 	}
 }
 
-// On a NO_COLOR terminal and a TERM=dumb terminal the layout still applies and no escape byte is
-// written: not in the summary, the log or the palette sheet.
+// NO_COLOR and dumb terminals retain layout without escapes, including palette previews.
 func TestLayout_UncolouredTerminalsHaveNoEscape(t *testing.T) {
 	t.Parallel()
 	for name, env := range map[string]map[string]string{"NO_COLOR": {"NO_COLOR": "1"}, "dumb": {"TERM": "dumb"}} {
@@ -344,9 +339,8 @@ func TestLayout_PaletteSheetOnATerminal(t *testing.T) {
 	}
 }
 
-// A stage's note is sanitised and has any key masked before the summary lays it out on a terminal,
-// wherever it wraps: a control sequence, a key split by one and a key inside a long word that is
-// broken at the width leave no escape and no part of the key.
+// Stage notes are cleaned/redacted before wrapping so controls or split keys cannot survive
+// layout.
 func TestLayout_SummaryNoteIsCleanedBeforeLayout(t *testing.T) {
 	t.Parallel()
 	const key = "sekret-key-4242"

@@ -47,9 +47,8 @@ func TestResolverCNAMEsOnEveryRcode(t *testing.T) {
 	}
 }
 
-// thirdPartyEgress is an Egress that sends each source in base to its base URL,
-// under a policy with example.com in scope and two hosts excluded.
-// Zero RatePerSource and Keys in opts get test defaults.
+// thirdPartyEgress redirects declared sources while retaining real scope/exclusion policy and
+// filling test defaults.
 func thirdPartyEgress(t *testing.T, base map[string]string, opts egress.Options) *egress.Egress {
 	t.Helper()
 	opts.SourceBaseURLs = base

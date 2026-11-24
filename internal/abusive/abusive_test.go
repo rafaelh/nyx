@@ -65,8 +65,7 @@ func TestDefault_EmbeddedSnapshotIsValid(t *testing.T) {
 	}
 }
 
-// Each list of the embedded snapshot states how many entries its page listed, and holds at least
-// 90% of them, so the built-in copy passes the same count rule as a downloaded one.
+// Embedded lists must meet the same 90% completeness threshold as downloads.
 func TestDefault_EmbeddedSnapshotStatesItsCounts(t *testing.T) {
 	t.Parallel()
 	d := abusive.Default()
@@ -140,8 +139,7 @@ func TestMarshal_KeepsTheStatedCounts(t *testing.T) {
 	}
 }
 
-// withUnknownFields is a marshalled snapshot with a field nyx does not know at the top, in each
-// list and in an entry of each, as a newer nyx could write.
+// withUnknownFields simulates a newer snapshot format with extra fields at every level.
 func withUnknownFields(t *testing.T, s abusive.Snapshot) []byte {
 	t.Helper()
 	b := string(abusive.Marshal(s))
@@ -163,8 +161,7 @@ func withUnknownFields(t *testing.T, s abusive.Snapshot) []byte {
 	return []byte(b)
 }
 
-// ParseLenient reads a file with fields it does not know, as a downloaded copy written by a newer
-// nyx, while Parse, which reads the built-in file, still refuses one.
+// Downloads tolerate future fields; embedded data still uses strict parsing.
 func TestParseLenient_IgnoresUnknownFields(t *testing.T) {
 	t.Parallel()
 	s := counted()
@@ -246,8 +243,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// A network matches when it holds the address, with every field the entry carries and the list's
-// date, and the ends of a range count.
+// Range endpoints are inclusive, and matches retain entry metadata and the list date.
 func TestNetworks_InsideOutsideAndTheEdges(t *testing.T) {
 	t.Parallel()
 	s := abusive.Load(sorted(snap()))
@@ -303,7 +299,7 @@ func TestNetworks_TiesBreakByRank(t *testing.T) {
 	s := sorted(abusive.Snapshot{
 		Nets: abusive.List[abusive.NetworkEntry]{Updated: "2026-11-21", Entries: []abusive.NetworkEntry{
 			net4(9, "10.1.0.0", "10.1.0.255", "High", 70, "Nine", "isp"),
-			net4(4, "10.1.0.0", "10.1.0.255", "High", 71, "Four", "isp"), // same range: a duplicate in a file, but the order is what is tested
+			net4(4, "10.1.0.0", "10.1.0.255", "High", 71, "Four", "isp"), // duplicate range used only to test ordering
 		}},
 		ASNs: abusive.List[abusive.ASNEntry]{Updated: "2026-11-21"},
 	})
@@ -325,7 +321,7 @@ func TestNetworks_TiesBreakByRank(t *testing.T) {
 	}
 }
 
-// A CIDR-shaped range is written as a CIDR and any other as start-end, as rdap_netblock is.
+// Exact CIDR ranges use prefix notation; other ranges use endpoints.
 func TestNetworks_EntryIsWrittenAsRdapNetblockIs(t *testing.T) {
 	t.Parallel()
 	s := abusive.Load(sorted(snap()))
@@ -388,8 +384,7 @@ func TestLoad_SanitisesText(t *testing.T) {
 	}
 }
 
-// The JSON of a match has the keys and types the records give: the entry first, rank an integer,
-// the score a number and the others strings.
+// Match JSON preserves the record field order and numeric/string types.
 func TestMatches_JSONTypes(t *testing.T) {
 	t.Parallel()
 	s := abusive.Load(sorted(snap()))
@@ -459,9 +454,8 @@ func TestSnapshot_ConcurrentUse(t *testing.T) {
 	wg.Wait()
 }
 
-// TestNetworks_AgreesWithAScanOfEveryEntry checks the index against reading every entry, over
-// random ranges that nest, overlap and repeat, in both families, at addresses on and off their
-// edges.
+// Compare the index with an independent full scan across overlapping, nested and boundary
+// ranges in both address families.
 func TestNetworks_AgreesWithAScanOfEveryEntry(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewPCG(1, 2))

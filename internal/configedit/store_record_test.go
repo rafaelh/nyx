@@ -10,7 +10,7 @@ import (
 
 var recordDay = time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
 
-// The fingerprints of the keys these tests use: the first 8 hex digits of their SHA-256.
+// Fixture key fingerprints use eight SHA-256 hex digits.
 const (
 	shodanKey   = "shodan-key-123456"
 	shodanPrint = "79dd2e2f"

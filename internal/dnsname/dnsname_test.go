@@ -9,7 +9,7 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// Reverse names for PTR sweeps and Team Cymru lookups.
+// Cover reversed DNS forms shared by PTR and Cymru.
 func TestReverseNames(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ addr, ptr, cymru string }{
@@ -28,7 +28,7 @@ func TestReverseNames(t *testing.T) {
 	}
 }
 
-// Wildcard zones are the registrable parents of a name, nearest first.
+// Wildcard parent discovery proceeds nearest-first through the registrable domain.
 func TestParents(t *testing.T) {
 	t.Parallel()
 	got := dnsname.Parents("a.b.example.com")
@@ -43,7 +43,7 @@ func TestParents(t *testing.T) {
 	}
 }
 
-// Names reduce to their registrable domain.
+// Normalise names to registrable roots.
 func TestETLDPlusOne(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{"www.example.com": "example.com", "a.b.example.co.uk": "example.co.uk"} {
@@ -56,7 +56,7 @@ func TestETLDPlusOne(t *testing.T) {
 	}
 }
 
-// Permutations are deterministic, valid, unique, never the seed, and capped.
+// Generation stays deterministic, unique, valid and capped, excluding the seed itself.
 func TestPermute(t *testing.T) {
 	t.Parallel()
 	words := []string{"dev", "staging"}

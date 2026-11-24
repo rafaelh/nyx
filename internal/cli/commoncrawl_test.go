@@ -29,8 +29,7 @@ func ccAsked(w *world) []string {
 	return out
 }
 
-// ccOverloaded answers the first n requests for each distinct request with
-// status (and Retry-After when retryAfter is not ""), then hands it to next.
+// ccOverloaded fails each distinct request n times before delegating to next.
 func ccOverloaded(n, status int, retryAfter string, next http.HandlerFunc) http.HandlerFunc {
 	var mu sync.Mutex
 	seen := map[string]int{}
@@ -95,8 +94,7 @@ func TestCommonCrawl_PagesAreReadUntilThePastTheLastAnswer(t *testing.T) {
 	}
 }
 
-// A 502, 503 or 504 is the overloaded index giving up: the request is sent again
-// after a wait (Retry-After when given), and the check completes.
+// Retry gateway overload responses and complete the check when the index recovers.
 func TestCommonCrawl_AnOverloadedAnswerIsSentAgain(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -152,8 +150,7 @@ func TestCommonCrawl_GivesUpAfterThreeRetries(t *testing.T) {
 	}
 }
 
-// Any other 400 than the past-the-last-page answer is a failure, not the end of
-// the pages: a check is never completed on an answer that is not understood.
+// Only the recognised out-of-range 400 ends pagination; other 400s remain failures.
 func TestCommonCrawl_AnyOther400IsAFailure(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)

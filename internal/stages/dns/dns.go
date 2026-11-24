@@ -1,6 +1,5 @@
-// Package dns has the stages that talk DNS through the public resolvers:
-// resolve, wildcard, permutations, rdns, ipowner, netblockowner and dnsroot. All are ThirdParty
-// stages, so all run under --passive.
+// Package dns implements public-resolver stages for resolution, wildcards, name generation,
+// reverse DNS, ownership and root records. They are ThirdParty stages and run in passive mode.
 package dns
 
 import (

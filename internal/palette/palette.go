@@ -1,12 +1,6 @@
-// Package palette holds the console colours as data and writes the escape
-// codes for them. It is pure: it never looks at a stream or the environment
-// except through the getenv function Detect is given.
-//
-// The tables follow docs/log-colors.md. Nothing outside this package holds a
-// colour value. The document's synonym table and its "unknown name is an
-// error" lookup are not built: nyx prints only level names it holds as
-// constants and record values, and a value the palette does not know takes the
-// DEBUG style.
+// Package palette owns console colours and escape generation. It reads environment values only
+// through Detect's supplied callback. Callers use named styles rather than colour values;
+// unknown record labels fall back to DEBUG styling.
 package palette
 
 import (
@@ -26,11 +20,9 @@ const (
 	TrueColor
 )
 
-// Detect decides a stream's depth. A stream is coloured only when it is a
-// terminal, NO_COLOR is unset or empty and TERM is not dumb; FORCE_COLOR,
-// CLICOLOR_FORCE and every other variable are ignored. COLORTERM and TERM then
-// choose only how many colours: 24-bit for truecolor or 24bit, 256 for a TERM
-// containing 256color, else 16.
+// Detect enables colour only for terminals with NO_COLOR empty and TERM other than dumb.
+// COLORTERM=truecolor/24bit selects 24-bit, TERM containing 256color selects 256 colours,
+// otherwise 16. Force-colour variables are ignored.
 func Detect(isTerminal bool, getenv func(string) string) Depth {
 	if !isTerminal || getenv("NO_COLOR") != "" || getenv("TERM") == "dumb" {
 		return None
@@ -45,10 +37,8 @@ func Detect(isTerminal bool, getenv func(string) string) Depth {
 	return Color16
 }
 
-// badgeStyle is a base badge style: 24-bit foreground and background, the nearest
-// 256-colour entries, and the fixed 16-colour codes. The 16-colour pair is the
-// bright colour of the style's hue on black, not the nearest of the 16 (which
-// would make most badges grey on black).
+// badgeStyle defines 24-bit, 256-colour and fixed 16-colour variants. The 16-colour variant
+// uses a bright hue on black to keep badges distinct instead of mapping most to grey.
 type badgeStyle struct {
 	fgStyle
 	Name  string
@@ -168,8 +158,7 @@ func Width(c Category) int {
 	return w
 }
 
-// styleOf finds the style of a label, case-insensitively. A label the category
-// does not hold gets the DEBUG style.
+// styleOf matches case-insensitively and falls back to DEBUG for unknown labels.
 func styleOf(c Category, name string) (canonical string, s badgeStyle) {
 	for _, l := range tableOf(c).labels {
 		if strings.EqualFold(l.name, name) {
@@ -217,16 +206,14 @@ func (d Depth) fgParams(s fgStyle) string {
 
 func (d Depth) wrap(params, s string) string { return "\x1b[" + params + "m" + s + "\x1b[0m" }
 
-// Badge renders a category label in its canonical upper-case form. A label the
-// category does not hold keeps its own text in the DEBUG style.
+// Badge uses canonical uppercase category labels, preserving unknown text with DEBUG styling.
 func (d Depth) Badge(c Category, label string) string {
 	canon, s := styleOf(c, label)
 	return d.badge(c, canon, s)
 }
 
-// Value renders a record value exactly as recorded, in its own case and with
-// no truncation, padded to the category's width. Only the style is looked up,
-// so a value the palette does not know takes the DEBUG style and never fails.
+// Value preserves case and text, padding to the category width. Unknown values use DEBUG
+// styling rather than failing.
 func (d Depth) Value(c Category, value string) string {
 	_, s := styleOf(c, value)
 	return d.badge(c, value, s)
@@ -253,7 +240,7 @@ type fgGroup struct {
 	entries []fgEntry
 }
 
-// timestamp is the grey of a log line's timestamp. The muted role shares it.
+// timestamp and muted share the same grey foreground.
 var timestamp = fgOnly([3]uint8{124, 129, 145}, 90)
 
 var fgGroups = []fgGroup{
@@ -268,9 +255,8 @@ var fgGroups = []fgGroup{
 		{"TIMESTAMP", timestamp},
 		{"SEPARATOR", fgOnly([3]uint8{74, 79, 92}, 90)},
 	}},
-	// The semantic text colours are the foregrounds of four base styles, muted (text that steps
-	// back: asides, tips, keys, table headers) is the timestamp grey, and example is the warm
-	// amber of a nyx call shown as an example in the help.
+	// Semantic text roles use base-style foregrounds. Muted uses timestamp grey; example
+	// uses warm amber for help invocations.
 	{Semantic, []fgEntry{
 		{"success", styleNamed("PASS").fgStyle},
 		{"error", styleNamed("ERROR").fgStyle},
@@ -279,10 +265,8 @@ var fgGroups = []fgGroup{
 		{"muted", timestamp},
 		{"example", fgOnly(example, 93)},
 	}},
-	// The roles of nyx setup's screen. A pair such as name and name-dim is one thing selected and
-	// not: the selected row is the bright one. faint is what steps furthest back (an unset key, the
-	// rule under the tabs, a stage that is skipped) and help the explanatory text and the key
-	// descriptions; key is a key to press, in the amber of example.
+	// Setup roles distinguish selected and dim rows. faint de-emphasises unset/skipped
+	// content; help styles descriptions; key uses example amber for shortcuts.
 	{Setup, []fgEntry{
 		{"pointer", fgOnly(green, 92)},
 		{"name", fgOnly([3]uint8{128, 255, 234}, 96)},
@@ -298,8 +282,8 @@ var fgGroups = []fgGroup{
 	}},
 }
 
-// example is the amber of a nyx call shown in the help and of a key to press in nyx setup; green is
-// nyx setup's selection and accepted key.
+// example colours help invocations and setup shortcuts; green marks selections and accepted
+// keys.
 var (
 	example = [3]uint8{255, 202, 128}
 	green   = [3]uint8{138, 255, 128}
@@ -332,8 +316,8 @@ func Names(g Group) []string {
 	return out
 }
 
-// Text colours s with the foreground of a named entry of group, with no
-// background and no bold. An unknown name leaves s unstyled.
+// Text applies a named foreground without background or bold. Unknown names leave text
+// unchanged.
 func (d Depth) Text(g Group, name, s string) string {
 	if d == None {
 		return s
@@ -354,9 +338,8 @@ func (d Depth) Bold(s string) string {
 	return d.wrap("1", s)
 }
 
-// BoldText colours s with the foreground of a named entry of group and makes it
-// bold: ESC[1;<foreground>m, s, ESC[0m. There is no background. An unknown name
-// gives plain bold, as Bold does. At depth None s is returned unchanged.
+// BoldText applies a named foreground and bold, falling back to plain bold for unknown names.
+// None depth leaves text unchanged.
 func (d Depth) BoldText(g Group, name, s string) string {
 	if d == None {
 		return s
@@ -369,11 +352,8 @@ func (d Depth) BoldText(g Group, name, s string) string {
 	return d.wrap("1", s)
 }
 
-// BadgeText writes text in the badge style that label takes in category c, found
-// as Value finds it: case-insensitively, and DEBUG for a label the category does
-// not hold. Unlike Badge and Value it adds no padding and no space either side:
-// it wraps text exactly, so a caller laying out a bar adds its own spaces. At
-// depth None text is returned unchanged.
+// BadgeText applies a case-insensitive badge style without padding so callers can lay out bars
+// themselves. Unknown labels use DEBUG; None returns unchanged text.
 func (d Depth) BadgeText(c Category, label, text string) string {
 	if d == None {
 		return text
@@ -382,10 +362,8 @@ func (d Depth) BadgeText(c Category, label, text string) string {
 	return d.wrap(d.badgeParams(s), text)
 }
 
-// nearest256 is the entry of the xterm 256-colour table, among indices 16 to
-// 255, nearest to c by squared RGB distance (the lowest index on a tie).
-// Indices 0 to 15 are skipped because their colour depends on the terminal's
-// theme.
+// nearest256 chooses the closest fixed xterm colour by squared RGB distance, preferring the
+// lower index on ties. Theme-dependent indexes 0–15 are excluded.
 func nearest256(c [3]uint8) int {
 	levels := [6]int{0, 95, 135, 175, 215, 255}
 	best, bestD := 16, int(^uint(0)>>1)

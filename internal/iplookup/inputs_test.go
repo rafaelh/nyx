@@ -84,7 +84,7 @@ func TestParseInputs_Invalid(t *testing.T) {
 	cases := []struct {
 		raw    string
 		active bool
-		hint   string // what the hint holds
+		hint   string // expected correction guidance
 	}{
 		{"https://example.com/path?q=1", false, "example.com"},
 		{"http://203.0.113.5:8080/", false, "203.0.113.5"},
@@ -126,7 +126,7 @@ func TestParseInputs_HintsNameTheBareHost(t *testing.T) {
 	if want := "use the bare host: example.com"; !strings.Contains(in.Err.Hint, want) {
 		t.Errorf("hint %q, want it to say %q", in.Err.Hint, want)
 	}
-	// A single-label name that is the host of a URL needs no --active to be a bare host hint.
+	// URL-host hints can identify single-label hosts before active-mode validation.
 	in = ParseInputs([]string{"http://intranet/"}, false).Inputs[0]
 	if !strings.Contains(in.Err.Hint, "intranet") {
 		t.Errorf("hint %q", in.Err.Hint)
@@ -206,7 +206,7 @@ func TestPlan_LiteralCount(t *testing.T) {
 			t.Errorf("%s: count %d, want a count far over the cap", huge, got)
 		}
 	}
-	// Two enormous ranges must not overflow into a small or negative count.
+	// Huge ranges saturate counts without integer wraparound.
 	if got := ParseInputs([]string{"::/0", "0.0.0.0/0"}, false).LiteralCount(); got <= MaxAddresses {
 		t.Errorf("enormous ranges added up to %d", got)
 	}
@@ -234,7 +234,7 @@ func TestPlan_ProvisionalCount(t *testing.T) {
 	if got := ParseInputs([]string{"::/0", "::/0"}, false).ProvisionalCount(); got <= MaxAddresses || got < 0 {
 		t.Errorf("a huge range counts %d", got)
 	}
-	// The deadline made from it must be positive for any count.
+	// Even saturated counts produce positive deadlines.
 	if d := Deadline(false, ParseInputs([]string{"::/0", "::/0", "0.0.0.0/0"}, false).ProvisionalCount()); d <= 0 {
 		t.Errorf("deadline %v", d)
 	}
@@ -293,7 +293,7 @@ func TestPlan_Addresses_FoundAndHostnames(t *testing.T) {
 		{"1.1.1.1", "a.example.com", FoundPublicDNS},
 		{"192.168.1.1", "local.example.com,intranet", FoundLocalDNS},
 	}
-	// b.example.com is the first input, so its addresses come first, in its own order.
+	// First-input ordering takes precedence over hostname spelling.
 	if len(rows) != len(want) {
 		t.Fatalf("got %v", rows)
 	}
@@ -363,12 +363,12 @@ func TestPlan_Addresses_FirstAndLastOfACIDR(t *testing.T) {
 
 func TestPlan_Addresses_Cap(t *testing.T) {
 	t.Parallel()
-	// Exactly the cap is fine.
+	// Inclusive cap boundary
 	got, err := ParseInputs([]string{"10.0.0.0/24"}, false).Addresses(nil)
 	if err != nil || len(got) != MaxAddresses {
 		t.Fatalf("a /24: %d addresses, %v", len(got), err)
 	}
-	// A range over the cap is refused by its size, before it is expanded.
+	// Reject oversized prefixes before allocating their address expansion.
 	for _, huge := range []string{"10.0.0.0/23", "10.0.0.0/8", "0.0.0.0/0", "2001:db8::/64", "::/0"} {
 		got, err := ParseInputs([]string{huge}, false).Addresses(nil)
 		if got != nil || err == nil {
@@ -380,7 +380,7 @@ func TestPlan_Addresses_Cap(t *testing.T) {
 			t.Errorf("%s: error %v", huge, err)
 		}
 	}
-	// Hostnames count once they resolve.
+	// Resolved addresses contribute to the final cap.
 	var many []netip.Addr
 	for i := range 257 {
 		many = append(many, netip.AddrFrom4([4]byte{198, 51, 100, byte(i)}), netip.AddrFrom4([4]byte{198, 51, 101, byte(i)}))
@@ -393,7 +393,7 @@ func TestPlan_Addresses_Cap(t *testing.T) {
 	if got != nil || err == nil || !strings.Contains(err.Error(), "257") {
 		t.Errorf("257 in all: %d addresses, %v", len(got), err)
 	}
-	// Duplicates are not counted twice.
+	// Deduplicate before counting against the cap.
 	dup := append(slices.Clone(many[:255]), addr("10.0.0.1"), many[0])
 	if got, err := p.Addresses(map[string]Resolution{"a.example.com": {Addrs: dup, Found: FoundPublicDNS}}); err != nil || len(got) != 256 {
 		t.Errorf("duplicates: %d addresses, %v", len(got), err)

@@ -12,12 +12,11 @@ import (
 	"github.com/rafaelh/nyx/internal/spamhaus"
 )
 
-// nyx ip's drop_networks and drop_asn keys: the entries of Spamhaus's DROP lists that hold the
-// address, and the ASN-DROP entry of its origin AS, from the threat data in use (the tests' own
-// built-in copy, or a downloaded copy they write). Nothing is requested for the lists.
+// DROP fields match active local lists without requests, using fixed embedded/downloaded
+// fixtures.
 
-// ipDropLists hold ipAbusiveAddr in a /24 under two SBL IDs and in a /28 whose RIR is null, and list
-// AS 64050. DROP is dated 2026-10-20 08:30:05 UTC and ASN-DROP 2026-10-21 01:02:03 UTC.
+// ipDropLists covers duplicate CIDRs with distinct SBL IDs, narrower ranges, absent RIR and
+// separately dated ASN data.
 func ipDropLists(tb testing.TB) *spamhaus.Lists {
 	tb.Helper()
 	return dropListsOn(tb, time.Date(2026, 10, 20, 8, 30, 5, 0, time.UTC), builtInAt, time.Date(2026, 10, 21, 1, 2, 3, 0, time.UTC),
@@ -32,9 +31,7 @@ func ipDropLists(tb testing.TB) *spamhaus.Lists {
 
 var ipStamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
 
-// The record carries every DROP entry that holds the address, the most specific first and one CIDR's
-// entries in the order of the list, and the ASN-DROP entry of its origin AS, with the keys in order,
-// a null RIR as "" and each list's date to the second in RFC 3339 UTC (ipapi.is's stay YYYY-MM-DD).
+// DROP results preserve prefix/file ordering, metadata types and second-precision UTC dates.
 func TestIPDrop_TheRecordCarriesTheMatches(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -75,8 +72,7 @@ func TestIPDrop_TheRecordCarriesTheMatches(t *testing.T) {
 	}
 }
 
-// Addresses and ASes the lists do not hold give empty lists; so does an address Team Cymru knows no
-// owner of, whose drop_asn is [] and not null.
+// Unknown/unlisted AS ownership yields empty DROP lists rather than a source-failure null.
 func TestIPDrop_NothingListedGivesEmptyLists(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -99,8 +95,7 @@ func TestIPDrop_NothingListedGivesEmptyLists(t *testing.T) {
 	}
 }
 
-// When Team Cymru fails, the DROP network entries still come out, drop_asn is null, the failure is
-// listed and the call ends partial (exit 7), also when only the two keys are selected.
+// Cymru failure leaves network evidence intact, ASN evidence unknown and the outcome partial.
 func TestIPDrop_TeamCymruFailing(t *testing.T) { // mutation target
 	t.Parallel()
 	for _, tc := range []struct {
@@ -212,8 +207,7 @@ func TestIPDrop_HelpListsTheKeysInOrder(t *testing.T) {
 	}
 }
 
-// The date of each list is written the same way in the nyx ip record and in recon's risk file: a
-// Spamhaus list's to the second in RFC 3339 UTC, an ipapi.is list's as YYYY-MM-DD.
+// Source-specific date formatting agrees between IP records and recon files.
 func TestThreatDates_TheRecordAndTheRiskFileAgree(t *testing.T) {
 	t.Parallel()
 	aest := time.FixedZone("AEST", 10*3600)
@@ -251,8 +245,7 @@ func TestThreatDates_TheRecordAndTheRiskFileAgree(t *testing.T) {
 	}
 }
 
-// With neither XDG_CONFIG_HOME nor HOME set, nyx ip uses the built-in copy, old as it may be, with
-// no warning and no stale hint.
+// Without config base directories, use embedded data without stale/fallback notices.
 func TestIPDrop_NoDirectoryUsesTheBuiltInCopy(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -297,8 +290,7 @@ func unreadableIPWorld(t *testing.T) *ipWorld {
 	return w
 }
 
-// wantUnreadable fails the test unless msgs warn of an unreadable copy exactly once for each of
-// the sources (spamhaus, ipapi.is) and of no other.
+// wantUnreadable requires one fallback warning per expected source and no extras.
 func wantUnreadable(t *testing.T, h *harness, msgs []string, sources ...string) {
 	t.Helper()
 	var got []string
@@ -314,9 +306,8 @@ func wantUnreadable(t *testing.T, h *harness, msgs []string, sources ...string) 
 	}
 }
 
-// An unreadable downloaded copy falls back, as a whole source, to the built-in copy: nyx ip warns
-// once for each such source its keys read, on stderr (under --quiet too) or in meta.warnings under
-// --json, and stops once a good copy is in place.
+// Unreadable bundles fall back per source and warn even in quiet mode, stopping after a valid
+// replacement.
 func TestIPDrop_AnUnreadableCopyFallsBackToTheBuiltInOne(t *testing.T) {
 	t.Parallel()
 	t.Run("human and quiet", func(t *testing.T) {

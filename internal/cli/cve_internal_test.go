@@ -11,8 +11,8 @@ import (
 	"github.com/rafaelh/nyx/internal/cve"
 )
 
-// A panic in one task is that ID's unexpected failure; the other IDs are
-// returned, each in its own slot, and no more than four run at once.
+// One worker panic fails only its ID, preserves result slots and respects the four-worker
+// limit.
 func TestLookUp_APanicIsThatIDsFailure(t *testing.T) {
 	t.Parallel()
 	results := make([]cve.Result, 9)

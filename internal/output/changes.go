@@ -5,12 +5,9 @@ import (
 	"slices"
 )
 
-// Change is one row of changes.csv: a difference between what the files showed
-// when the run started and what they show now. Change is ChangeNew,
-// ChangeReturned or ChangeGone, Kind the label of the thing that changed (a
-// hostname, a web service, a finding, a candidate), and Key what the files call
-// it. Scope is where it sits against the scope, and Severity is a finding's. A
-// gone row has the scope and severity it had when it was shown, and is not current.
+// Change describes an output row that became new, returned or gone relative to the run's
+// baseline. Kind/Key identify the output entry. Scope and finding severity describe its
+// placement; gone rows preserve their previous values and are non-current.
 type Change struct {
 	Change, Kind, Key, Scope, Severity string
 	Current                            bool
@@ -28,8 +25,7 @@ var changeRank = []string{ChangeNew, ChangeReturned, ChangeGone}
 
 var changeColumns = []string{"change", "kind", "key", "scope", "severity"}
 
-// CompareChanges orders changes as changes.csv lists them: new, then returned,
-// then gone, each by kind and key.
+// CompareChanges sorts by new/returned/gone, then kind and key.
 func CompareChanges(a, b Change) int {
 	return cmp.Or(cmp.Compare(slices.Index(changeRank, a.Change), slices.Index(changeRank, b.Change)), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Key, b.Key))
 }

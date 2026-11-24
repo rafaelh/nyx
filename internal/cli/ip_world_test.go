@@ -26,25 +26,13 @@ import (
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 )
 
-// The world of the nyx ip tests: every host nyx ip may ask is a fake on loopback, and every address
-// it may connect to is mapped to a counting listener, so a test sees exactly what was asked and
-// nothing can leave the machine. The tests build it with newIPWorld, seed the answers they want
-// with seed (or the finer helpers), run nyx ip with run, runJSON, lookup or record, and read the
-// result with ipEnvelope and ipRecord.
+// IP tests build a complete loopback world with counting source, DNS and target fakes.
+// newIPWorld wires the harness; seed supplies facts; run/lookup helpers execute commands;
+// ipEnvelope/ipRecord decode output. Assertions can reject all traffic or only traffic
+// concerning selected addresses.
 //
-// What it provides, in the order of the file:
-//   - the key lists (ipDefaultKeys, ipActiveKeys), the probe port lists and ipExpectKeys;
-//   - ipSource: a fake HTTP host that logs requests and answers by address or for all;
-//   - ipWorld: the fakes (InternetDB, RIPEstat geolocation, HackerTarget, the IANA bootstrap and the
-//     five RDAP registries), a public DNS fake (Team Cymru, PTR, A/AAAA) and a second DNS fake for
-//     this machine's resolver, and the probe targets;
-//   - ipFacts and seed: a whole public address's answers from every source, and its expected record;
-//   - ipRecord and ipEnvelope: the decoded result;
-//   - the assertions untouched, neverSent and sawOnly.
-//
-// Rates: every source, DNS and every target host is paced at 1000 a second in the harness's
-// options, so a batch is not slowed by the paces nyx ip has in real use. A test of a pace sets its
-// own Options.SourceRates.
+// Sources default to realistic empty/404 replies. Test pacing is raised to 1000/s unless a test
+// explicitly overrides SourceRates, keeping unrelated tests fast.
 
 // Hosts nyx ip asks, besides the RDAP hosts (hostIANA, hostARIN and the others of rdap_test.go).
 const (
@@ -80,8 +68,7 @@ func ipAllKeys(active bool) []string {
 	return slices.Concat(ipDefaultKeys[:3], ipSourceKeys(active), []string{"failures"})
 }
 
-// ipExpectKeys are the keys of a record for --fields naming selected: the three that are always
-// there, the selected keys in the order of the table (not the order given), then failures.
+// ipExpectKeys combines mandatory fields, table-ordered selections and trailing failures.
 func ipExpectKeys(selected ...string) []string {
 	all := ipAllKeys(true)
 	out := slices.Clone(all[:3])
@@ -103,9 +90,8 @@ var (
 
 // ---- fake HTTP hosts ----
 
-// ipSource is a fake HTTP host. It logs every request, answers by the address the request is about
-// (key), or for every request when setAll was called, or else with its fallback, and fails the test
-// at the end of the request when valid says the request is not one nyx ip makes of that source.
+// ipSource logs and validates requests, choosing address-specific, global or fallback responses
+// in that order.
 type ipSource struct {
 	t     *testing.T
 	host  string
@@ -211,9 +197,8 @@ type ipWorld struct {
 	t *testing.T
 	h *harness
 
-	// dns is the public resolvers: Team Cymru, PTR names and the A and AAAA of hostnames. local is
-	// this machine's resolver (Options.LocalResolverAddr): single-label names, retries of a public
-	// NXDOMAIN under --active, and the PTR of a non-public address under --active.
+	// dns serves public Cymru/PTR/A/AAAA queries. local serves active single-label/fallback
+	// names and non-public PTR lookups.
 	dns, local *egresstest.DNS
 
 	idb, geo, ht, iana *ipSource
@@ -231,14 +216,13 @@ type ipRoute struct {
 	host   string
 }
 
-// newIPWorld builds the fakes, points the harness at them, and returns the world. Nothing is seeded:
-// every source knows nothing, so an address has a record whose source keys are empty. Source
-// answers that no test set are 404s of the shape the real sources give, or empty answers.
+// newIPWorld wires unseeded fakes returning realistic no-data answers, so default records
+// contain empty source fields.
 func newIPWorld(t *testing.T) *ipWorld {
 	t.Helper()
 	h := newHarness(t)
-	// The addresses of the tests are not on the real lists, and an empty built-in copy of the
-	// threat data keeps them from ever being; a test of the keys gives its own lists.
+	// Use empty fixed threat lists by default so future embedded refreshes cannot change
+	// fixture outcomes.
 	h.abusive = abSnapshot(nil, nil)
 	w := &ipWorld{t: t, h: h, nets: map[string][]rdapNet{}, targets: map[string]*ipTarget{}, rdap: map[string]*ipSource{}}
 	w.dns, w.local = egresstest.NewDNS(t), egresstest.NewDNS(t)
@@ -395,8 +379,7 @@ func (w *ipWorld) locate(addr string, locs ...ipLoc) {
 	w.geo.set(addr, ipReply(200, ipGeoBody(addr, locs)))
 }
 
-// internetDB scripts InternetDB's answer for an address. Nil lists are written as empty ones, as
-// InternetDB does.
+// internetDB supplies realistic per-address JSON, normalising nil lists to empty lists.
 func (w *ipWorld) internetDB(addr string, ports []int, hostnames, tags, cpes, vulns []string) {
 	strs := func(s []string) []string {
 		if s == nil {
@@ -426,8 +409,7 @@ func (w *ipWorld) ptr(addr string, names ...string) {
 
 // ---- probe targets ----
 
-// ipTarget is a listener an address's port is mapped to (Options.DialMap). It counts the
-// connections it accepts and the bytes nyx sent on them.
+// ipTarget counts accepted connections and received bytes for one DialMap destination.
 type ipTarget struct {
 	Addr  string
 	Port  int
@@ -452,8 +434,7 @@ func (w *ipWorld) target(addr string, port int, t *ipTarget) {
 	w.targets[ipKey(addr, port)] = t
 }
 
-// listen maps addr:port to a plain TCP listener that sends the banner (if not empty) as soon as a
-// connection is made and then reads whatever nyx sends, counting it.
+// listen installs a TCP target that sends an optional greeting, then counts received data.
 func (w *ipWorld) listen(addr string, port int, banner string) *ipTarget {
 	w.t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -536,17 +517,14 @@ func (w *ipWorld) serveHTTPS(addr string, port int, h http.Handler, useTLS bool)
 	return t
 }
 
-// closedPort maps addr:port to a loopback port nothing listens on, so the connection is refused.
-// It is port 1, not a port freed a moment ago, which a parallel test could bind again.
+// closedPort uses loopback port 1 to avoid freed-port reuse races with parallel tests.
 func (w *ipWorld) closedPort(addr string, port int) {
 	w.t.Helper()
 	w.mapDial(addr, port, "127.0.0.1:1")
 }
 
-// sealProbes maps every probe port of each address (and the extra ports) that has no target yet to a
-// counting listener, so that a connection nyx makes is seen, never real. Every test that could
-// connect to an address calls it for that address: it is also the proof that a default-mode call
-// sent nothing (untouched, contacted).
+// sealProbes maps every unconfigured probe port to a counting listener. This both contains
+// traffic and proves default-mode silence.
 func (w *ipWorld) sealProbes(addrs []string, extra ...int) {
 	w.t.Helper()
 	for _, a := range addrs {
@@ -589,9 +567,8 @@ func (w *ipWorld) targetAt(addr string, port int) *ipTarget {
 
 // ---- seeding ----
 
-// ipFacts is what every source says about one address, and so the record that should result.
-// A nil list, an empty string or an ASN of 0 is what the source does not give; seed writes only what
-// is set, so the source answers with nothing (a 404, an empty list or NXDOMAIN).
+// ipFacts describes source answers and expected data. Unset facts become realistic
+// empty/404/NXDOMAIN responses.
 type ipFacts struct {
 	Addr                         string
 	ASN                          int
@@ -607,11 +584,9 @@ type ipFacts struct {
 	NotAskedReverse              bool // HackerTarget is not asked (shared provider address, IPv6): both keys are null
 }
 
-// seed gives an address a full set of answers from every source: AS 64500 (EXAMPLE-NET, which no
-// provider owns) announcing a /24 (a /64 for IPv6) registered at ARIN to Example Org, a PTR name,
-// an Australian location, InternetDB's ports 22, 80 and 443 with a hostname, a tag, a CPE and a
-// CVE, and two reverse-IP names. mods change the facts before they are served. It returns the
-// facts, which check turns into assertions on the record.
+// seed supplies a complete dedicated address across all sources, including ownership, ARIN
+// allocation, PTR, location, services and reverse names. mods adjusts facts before serving;
+// returned facts drive record assertions.
 func (w *ipWorld) seed(addr string, mods ...func(*ipFacts)) ipFacts {
 	w.t.Helper()
 	a := netip.MustParseAddr(addr)
@@ -655,7 +630,7 @@ func (w *ipWorld) seed(addr string, mods ...func(*ipFacts)) ipFacts {
 	return f
 }
 
-// ipRange is the first and last address of a prefix, or the two parts of "start-end".
+// ipRange extracts CIDR endpoints or parses a start-end range.
 func ipRange(s string) (start, end string) {
 	if a, b, ok := strings.Cut(s, "-"); ok {
 		return a, b
@@ -674,9 +649,8 @@ func ipOwnedBy(asn int, name string) func(*ipFacts) {
 	return func(f *ipFacts) { f.ASN, f.ASName = asn, name }
 }
 
-// ipProviderOf is a seed modifier: the AS is one the built-in provider data knows, as the provider
-// (such as "cloudflare") of a class (such as "cdn"). A shared class is not asked for reverse-IP
-// names.
+// ipProviderOf replaces ownership with a known provider/class, allowing shared-hosting and
+// reverse-IP selection tests.
 func ipProviderOf(provider, class string, notAsked bool) func(*ipFacts) {
 	return func(f *ipFacts) { f.Provider, f.Class, f.NotAskedReverse = provider, class, notAsked }
 }
@@ -726,7 +700,7 @@ func (f ipFacts) check(t *testing.T, r ipRecord, skip ...string) {
 	}
 }
 
-// ipAnyList is a list as JSON decodes it: a non-nil []any, never nil.
+// ipAnyList requires JSON-style non-nil []any values.
 func ipAnyList[T any](s []T) []any {
 	out := []any{}
 	for _, v := range s {
@@ -830,8 +804,7 @@ func dnsNames(d *egresstest.DNS) []string {
 	return slices.Compact(out)
 }
 
-// reverseLabel is the reversed form of an address as its PTR and Cymru names start with it:
-// "1.0.0.10" for 10.0.0.1.
+// reverseLabel supplies the reversed address prefix shared by PTR/Cymru query names.
 func reverseLabel(addr string) string {
 	rev, err := mdns.ReverseAddr(addr)
 	if err != nil {
@@ -842,8 +815,7 @@ func reverseLabel(addr string) string {
 	return strings.TrimSuffix(rev, ".ip6.arpa")
 }
 
-// untouched fails the test if anything was sent anywhere: a request to any fake HTTP host, a query
-// to either DNS server, a connection to a probe target, or a hit on any of the harness's canaries.
+// untouched rejects any source, DNS, target or canary traffic.
 func (w *ipWorld) untouched() {
 	w.t.Helper()
 	if n := w.httpRequests(); n != 0 {
@@ -863,10 +835,8 @@ func (w *ipWorld) untouched() {
 	}
 }
 
-// neverSent fails the test if any request or query was about one of the addresses: an HTTP request
-// to a source that names it, a query of the public resolvers for its PTR, its Cymru origin or any
-// name that starts with its reversed form, or a connection to it. This machine's resolver is not
-// checked (see sawOnly for it).
+// neverSent rejects source/public-DNS/target traffic concerning selected addresses.
+// Local-resolver assertions use sawOnly separately.
 func (w *ipWorld) neverSent(addrs ...string) {
 	w.t.Helper()
 	for _, a := range addrs {
@@ -1003,7 +973,7 @@ type ipMetaError struct {
 	Transient bool           `json:"transient"`
 }
 
-// inputs are the inputs as given that the entry names, as its input's "input" list.
+// inputs extracts original arguments from error metadata.
 func (e ipMetaError) inputs() []string {
 	var out []string
 	l, _ := e.Input["input"].([]any)
@@ -1037,9 +1007,8 @@ func (e ipEnvelope) addresses() []string {
 	return out
 }
 
-// ipEnvelope parses stdout as the one compact envelope of nyx ip, and fails the test unless it has
-// exactly the keys of the interface in order, every record is an object, errors and warnings are
-// lists and count is the number of records.
+// ipEnvelope verifies compact ordered JSON, object records, list-valued errors/warnings and
+// matching count.
 func (h *harness) ipEnvelope() ipEnvelope {
 	h.t.Helper()
 	out := h.stdout.String()

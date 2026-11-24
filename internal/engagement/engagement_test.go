@@ -98,7 +98,7 @@ func TestLock(t *testing.T) {
 	}
 }
 
-// Inputs and exclusions are merged as a union and persisted.
+// Merge stored inputs/exclusions by union without removing prior entries.
 func TestMergeInputs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

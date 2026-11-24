@@ -1,5 +1,4 @@
-// Package thirdparty derives third-party records from other records. It is pure
-// knowledge: it reads a scope and an inventory and does no I/O.
+// Package thirdparty derives dependency records from scope and inventory without I/O.
 package thirdparty
 
 import (
@@ -10,13 +9,9 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// CNAME derives the third parties that in-scope hostnames are served by: for
-// each in-scope hostname that does not answer only because of a wildcard, and
-// each provider entry of class SaaS at any hop of its CNAME chain, one record
-// per root and entry suffix (github.io, myshopify.com). The root is the most
-// specific input root that covers the name (Scope.RootOf). Names that are
-// excluded or only candidates are never listed, nor is a chain on which no
-// SaaS entry appears (one that reaches only a CDN or a cloud service).
+// CNAME derives SaaS dependencies for in-scope, non-wildcard-only names. Each matched provider
+// suffix contributes one record under the most specific input root. Excluded/candidate names
+// and CDN/cloud-only chains do not contribute SaaS dependencies.
 func CNAME(sc *scope.Scope, inv *inventory.Inventory) []store.Obs {
 	seen := map[string]bool{}
 	var obs []store.Obs

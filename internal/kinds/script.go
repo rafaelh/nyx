@@ -1,20 +1,18 @@
 package kinds
 
-// Script is a script file a crawled page references with <script src>, whatever
-// host it is on. The crawl records one for every such element it sees; the
-// jsparse stage fetches only those on in-scope hosts. A record is shown while its
-// host is in scope, and the egress policy lets jsparse request only these URLs.
+// Script records a crawled page's <script src> URL, including references outside scope. Only
+// in-scope scripts are shown and fetched by jsparse; egress restricts jsparse to these recorded
+// URLs.
 var Script = define[ScriptAttrs](Kind{Name: "script", HostAttr: "host"})
 
-// ScriptAttrs: URL is the normalised script URL (the record's key), Host its
-// host, and Service the origin of the web service whose crawl saw it.
+// ScriptAttrs identifies the normalised script URL, its host and the web-service origin that
+// referenced it.
 type ScriptAttrs struct {
 	URL     string `json:"url"`
 	Host    string `json:"host"`
 	Service string `json:"service"`
 }
 
-// ScriptParsed marks a script the jsparse stage has completed a check for, keyed
-// by the script's URL. It lets a script that was fetched keep its place within the
-// per-origin cap when new scripts sort before it.
+// ScriptParsed marks completed jsparse URLs so fetched scripts retain their per-origin cap
+// slots when new URLs sort ahead of them.
 var ScriptParsed = defineBare(Kind{Name: "script_parsed"})

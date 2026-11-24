@@ -11,9 +11,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// RDNS looks up PTR records for every address of an in-scope IPv4 netblock
-// (the full sweep, already limited by the runner's netblock guard) and for every
-// found address inside an in-scope netblock, which is how IPv6 is covered.
+// RDNS sweeps guarded in-scope IPv4 netblocks and looks up other discovered in-scope-netblock
+// addresses individually, covering IPv6 without expanding it.
 type RDNS struct{ base }
 
 // NewRDNS returns the rdns stage.

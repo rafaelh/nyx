@@ -14,16 +14,14 @@ import (
 
 func newASN() run.Stage { return asn.New() }
 
-// expander is a fake stage that expands the input ASNs, as the asn stage does: a
-// netblock it observes under a check for an input ASN is in scope.
+// expander marks fake input-ASN expansion through the same interface as the real stage.
 type expander struct{ *testkit.Stage }
 
 func (expander) ExpandsInputASNs() {}
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// docsText is the user documentation: README.md and then each docs/*.md page but the to-do
-// list, in name order. Each page starts with its "# " title.
+// docsText joins README and sorted guide pages, excluding todo, while retaining page titles.
 func docsText(t *testing.T) string {
 	t.Helper()
 	pages, err := filepath.Glob("../../docs/*.md")
@@ -45,12 +43,10 @@ func docsText(t *testing.T) string {
 	return b.String()
 }
 
-// flatWords is s in lower case with each run of white space one space, so a
-// phrase that wraps across lines or starts a sentence still matches.
+// flatWords normalises case/whitespace for assertions spanning lines or sentence starts.
 func flatWords(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
 
-// docsSection is the documentation's section that starts at heading, up to the next "## "
-// heading or the end of its page, in lower case, and the whole documentation.
+// docsSection returns the named level-two section and full normalised documentation.
 func docsSection(t *testing.T, heading string) (section, whole string) {
 	t.Helper()
 	whole = docsText(t)

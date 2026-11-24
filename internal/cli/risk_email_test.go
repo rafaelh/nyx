@@ -153,9 +153,7 @@ func TestEmail_Posture(t *testing.T) {
 	}
 }
 
-// checkEmailPosture checks that risk-email.csv has exactly the finding types
-// in want, each a row for the root with a severity, and that email-posture.csv
-// is one row for the root with the columns in cols.
+// checkEmailPosture verifies exact finding types and one posture row with expected columns.
 func checkEmailPosture(t *testing.T, x *risk, want []string, cols map[string]string) {
 	t.Helper()
 	got := col(current(x.rows("risk-email.csv")), "type")

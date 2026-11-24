@@ -6,7 +6,7 @@ import (
 	"github.com/rafaelh/nyx/internal/shellquote"
 )
 
-// Each argument is quoted for a POSIX shell, only when it needs it.
+// Quote only shell-sensitive arguments while preserving argument boundaries.
 func TestQuote(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{

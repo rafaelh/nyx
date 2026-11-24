@@ -12,9 +12,8 @@ func cname(d *inventory.Data, name, target string) {
 	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: name, Type: "CNAME", Value: target})
 }
 
-// Fronted says whether a host is behind a CDN or WAF: a CNAME on its chain that matches an entry of
-// class cdn or waf, or an address that classifies as cdn (a published range or an ASN entry). A
-// SaaS or PaaS platform, a hyperscaler's address or an ordinary host is not.
+// Fronting requires CDN/WAF CNAME or CDN address evidence, excluding ordinary SaaS/PaaS/cloud
+// hosting.
 func TestFronted(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data

@@ -606,9 +606,8 @@ func TestThirdPartyDoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
-// A key never appears in a transport error, which includes the URL: neither a
-// key in the URL the stage gives nor one egress adds as a (percent-encoded)
-// query parameter.
+// Transport errors cannot expose credentials supplied in URLs or injected as encoded query
+// parameters.
 func TestThirdPartyKeyScrubbedFromErrors(t *testing.T) {
 	t.Parallel()
 	base := "http://" + closedAddr(t) // nothing answers, so the request fails in the transport

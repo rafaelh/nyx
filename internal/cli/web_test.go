@@ -11,9 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-// Web services and URLs. The tests drive cli.Execute with the real
-// stage list and fake servers behind egress's DialMap; request counters on every
-// server assert what was and was not contacted.
+// Web tests drive real stages against counted loopback servers to verify contact decisions.
 
 func (x *web) wantServices(want ...string) {
 	x.t.Helper()
@@ -30,9 +28,8 @@ func (x *web) mustRun(args ...string) {
 	}
 }
 
-// partialRun runs nyx as mustRun does, for a run in which n checks of one stage are meant to fail:
-// it exits 7 with the result written, and the transient error naming the stage and the count is
-// returned.
+// partialRun verifies expected failed-check counts after output and returns the retryable
+// partial error.
 func (x *web) partialRun(stage string, n int, args ...string) failure {
 	x.t.Helper()
 	return x.h.partialFailed(x.run(args...), stage, n)

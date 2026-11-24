@@ -114,8 +114,7 @@ func TestWrap_ProtectedLeftWhole(t *testing.T) {
 	}
 }
 
-// Even on a line of its own, a protected word stays whole; the same word that is
-// not protected is broken at the width.
+// Protected words remain whole even on otherwise empty lines; ordinary oversized words split.
 func TestWrap_ProtectedFirstOnLine(t *testing.T) {
 	t.Parallel()
 	checkLines(t, "alone", wrapPlain("host.example.com", 8, 0, 0, layout.Spaces), []string{"host.example.com"})
@@ -179,8 +178,7 @@ func TestWrap_CommasFallback(t *testing.T) {
 		[]string{"see", "a.example.com,", "kl"})
 }
 
-// Lines are broken first and styled afterwards: a styled run that crosses a break
-// is closed at the end of one line and opened again on the next.
+// Apply styling after wrapping so each line closes and reopens styles cleanly.
 func TestWrap_StyleAcrossBreak(t *testing.T) {
 	t.Parallel()
 	got := layout.Wrap([]layout.Span{{Text: "aaa bbb ccc", Style: mark}}, 7, 0, 0, layout.Spaces)
@@ -233,7 +231,7 @@ func TestWrap_KeepThenText(t *testing.T) {
 	t.Parallel()
 	got := layout.Wrap([]layout.Span{{Text: "CRITICAL", Style: mark, Keep: true}, {Text: " message words here"}}, 18, 0, 0, layout.Spaces)
 	checkLines(t, "badge then text", got, []string{"<CRITICAL> message", "words here"})
-	// A Keep span is measured as it is styled (a badge pads itself).
+	// Measure Keep spans after styling because badges add padding.
 	pad := func(s string) string { return " " + s + " " }
 	got = layout.Wrap([]layout.Span{{Text: "ab", Style: pad, Keep: true}, {Text: " cd ef"}}, 7, 0, 0, layout.Spaces)
 	checkLines(t, "styled width counts", got, []string{" ab  cd", "ef"})
@@ -247,9 +245,8 @@ func TestWrap_None(t *testing.T) {
 	checkLines(t, "never breaks", wrapPlain("a long line with many words", 5, 0, 0, layout.None), []string{"a long line with many words"})
 }
 
-// Property: for random text at several widths, no line is wider than the width
-// unless it holds a protected word or a Keep span, and nothing but the breaking
-// spaces is lost.
+// Randomised wrapping preserves text except break spaces and exceeds width only for unbreakable
+// content.
 func TestWrap_Property(t *testing.T) {
 	t.Parallel()
 	pieces := []string{

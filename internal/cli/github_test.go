@@ -14,9 +14,8 @@ import (
 	"time"
 )
 
-// The github stage: code search for mentions of an in-scope root. The tests drive
-// cli.Execute with the real stage; api.github.com is a loopback fake that answers
-// /search/code as GitHub does, with text matches when asked for them.
+// GitHub tests run the real stage against a loopback search endpoint with realistic text-match
+// responses.
 
 const githubKey = "gh-token-SECRET-0017"
 
@@ -71,8 +70,8 @@ type ghFake struct {
 	files map[string][]ghFile // by root
 	// total, when set for a root, is the total_count reported instead of the number of files.
 	total map[string]int
-	// before may answer a request itself (it returns true); n counts the requests
-	// made so far for the same root and page, this one included.
+	// before can handle a request; n counts attempts for that root/page, including the
+	// current request.
 	before func(rw http.ResponseWriter, root string, page, n int) bool
 	seen   map[string]int
 }
@@ -142,8 +141,7 @@ func ghAsked(w *world) []string {
 	return out
 }
 
-// ghMany makes n files for a root, named by their index. A URL belongs to one
-// match, so the files of two roots never share one.
+// ghMany generates uniquely located files per root so matches cannot overlap accidentally.
 func ghMany(root string, n int) []ghFile {
 	var out []ghFile
 	for i := range n {
@@ -153,8 +151,7 @@ func ghMany(root string, n int) []ghFile {
 	return out
 }
 
-// ghFailed is how many checks of the github stage failed in the last run: a stage
-// is "failed" only when every check was, so a stop partway shows as done with a count.
+// ghFailed reads check failure counts; a partly successful stage can still display done.
 func ghFailed(w *world) int { return lastState(w.h.events(), "github").num("failed") }
 
 func ghCheckKey(root string, max int) string { return fmt.Sprintf("%s|max=%d", root, max) }
@@ -173,8 +170,8 @@ func TestGitHub_NotConfiguredWithoutKey(t *testing.T) {
 	}
 }
 
-// A match is a row with its location and the in-scope names of its fragment. No
-// fragment text is kept, nothing is inferred from it, and the stage runs passively.
+// Code-search output stores location and matching hostnames without retaining fragments or
+// inferring secrets.
 func TestGitHub_RowsHostnamesAndNoFragmentText(t *testing.T) {
 	t.Parallel()
 	const (
@@ -211,8 +208,8 @@ func TestGitHub_RowsHostnamesAndNoFragmentText(t *testing.T) {
 		r["hostnames"] != "files.example.com;internal-jenkins.example.com;sso.example.com;vpn.example.com;wiki.example.com" || r["root"] != "example.com" || r["current"] != "true" {
 		t.Errorf("row for %s = %v", u1, r)
 	}
-	// A personal account is recorded like any other. Names that are not under an
-	// in-scope root, and the root itself, are not hostnames of the row.
+	// Personal repositories are valid; root names and external names do not become row
+	// hostnames.
 	if r := find(rows, "url", u2); r == nil || r["repository"] != "someone/dotfiles" || r["hostnames"] != "" || r["root"] != "example.com" {
 		t.Errorf("row for %s = %v", u2, r)
 	}
@@ -270,8 +267,8 @@ func TestGitHub_TextIsSanitised(t *testing.T) {
 	if len(rows) != 1 || rows[0]["repository"] != "evil/repo" || rows[0]["path"] != "a/b.txt" {
 		t.Fatalf("rows = %v", rows)
 	}
-	// The database is binary and holds the odd 0x1b or 0x07 as structure, so the
-	// escape sequences are looked for by their text.
+	// Check escape payload text rather than raw control bytes, which can occur legitimately
+	// in SQLite structure.
 	for _, s := range []string{"[31m", ";owned", "\u202e"} {
 		if hits := w.anywhere(eng, s); len(hits) > 0 {
 			t.Errorf("unsanitised %q written to %v", s, hits)
@@ -279,8 +276,8 @@ func TestGitHub_TextIsSanitised(t *testing.T) {
 	}
 }
 
-// The request is the documented code search for the quoted root, with the key as
-// a bearer token and the text-match media type; roots out of scope are not searched.
+// Check quoted-root queries, bearer authentication and text-match media type, without searching
+// excluded roots.
 func TestGitHub_RequestShape(t *testing.T) {
 	t.Parallel()
 	g := newGH(map[string][]ghFile{"example.com": ghMany("example.com", 1), "example.net": ghMany("example.net", 1), "example.org": ghMany("example.org", 1)})
@@ -356,9 +353,7 @@ func TestGitHub_StopsAtTheTotalOrAnEmptyPage(t *testing.T) {
 	}
 }
 
-// GitHub serves the first 1,000 results only, in ten pages of 100, and refuses a
-// page after them. A short page leaves the cap unreached, so paging also ends at
-// the tenth page, and what was read completes the root.
+// Stop at GitHub's tenth page even when short pages never reach the numeric result cap.
 func TestGitHub_StopsAtGitHubsLastPage(t *testing.T) {
 	t.Parallel()
 	g := newGH(map[string][]ghFile{})
@@ -439,8 +434,7 @@ func TestGitHub_RootsAreSearchedOnce(t *testing.T) {
 	}
 }
 
-// A match that is gone after --redo github is marked not current; its row keeps
-// only the URL, which names the repository and the path.
+// Removed GitHub matches keep only their identifying URL as non-current history.
 func TestGitHub_RedoMarksVanishedMatchesNotCurrent(t *testing.T) {
 	t.Parallel()
 	keep, gone := ghURL("acme/infra", "keep.yml"), ghURL("acme/old", "gone.yml")
@@ -505,8 +499,8 @@ func TestGitHub_MentionsAreShownWhileTheRootIsInScope(t *testing.T) {
 
 // --- rate limits and failures ---
 
-// ghRefuse answers the first request for a root's page with status and hdr, then
-// serves it; then, if set, runs after the refusal. An empty root matches any root.
+// ghRefuse injects one root/page refusal before normal serving and can trigger a callback
+// afterwards.
 func ghRefuse(g *ghFake, root string, page, status int, hdr map[string]string, then func()) {
 	g.before = func(rw http.ResponseWriter, r string, p, n int) bool {
 		if (root != "" && r != root) || p != page || n > 1 {
@@ -606,8 +600,7 @@ func TestGitHub_InterruptDuringTheWait(t *testing.T) {
 	}
 }
 
-// A reset further away, a 401, any other 403 and a 429 without a reset stop the
-// stage for the run: the roots completed before are kept and the rest are not asked.
+// Unwaitable limits and key refusals preserve completed roots and abort unsent work.
 func TestGitHub_StopsTheStage(t *testing.T) {
 	t.Parallel()
 	far := func() string { return strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) }
@@ -637,8 +630,8 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 			w := ghWorld(t, g)
 			start := time.Now()
 			f := w.h.partial(w.run("--passive", "--concurrency", "1", "example.com", "example.net", "example.org"), true)
-			// A 401 is a refused key and waiting does not cure it; GitHub answers 403 and 429 for a
-			// limit that has not lifted, which does.
+			// Rejected keys are non-transient; exhausted waitable rate limits are
+			// transient.
 			if want := tc.status != 401; f.transient != want || f.msg != "2 checks failed: github 2" {
 				t.Errorf("transient = %v, want %v: %+v", f.transient, want, f)
 			}
@@ -664,8 +657,7 @@ func TestGitHub_StopsTheStage(t *testing.T) {
 	}
 }
 
-// Any other failure is a failed check for that root alone: not completed, retried
-// on a later run, and the other roots are still searched.
+// Other source failures affect only their root and retry on later runs.
 func TestGitHub_OtherFailuresAreTransient(t *testing.T) {
 	t.Parallel()
 	for name, serve := range map[string]func(rw http.ResponseWriter){

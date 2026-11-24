@@ -25,7 +25,7 @@ type seen struct {
 	body                string
 }
 
-// reply is what a fake answers.
+// reply supplies one fake response.
 type reply struct {
 	status int
 	header map[string]string

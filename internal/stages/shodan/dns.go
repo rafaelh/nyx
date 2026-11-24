@@ -19,13 +19,9 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// DNS is the shodan-dns stage: the subdomains Shodan lists for each in-scope
-// input root, and the A, AAAA, CNAME, MX and NS records it holds for them.
-//
-// The names become hostnames, and so do in-scope CNAME, MX and NS targets. The
-// records themselves are stored as dns_claim, never as resolution and with no ip
-// record: what a third party says a name points at is shown, but nothing reads
-// it to decide what to resolve, contact, port-check or probe.
+// DNS collects Shodan subdomains and DNS claims for in-scope roots. In-scope CNAME/MX/NS
+// targets also become hostnames. Claims never become confirmed resolutions or IP records and
+// cannot change contact decisions.
 type DNS struct{ shodanAPI }
 
 // NewDNS returns the shodan-dns stage.
@@ -33,21 +29,19 @@ func NewDNS() *DNS { return &DNS{} }
 
 func (*DNS) Name() string { return "shodan-dns" }
 
-// CandidateSources: what Shodan holds is passive DNS.
+// CandidateSources classifies Shodan evidence as passive DNS.
 func (*DNS) CandidateSources() map[string]string {
 	return map[string]string{"shodan-dns": candidates.PassiveDNS}
 }
 
-// dnsInput is the Check.Input. The scope travels in it so that Run can tell an
-// in-scope CNAME target from one that is not.
+// dnsInput carries scope to classify returned CNAME targets.
 type dnsInput struct {
 	root  string
 	pages int
 	sc    *scope.Scope
 }
 
-// Checks yields one check per in-scope input root, keyed "<root>|pages=<n>" so
-// raising shodan_dns.max_pages repeats them.
+// Checks versions each root by shodan_dns.max_pages so raised caps rerun it.
 func (*DNS) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		pages := v.Settings().ShodanDNS.MaxPages
@@ -70,8 +64,7 @@ type dnsAnswer struct {
 	More bool `json:"more"`
 }
 
-// Run reads the root's result pages, in.pages at most (each costs one query
-// credit). A 404 is a root Shodan knows nothing about.
+// Run reads capped credit-consuming pages, treating 404 as no Shodan data.
 func (*DNS) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(dnsInput)
 	out := &dnsObs{in: in, seen: map[string]bool{}}
@@ -124,9 +117,8 @@ func (o *dnsObs) hostname(name string) {
 	}
 }
 
-// record stores one DNS record of a name under the root; the name is a hostname
-// whatever the record's type. Types other than A, AAAA, CNAME, MX and NS,
-// wildcard names and unreadable values store no record.
+// record adds the queried hostname, then supported valid A/AAAA/CNAME/MX/NS claims. Wildcard
+// names and unreadable values contribute no claim.
 func (o *dnsObs) record(sub, typ, value string) {
 	typ = strings.ToUpper(typ)
 	if strings.Contains(sub, "*") {
@@ -147,8 +139,8 @@ func (o *dnsObs) record(sub, typ, value string) {
 		if !ok {
 			return
 		}
-		// The type follows the address, as resolve's does, so that the keys of
-		// one record agree whatever type Shodan labelled it with.
+		// Infer A/AAAA from the address so mislabelled reports still produce canonical
+		// keys.
 		typ, value = "AAAA", a.String()
 		if a.Is4() {
 			typ = "A"

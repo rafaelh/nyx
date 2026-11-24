@@ -32,8 +32,7 @@ func scriptPage(srcs ...string) string {
 	return b.String()
 }
 
-// jsFixture is a.example.com with a root page that loads the given scripts, each
-// answered as it is in scripts (a missing one is a 404).
+// jsFixture serves a root loading supplied scripts, returning 404 for missing script bodies.
 func jsFixture(t *testing.T, srcs []string, scripts map[string]http.HandlerFunc) (*web, *site) {
 	t.Helper()
 	x := newWeb(t)
@@ -52,8 +51,7 @@ func (x *web) jsparseURLs() []string {
 	return got
 }
 
-// A script on an in-scope host is fetched with one GET and never again, whatever
-// later runs do; the crawl still never fetches it.
+// JS parsing fetches a script once; crawling records the reference without fetching it.
 func TestJSParse_FetchesSameHostScriptsOnce(t *testing.T) {
 	t.Parallel()
 	x, s := jsFixture(t, []string{"/app.js", "/vendor/lib.js?v=2", "/app.js"}, map[string]http.HandlerFunc{
@@ -83,8 +81,7 @@ func TestJSParse_FetchesSameHostScriptsOnce(t *testing.T) {
 	}
 }
 
-// Scripts on a CDN, on a SaaS platform's host and on an excluded host are never
-// requested, and one on another in-scope host is.
+// Only eligible in-scope script hosts are fetched; CDN/SaaS/excluded hosts are skipped.
 func TestJSParse_NeverFetchesCDNOrSaaSScripts(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -119,8 +116,7 @@ func TestJSParse_NeverFetchesCDNOrSaaSScripts(t *testing.T) {
 	}
 }
 
-// A redirect is followed only to the same host. A non-2xx answer completes with
-// nothing and is not repeated; a timeout is a failed check that is tried again.
+// Script redirects stay on-host. Non-2xx completes empty; timeout retries later.
 func TestJSParse_RedirectsAndFailures(t *testing.T) {
 	t.Parallel()
 	var slow atomic.Int32
@@ -285,8 +281,7 @@ func TestJSParse_DefaultCapIsFifty(t *testing.T) {
 	}
 }
 
-// A script that was fetched keeps its place within the cap, and its URLs stay
-// current, when a re-crawl finds new scripts that sort before it.
+// Previously fetched scripts retain cap slots and evidence when new URLs sort earlier.
 func TestJSParse_ParsedScriptStaysWithinTheCap(t *testing.T) {
 	t.Parallel()
 	var body atomic.Value
@@ -342,8 +337,7 @@ func TestJSParse_HTMLAnswerRecordsNothing(t *testing.T) {
 	}
 }
 
-// A body past 4 MiB is read as far as 4 MiB, what is in that part is recorded, and
-// a warning says it was cut.
+// Truncated scripts retain discoveries from the first 4 MiB and produce a warning.
 func TestJSParse_TruncatedBundle(t *testing.T) {
 	t.Parallel()
 	const limit = 4 << 20
@@ -395,8 +389,7 @@ func TestJSParse_URLCap(t *testing.T) {
 	}
 }
 
-// When a re-crawl stops referencing a script, the URLs only it found are marked
-// not current, and those another script also found are kept.
+// Removing a script reference retires only evidence unsupported by remaining scripts.
 func TestJSParse_ReCrawlThatDropsAScriptRetiresItsURLs(t *testing.T) {
 	t.Parallel()
 	var body atomic.Value
@@ -472,7 +465,7 @@ x("https://api.example.com/v1/items");x("http://evil.example.net/off");x("/stati
 	}
 }
 
-// Under --passive nothing is fetched, and the stage is reported as not configured.
+// Passive runs skip script fetching and mark the stage unconfigured.
 func TestJSParse_NotUnderPassive(t *testing.T) {
 	t.Parallel()
 	x, s := jsFixture(t, []string{"/app.js"}, map[string]http.HandlerFunc{"/app.js": js(`x("/api/a")`)})

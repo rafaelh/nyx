@@ -6,9 +6,8 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// An address whose origin AS is a CDN stays shared, with the class cdn, even where a published
-// range for a dedicated provider covers it. Linode's list holds Akamai edge space, and treating
-// that as a customer's own machine would make a CDN edge a candidate origin.
+// CDN ASN evidence overrides dedicated-hosting ranges so CDN edges cannot become candidate
+// origins.
 func TestClassify_CDNASNStaysSharedInsideADedicatedRange(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()
@@ -38,8 +37,7 @@ func TestClassify_CDNASNStaysSharedInsideADedicatedRange(t *testing.T) {
 	}
 }
 
-// CNAME entries carry the class cdn or waf for the providers that front a site, so a host whose
-// chain ends on one is known to be behind one. The other entries keep the class they had.
+// Only fronting providers gain cdn/waf CNAME classes; other classifications remain intact.
 func TestCNAMEClasses_CDNAndWAF(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()

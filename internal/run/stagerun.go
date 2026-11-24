@@ -12,17 +12,16 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// stageRun is one pass of one stage: a producer, on the calling goroutine,
-// that lists the stage's checks and decides which to send, and a pool of
-// workers that run them. The fields below the workers' are the producer's own,
-// read by runStage only once the workers have finished.
+// stageRun manages one stage pass. The calling goroutine enumerates checks and sends them to a
+// worker pool. Fields below the worker counters belong to the producer; runStage reads them
+// after workers finish.
 type stageRun struct {
 	r    *Runner
-	ctx  context.Context // the run's context, with the warner that Checks and Run use
+	ctx  context.Context // run context carrying the warning handler for Checks and Run
 	s    Stage
 	name string
 
-	done        map[string]struct{} // the stored keys of the stage's completed checks
+	done        map[string]struct{} // completed keys in stored form
 	redoPending bool
 	retiring    bool
 	clients     egress.Clients
@@ -31,28 +30,25 @@ type stageRun struct {
 
 	work      chan Check
 	attempted atomic.Int64
-	aborted   atomic.Int64 // checks failed by the stage's abort
+	aborted   atomic.Int64 // checks failed because the stage aborted
 
-	// all holds the keys yielded, in stored (redacted) form like done, to skip a
-	// key a stage yields more than once. Only a redo or a retire needs every
-	// key; otherwise a completed key is skipped by done and is not kept.
+	// all deduplicates yielded keys in their stored, redacted form. Redo and retirement
+	// need all valid keys, including completed ones; other passes can skip completed keys
+	// without keeping them here.
 	all     map[string]struct{}
 	keepAll bool
-	// A budgeted stage spends its budget on the pending checks in the order it
-	// yields them. The first one that would pass it, and every pending one after
-	// it, is deferred: not sent, not failed, not attempted. The check is already
-	// in all, so a redo or a retire still counts it as valid and its earlier
-	// evidence stays current. The first pending check of the run is always taken.
-	budget       int // 0: the stage is not budgeted
+	// Checks consume the budget in enumeration order. Once a check exceeds the remaining
+	// budget, it and later pending checks are deferred. They stay in all so their existing
+	// evidence survives redo and retirement. The first pending check is always admitted,
+	// even if its cost exceeds the budget.
+	budget       int // zero disables budgeting
 	spent        int
 	deferredCost int
 	enumFailed   bool
-	running      bool // whether the stage has been shown as running
+	running      bool // whether the running state has been displayed
 }
 
-// newStageRun reads what a pass of the stage starts from: its completed
-// checks, whether a redo of it is pending, the checks failed this run, its
-// clients and its budget.
+// newStageRun loads the pass's completed checks, pending redo, clients and remaining budget.
 func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 	name := s.Name()
 	done, err := r.st.Completed(name)
@@ -84,8 +80,6 @@ func (r *Runner) newStageRun(ctx context.Context, s Stage) (*stageRun, error) {
 	return sr, nil
 }
 
-// execute starts the workers, sends them the pending checks and waits for
-// them to finish.
 func (sr *stageRun) execute() {
 	sr.work = make(chan Check)
 	var wg sync.WaitGroup
@@ -101,15 +95,15 @@ func (sr *stageRun) execute() {
 	wg.Wait()
 }
 
-// abortFail fails a check because its stage aborted with cause. The stage warns
-// once for all of them (see runStage), not once per check.
+// abortFail counts a failure caused by a stage abort. runStage emits one warning for the abort
+// rather than one per check.
 func (sr *stageRun) abortFail(key string, cause error) {
 	sr.r.recordFailure(sr.name, key, errors.Is(cause, ErrKeyRejected))
 	sr.aborted.Add(1)
 }
 
-// abortedEarlier fails, as attempted, a check of a stage that aborted earlier
-// in this run, and reports whether it did.
+// abortedEarlier counts the check as attempted and failed if its stage already aborted this
+// run.
 func (sr *stageRun) abortedEarlier(key string) bool {
 	cause := sr.r.abortErr(sr.name)
 	if cause == nil {
@@ -120,8 +114,8 @@ func (sr *stageRun) abortedEarlier(key string) bool {
 	return true
 }
 
-// runOne runs a check on a worker and records its result. A check the
-// context ended is abandoned, and redone next run.
+// runOne executes a worker's check and stores its result. Cancellation leaves the check
+// incomplete for retry next run.
 func (sr *stageRun) runOne(c Check) {
 	r, name := sr.r, sr.name
 	if sr.ctx.Err() != nil {
@@ -159,13 +153,12 @@ func (sr *stageRun) runOne(c Check) {
 	r.st.Complete(name, c.Key, obs)
 }
 
-// enumFail fails the stage's enumeration, counted once per run like any
-// failed check, so passes still terminate.
+// enumFail records one enumeration failure per run so repeated passes can terminate.
 func (sr *stageRun) enumFail(err error) {
 	sr.enumFailed = true
 	const enumKey = "(enumeration)"
 	r := sr.r
-	// An enumeration the cancel cut short is not a failure: the stage is listed again next run.
+	// Cancellation leaves enumeration for the next run and does not count as a failure.
 	if !r.hasFailed(sr.name, enumKey) && sr.ctx.Err() == nil {
 		r.failCheck(sr.name, enumKey, err)
 		r.count(sr.name, func(s *stageStats) { s.completed++ })
@@ -173,9 +166,8 @@ func (sr *stageRun) enumFail(err error) {
 	}
 }
 
-// produce sends the pending checks to the workers. A panic in the stage's
-// own Checks is an enumeration failure: the work channel is still closed
-// and the workers waited for.
+// produce sends pending checks to workers. A panic in Checks becomes an enumeration failure;
+// execute still closes the channel and waits for workers.
 func (sr *stageRun) produce() {
 	var panicked error
 	defer func() {
@@ -186,7 +178,7 @@ func (sr *stageRun) produce() {
 	defer RecoverInto(&panicked)
 	for c, cerr := range sr.s.Checks(sr.ctx, sr.view) {
 		if sr.ctx.Err() != nil {
-			return // stop producing: the checks that follow would only be cancelled
+			return
 		}
 		if cerr != nil {
 			sr.enumFail(cerr)
@@ -207,14 +199,12 @@ func (sr *stageRun) produce() {
 	}
 }
 
-// admit reports whether a check the stage yielded is sent to the workers. A
-// key already yielded, completed or failed this run is skipped; once the
-// stage has aborted the check fails at once; and a check past the budget is
-// deferred.
+// admit rejects duplicate, completed or previously failed checks. After a stage abort it counts
+// pending checks as failed; after the budget is spent it defers them.
 func (sr *stageRun) admit(c Check) bool {
 	r := sr.r
 	stored := r.st.CheckKey(c.Key)
-	if _, dup := sr.all[stored]; dup { // a stage may yield a key more than once
+	if _, dup := sr.all[stored]; dup {
 		return false
 	}
 	if _, ok := sr.done[stored]; ok {
@@ -234,8 +224,7 @@ func (sr *stageRun) admit(c Check) bool {
 	return sr.withinBudget(c)
 }
 
-// withinBudget spends the check's cost from the budget, or defers it (see
-// stageRun.budget).
+// withinBudget charges the check's cost or defers it when the budget is exhausted.
 func (sr *stageRun) withinBudget(c Check) bool {
 	if sr.budget == 0 {
 		return true
@@ -249,11 +238,9 @@ func (sr *stageRun) withinBudget(c Check) bool {
 	return true
 }
 
-// sweep finishes a pending redo and retires the completed checks the stage
-// no longer yields, and reports whether either changed a record. The sweep
-// needs every valid check; after an enumeration error it would delete the
-// observations of checks that were never listed, so the redo stays pending
-// until a pass enumerates cleanly.
+// sweep finishes redo and retires obsolete checks, returning whether records changed. It waits
+// for successful enumeration: otherwise it could remove evidence for checks that were never
+// listed because of the error.
 func (sr *stageRun) sweep() (bool, error) {
 	if sr.enumFailed {
 		return false, nil
@@ -269,8 +256,7 @@ func (sr *stageRun) sweep() (bool, error) {
 			return false, err
 		}
 	}
-	// Only completed checks have observations, so there is nothing to retire
-	// unless one of them was not yielded this pass.
+	// Only completed checks have observations that may need retirement.
 	if sr.retiring && sr.unlisted() {
 		retired, err := r.st.Retire(sr.name, sr.all)
 		if err != nil {
@@ -281,7 +267,6 @@ func (sr *stageRun) sweep() (bool, error) {
 	return swept, nil
 }
 
-// unlisted reports whether a completed check was not yielded this pass.
 func (sr *stageRun) unlisted() bool {
 	for k := range sr.done {
 		if _, ok := sr.all[k]; !ok {

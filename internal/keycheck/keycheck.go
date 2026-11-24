@@ -1,6 +1,5 @@
-// Package keycheck tests an API key against its source: one authenticated request to that
-// source's host and nothing else, through egress's third-party client, and a classification of
-// the answer. It is a test of a key, never a stage, so it has no scope and never contacts a target.
+// Package keycheck tests credentials with one authenticated request to the source's host
+// through egress. It has no scope and cannot contact targets.
 package keycheck
 
 import (
@@ -17,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Status is what a source said about a key.
+// Status classifies the source's response to a credential test.
 type Status int
 
 // The answers a key test can give.
@@ -33,20 +32,19 @@ const (
 // Result is the outcome of one key test.
 type Result struct {
 	Status Status
-	// Reason is why an Unknown result is unknown: one line, with terminal control characters
-	// removed and the key masked. It is empty for the other statuses.
+	// Reason explains Unknown results in one sanitised, key-redacted line. Other statuses
+	// leave it empty.
 	Reason string
 }
 
-// requestTimeout is the request's own timeout. It is longer than any deadline a caller gives, so
-// the caller's context decides.
+// requestTimeout exceeds caller deadlines so their context normally controls test duration.
 const requestTimeout = 20 * time.Second
 
 // maxReason is the most runes a Reason holds.
 const maxReason = 200
 
-// minEcho is the shortest run of a key that is masked wherever it appears in a reason: a source
-// may echo part of the key it was given.
+// minEcho sets the shortest key fragment masked in reasons because sources may echo only part
+// of a key.
 const minEcho = 5
 
 const mask = "****"
@@ -60,8 +58,8 @@ type source struct {
 	keyHeader, keyPrefix, keyParam string
 	// rejects reports whether the answer says the key is invalid.
 	rejects func(status int, body []byte) bool
-	// ambiguous says the source's 401 and 403 never clearly say the key is bad, so they are
-	// reported with the source's message.
+	// ambiguous sources need response explanations because 401/403 alone does not prove an
+	// invalid key.
 	ambiguous bool
 }
 
@@ -90,7 +88,7 @@ var sources = []source{
 		keyHeader: "apiKey"}, // classified by the rules nyx cve uses
 }
 
-// chaosRejects: Chaos answers a bad key with a 400 and "valid":false, as well as a 401.
+// chaosRejects recognises both 401 and Chaos's invalid-key 400 body.
 func chaosRejects(status int, body []byte) bool {
 	if status == 401 {
 		return true
@@ -119,9 +117,8 @@ func Sources() []string {
 	return out
 }
 
-// Run tests key against source. It builds its own egress client from opts (the keys, the
-// redactor and the test hooks), which allows the one host of source, with no Policy: it can
-// reach no target, and no other host.
+// Run builds a third-party egress client allowing only the selected source host. opts supplies
+// keys, redaction and test routing; no target Policy is used.
 func Run(ctx context.Context, opts egress.Options, name string, key config.Secret) Result {
 	s, ok := lookup(name)
 	if !ok {
@@ -132,9 +129,8 @@ func Run(ctx context.Context, opts egress.Options, name string, key config.Secre
 	return check(ctx, egress.New(opts).Clients(false, []string{s.host}).ThirdParty, s, key)
 }
 
-// check sends one request to s's host through c and classifies the answer. c must be an egress
-// client that allows only that host and holds key as the key of s: egress attaches it, so the key
-// is never in the request built here. key is used to mask what the source echoes.
+// check sends one source request and classifies its response. c supplies the credential and
+// permits only that host. key is used only to mask echoed response text.
 func check(ctx context.Context, c egress.ThirdPartyHTTP, s source, key config.Secret) Result {
 	req := egress.ThirdPartyRequest{
 		Method: s.method, URL: "https://" + s.host + s.path, Accept: "application/json",
@@ -157,8 +153,8 @@ func check(ctx context.Context, c egress.ThirdPartyHTTP, s source, key config.Se
 	return classify(s, resp, key)
 }
 
-// timedOut reports whether the request ended at a deadline, its own or ctx's. egress turns the
-// error into text, so the text is looked at too.
+// timedOut recognises context and request deadlines, including errors egress has converted to
+// text.
 func timedOut(ctx context.Context, err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) ||
 		strings.Contains(err.Error(), context.DeadlineExceeded.Error())
@@ -197,7 +193,7 @@ func classify(s source, resp egress.ThirdPartyResponse, key config.Secret) Resul
 	return unknown(describe(status, clean(msg, key), true))
 }
 
-// describe is the reason of an answer by its status and message.
+// describe combines status and source message into an explanation.
 func describe(status int, msg string, withStatus bool) string {
 	switch {
 	case msg == "":
@@ -208,8 +204,8 @@ func describe(status int, msg string, withStatus bool) string {
 	return msg
 }
 
-// message is what the source said about its answer: the NVD's "message" header, or a "message",
-// "messages" or "error.message" (or a plain "error") of a JSON body. It is raw, and may be empty.
+// message extracts NVD's message header or common JSON error fields. Returned text is raw and
+// may be empty.
 func message(s source, resp egress.ThirdPartyResponse) string {
 	if s.name == "nvd" {
 		if m := resp.HeaderValue("message"); m != "" {
@@ -235,7 +231,7 @@ func message(s source, resp egress.ThirdPartyResponse) string {
 	return ""
 }
 
-// text is a JSON string, or the first string of a JSON array of them.
+// text extracts a JSON string or the first string in an array.
 func text(v any) string {
 	switch x := v.(type) {
 	case string:
@@ -250,8 +246,8 @@ func text(v any) string {
 	return ""
 }
 
-// clean makes a source's text fit in a reason: the key masked (a source may echo part of it),
-// terminal control characters removed, cut to its first line and to a sensible length.
+// clean removes terminal controls, masks full or partial key echoes and limits the reason to
+// one short line.
 func clean(msg string, key config.Secret) string {
 	redactor := config.NewRedactor(key.Reveal())
 	msg = maskEcho(redactor.Redact(msg), key.Reveal())
@@ -269,7 +265,7 @@ func clean(msg string, key config.Secret) string {
 	return line
 }
 
-// maskEcho replaces each run of minEcho or more characters of s that is part of key by a mask.
+// maskEcho hides key fragments of at least minEcho characters wherever echoed.
 func maskEcho(s, key string) string {
 	if len([]rune(key)) < minEcho {
 		return s

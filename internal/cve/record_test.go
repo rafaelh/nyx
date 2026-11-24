@@ -23,7 +23,7 @@ func loadEntry(t *testing.T, name string) *Entry {
 	return &e
 }
 
-// encode is v as the envelope writes it: compact, without HTML escaping.
+// encode uses compact envelope-style JSON without HTML escaping.
 func encode(t *testing.T, v any) string {
 	t.Helper()
 	var b bytes.Buffer
@@ -135,8 +135,8 @@ func TestFromNVD_EachFixture(t *testing.T) {
 			if got := encode(t, rec); got != want {
 				t.Errorf("record\n got %s\nwant %s", got, want)
 			}
-			// The envelope writes the record through the field table: all of it is the same bytes,
-			// with a count in front of each list.
+			// Field-table projection preserves complete-record JSON with ordered
+			// list counts.
 			all, _ := Select("all")
 			projected := encode(t, View{Fields: all}.Project(rec))
 			if got := counts.ReplaceAllString(projected, ""); got != want {

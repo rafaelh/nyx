@@ -1,9 +1,7 @@
-# What nyx can version, and the endoflife.date product each name belongs to. A name is a
-# Wappalyzer technology or a banner product, matched ignoring case. `cycle` says how many
-# dotted parts of a version the product's release cycles are named by: `major` (7), `minor`
-# (7.4) or `patch` (1.3.5). A version with no cycle of that length is tried with fewer parts,
-# so a product whose cycles mix shapes (Jetty has 12.1 and 11) needs only its longest.
-# `make eol-data` downloads internal/eol/data/<product>.json for each entry.
+# Map detected technology/banner names to endoflife.date products, ignoring case.
+# cycle selects the longest version prefix to try: major (7), minor (7.4) or patch (1.3.5).
+# Lookup falls back to shorter prefixes for products with mixed cycle formats.
+# make eol-data downloads data/<product>.json for each entry.
 - product: apache-http-server
   cycle: minor
   names: [Apache HTTP Server]

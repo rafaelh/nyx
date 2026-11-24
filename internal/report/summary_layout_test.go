@@ -19,8 +19,8 @@ func termSummary(d palette.Depth, width int, env report.Envelope) string {
 	return buf.String()
 }
 
-// richEnvelope has something in every block, with text long enough to need wrapping at 60 columns
-// but no unbreakable token that is wider than the space it has.
+// richEnvelope fills every summary block with wrappable long text and no oversized protected
+// tokens.
 func richEnvelope() report.Envelope {
 	long := "the login page of the administration console answers with a form that asks for a username and a password and sets no cookie"
 	rows := []report.FindingRow{
@@ -53,7 +53,7 @@ func richEnvelope() report.Envelope {
 
 func linesOf(s string) []string { return strings.Split(strings.TrimSuffix(s, "\n"), "\n") }
 
-// indexOfLine is the index of the first line of lines equal to want, or -1.
+// indexOfLine returns the first exact match or -1.
 func indexOfLine(lines []string, want string) int {
 	for i, l := range lines {
 		if l == want {
@@ -63,9 +63,8 @@ func indexOfLine(lines []string, want string) int {
 	return -1
 }
 
-// Every heading, the first included, is bold in the info colour on a coloured terminal and plain
-// on an uncoloured one, with a rule of the layout width beneath it: ─ in the separator colour, or
-// - with no colour.
+// Summary headings use semantic info styling and full-width rules, including plain-terminal
+// equivalents.
 func TestSummaryTerminalHeadings(t *testing.T) {
 	t.Parallel()
 	headings := []string{"Summary", "Failed checks (retried on the next run; --debug shows each failure)", "Deferred to the next run",
@@ -85,8 +84,7 @@ func TestSummaryTerminalHeadings(t *testing.T) {
 	}
 }
 
-// A heading wider than the layout width wraps at spaces; each continuation line is in the heading
-// style, at column 0, and the rule follows the last line.
+// Wrapped heading lines retain style and start at column zero before the final rule.
 func TestSummaryTerminalHeadingWraps(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
@@ -105,8 +103,7 @@ func TestSummaryTerminalHeadingWraps(t *testing.T) {
 	}
 }
 
-// Count blocks keep their labels and have no header row; the numbers of one block are right-aligned
-// in one column, which is as wide as the widest number.
+// Count blocks align numbers without adding table headers.
 func TestSummaryTerminalCounts(t *testing.T) {
 	t.Parallel()
 	env := report.Envelope{Data: report.Summary{
@@ -139,8 +136,7 @@ func TestSummaryTerminalCounts(t *testing.T) {
 	}
 }
 
-// The findings table has the columns SEVERITY, CATEGORY, TARGET and DETAIL, an indent of 2, a gap
-// of 2, no border characters and no trailing spaces; rows keep their order.
+// Findings tables preserve order, standard columns, two-space spacing and clean line endings.
 func TestSummaryTerminalFindingsTable(t *testing.T) {
 	t.Parallel()
 	env := withData(report.Summary{Findings: headlineRows()})
@@ -160,8 +156,7 @@ func TestSummaryTerminalFindingsTable(t *testing.T) {
 	}
 }
 
-// The header row is bold in the timestamp colour on a coloured terminal, and the severity is the
-// badge; uncoloured, neither has an escape.
+// Table headers and severity badges use designated styles, with escape-free plain output.
 func TestSummaryTerminalTableStyle(t *testing.T) {
 	t.Parallel()
 	for _, d := range depths {
@@ -183,7 +178,7 @@ func TestSummaryTerminalTableStyle(t *testing.T) {
 	}
 }
 
-// DETAIL is left out when no row has one: nil and "" count as none.
+// Omit DETAIL when every value is nil or empty.
 func TestSummaryTerminalDetailColumnDropped(t *testing.T) {
 	t.Parallel()
 	rows := []report.FindingRow{
@@ -213,8 +208,7 @@ func columnOf(lines []string, header string) int {
 	return -1
 }
 
-// At 80 columns a long DETAIL wraps within its column before TARGET does, a hostname in TARGET is
-// never broken, and DETAIL stays aligned on every row, for both findings tables.
+// Shrink DETAIL before TARGET, preserving protected hostnames and detail-column alignment.
 func TestSummaryTerminalFindingsWrapping(t *testing.T) {
 	t.Parallel()
 	long := strings.TrimSpace(strings.Repeat("a long detail of words ", 10))
@@ -235,8 +229,8 @@ func TestSummaryTerminalFindingsWrapping(t *testing.T) {
 		if col < 0 {
 			t.Fatalf("no DETAIL header after %q", tbl)
 		}
-		// Every line of the table, up to the next heading, is within 80 cells except one holding the
-		// whole long target; DETAIL's cells start at col.
+		// Allow width overflow only for the protected long target and keep DETAIL at
+		// col.
 		end := len(block)
 		for i, l := range block {
 			if strings.HasPrefix(l, "-") {
@@ -305,8 +299,8 @@ func TestSummaryTerminalTargetWrapsAfterDetail(t *testing.T) {
 	}
 }
 
-// The candidates table has the columns VALUE, EVIDENCE, SOURCES and PROMOTE; EVIDENCE is the bare
-// count, SOURCES are joined with ", " and PROMOTE has no label; the overflow line follows it.
+// Candidate tables format counts, joined sources, promotion inputs and overflow rows
+// consistently.
 func TestSummaryTerminalCandidatesTable(t *testing.T) {
 	t.Parallel()
 	env := withData(report.Summary{
@@ -355,8 +349,7 @@ func TestSummaryTerminalCandidatesWrapping(t *testing.T) {
 	}
 }
 
-// The risky-ports line, the notes and the deadline line wrap to the width, with continuation lines
-// indented 2 under the text, and keep their words.
+// Wrap notes and deadline/risky-port lines with aligned two-space continuations.
 func TestSummaryTerminalOtherLinesWrap(t *testing.T) {
 	t.Parallel()
 	env := richEnvelope()
@@ -438,8 +431,7 @@ func TestSummaryTerminalOneWriteAndOneWidthRead(t *testing.T) {
 	}
 }
 
-// Every line of the summary is at most the layout width, at each width, for a fixture with no
-// unbreakable token wider than its space.
+// Summary lines fit each tested width when all protected content can fit.
 func TestSummaryTerminalFitsTheWidth(t *testing.T) {
 	t.Parallel()
 	for _, width := range []int{80, 100, 120} {
@@ -454,8 +446,7 @@ func TestSummaryTerminalFitsTheWidth(t *testing.T) {
 	}
 }
 
-// Text from a target is sanitised before it is laid out, in the heading-free lines and in each
-// table, with the control sequences placed where the text wraps.
+// Clean table/free-text values before wrapping, including controls placed at break points.
 func TestSummaryTerminalSanitises(t *testing.T) {
 	t.Parallel()
 	evil := "x\x1b[2J\x1b]0;pwn\x07y\u202ez\nnext\r"

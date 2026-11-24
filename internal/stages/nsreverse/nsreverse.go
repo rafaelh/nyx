@@ -1,6 +1,5 @@
-// Package nsreverse is the nsreverse stage: the domains hosted on each name server
-// and mail host the organisation runs itself, which are strong signs of common
-// ownership.
+// Package nsreverse discovers candidate domains sharing self-hosted DNS/mail infrastructure
+// with the organisation.
 package nsreverse
 
 import (
@@ -19,8 +18,8 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// maxPages caps the result pages read for one server (one query credit each). A
-// server that needs more has more domains than any sensible nsreverse.max_domains.
+// maxPages bounds per-server credits; results beyond it already exceed useful shared-hosting
+// limits.
 const maxPages = 100
 
 // The roles of a server, and the evidence source each gives its candidates.
@@ -29,20 +28,14 @@ const (
 	roleMX = "mx"
 )
 
-// Stage asks SecurityTrails which domains are hosted on each name server of the
-// in-scope roots, and which have each mail host as their MX, for every one of
-// them that is self-hosted (inventory.SelfHosted). A name server or mail host on a
-// known provider, or on a shared or unknown-owner address, is never asked: it says
-// nothing about who else uses it. Each domain is recorded as a candidate root, its
-// source "shared-ns" or "shared-mx". Candidate roots are never resolved or
-// contacted, so this lookup is the only way they are found.
+// Stage searches SecurityTrails for domains sharing self-hosted name servers or MX hosts with
+// in-scope roots. Managed providers and shared/unknown-owner addresses provide no ownership
+// signal. Results are candidate roots with shared-ns/shared-mx evidence; they are not resolved
+// or contacted.
 //
-// A server with more domains than nsreverse.max_domains is shared hosting after
-// all: nothing is recorded for it and a warning names it. The total is read from the
-// first page, so such a server costs one query. The cap is in the check key, so
-// changing it asks again. The key carries no scope: a server that a root added later
-// brings into scope is asked once it is self-hosted by either test, and a changed
-// self-hosted result does not repeat a check already made (--redo nsreverse).
+// Servers exceeding nsreverse.max_domains are discarded as shared hosting. The first-page total
+// avoids extra requests. The cap is in check keys; scope and later self-hosting changes do not
+// repeat completed checks without --redo nsreverse.
 type Stage struct{}
 
 // New returns the nsreverse stage.
@@ -63,9 +56,8 @@ type server struct {
 	max        int
 }
 
-// Checks yields, in key order, one check for each self-hosted name server of an
-// in-scope root and one for each self-hosted mail host of one, keyed
-// "ns|<host>|max=<n>" and "mx|<host>|max=<n>".
+// Checks emits sorted NS/MX server checks only for self-hosted servers of in-scope roots. Keys
+// include host, mechanism and max-domain cap.
 func (*Stage) Checks(_ context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		limit := v.Settings().NSReverse.MaxDomains
@@ -109,26 +101,25 @@ func (*Stage) CandidateSources() map[string]string {
 	return map[string]string{"shared-ns": candidates.SharedInfra, "shared-mx": candidates.SharedInfra}
 }
 
-// Evidence is the server, under the source "shared-ns" or "shared-mx". The item leaves out the cap, so changing it does
-// not count a server twice.
+// Evidence uses server identity under shared-ns/shared-mx without the cap, avoiding duplicate
+// support after limit changes.
 func (*Stage) Evidence(checkKey string) (source, item string) {
 	role, rest, _ := strings.Cut(checkKey, "|")
 	host, _, _ := strings.Cut(rest, "|")
 	return "shared-" + role, host
 }
 
-// Run asks for the domains of one server. A server SecurityTrails does not know
-// (404), or one with no domains, is a completed check with nothing found. A 401,
-// 403 or 429 aborts the stage (httpsrc.Get), which is the quota rule.
+// Run completes empty for unknown or domainless servers. Keyed refusals/rate limits abort
+// through httpsrc.Get.
 func (*Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	s := c.Input.(server)
 	var obs []run.Observation
 	roots := map[string]bool{}
 	seen := 0 // domains listed so far
 	err := httpsrc.SecurityTrailsDomains(ctx, e, s.role, s.host, maxPages, "nsreverse "+s.host, func(total int, names []string) bool {
-		// The total is read first, from the first page: a server over the cap costs one
-		// query, and nothing it lists is recorded. The domains listed are counted too,
-		// so a reply whose total is missing or short still cannot pass the cap.
+		// Check first-page totals before recording anything, then count actual domains
+		// too. This enforces the cap even when reported totals are missing or too
+		// small.
 		seen += len(names)
 		if n := max(total, seen); n > s.max {
 			run.Warnf(ctx, "nsreverse %s: %d domains, more than nsreverse.max_domains (%d): treated as shared hosting, nothing recorded",

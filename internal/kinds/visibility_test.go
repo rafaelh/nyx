@@ -174,8 +174,8 @@ func TestTotals(t *testing.T) {
 	}
 }
 
-// An asn is a candidate until it is an input; an organisation is counted only
-// while three of its netblocks are known and no --org input names it.
+// ASNs stop being candidates when input; organisations need allocation support and no --org
+// match.
 func TestVisibility_ASNAndOrganisation(t *testing.T) {
 	t.Parallel()
 	regs := []inventory.Registration{}
@@ -205,9 +205,8 @@ func TestVisibility_ASNAndOrganisation(t *testing.T) {
 	}
 }
 
-// An entity is placed as a candidate exactly when it is counted as one, so the
-// export never reports a candidate that candidates.csv leaves out; one that
-// stays on record without being listed is not placed.
+// Entity placement, summary counts and candidate output must agree, including unlisted stored
+// entities.
 func TestPlacement_AgreesWithCategory(t *testing.T) {
 	t.Parallel()
 	regs := []inventory.Registration{}

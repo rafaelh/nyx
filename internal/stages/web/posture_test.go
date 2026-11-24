@@ -141,15 +141,14 @@ func TestPosture_DirectoryListing(t *testing.T) {
 			}
 		})
 	}
-	// A listing served as something other than HTML is not read as one.
+	// Directory detection requires HTML content.
 	plain := hopAt("https://a.example.com/", "text/plain", nil, []byte("<title>Index of /</title>"))
 	if posture("a.example.com", chainOf(plain)).DirectoryListing {
 		t.Error("a text/plain body was read as a directory listing")
 	}
 }
 
-// The page that counts is the last one of the chain served by the service's
-// own origin; a listing on another origin it redirects to is not this service's.
+// Only same-origin pages can supply directory-listing evidence for the service.
 func TestPosture_DirectoryListingFromTheLastSameOriginPage(t *testing.T) {
 	t.Parallel()
 	const listing = `<title>Index of /</title>`

@@ -2,30 +2,27 @@ version: "2"
 
 linters:
   enable:
-    # A ceiling on cognitive complexity, which weighs nesting more than flat branches.
+    # Limit nesting-heavy functions, which are harder to follow than flat branches.
     - gocognit
-    # Comparisons and type assertions on errors that would miss a wrapped error.
+    # Catch error checks that fail when errors are wrapped.
     - errorlint
-    # Switches on an enum type that miss one of its values without a default.
+    # Catch missing enum cases unless a default handles them.
     - exhaustive
-    # Calls that bypass the injected environment or write to stdout behind cli.Execute's back.
+    # Keep environment access and output routed through injected dependencies.
     - forbidigo
-    # American spellings: docs, comments and messages use Australian English.
+    # Use Australian spelling in prose.
     - misspell
-    # Every test calls t.Parallel first (subtests may run in order: they often share a world).
+    # Run top-level tests in parallel; shared fixtures may require ordered subtests.
     - paralleltest
-    # Test helpers call t.Helper, so a failure points at the test that called them.
+    # Report helper failures at their calling test.
     - thelper
-    # Every //nolint names its linter and says why.
+    # Require specific, explained lint suppressions.
     - nolintlint
-    # Structs passed to json.Marshal/Unmarshal tag every field, so renaming a Go field can't
-    # silently change the JSON (stored attributes, the --json envelope, third-party responses).
+    # Explicit JSON tags prevent Go field renames from silently changing stored/API keys.
     - musttag
-    # An error checked and then dropped for a nil return. A negative result (a redirect that can't
-    # be followed, a record that can't be read) is a completed check with a nil error, so each of
-    # those says why in a //nolint:nilerr.
+    # Explain nil returns after errors, including negative results that intentionally complete checks.
     - nilerr
-    # Small correctness and simplification checks.
+    # Catch local mistakes and unnecessary code.
     - copyloopvar
     - gocritic
     - intrange
@@ -39,8 +36,7 @@ linters:
     exhaustive:
       default-signifies-exhaustive: true
     govet:
-      # Opt-in analyzers beyond go vet's defaults: nil checks that can't fail or can't pass, and
-      # writes to struct fields that are never read (often a write to a copy).
+      # Also catch impossible nil conditions and unused field writes, often caused by copying structs.
       enable: [nilness, unusedwrite]
     forbidigo:
       analyze-types: true
@@ -56,8 +52,7 @@ linters:
     misspell:
       locale: UK
       ignore-rules:
-        # The sanitize package and its functions, the NO_COLOR convention, and NVD's "Analyzed"
-        # status are names nyx doesn't own.
+        # Preserve external API/package names and established colour conventions.
         - sanitize
         - color
         - analyzed
@@ -68,16 +63,13 @@ linters:
     paralleltest:
       ignore-missing-subtests: true
   exclusions:
-    # Skip errcheck on Close, Flush, fmt.Print* and os.(Un)Setenv, where the
-    # error is idiomatically ignored.
+    # Allow conventional ignored errors such as deferred Close calls.
     presets:
       - std-error-handling
     rules:
-      # These tests start child processes (the crash tests' nyx, the boundary test's go list), which
-      # need the process environment, not a run's.
+      # Subprocess tests need the real process environment when launching children.
       - path: internal/(cli/(crash_test|setup_child_test|pty_linux_test)|egress/boundary_test)\.go
         linters: [forbidigo]
-      # A named subtest body, or a test callback passed to a table or a forEach helper, is the test
-      # itself: t.Helper there would point a failure at the loop that calls it.
+      # Test callbacks are assertions' origin; marking them helpers would blame the calling loop.
       - linters: [thelper]
         source: ^func test[A-Z]\w*\(t \*testing\.T\)|[,(]\s*func\(t \*testing\.T

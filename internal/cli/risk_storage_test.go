@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// A bucket referenced by an in-scope CNAME is attributed. A listable bucket
-// records an object count and the first keys; objects are never fetched, only
-// the first listed key and referenced objects are HEADed.
+// CNAME references establish attribution; listings record keys/counts and HEAD objects without
+// downloading contents.
 func TestStorage_AttributedByCNAME(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")
@@ -126,8 +125,8 @@ func TestStorage_RegionRedirectFollowed(t *testing.T) {
 	}
 }
 
-// An Azure account is found by DNS, then the fixed container list is tried.
-// The account's host is a candidate (a redirect recorded it) and is still contacted.
+// Candidate placement does not prevent an Azure provider endpoint from being queried as a
+// declared source.
 func TestStorage_AzureAccountThenContainers(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")
@@ -258,9 +257,8 @@ func TestStorage_GuessedNamesCappedAndPassive(t *testing.T) {
 	}
 }
 
-// Unattributed names appear in storage-unattributed.csv and never in risk-storage.csv;
-// only public or listable ones are findings, and always low. A guessed name that is also
-// referenced is attributed.
+// Only public/listable unreferenced storage creates low findings; references promote guessed
+// resources to attributed storage.
 func TestStorage_Unattributed(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")
@@ -335,8 +333,7 @@ func TestStorage_UnattributedNeverInSummary(t *testing.T) {
 	}
 }
 
-// A redirect to a path-style provider endpoint records it as a candidate
-// hostname; the storage stage still contacts it, like an Azure account host.
+// Redirect-recorded candidate endpoints remain valid declared storage sources.
 func TestStorage_PathStyleEndpointCandidateIsContacted(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")
@@ -356,9 +353,8 @@ func TestStorage_PathStyleEndpointCandidateIsContacted(t *testing.T) {
 	}
 }
 
-// Azure answers an anonymous listing with 404 ResourceNotFound (private or
-// missing) or 409 PublicAccessNotPermitted. Existence is unknown: the check
-// completes, is not retried, and is neither a finding nor a takeover.
+// Ambiguous Azure private/missing responses complete with unknown existence rather than
+// claimable-resource findings.
 func TestStorage_AzureUnknownContainersComplete(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage")

@@ -1,9 +1,6 @@
-// Package findings derives the severity-ranked list of obvious exposures from
-// the evidence the stages stored. Derivation is pure: stages store only
-// evidence, and findings are computed on read from it, the Scope, the
-// Inventory, the settings and today's date, so a finding that is no longer true
-// (a port excluded later, a certificate renewed, the clock moving on) is simply
-// not derived any more and none can go stale.
+// Package findings calculates exposures from stored evidence, scope, inventory, settings and
+// date without I/O. Stages store evidence rather than findings. Recalculation removes findings
+// that no longer apply after exclusions, renewed certificates or time changes.
 package findings
 
 import (
@@ -26,9 +23,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Input is everything Derive reads. Records returns the records of a kind
-// (derivation uses only the current ones), and is called only for the kinds
-// derivation needs. Roots and Orgs are the engagement's stored scope inputs.
+// Input supplies derivation dependencies. Records is called only for needed kinds; derivation
+// uses current records. Roots and Orgs are stored engagement inputs.
 type Input struct {
 	Scope       *scope.Scope
 	Inv         *inventory.Inventory
@@ -48,9 +44,8 @@ type Input struct {
 	Vis *kinds.Visibility
 }
 
-// Finding is one derived exposure. Attrs holds every attribute of its stored
-// record: category, type, severity, target and detail, plus the columns of the
-// category's file.
+// Finding pairs an exposure with its stored attributes: category, type, severity, target,
+// detail and category-specific output columns.
 type Finding struct {
 	Category, Type, Severity, Target, Detail string
 	Attrs                                    map[string]any
@@ -146,7 +141,7 @@ func (d *deriver) services() map[string]store.Record {
 	return d.svcs
 }
 
-// serviceAttrs are the attributes of each of services, by key, decoded once.
+// serviceAttrs caches decoded visible-service attributes by key.
 func (d *deriver) serviceAttrs() map[string]kinds.WebServiceAttrs {
 	if d.svcAttrs != nil {
 		return d.svcAttrs
@@ -250,8 +245,8 @@ func (d *deriver) email() []Finding {
 				add("spf-lookups", fmt.Sprintf("SPF needs %d DNS lookups (the limit is 10)", n))
 			}
 		}
-		// The record's own "all" is reported even when an include made it invalid:
-		// a +all says so whatever the rest of the record does.
+		// Report the root SPF record's all mechanism even when an included record makes
+		// SPF invalid.
 		switch a.SPFAll {
 		case "+all":
 			add("spf-all-plus", "SPF allows anyone to send: "+spf)
@@ -274,10 +269,9 @@ func (d *deriver) email() []Finding {
 	return out
 }
 
-// ports derives the risky-port findings. A port nyx opened is at the full
-// severity and confirmed. A port only a third party reports (and nyx has not
-// found closed, which the showing rule decides) is the same finding one step
-// lower and unconfirmed, and becomes the full one when nyx opens it.
+// ports assigns full severity to nyx-confirmed risky ports. Third-party-only ports start one
+// level lower and unconfirmed, unless nyx found them closed. Confirmation updates the same
+// finding.
 func (d *deriver) ports() []Finding {
 	risky := map[int]bool{}
 	for _, p := range d.in.Settings.RiskyPorts {
@@ -346,10 +340,8 @@ func (d *deriver) certificates() []Finding {
 	return out
 }
 
-// hostnameMismatch reports whether the certificate does not name the host that
-// was probed, for a host whose certificate is the target's to fix: not an IP
-// literal, and not one that shared provider infrastructure (a CDN or SaaS
-// platform) serves.
+// hostnameMismatch checks certificate names only where the target can fix them. IP literals and
+// services on shared CDN/SaaS infrastructure are excluded.
 func (d *deriver) hostnameMismatch(a kinds.WebServiceAttrs) bool {
 	if kinds.TLSTrust(a) != kinds.TrustHostnameMismatch {
 		return false

@@ -1,5 +1,4 @@
-// Command nyx performs passive-first reconnaissance of a target's domains,
-// organisations and netblocks.
+// Command nyx discovers target domains, organisations and networks using passive sources first.
 package main
 
 import (

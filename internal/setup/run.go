@@ -26,10 +26,9 @@ func profile(d palette.Depth) colorprofile.Profile {
 	return colorprofile.Ascii
 }
 
-// Run opens the config file through b and runs the setup UI until the user quits. It returns nil
-// after a normal quit, an error wrapping ctx's when ctx ends first, a *clierr.PanicError when the
-// UI panicked (the terminal is restored first, and the text holds no key) and any other error as it
-// came. It never writes the file itself: only b does, and only when the user saves.
+// Run opens the config through b and runs the editor. Normal quit returns nil; cancellation
+// wraps the context error. Panics become clierr.PanicError after restoring the terminal and
+// redacting keys. Only explicit saves through b write the file.
 func Run(ctx context.Context, b Backend, o Options) (err error) {
 	var m *model
 	defer func() {

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// defaultConfig is the path of the harness's default config file. The harness gives every run an
-// empty one, as a user who has set nyx up would have; a test about its absence removes it.
+// defaultConfig locates the harness's pre-created empty config; absence tests remove it
+// explicitly.
 func defaultConfig(h *harness) string {
 	return filepath.Join(h.env["XDG_CONFIG_HOME"], "nyx", "config.yaml")
 }
@@ -48,8 +48,7 @@ func wantNoHint(t *testing.T, h *harness) {
 	}
 }
 
-// A recon run, and a cve lookup, with no config file at the default path print one hint line on
-// stderr, and nothing else about the call changes.
+// Missing-default hints add one stderr line without changing recon/CVE results.
 func TestNoSetupHint_PrintedWhenTheDefaultFileIsAbsent(t *testing.T) {
 	t.Parallel()
 	t.Run("recon", func(t *testing.T) {

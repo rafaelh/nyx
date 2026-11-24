@@ -1,10 +1,6 @@
-// Package layout lays text out for a terminal: it measures strings in cells,
-// wraps spans of styled text, protects words that must never be broken and
-// renders tables, headings and rules. It is pure: it does no I/O and never reads
-// the environment. Every escape byte it writes comes from package palette.
-//
-// A layout is made only for a Stream that is a terminal. A caller that writes
-// to anything else keeps its own output and never reaches this package.
+// Package layout measures, wraps and aligns terminal text without I/O or environment access. It
+// protects identifiers from splitting and obtains escape sequences from palette. Renderers
+// retain their own plain-output path for non-terminal streams.
 package layout
 
 import (
@@ -22,18 +18,15 @@ const (
 	MinWidth = 60
 )
 
-// Stream is an output as the layout sees it: whether it is a terminal, the colour
-// depth it shows and a function that reports its terminal width in cells.
-// Width is read each time a layout is made, so a resize applies from the next
-// one. A nil Width, or one that returns zero or less, means no width is known.
+// Stream supplies terminal status, colour depth and a width callback. Width is read for each
+// layout so resizes take effect. Nil or nonpositive widths mean unknown.
 type Stream struct {
 	Terminal bool
 	Depth    palette.Depth
 	Width    func() int
 }
 
-// Cols is the stream's layout width now: what Width reports, or DefaultWidth
-// when it reports nothing, and never less than MinWidth.
+// Cols measures current layout width with DefaultWidth fallback and MinWidth floor.
 func (s Stream) Cols() int {
 	term := 0
 	if s.Width != nil {
@@ -42,8 +35,8 @@ func (s Stream) Cols() int {
 	return Width("", term)
 }
 
-// Fixed is the stream with its width read once, now. A layout made of several parts takes it first,
-// so that every part has the same width even if the terminal is resized while it is written.
+// Fixed captures width once so a multipart layout stays aligned if the terminal resizes during
+// output.
 func (s Stream) Fixed() Stream {
 	cols := s.Cols()
 	s.Width = func() int { return cols }
@@ -53,9 +46,8 @@ func (s Stream) Fixed() Stream {
 // Coloured reports whether the stream shows any colour.
 func (s Stream) Coloured() bool { return s.Depth != palette.None }
 
-// Width decides a layout width: columns when it is a positive integer (spaces
-// around it are ignored), else term when that is positive, else DefaultWidth;
-// and never less than MinWidth.
+// Width chooses positive COLUMNS, then terminal width, then DefaultWidth, with a floor of
+// MinWidth. Surrounding COLUMNS whitespace is ignored.
 func Width(columns string, term int) int {
 	w := DefaultWidth
 	if n, err := strconv.Atoi(strings.TrimSpace(columns)); err == nil && n > 0 {

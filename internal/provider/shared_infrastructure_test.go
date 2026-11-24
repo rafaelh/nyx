@@ -36,8 +36,8 @@ func TestClassConstants(t *testing.T) {
 	}
 }
 
-// DigitalOcean and IBM Cloud (SoftLayer) are clouds whose machines are dedicated to a customer:
-// by ASN they are shared for recon's purposes but are not shared infrastructure.
+// Customer-dedicated cloud ASNs can be conservatively Shared without being
+// SharedInfrastructure.
 func TestClassify_DigitalOceanAndSoftLayerAreHyperscalers(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()

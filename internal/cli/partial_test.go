@@ -22,16 +22,14 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// partial asserts that the last call exited 7 with a PARTIAL error, which it returns, and that stdout
-// holds the result (a call that exits 7 writes it first).
+// partial verifies exit 7 after output and returns its PARTIAL error.
 func (h *harness) partial(code int, jsonMode bool) failure {
 	h.t.Helper()
 	return h.partialOf(code, jsonMode, nil, true)
 }
 
-// partialOf is partial for a call whose PARTIAL error names the inputs that failed: under --json its
-// input is {"id": ids}, or null when ids is nil. A call that returned no record (records false)
-// writes nothing on stdout in human mode, and an empty data list under --json.
+// partialOf checks failed-input metadata and handles empty-record human/JSON output
+// conventions.
 func (h *harness) partialOf(code int, jsonMode bool, ids []string, records bool) failure {
 	h.t.Helper()
 	if code != 7 {
@@ -53,8 +51,7 @@ func (h *harness) partialOf(code int, jsonMode bool, ids []string, records bool)
 	return f
 }
 
-// partialFailed is partial for a run in which n checks of one stage are meant to fail: the error
-// names the stage and the count and is transient (waiting may cure the failure).
+// partialFailed verifies a retryable partial error naming a stage and failed-check count.
 func (h *harness) partialFailed(code int, stage string, n int) failure {
 	h.t.Helper()
 	f := h.partial(code, true)
@@ -71,8 +68,7 @@ func erring(name string, n int, err error) *testkit.Stage {
 		RunFn:    func(context.Context, run.Check, egress.Clients) ([]run.Observation, error) { return nil, err }}
 }
 
-// A run with a failed check prints its result and exits 7 naming the stage and its count; the
-// others complete, and a re-run with the fault gone exits 0.
+// Failed checks preserve successful output and retry cleanly after the fault is removed.
 func TestPartial_FailedCheck(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range []bool{true, false} {
@@ -111,8 +107,7 @@ func TestPartial_FailedCheck(t *testing.T) {
 	}
 }
 
-// Whether a failure is transient depends on what caused it: a refused key is not (waiting does not
-// cure it), unless another stage failed for another reason.
+// Key-only failures are non-transient unless another failure makes retry worthwhile.
 func TestPartial_TransientByCause(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -164,8 +159,7 @@ func keyedGet(name string) *testkit.Stage {
 		}}
 }
 
-// A keyed source's 401 or 403 is a refused key (not transient); a 429 is a rate limit and a 500 an
-// outage (both transient).
+// Key refusals differ from transient quota/outage responses.
 func TestPartial_KeyedSourceStatuses(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -199,8 +193,7 @@ func TestPartial_KeyedSourceStatuses(t *testing.T) {
 	}
 }
 
-// None of these make a run partial: a stage that is not configured, work a budget deferred, a result a
-// page cap truncated, and a failure an earlier run recorded for a stage that is skipped this time.
+// Unconfigured, deferred, capped or skipped previous failures do not make current work partial.
 func TestPartial_ExitsZeroFor(t *testing.T) {
 	t.Parallel()
 	t.Run("not configured", func(t *testing.T) {
@@ -408,8 +401,7 @@ func TestPartial_RaiseTimeoutWhenNothingSucceeded(t *testing.T) {
 	}
 }
 
-// A signal that lands during the deadline's wrap-up leaves stdout empty: the run is INTERRUPTED. The
-// caller cancelling stands in for the signal, as Execute treats them alike.
+// Cancellation during deadline cleanup still yields INTERRUPTED with empty stdout.
 func TestPartial_SignalDuringWrapUpLeavesStdoutEmpty(t *testing.T) {
 	t.Parallel()
 	var cut atomic.Bool
@@ -440,8 +432,8 @@ func TestPartial_SignalDuringWrapUpLeavesStdoutEmpty(t *testing.T) {
 // the deadline's.
 func TestPartial_NetblockLimitComesBeforeTheDeadline(t *testing.T) {
 	t.Parallel()
-	// asn finds a netblock over the limit in its first check, and its second check outlasts the
-	// deadline, so the stage is cut before the runner has rebuilt the scope.
+	// Discover an oversized block before a second blocking check so cleanup, rather than
+	// normal stage completion, encounters the limit.
 	asn := expander{&testkit.Stage{StageName: "asn", Kind: run.ThirdParty,
 		ChecksFn: func(v run.View) []run.Check {
 			var cs []run.Check
@@ -484,8 +476,7 @@ func TestPartial_FatalErrorComesBeforeTheNetblockLimit(t *testing.T) {
 	}
 }
 
-// A signal that lands after the result is written leaves exit 7 standing. The caller cancelling
-// stands in for the signal, as Execute treats them alike.
+// A signal after output cannot replace the already-reported partial outcome.
 func TestPartial_SignalAfterTheResultKeepsExit7(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, erring("flaky", 1, errors.New("boom")))

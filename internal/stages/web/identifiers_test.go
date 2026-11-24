@@ -164,10 +164,8 @@ func TestMurmur3_PublishedVectors(t *testing.T) {
 	}
 }
 
-// The hash Shodan's http.favicon.hash uses: mmh3 of Python's base64.encodebytes
-// of the body (a newline every 76 characters and a trailing one), as a signed
-// 32-bit integer. The values were computed with Python's base64.encodebytes and
-// a separate MurmurHash3 implementation that matches the vectors above.
+// Favicon hash fixtures were computed independently using Python-style base64 and a separate
+// MurmurHash3 implementation.
 func TestFaviconHash_KnownValues(t *testing.T) {
 	t.Parallel()
 	body100 := make([]byte, 100) // base64 is longer than 76 characters, so it has an inner line break

@@ -10,9 +10,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// Resolve looks up A and AAAA for each in-scope or excluded hostname and for
-// the input roots. Addresses are keyed to the queried name, never to the
-// answer's owner name, which after a CNAME is the chain target.
+// Resolve queries A/AAAA for input roots and in-scope/excluded names. Address answers stay
+// associated with the queried name even when CNAMEs change the answer owner.
 type Resolve struct{ base }
 
 // NewResolve returns the resolve stage.
@@ -73,8 +72,8 @@ func (*Resolve) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	return obs, nil
 }
 
-// rcodeName explains why a name has no address: NXDOMAIN if the name does not
-// exist, SERVFAIL if either query failed at the resolver, otherwise NODATA.
+// rcodeName prioritises NXDOMAIN, then either query's SERVFAIL, otherwise NODATA when no
+// address exists.
 func rcodeName(a, aaaa egress.DNSResult) string {
 	switch {
 	case a.RCode == egress.RCodeNXDomain:

@@ -1,6 +1,5 @@
-// Package orgpivot turns organisation names into new root domains and netblocks.
-// Everything it finds is a candidate: scope classifies the results, and
-// candidates are recorded, never enumerated.
+// Package orgpivot discovers candidate roots/netblocks from organisation names. Scope
+// classifies results; candidate discoveries are recorded without enumeration.
 package orgpivot
 
 import (
@@ -38,7 +37,7 @@ func (orgStage) Contact() run.Contact                  { return run.ThirdParty }
 func (s orgStage) Sources() []string                   { return s.sources }
 func (s orgStage) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, s.name, s.keyed) }
 
-// CandidateSources is the family of the stage, the source of what it finds.
+// CandidateSources declares the stage's evidence family.
 func (s orgStage) CandidateSources() map[string]string { return map[string]string{s.name: s.family} }
 
 func (orgStage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
@@ -136,10 +135,9 @@ func (*WhoisXML) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.
 
 // --- org-asn ---
 
-// OrgASN finds netblocks for an organisation through RIPEstat. Netblocks it
-// records are candidates: only the asn stage's netblocks for input ASNs are in scope.
-// It is a registrant source on the assumption that RIPEstat's organisation
-// search matches registry organisation names.
+// OrgASN records RIPEstat organisation-search netblocks as candidates. Only input-ASN expansion
+// brings discovered blocks into scope. Its registrant evidence relies on RIPEstat matching
+// registry organisation names.
 type OrgASN struct{ orgStage }
 
 // NewOrgASN returns the org-asn stage.
@@ -147,8 +145,8 @@ func NewOrgASN() *OrgASN {
 	return &OrgASN{orgStage{name: "org-asn", family: candidates.Registrant, sources: []string{"stat.ripe.net"}}}
 }
 
-// Run finds the organisation's ASNs and their announced prefixes. An ASN is
-// kept only if its holder name matches the organisation by the word rule.
+// Run follows matching organisation ASNs to announced prefixes, applying the shared word rule
+// to ASN holders.
 func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	if len(orgname.Tokens(c.Key)) == 0 {
 		return nil, nil

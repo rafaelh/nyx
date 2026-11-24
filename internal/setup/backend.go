@@ -1,7 +1,6 @@
-// Package setup is the full-screen terminal UI of nyx setup: a Bubble Tea model that edits the keys,
-// the common settings and the skip list of one config file. It does no file or network I/O itself.
-// It gets a Backend, which reads, checks and saves the file and tests a key, and the cli wires one
-// from configedit, config and keycheck.
+// Package setup implements the full-screen config editor as a Bubble Tea model. A Backend
+// performs file access, validation and key tests; the UI itself does no file or network I/O.
+// The CLI wires configedit, config and keycheck into that backend.
 package setup
 
 import (
@@ -15,8 +14,8 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// The setting keys the Settings tab lists, in the order it shows them, as the config file names
-// them. Keys of the Keys tab are "keys.<source>"; skip has its own tab.
+// Settings tab keys in display order. API keys use "keys.<source>" on a separate tab; skip has
+// its own tab.
 var SettingKeys = []string{"output_dir", "concurrency", "rate.per_host", "rate.per_source", "rate.dns", "wordlist", "sensitive_paths"}
 
 // SkipKey is the setting key of the skip list.
@@ -28,41 +27,40 @@ const KeyPrefix = "keys."
 // Source is one key source the Keys tab lists.
 type Source struct {
 	Name  string // lower case: "shodan"
-	Turns string // what the key turns on, one line (for certspotter it says it also works without one)
+	Turns string // one-line explanation of key use, including optional credentials
 }
 
-// Stage is a stage the Skip tab offers: one that can be skipped.
+// Stage describes a skippable stage on the Skip tab.
 type Stage struct {
 	Name string
 	Does string // its one-line description, as nyx help stages gives it
 }
 
-// Info is what stays the same while setup is open.
+// Info supplies tab metadata fixed for an editor session.
 type Info struct {
 	Path    string   // the config file's absolute path, as the header shows it
 	Sources []Source // in display order
 	Stages  []Stage  // the skippable stages, in registry order
-	// ThreatUnavailable, when not empty, is why there is nowhere to keep threat data, so it cannot be
-	// updated from setup ("nowhere to keep threat data: neither XDG_CONFIG_HOME nor HOME is set"). The
-	// Threat data tab says it, and u shows it.
+	// ThreatUnavailable explains why updates have no storage directory. The Threat data tab
+	// displays it and refuses updates while it is nonempty.
 	ThreatUnavailable string
 }
 
-// ThreatList is one threat-data list as the Threat data tab shows it: the copy in use.
+// ThreatList describes one active list for the Threat data tab.
 type ThreatList struct {
 	Source string // "spamhaus" or "ipapi.is"
 	List   string // "drop_v4", "drop_v6", "asndrop", "networks" or "asns"
-	// Date is the list's date as its source dates it, already written out: RFC 3339 UTC to the second
-	// for a Spamhaus list, YYYY-MM-DD for an ipapi.is list.
+	// Date is preformatted by source: second-precision RFC3339 UTC for Spamhaus and
+	// YYYY-MM-DD for ipapi.is.
 	Date    string
 	Entries int
-	// Downloaded is whether the copy in use is the downloaded one; otherwise it is built in.
+	// Downloaded selects the active downloaded copy; false means embedded data.
 	Downloaded bool
-	// Note, when not empty, is a line about the list shown with it (a downloaded copy that is
-	// unreadable, so the built-in one is used).
+	// Note adds list context, such as falling back to built-in data after an unreadable
+	// download.
 	Note string
-	// Copyright and Terms are the credit its source asks for, shown at the foot of the tab. They are
-	// set on the list whose data carries them (Spamhaus's drop_v4), and empty on the others.
+	// Copyright and Terms hold source credit for the tab footer. Only the list carrying
+	// that credit, currently Spamhaus drop_v4, sets them.
 	Copyright, Terms string
 }
 
@@ -75,7 +73,7 @@ const (
 	ThreatUpdated ThreatOutcome = iota
 	// ThreatCurrent is a list that was already current.
 	ThreatCurrent
-	// ThreatSkipped is a list whose source was contacted too recently to be asked again.
+	// ThreatSkipped indicates the source's contact cooldown is still active.
 	ThreatSkipped
 	// ThreatFailed is a list whose source failed.
 	ThreatFailed
@@ -83,59 +81,55 @@ const (
 
 // ThreatListResult is one list after an update.
 type ThreatListResult struct {
-	// ThreatList is the list as it stands after the update, the copy in use then.
+	// ThreatList describes the active copy after an update.
 	ThreatList
 	Outcome ThreatOutcome
-	// Text is what the list's row says of the update: "already current", "skipped: last contacted
-	// <t>; can be updated after <t>" or "failed: <reason>", for example.
+	// Text describes the update outcome, including current, skipped cooldown or failed
+	// reason.
 	Text string
 }
 
-// ThreatResult is the outcome of one update of the threat data.
+// ThreatResult holds one threat-data update outcome.
 type ThreatResult struct {
 	// Lists holds one entry for each list ThreatData gives, in the same order.
 	Lists []ThreatListResult
 }
 
-// Value is how one non-key setting stands in the file.
+// Value describes one stored non-key setting.
 type Value struct {
-	// Text is the value config.Check decoded ("16" for "concurrency: 0x10"), "" when the file does
-	// not set the setting. It is what an edit starts from.
+	// Text preserves the loader-decoded value for editing, not necessarily its YAML
+	// spelling. Empty means unset.
 	Text string
 	// Set is whether the file holds an entry for the setting.
 	Set bool
-	// Default is what the row shows when the file does not set the setting: the default value, or
-	// the built-in list's label.
+	// Default supplies the unset-setting display value or built-in list label.
 	Default string
-	// Relative, when not empty, is the line shown beside the value for a path that resolves against
-	// the directory nyx is run from ("Relative: resolves against the directory nyx runs from, e.g.
-	// /work/out"). It is set for an unset output_dir and for a relative path in the file.
+	// Relative explains how a stored path resolves from nyx's working directory. It is set
+	// for relative paths and an unset output_dir.
 	Relative string
-	// Problem, when not empty, marks the value invalid with that message; saving is blocked until
-	// the setting is edited or cleared.
+	// Problem blocks saving until this invalid setting is edited or cleared.
 	Problem string
 }
 
-// KeyState is how one key source stands in the file.
+// KeyState describes one stored source credential and its test record.
 type KeyState struct {
-	// Value is the key as the file holds it; empty when it is unset or empty in the file.
+	// Value preserves the stored key, with empty for unset/empty entries.
 	Value config.Secret
-	// Problem, when not empty, marks the entry invalid (a key set twice under case variants).
+	// Problem marks invalid key entries, including duplicate case variants.
 	Problem string
-	// Record is the file's record of the key's last test. It is nil when the file holds none it can
-	// read, or holds one made for another value of the key (the key was changed by hand since).
+	// Record holds the last test matching the current key. Nil means no readable record
+	// exists or the key was changed outside setup.
 	Record *KeyRecord
 }
 
-// The results a key record gives, as the file spells them.
+// Stored key-test status strings.
 const (
 	RecordAccepted  = "accepted"
 	RecordRejected  = "rejected"
 	RecordNotTested = "not tested" // entered, and not tested since
 )
 
-// KeyRecord is the file's record of a key: the result of its last test, or that it has not been
-// tested since it was entered, and the day that was so.
+// KeyRecord records the last test result, or an untested state, with its date.
 type KeyRecord struct {
 	Result string    // RecordAccepted, RecordRejected or RecordNotTested
 	Day    time.Time // midnight UTC of the calendar day
@@ -147,36 +141,36 @@ type SkipProblem struct {
 	Message string // recon's message for it
 }
 
-// Snapshot is the file as the Backend read it.
+// Snapshot represents the backend's last file read.
 type Snapshot struct {
-	// Token identifies the bytes read ("absent" for a missing file). The Backend compares it with
-	// the file at save time, to find a change made since. The model keeps it and hands it back.
+	// Token identifies the bytes read, or "absent". The model returns it on save so the
+	// backend can detect external edits.
 	Token any
 	// Keys holds one entry for each of Info.Sources, by source name.
 	Keys map[string]KeyState
 	// Settings holds one entry for each of SettingKeys, by key.
 	Settings map[string]Value
-	// Skip is the stages the file skips that can be toggled, lower case, in file order.
+	// Skip preserves normalised toggleable stages in file order.
 	Skip []string
-	// SkipProblems are the entries that are unknown or cannot be skipped, each removable on its own.
+	// SkipProblems lists individually removable unknown/required stage entries.
 	SkipProblems []SkipProblem
-	// SkipListProblem is a problem with the list as a whole ("none" beside stage names); it is
-	// cleared by editing or clearing the list.
+	// SkipListProblem flags invalid combinations such as none with stage names;
+	// editing/clearing resolves it.
 	SkipListProblem string
 }
 
-// Edits are the changes to write, each against the snapshot they were made on.
+// Edits records changes relative to a snapshot for conflict-checked saving.
 type Edits struct {
-	// Set holds each entered value by key ("keys.shodan", "concurrency"). A value is final: a path
-	// is absolute (or starts with "~"), a key is trimmed.
+	// Set holds final entered values by dotted key. Keys are trimmed; paths are absolute or
+	// tilde-prefixed.
 	Set map[string]string
 	// Clear lists the keys whose entry is removed from the file.
 	Clear []string
-	// Skip, when not nil, is the whole skip list to write, in order, and an empty non-nil slice
-	// removes the setting. Entries the user left in place (including problem entries) are in it.
+	// Skip replaces the full list when non-nil. An empty slice removes the setting.
+	// Unchanged entries, including invalid ones, remain in the list.
 	Skip []string
-	// Records holds the record to write for a key, by source. A key that is not set once the other
-	// edits are applied has its record removed, whether or not it is listed here.
+	// Records supplies key-test records by source. Removing a key also removes its test
+	// record, even without an entry here.
 	Records map[string]KeyRecord
 }
 
@@ -188,8 +182,8 @@ func (e Edits) Empty() bool {
 // ErrConflict is returned by Save when the file differs from the snapshot's Token.
 var ErrConflict = errors.New("the config file changed on disk")
 
-// FileError is a problem the Backend found in the file on a reload: it could not be read, parsed or
-// held an unknown key. It carries every problem message, and Path.
+// FileError collects reload failures for unreadable, invalid or unknown-key files, together
+// with their path.
 type FileError struct {
 	Path     string
 	Problems []string
@@ -210,8 +204,7 @@ const (
 	TestUnknown
 )
 
-// TestResult is the outcome of testing a key. Reason is already sanitised, to one line, with the key
-// masked, and is used only for TestUnknown.
+// TestResult includes a sanitised, redacted one-line Reason only for TestUnknown.
 type TestResult struct {
 	Status TestStatus
 	Reason string
@@ -229,52 +222,49 @@ func (r TestResult) String() string {
 	return "could not check: " + r.Reason
 }
 
-// Backend is everything setup does outside the terminal. Each method is called from the model's
-// goroutine, except Test and UpdateThreatData, which run in a Cmd.
+// Backend handles work outside terminal rendering. Methods run on the model goroutine except
+// asynchronous Test and UpdateThreatData commands.
 type Backend interface {
-	// Info is the static description of the config file and what it can hold.
+	// Info describes supported config fields and static tab metadata.
 	Info() Info
-	// Open reads the file. A missing file is not an error: it is a Snapshot of defaults whose Token
-	// means "absent". An unreadable, unparseable or unknown-key file is a *FileError.
+	// Open reads a snapshot, returning defaults and Token="absent" for missing files.
+	// Invalid, unreadable or unknown-key files return *FileError.
 	Open() (Snapshot, error)
-	// Check validates one non-key setting as entered, with the same rules and messages as nyx recon
-	// gives for the file, and returns the value to store (a relative path made absolute). The value
-	// is never empty: an empty entry is a clear, handled by the model. An error's text is the message.
+	// Check validates an entered non-key setting using recon's rules and returns its
+	// storage value, making relative paths absolute. The model handles empty entries as
+	// clears before calling this method.
 	Check(key, value string) (string, error)
-	// Save applies edits to the file the snapshot was read from and returns the file's new snapshot.
-	// It returns ErrConflict, writing nothing, when the file differs from snap.Token. On any other
-	// error the file is unchanged.
+	// Save applies edits and returns the updated snapshot. A changed Token yields
+	// ErrConflict. Errors leave the file unchanged.
 	Save(snap Snapshot, edits Edits) (Snapshot, error)
-	// Overwrite is Save without the conflict check: it applies edits to the file as it is now.
+	// Overwrite applies edits to current disk state without checking the original snapshot.
 	Overwrite(edits Edits) (Snapshot, error)
-	// Test sends one authenticated request to source with key and classifies the answer. ctx
-	// carries the 15 second limit; an expired ctx gives TestUnknown with reason "timed out".
+	// Test makes one authenticated source request. Its 15-second context limit produces
+	// TestUnknown with a timeout reason.
 	Test(ctx context.Context, source string, key config.Secret) TestResult
 	// ThreatData is the five threat-data lists in use, in display order.
 	ThreatData() []ThreatList
-	// UpdateThreatData runs one update of the threat data, as nyx setup --update-threat-data does,
-	// and returns how each list stands after it. It runs in a Cmd, and ends early when ctx does.
+	// UpdateThreatData refreshes lists as the non-interactive update command does. It runs
+	// in a Cmd, honours cancellation and returns each list's resulting state.
 	UpdateThreatData(ctx context.Context) ThreatResult
 }
 
-// Options are what Run needs besides the Backend.
+// Options supplies UI dependencies beyond Backend.
 type Options struct {
 	In  io.Reader // the terminal's input (the raw stdin)
 	Out io.Writer // the terminal's output (the raw stdout); a terminal when it is an *os.File
 	Env []string  // the environment the Program reads TERM and the like from
 	// Depth is the colour depth nyx detected for stdout.
 	Depth palette.Depth
-	// Width and Height, when positive, are the window's size, for a test that gives a buffer as Out.
+	// Width/Height supply positive test dimensions when Out cannot report terminal size.
 	Width, Height int
 	// TestTimeout is how long a key test may take; 0 means 15 seconds.
 	TestTimeout time.Duration
-	// Now is the clock key records are dated by, in the time zone whose calendar day they record;
-	// nil means time.Now.
+	// Now dates records using its local calendar day. Nil uses time.Now.
 	Now func() time.Time
-	// OnSecret, when set, is called with every key value the user enters or the file holds, before
-	// it can reach an error, so the caller can redact it.
+	// OnSecret registers entered/stored keys for caller redaction before an error can
+	// expose them.
 	OnSecret func(value string)
-	// OnProgram, when set, is called with a function that kills the Program and restores the terminal
-	// from any goroutine, before the Program starts.
+	// OnProgram receives a thread-safe stop/restore function before the Program starts.
 	OnProgram func(kill func())
 }

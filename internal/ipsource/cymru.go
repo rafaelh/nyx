@@ -17,10 +17,8 @@ type Owner struct {
 	Prefix string
 }
 
-// Origin asks Team Cymru's origin zone, through the public resolvers, which AS
-// announces the address. found is false when Cymru knows nothing of it: an
-// NXDOMAIN, or an answer with no origin that can be read. A transport failure
-// or a resolver answering anything but success or NXDOMAIN is an error.
+// Origin queries Cymru through public DNS. NXDOMAIN or no usable origin returns found=false.
+// Transport failures and other DNS statuses return errors.
 func Origin(ctx context.Context, r egress.Resolver, addr netip.Addr) (Owner, bool, error) {
 	res, err := r.Query(ctx, dnsname.CymruOrigin(addr), egress.TypeTXT)
 	if err != nil {
@@ -53,9 +51,8 @@ func Origin(ctx context.Context, r egress.Resolver, addr netip.Addr) (Owner, boo
 	return Owner{}, false, nil
 }
 
-// ASName asks Team Cymru for the holder of an AS, without the ", CC" country
-// suffix it appends. An AS Cymru does not know (NXDOMAIN), or an answer with no
-// name, gives "" and no error.
+// ASName retrieves the holder without Cymru's country suffix. Unknown ASNs or absent names
+// return "" without error.
 func ASName(ctx context.Context, r egress.Resolver, asn int) (string, error) {
 	res, err := r.Query(ctx, fmt.Sprintf("AS%d.asn.cymru.com", asn), egress.TypeTXT)
 	if err != nil {
@@ -81,7 +78,7 @@ func fields(txt string) []string {
 	return parts
 }
 
-// trimCountry drops the ", US" country suffix Team Cymru appends to the holder.
+// trimCountry removes Cymru's appended country label.
 func trimCountry(h string) string {
 	if i := strings.LastIndex(h, ", "); i > 0 && len(h)-i == 4 {
 		return h[:i]

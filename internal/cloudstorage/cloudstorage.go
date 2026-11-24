@@ -1,7 +1,5 @@
-// Package cloudstorage is pure knowledge of the three public object stores
-// nyx looks at (AWS S3, Google Cloud Storage and Azure Blob Storage): how a
-// URL or host names a bucket, which names to guess for a company, and how a
-// bucket is keyed and shown. It does no I/O.
+// Package cloudstorage describes S3, GCS and Azure storage names, references, guesses and
+// display keys without I/O.
 package cloudstorage
 
 import (
@@ -20,27 +18,26 @@ const (
 	Azure = "azure"
 )
 
-// Providers are the three stores, in the order names are guessed for them.
+// Providers fixes storage-guess expansion order.
 var Providers = []string{S3, GCS, Azure}
 
-// Ref is what a URL or host says about a bucket. Name is the bucket (S3, GCS)
-// or the storage account (Azure); Container is set for Azure only.
+// Ref identifies a bucket or Azure account/container from a URL or host. Container applies only
+// to Azure.
 type Ref struct {
 	Provider, Name, Container, Object string
 }
 
-// Reference is a Ref found somewhere in scope. Via says how: "cname" (an in-scope
-// name's CNAME chain), "link" (an <a> or <area> to it) or "asset" (anything a
-// browser would load). From is the referencing hostname or page.
+// Reference links storage to an in-scope hostname or page. Via distinguishes CNAME, plain link
+// and browser-loaded asset references; From records the source.
 type Reference struct {
 	Ref
 	Via, From string
 }
 
-// AzureContainers are the containers tried on every existing Azure account.
+// AzureContainers supplies default names for existing accounts.
 var AzureContainers = []string{"$web", "$root", "public", "assets", "static", "media", "images", "files", "uploads", "backup", "data", "logs"}
 
-// guessWords are combined with a base name, in this order.
+// guessWords fixes the priority of generated name variants.
 var guessWords = []string{"backup", "backups", "dev", "prod", "staging", "test", "assets", "static", "media", "files", "uploads", "public", "private", "data", "logs", "www", "web", "cdn", "images", "docs"}
 
 var (
@@ -54,7 +51,7 @@ var (
 	gcsVirtual = regexp.MustCompile(`^(.+)\.storage\.googleapis\.com$`)
 )
 
-// ParseRef recognises a storage reference in a URL or a bare host.
+// ParseRef accepts storage URLs and bare hosts.
 func ParseRef(s string) (Ref, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -83,7 +80,7 @@ func ParseRef(s string) (Ref, bool) {
 		return Ref{Provider: GCS, Name: first, Object: rest}, true
 	case gcsVirtual.MatchString(host):
 		name := gcsVirtual.FindStringSubmatch(host)[1]
-		if name == "c" { // c.storage.googleapis.com is the CNAME form, not a bucket named c
+		if name == "c" { // c.storage.googleapis.com denotes alias-based addressing, not bucket c
 			return Ref{}, false
 		}
 		return Ref{Provider: GCS, Name: name, Object: path}, true
@@ -104,8 +101,8 @@ func ParseRef(s string) (Ref, bool) {
 	return Ref{}, false
 }
 
-// ParseCNAME is ParseRef for a CNAME: alias is the name that points at target.
-// The c.storage.googleapis.com target names no bucket; the bucket is the alias.
+// ParseCNAME handles alias-based bucket names: c.storage.googleapis.com names the service,
+// while the alias supplies the bucket.
 func ParseCNAME(alias, target string) (Ref, bool) {
 	if strings.EqualFold(strings.TrimSuffix(target, "."), "c.storage.googleapis.com") {
 		return Ref{Provider: GCS, Name: dnsname.Normalise(alias)}, true
@@ -113,8 +110,7 @@ func ParseCNAME(alias, target string) (Ref, bool) {
 	return ParseRef(strings.TrimSuffix(target, "."))
 }
 
-// RootBases are the names guessed from a root: its registrable label, the root
-// with dots as dashes, and the root itself.
+// RootBases derives guesses from a root's label, dash-joined name and full name.
 func RootBases(root string) []string {
 	root = dnsname.Normalise(root)
 	label, _, _ := strings.Cut(dnsname.Registrable(root), ".")
@@ -123,8 +119,7 @@ func RootBases(root string) []string {
 
 var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
 
-// OrgBases are the names guessed from an organisation name: its words joined
-// and joined with dashes.
+// OrgBases joins meaningful organisation words with and without dashes.
 func OrgBases(org string) []string {
 	words := strings.Fields(nonAlnum.ReplaceAllString(strings.ToLower(org), " "))
 	if len(words) == 0 {
@@ -145,9 +140,8 @@ func dedupe(in []string) []string {
 	return out
 }
 
-// Guess returns the names to try for the bases, in priority order, at most cap
-// of them: each base, then base-<word> for every base, then <word>-base. The order
-// is stable, so raising the cap only adds names.
+// Guess tries bare bases, then base-word and word-base variants, up to cap. Stable ordering
+// means raising the cap only adds guesses.
 func Guess(bases []string, cap int) []string {
 	var all []string
 	all = append(all, bases...)
@@ -168,8 +162,7 @@ func Guess(bases []string, cap int) []string {
 	return all
 }
 
-// InputGuesses yields the guessed buckets of each root and then each
-// organisation, with the input that generates it.
+// InputGuesses preserves root/organisation priority and identifies each guess's source input.
 func InputGuesses(roots, orgs []string, cap int) iter.Seq2[string, Ref] {
 	return func(yield func(string, Ref) bool) {
 		for _, set := range []struct {
@@ -187,9 +180,8 @@ func InputGuesses(roots, orgs []string, cap int) iter.Seq2[string, Ref] {
 	}
 }
 
-// Guesses are Guess's names turned into every provider's form, each name in
-// Providers order, skipping the ones a provider cannot use. Name is the bucket
-// (S3, GCS) or the account (Azure).
+// Guesses expands names in Providers order, dropping invalid provider-specific names. Azure
+// uses account names rather than buckets.
 func Guesses(bases []string, cap int) []Ref {
 	var out []Ref
 	for _, n := range Guess(bases, cap) {
@@ -208,10 +200,8 @@ var (
 	accountStrip = strings.NewReplacer("-", "", ".", "")
 )
 
-// ProviderName turns a guessed name into one the provider accepts, or reports
-// that it cannot be used. S3 and GCS names are 3 to 63 characters of
-// [a-z0-9.-] that start and end with a letter or digit and have no "..";
-// an Azure account name drops "-" and "." and is 3 to 24 letters and digits.
+// ProviderName validates S3/GCS names and normalises Azure accounts by dropping hyphens/dots.
+// S3/GCS allow 3–63 characters; Azure requires 3–24 alphanumerics.
 func ProviderName(provider, name string) (string, bool) {
 	switch provider {
 	case S3, GCS:
@@ -229,7 +219,7 @@ func ProviderName(provider, name string) (string, bool) {
 	return "", false
 }
 
-// Key is the storage record key of a bucket (S3, GCS) or of an Azure container.
+// Key identifies S3/GCS buckets or Azure containers in stored records.
 func Key(provider, name, container string) string {
 	if container != "" {
 		return provider + "|" + name + "/" + container
@@ -237,11 +227,11 @@ func Key(provider, name, container string) string {
 	return provider + "|" + name
 }
 
-// AccountKey names an Azure account among buckets and containers: the storage
-// check of the account, and its entry in the set of missing resources.
+// AccountKey identifies an Azure account consistently in storage checks and missing-resource
+// sets.
 func AccountKey(name string) string { return "azure-account|" + name }
 
-// URL is the path-style URL a bucket or container is listed at.
+// URL builds the provider's path-style listing endpoint.
 func URL(provider, name, container string) string {
 	switch provider {
 	case GCS:
@@ -256,9 +246,8 @@ func URL(provider, name, container string) string {
 	return "https://s3.amazonaws.com/" + name
 }
 
-// PublicState is "yes" if an anonymous HEAD of any known object of the bucket
-// succeeded, "no" if every known object refused it, and "unknown" with no
-// known object. results holds one entry per checked object.
+// PublicState reports yes if any anonymous object HEAD succeeded, no if all refused, and
+// unknown without checked objects.
 func PublicState(results []bool) string {
 	if len(results) == 0 {
 		return "unknown"

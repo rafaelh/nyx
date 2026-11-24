@@ -10,10 +10,8 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// References are the buckets and containers something in scope points at: the
-// CNAME chain of an in-scope, non-wildcard-only hostname, and the storage_ref
-// observations of pages whose host is in scope. Sorted and without duplicates.
-// A bucket is attributed iff it has a reference.
+// References collects sorted, unique storage references from in-scope non-wildcard CNAME chains
+// and in-scope pages. A reference establishes bucket/container attribution.
 func References(in Input) []cloudstorage.Reference {
 	return newDeriver(in).references()
 }
@@ -58,10 +56,8 @@ func refCompare(a, b cloudstorage.Reference) int {
 		cmp.Compare(a.Object, b.Object), cmp.Compare(a.Via, b.Via), cmp.Compare(a.From, b.From))
 }
 
-// StorageAttr is the attribution of a storage record: whether a
-// reference attributes it, the inputs that would have guessed it, its public
-// state ("yes", "no" or "unknown") and, for an unattributed one, the severity
-// storage-unattributed.csv lists it with.
+// StorageAttr records references, guessing inputs, public state and any severity used by
+// storage-unattributed.csv.
 type StorageAttr struct {
 	Attributed    bool
 	GeneratedFrom []string
@@ -85,8 +81,7 @@ func (d *deriver) attribution() map[string]StorageAttr {
 	return out
 }
 
-// bucketKey is the attribution key of a bucket: provider and bucket (the account
-// for Azure, so every container of a referenced account is attributed).
+// bucketKey attributes Azure containers at account level; other providers use bucket identity.
 func bucketKey(provider, name string) string { return cloudstorage.Key(provider, name, "") }
 
 // attributedSet is the set of referenced buckets, by bucketKey.

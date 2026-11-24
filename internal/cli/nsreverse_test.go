@@ -10,10 +10,8 @@ import (
 	mdns "github.com/miekg/dns"
 )
 
-// Shared name servers and mail hosts. The tests drive cli.Execute with the real
-// dnsroot, email and nsreverse stages. api.securitytrails.com is a fake that
-// answers a domain search filtered by name server (ns) or mail host (mx);
-// nothing leaves the machine.
+// Run real DNS/email/reverse-server stages against loopback SecurityTrails searches filtered by
+// NS/MX.
 
 // stServers are the servers SecurityTrails' domain search was asked about, as
 // "ns|<host>" and "mx|<host>", sorted.
@@ -28,21 +26,9 @@ func (x *risk) stServers() []string {
 	return sorted(out)
 }
 
-// sharedWorld is an engagement for example.com whose name servers and mail hosts
-// are each a different case:
-//
-//	ns1.example.com            in scope
-//	ns.nbhosted.test           outside scope, in the in-scope netblock 198.51.100.0/24
-//	ns-eligible.other.test     outside scope, on the dedicated address app.example.com has
-//	ns.cloudflare.com          a known provider's domain
-//	ns.shared.test             on the shared address cdn.example.com has
-//	ns.unknown.test            on an address nobody knows the owner of
-//	mail.example.com           (mx) in scope
-//	mail.nbhosted.test         (mx) in the in-scope netblock
-//	mx.shared.test             (mx) on the shared address
-//
-// run it with sharedArgs. The fake knows domains for every server, including the
-// ones that must never be asked.
+// sharedWorld covers internal servers, netblock-hosted servers, dedicated external servers,
+// managed providers, shared addresses and unknown ownership for both NS and MX. Every server
+// has fake search results, making forbidden lookups detectable.
 func sharedWorld(t *testing.T, key bool) (*risk, *stReverse) {
 	t.Helper()
 	x := newRisk(t, "email")
@@ -114,10 +100,8 @@ func (x *risk) resolutionRows(typ string) map[string]map[string]string {
 
 // --- Markers ---
 
-// Name servers and mail hosts that are in scope, in an in-scope netblock or on a
-// dedicated address an in-scope host uses are self-hosted; a known provider's
-// name, a shared address and an address of unknown owner are not. The marker is
-// on NS rows of resolutions.csv and in email-posture.csv.
+// Self-hosting accepts in-scope/dedicated target infrastructure and rejects managed, shared and
+// unknown servers consistently in DNS/email output.
 func TestNSReverse_MarkersInBothFiles(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, true)
@@ -177,9 +161,7 @@ func TestNSReverse_WithoutKeyOnlyTheMarkers(t *testing.T) {
 	}
 }
 
-// A name server's or mail host's address is looked up when it is outside scope
-// and not a known provider's name; a failed lookup neither fails the check nor
-// loses the NS rows or the posture.
+// External server-address lookup is best-effort and cannot discard NS/email evidence.
 func TestNSReverse_AddressLookupsAreBestEffort(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, true)
@@ -236,9 +218,8 @@ func TestNSReverse_AsksOnlySelfHostedServers(t *testing.T) {
 
 // --- Candidates ---
 
-// Each domain is a candidate root with shared-ns or shared-mx as its source and
-// is at least medium. A root both a name server and a mail host give has both
-// sources and counts their two pieces of evidence, but is one family, so not high.
+// Shared NS/MX evidence is at least medium but remains one family even when both mechanisms
+// find a root.
 func TestNSReverse_CandidatesAreSharedAndMedium(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, true)
@@ -282,8 +263,7 @@ func TestNSReverse_ExcludedRootStaysExcluded(t *testing.T) {
 	}
 }
 
-// Changing the cap asks again, and the cap is left out of the evidence item, so
-// a root found under both settings still counts once.
+// Changing caps reruns checks without duplicating stable server evidence.
 func TestNSReverse_ChangingTheCapAsksAgainWithoutCountingTwice(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, true)
@@ -300,9 +280,8 @@ func TestNSReverse_ChangingTheCapAsksAgainWithoutCountingTwice(t *testing.T) {
 
 // --- The cap ---
 
-// A server whose total is above nsreverse.max_domains records nothing, whatever
-// its first page lists, and a WARN line names it. Exactly the cap is recorded.
-// Raising the cap asks again.
+// Reject over-cap servers before recording results; exact-cap results pass and raised caps
+// create new checks.
 func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
 	t.Parallel()
 	x, st := sharedWorld(t, true)
@@ -339,9 +318,7 @@ func TestNSReverse_CapRecordsNothingAndWarns(t *testing.T) {
 	}
 }
 
-// A reply without a usable total still cannot pass the cap: the domains listed
-// across pages are counted, and once they pass it nothing the server listed is
-// recorded.
+// Count actual domains across pages so missing/incorrect source totals cannot bypass the cap.
 func TestNSReverse_CapCountsPagesWithoutATotal(t *testing.T) {
 	t.Parallel()
 	x, st := sharedWorld(t, true)
@@ -397,9 +374,8 @@ func TestNSReverse_QuotaStopsTheStage(t *testing.T) {
 
 // --- The passive boundary ---
 
-// Candidate roots are never resolved, and no looked-up server address is
-// contacted or made a hostname, address to probe or port-check target: a full,
-// authorised run sends nothing to any address a server was looked up at.
+// Candidate roots and ownership-only server addresses never become contact targets, even in
+// authorised runs.
 func TestNSReverse_NothingFoundIsContacted(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, true)
@@ -442,8 +418,7 @@ func TestNSReverse_NothingFoundIsContacted(t *testing.T) {
 	}
 }
 
-// The NS and email check keys carry a token for the address lookups, so an
-// engagement from before has them looked up once and not again.
+// Check-version tokens collect server addresses once for older engagements.
 func TestNSReverse_ExistingEngagementLooksUpAddressesOnce(t *testing.T) {
 	t.Parallel()
 	x, _ := sharedWorld(t, false)

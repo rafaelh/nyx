@@ -9,9 +9,8 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// A risky port that only a third party reports is the same finding one severity
-// step lower and unconfirmed; once nyx has opened it, the same key is at full
-// severity and confirmed. A port nyx found closed is no finding.
+// Reported/confirmed risky ports share keys, allowing severity upgrades; confirmed closed ports
+// produce no finding.
 func TestRiskyPortsReportedByAThirdParty(t *testing.T) {
 	t.Parallel()
 	reported := func(f *fixture) {

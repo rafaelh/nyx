@@ -27,15 +27,12 @@ import (
 	mdns "github.com/miekg/dns"
 )
 
-// nyx ip --active: which addresses are contacted, the TCP scan, the TLS handshakes and the GETs, and
-// the keys they add. Every address nyx may connect to is mapped (Options.DialMap) to a loopback
-// server of ip_world_test.go or of this file, so a test sees exactly which connections were made and
-// what was sent on them.
+// Active lookup tests map every possible connection to counting loopback targets, exposing
+// exactly what was sent.
 
 // ---- fixtures ----
 
-// activeWorld is a world whose probes are quick: a silent open port is told apart from a banner after
-// 300 ms, and a port that does not answer after 500 ms.
+// activeWorld shortens banner and connect waits so silent-port cases finish quickly.
 func activeWorld(t *testing.T) *ipWorld {
 	t.Helper()
 	w := newIPWorld(t)
@@ -44,15 +41,13 @@ func activeWorld(t *testing.T) *ipWorld {
 	return w
 }
 
-// refused maps addr:port to loopback port 1, where nothing listens, so the connection is refused.
-// (closedPort frees an ephemeral port, which a test running at the same time may take for a
-// listener of its own before the probe dials it.)
+// refused uses loopback port 1 rather than a freed ephemeral port that another parallel test
+// could bind.
 func (w *ipWorld) refused(addr string, port int) {
 	w.mapDial(addr, port, "127.0.0.1:1")
 }
 
-// closeAllBut refuses every built-in probe port of the address except the kept ones, so that the
-// probes of the others are the only ones that find anything.
+// closeAllBut makes only the selected ports capable of returning probe results.
 func (w *ipWorld) closeAllBut(addr string, keep ...int) {
 	w.t.Helper()
 	for _, p := range ipProbePorts {
@@ -62,8 +57,8 @@ func (w *ipWorld) closeAllBut(addr string, keep ...int) {
 	}
 }
 
-// blackhole maps addr:port to a loopback port whose accept queue is full, so a connection attempt
-// is not answered at all. The test is skipped where the system does not behave so.
+// blackhole fills a loopback accept queue to simulate unanswered connections, skipping systems
+// with different behaviour.
 func (w *ipWorld) blackhole(addr string, port int) {
 	w.t.Helper()
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
@@ -139,8 +134,7 @@ func activeCert(t *testing.T, issuer string, notAfter time.Time, names ...string
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
-// activeServer is an HTTP or HTTPS server that records the server name of every TLS handshake and
-// the method, path and Host of every request.
+// activeServer records TLS SNI and HTTP method/path/Host for assertions.
 type activeServer struct {
 	*ipTarget
 	mu     sync.Mutex
@@ -180,8 +174,8 @@ func (s *activeServer) hosts() []string {
 	return out
 }
 
-// activeServe maps addr:port to an HTTPS server with the certificate, or to an HTTP server when cert
-// is nil. h answers the requests: a 200 "ok" when it is nil.
+// activeServe maps an address/port to HTTP or certificate-backed HTTPS, defaulting to a 200
+// response.
 func (w *ipWorld) activeServe(addr string, port int, cert *tls.Certificate, h http.HandlerFunc) *activeServer {
 	w.t.Helper()
 	if h == nil {
@@ -241,8 +235,8 @@ func (e activeEntry) strs(k string) []string {
 	return out
 }
 
-// activeEntries are the entries of the record's list at key (ports, tls or web), each checked for
-// having exactly the wantKeys in order. A null list gives none.
+// activeEntries verifies exact ordered fields in ports/TLS/web list entries; null yields no
+// entries.
 func activeEntries(t *testing.T, r ipRecord, key string, wantKeys []string) []activeEntry {
 	t.Helper()
 	var top map[string]json.RawMessage
@@ -347,9 +341,8 @@ func (w *ipWorld) activeContacted(addr string) []int {
 	return out
 }
 
-// activeNoThirdParty fails the test if any third party was asked, or any public resolver was asked
-// for a name of the addresses (their reverse names or Team Cymru's), as is the rule for a
-// non-public address whether or not it is contacted.
+// activeNoThirdParty rejects external source/public-DNS lookups for non-public addresses,
+// including when actively probed.
 func (w *ipWorld) activeNoThirdParty(addrs ...string) {
 	w.t.Helper()
 	if n := w.httpRequests(); n != 0 {
@@ -415,9 +408,8 @@ func TestIPActive_NeedsNoAcknowledgement(t *testing.T) {
 
 // ---- which ports ----
 
-// A dedicated public address is probed on every built-in port and on InternetDB's other ports, with
-// one TCP handshake each. Nothing is sent on any of them: the scan reads the unprompted banner and
-// is not followed by a handshake or a request when only the ports are wanted.
+// Port-only selection performs TCP handshakes and reads greetings without application data, TLS
+// negotiation or HTTP requests.
 func TestIPActive_ADedicatedAddressIsProbedOnTheBuiltInPortsAndInternetDBsOthers(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -472,8 +464,7 @@ func TestIPActive_AnIPv6AddressIsProbedToo(t *testing.T) {
 	}
 }
 
-// The ports InternetDB reports beyond the built-in list are probed lowest first, at most 64 of them:
-// with 80 beyond the list, the 64 lowest.
+// Cap additional InternetDB ports at the 64 lowest values outside the built-in list.
 func TestIPActive_InternetDBPortsBeyondTheBuiltInListAreCappedAtTheLowest64(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -505,9 +496,8 @@ func TestIPActive_InternetDBPortsBeyondTheBuiltInListAreCappedAtTheLowest64(t *t
 	}
 }
 
-// Each port is open, closed or without an answer. The banner is the bytes the service sent
-// unprompted, as text with any invalid UTF-8 replaced, at most 1024 bytes; nothing is sent to the
-// service.
+// Port results distinguish open, closed and unanswered while keeping capped, UTF-8-safe
+// unprompted banners.
 func TestIPActive_PortStatesAndBanners(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -656,8 +646,8 @@ func TestIPActive_AFailedOwnerLookupMeansNotContacted(t *testing.T) { // mutatio
 	}
 }
 
-// A non-public address that only the public resolvers gave for a hostname is not contacted: a hostile
-// name could otherwise point the probes at the operator's own network. Its record says why.
+// Public DNS alone cannot authorise private-network contact, preventing hostile names from
+// probing the operator's network.
 func TestIPActive_ANonPublicAddressFromPublicDNSIsNotContacted(t *testing.T) { // mutation target
 	t.Parallel()
 	w := activeWorld(t)
@@ -689,9 +679,8 @@ func TestIPActive_ANonPublicAddressFromPublicDNSIsNotContacted(t *testing.T) { /
 	w.activeNoThirdParty(addrs...)
 }
 
-// The same non-public address is contacted when it was given as a literal or in a CIDR, or when this
-// machine's resolver gave it (a single-label name, or a name the public resolvers do not know); and a
-// literal and a name from public DNS for one address make it a literal's.
+// Explicit inputs or local DNS permit eligible private contact, even when public DNS also names
+// the address.
 func TestIPActive_ANonPublicAddressIsContactedWhenNotOnlyPublicDNSGaveIt(t *testing.T) { // mutation target
 	t.Parallel()
 	const banner = "SSH-2.0-OpenSSH_9.6\r\n"
@@ -739,8 +728,8 @@ func TestIPActive_ANonPublicAddressIsContactedWhenNotOnlyPublicDNSGaveIt(t *test
 	}
 }
 
-// A non-public address is sent to no third party and to no public resolver even when it is
-// contacted: its PTR goes to this machine's resolver only.
+// Active private probes still use no third parties or public resolvers; PTR uses only local
+// resolution.
 func TestIPActive_AContactedNonPublicAddressIsSentToNoThirdParty(t *testing.T) {
 	t.Parallel()
 	w := activeWorld(t)
@@ -763,8 +752,8 @@ func TestIPActive_AContactedNonPublicAddressIsSentToNoThirdParty(t *testing.T) {
 	sawOnly(t, w.local, "PTR", reverseName("10.1.2.3"), reverseName("100.64.0.9"), reverseName("fd00::1"), reverseName("192.168.0.7"))
 }
 
-// An unspecified, this-network, multicast or broadcast address is never connected to, and nor is an
-// IPv6 link-local address, which needs a zone. The record says why.
+// Never connect to unspecified, multicast, broadcast, this-network or unzoned IPv6 link-local
+// addresses.
 func TestIPActive_UnreachableKindsAreNeverDialled(t *testing.T) { // mutation target
 	t.Parallel()
 	w := activeWorld(t)
@@ -821,8 +810,7 @@ func activeHost(r *http.Request) string {
 	return r.Host
 }
 
-// Two hostnames on one address give two handshakes on each open TLS port, each with its own hostname
-// as the server name (as the server saw it), and the handshake is all that is sent: no request.
+// Each contributing hostname gets its own SNI handshake without application data.
 func TestIPActive_TLSIsHandshakenOncePerHostnameWithItsServerName(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -865,8 +853,7 @@ func TestIPActive_TLSIsHandshakenOncePerHostnameWithItsServerName(t *testing.T) 
 	}
 }
 
-// With no input hostname there is one handshake without a server name, and one GET with the address
-// as the Host.
+// Address-only probes omit SNI and use the address in Host.
 func TestIPActive_WithNoHostnameTheHandshakeHasNoServerNameAndTheGETHasTheAddress(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -907,8 +894,8 @@ func TestIPActive_WithNoHostnameTheHandshakeHasNoServerNameAndTheGETHasTheAddres
 	}
 }
 
-// Two hostnames on one address give one GET each on every open web port, with the hostname as the
-// Host, and a web entry each; the scheme is https on a TLS port and http on the others.
+// Each contributing hostname gets a Host-specific GET on open web ports, choosing HTTPS for TLS
+// ports.
 func TestIPActive_GETIsSentOncePerHostnameWithItsHost(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -967,9 +954,8 @@ func TestIPActive_GETIsSentOncePerHostnameWithItsHost(t *testing.T) {
 	}
 }
 
-// A TLS entry has the certificate's names, its issuer and its expiry as a date in UTC, and the
-// handshake succeeded whether or not the certificate is trusted: an expired one with other names is
-// recorded as it is.
+// Capture certificate metadata even for expired or wrong-name certificates because probe
+// handshakes skip trust enforcement.
 func TestIPActive_TLSEntryHasTheCertificatesNamesIssuerAndExpiry(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -1004,8 +990,7 @@ func TestIPActive_TLSEntryHasTheCertificatesNamesIssuerAndExpiry(t *testing.T) {
 	}
 }
 
-// A web entry has the status, the Server header, the page's title and the Location. A redirect is
-// reported and not followed: its target is not asked.
+// Capture HTTP metadata and redirects without contacting redirect targets.
 func TestIPActive_WebEntryHasStatusServerTitleAndLocationAndARedirectIsNotFollowed(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -1061,9 +1046,8 @@ func TestIPActive_WebEntryHasStatusServerTitleAndLocationAndARedirectIsNotFollow
 	}
 }
 
-// A handshake is made only on an open built-in TLS port, and a GET is sent only on an open built-in
-// web port, whatever else is open: not on a port InternetDB reported that speaks TLS or HTTP, nor
-// on a built-in port that is neither. A closed port gets neither.
+// TLS/HTTP follow-up is limited to open built-in protocol ports, regardless of InternetDB's
+// extra-port reports.
 func TestIPActive_HandshakeAndGETAreSentOnlyOnOpenBuiltInPorts(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -1145,8 +1129,8 @@ func TestIPActive_APlainServerOnATLSPortIsNotTLS(t *testing.T) {
 	}
 }
 
-// What a probe finds (nothing answering, a service that is not TLS, a reset connection, a closed
-// port) is a result: the call succeeds and nothing is a failure.
+// Remote probe outcomes remain successful results; closed ports, resets and non-TLS services
+// are not source failures.
 func TestIPActive_ProbeOutcomesAreResultsNeverFailures(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"
@@ -1238,8 +1222,7 @@ func TestIPActive_FieldsPortsMakesNoHandshakeOrGET(t *testing.T) {
 	}
 }
 
-// --fields not_contacted needs Team Cymru and nothing else: InternetDB is not asked and nothing is
-// connected to, for a dedicated address and for a shared one.
+// Selecting only not_contacted classifies ownership without InternetDB or target contact.
 func TestIPActive_FieldsNotContactedMakesNoConnection(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -1274,8 +1257,7 @@ func TestIPActive_FieldsNotContactedMakesNoConnection(t *testing.T) {
 	}
 }
 
-// --fields geo_country under --active still works out whether the address is shared: Team Cymru is
-// asked, and the keys are those of the selection.
+// Active mode classifies shared hosting even when selected output fields need no probe results.
 func TestIPActive_FieldsOfOtherKeysStillAskTeamCymru(t *testing.T) {
 	t.Parallel()
 	const addr = "93.184.216.34"

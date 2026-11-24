@@ -10,13 +10,10 @@ import (
 	"testing"
 )
 
-// Web identifiers: tracking IDs, favicon hashes and copyright lines found on
-// in-scope pages, and the Shodan search that pivots on them. The web servers are
-// loopback fakes behind egress's DialMap, and api.shodan.io is a fake source.
+// Identifier tests use loopback web/Shodan fakes to check extraction and pivot searches.
 
-// iconOf is a favicon body of n bytes (0, 1, 2, ...) and iconHashOf its Shodan
-// hash. The hashes were computed with Python's base64.encodebytes and an
-// independent MurmurHash3, not with the code under test.
+// iconHashOf uses independently computed Python/base64/MurmurHash fixtures rather than the
+// implementation under test.
 func iconOf(n int) []byte {
 	b := make([]byte, n)
 	for i := range b {
@@ -43,9 +40,8 @@ func icon(contentType string, body []byte) http.HandlerFunc {
 	}
 }
 
-// ids are a service's identifier cells. The CSV writer puts a quote in front of any
-// cell that starts with "-" (so a spreadsheet cannot read it as a formula), which
-// a negative favicon hash gets; it is not part of the hash and is taken off here.
+// ids removes CSV's spreadsheet-protection quote from negative favicon hashes before comparing
+// values.
 func (x *web) ids(url string) (analytics, pixels, favicon, copyright string) {
 	x.t.Helper()
 	r := x.service(url)
@@ -125,8 +121,7 @@ func TestIdentifiers_ProbeOnlySeesTheRootPage(t *testing.T) {
 	}
 }
 
-// Identifiers are read from the pages of the chain served by the service's own
-// host, not from a page a redirect led to elsewhere.
+// Read identifiers only from the service's own pages in the redirect chain.
 func TestIdentifiers_OnlyThePagesOfTheServiceItself(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -302,8 +297,7 @@ func TestFavicon_NoHashFromAnAnswerThatIsNotAnIcon(t *testing.T) {
 	}
 }
 
-// An icon request that fails (the server cuts the connection mid-body) is no icon,
-// and does not cost the service its record or fail the probe.
+// An interrupted icon body does not invalidate the service or fail its probe.
 func TestFavicon_FailedRequestDoesNotLoseTheService(t *testing.T) {
 	t.Parallel()
 	x, s := faviconCase(t, page("<title>home</title>"), map[string]http.HandlerFunc{"/favicon.ico": func(w http.ResponseWriter, r *http.Request) {
@@ -455,9 +449,8 @@ const (
 	qGA      = `http.html:"G-AAAAAA1"`
 )
 
-// pivotWorld is www and app (the same tracking ID and icon, www also a pixel), a
-// SaaS-served help site with an ID and icon of its own, and a plain site whose
-// favicon is the empty file. Every address Shodan returns is a canary.
+// pivotWorld combines shared identifiers, a SaaS service and an empty favicon; returned
+// addresses are canaries.
 func pivotWorld(t *testing.T) (x *web, f *pivotFake, canaries, sites []*site) {
 	t.Helper()
 	x = newWeb(t)
@@ -496,9 +489,8 @@ func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
 	x, _, canaries, _ := pivotWorld(t)
 	x.mustRun()
 
-	// One for each distinct identifier. Not the SaaS-served service's ID or icon,
-	// not the empty file, never the copyright text. (The searches run in parallel,
-	// so their order is not the order of the checks.)
+	// Search distinct useful identifiers only. Parallel execution means request order need
+	// not match enumeration order.
 	want := sorted([]string{qFavicon, qPixel, qGA})
 	queries, pages := x.searches()
 	if !slices.Equal(sorted(queries), want) {
@@ -643,8 +635,8 @@ func TestIdentifierPivot_KeyWithoutSearchAccess(t *testing.T) {
 	}
 }
 
-// No query credits (402) stops the stage for the run. The search that was refused and the
-// ones not yet sent run next time; the ones that finished do not.
+// Credit exhaustion preserves completed searches and defers refused/unsent searches to the next
+// run.
 func TestIdentifierPivot_NoCreditsStopsTheStage(t *testing.T) {
 	t.Parallel()
 	x, f, _, _ := pivotWorld(t)

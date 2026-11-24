@@ -1,12 +1,6 @@
-// Package kinds defines the record kinds: for each, its name, the attributes
-// its observations carry (a struct, in table.go), and how its records are shown
-// (counted in the summary, printed when found, written to the files and used to
-// derive findings; see Visibility).
-//
-// Stages write observations through a kind's handle and readers decode records
-// through the same handle, so a kind's attributes are defined once. The JSON
-// names of the attribute structs are what the state database stores: renaming
-// one breaks resuming an existing engagement.
+// Package kinds defines typed record handles and their attributes, visibility and output rules.
+// Stages create observations and readers decode records through the same handle. Attribute JSON
+// names are stored in engagement databases, so renaming them breaks existing state.
 package kinds
 
 import (
@@ -24,50 +18,40 @@ import (
 // Kind describes how the records of a kind are shown.
 type Kind struct {
 	Name string
-	// Singular and Category are the console label of one record ("web service")
-	// and the summary category ("web services"). An entity kind's Category is
-	// that of a record placed in scope, and is empty when such a record is an
-	// input, which is not counted.
+	// Singular labels console events; Category names the summary count. Entity categories
+	// apply only to in-scope records and are empty for uncounted inputs.
 	Singular, Category string
-	// place, set on the entity kinds, places a record against the scope by its
-	// key (see Visibility.Placement): in scope, as a candidate or as excluded,
-	// which decides its summary category. It is not placed (false) when it stays
-	// on record without being listed.
+	// place classifies entity records by key as in scope, candidate or excluded. It returns
+	// false for stored entities that should not be listed.
 	place func(sc *scope.Scope, inv *inventory.Inventory, key string) (scope.Class, bool)
-	// Printed kinds are printed as a line the first time they are seen in an engagement.
+	// Printed enables a found line on a record's first engagement sighting.
 	Printed bool
-	// HostAttr names the attribute holding the host of a web record. Such a
-	// record is shown only while that host is in scope, decided when it is read.
+	// HostAttr identifies a web record's host attribute. Visibility is checked against the
+	// current scope when read.
 	HostAttr string
-	// PortKey kinds are keyed by a target address and port. Such a record is
-	// shown only while that address is port-eligible, decided when it is read.
+	// PortKey identifies address/port keys. Records are visible only while their address
+	// remains eligible for port checks.
 	PortKey bool
-	// ClosedHides marks a PortKey kind as a third party's report of a port that
-	// nyx's own handshake settles: a record is hidden once nyx found the port
-	// closed, and not counted on its own once nyx found it open (open_port counts it).
+	// ClosedHides marks third-party port reports superseded by nyx's own checks. Confirmed
+	// closed ports are hidden; confirmed open ports are counted through open_port instead.
 	ClosedHides bool
-	// HostKey kinds are keyed by a hostname. Such a record is shown only while
-	// that name is in scope, decided when it is read.
+	// HostKey identifies hostname keys, whose records are visible only while that name is
+	// in scope.
 	HostKey bool
-	// OutsideAttr names an attribute holding a domain. A record that has one is
-	// shown only while that domain is not in scope (an empty value counts as
-	// outside), decided when it is read, on top of any other rule.
+	// OutsideAttr adds a requirement that the named domain be outside scope. An empty
+	// domain qualifies. Other visibility rules still apply.
 	OutsideAttr string
-	// Found, if set, describes a new record's found line: its fields are added
-	// to the found event, replacing its "category" and "value" if it has them,
-	// and its "text" is what the console prints after "+".
+	// Found adds fields to a new record's event, optionally replacing category and value.
+	// Its text field supplies the console text after "+".
 	Found func(store.Record) map[string]any
-	// Change is the label changes.csv lists a record of the kind under, and the
-	// kinds whose records share one output file row share one (a resolution and a
-	// claim with one key are one row of resolutions.csv). A kind with none, an
-	// evidence or internal kind, is not listed. An entity kind's Change is the
-	// label of a record placed in scope; one placed as a candidate or as excluded
-	// is listed under that label instead (see Visibility.ChangeLabel).
+	// Change labels rows in changes.csv. Kinds sharing an output row share a label;
+	// evidence and internal kinds have none. Entity records use their candidate or excluded
+	// placement label when applicable, otherwise their in-scope Change label.
 	Change string
 }
 
-// Entity reports whether records of the kind are placed against the scope
-// (in scope, as a candidate or as excluded) rather than shown or hidden.
+// Entity reports whether this kind uses scope placement rather than ordinary shown/hidden
+// visibility.
 func (k Kind) Entity() bool { return k.place != nil }
 
 // scoped reports whether showing a record of k depends on the scope.
@@ -75,8 +59,7 @@ func (k Kind) scoped() bool {
 	return k.Entity() || k.HostAttr != "" || k.PortKey || k.HostKey || k.OutsideAttr != ""
 }
 
-// The changes.csv labels other packages read: those of the entity categories
-// (see Visibility.ChangeLabel), and those of the kinds the summary counts.
+// Shared changes.csv labels for entity placements and counted record kinds.
 const (
 	LabelHostname   = "hostname"
 	LabelCandidate  = "candidate"
@@ -102,16 +85,16 @@ type Named interface {
 	kind() Kind
 }
 
-// ref is what every kind handle holds, and gives it Named's methods.
+// ref provides the shared identity and Named methods for kind handles.
 type ref struct{ k Kind }
 
-// Name is the kind's name, as the store keys its records.
+// Name returns the stored record-kind identifier.
 func (r ref) Name() string { return r.k.Name }
 
 func (r ref) kind() Kind { return r.k }
 
-// Of is the handle of a kind whose observations carry attributes A. Its zero
-// value is not usable; the handles are the variables in table.go.
+// Of is a typed record handle for attributes A. Use the registered handles in table.go; the
+// zero value is invalid.
 type Of[A any] struct{ ref }
 
 // Obs is an observation of the kind.
@@ -119,9 +102,8 @@ func (k Of[A]) Obs(key string, a A) store.Obs {
 	return store.Obs{Kind: k.k.Name, Key: key, Attrs: encode(a)}
 }
 
-// Attrs decodes a record's merged attributes, as encoding/json would from the
-// stored JSON. A stored value that does not fit its field (a record written
-// before the field's type changed) decodes as the field's zero value.
+// Attrs decodes merged stored attributes. Values incompatible with a field's type become zero
+// values, allowing records from older schemas to be read.
 func (k Of[A]) Attrs(r store.Record) A {
 	var a A
 	if len(r.Attrs) > 0 {
@@ -130,9 +112,8 @@ func (k Of[A]) Attrs(r store.Record) A {
 	return a
 }
 
-// Keyed is the handle of a kind whose key is made from its attributes. An
-// observation is made from the attributes alone, so its key always agrees with
-// them, and Attrs rebuilds from a record's key the attributes the key carries.
+// Keyed constructs record keys from attributes so the two cannot disagree. When reading, it can
+// also recover missing attributes from the key.
 type Keyed[A any] struct {
 	Of[A]
 	key func(A) string
@@ -140,17 +121,14 @@ type Keyed[A any] struct {
 	rebuild func(key string, a *A)
 }
 
-// Key is the key of a record with attributes a. Only the fields the key
-// carries need be set.
+// Key builds a record key from its identifying attributes; unrelated fields may be empty.
 func (k Keyed[A]) Key(a A) string { return k.key(a) }
 
 // Obs is the observation of a record with attributes a, under its Key.
 func (k Keyed[A]) Obs(a A) store.Obs { return k.Of.Obs(k.key(a), a) }
 
-// Attrs decodes a record's merged attributes as Of.Attrs does, and takes a
-// field the record lacks and its key carries from the key: the store keeps
-// attributes only from current observations, so a record that is no longer
-// current has only its key.
+// Attrs decodes attributes and recovers missing identifying fields from the key. This also
+// supports non-current records, whose current-observation attributes are gone.
 func (k Keyed[A]) Attrs(r store.Record) A {
 	a := k.Of.Attrs(r)
 	k.rebuild(r.Key, &a)
@@ -163,8 +141,8 @@ type Bare struct{ ref }
 // Obs is an observation of the kind.
 func (k Bare) Obs(key string) store.Obs { return store.Obs{Kind: k.k.Name, Key: key} }
 
-// encode turns attributes into the map the store keeps, in the form the store
-// returns them (numbers as float64, lists as []any).
+// encode produces the map representation used by the store, including float64 numbers and []any
+// lists.
 func encode(a any) map[string]any {
 	b, err := json.Marshal(a)
 	if err != nil {
@@ -181,15 +159,14 @@ var table []Kind // sorted by name once the handles are defined
 
 func define[A any](k Kind) Of[A] { table = append(table, k); return Of[A]{ref{k}} }
 
-// defineKeyed defines a kind whose key is key(attributes), and whose
-// attributes rebuild fills in from a key, setting only the empty fields.
+// defineKeyed registers key construction and recovery of missing attributes from stored keys.
 func defineKeyed[A any](k Kind, key func(A) string, rebuild func(key string, a *A)) Keyed[A] {
 	table = append(table, k)
 	return Keyed[A]{Of: Of[A]{ref{k}}, key: key, rebuild: rebuild}
 }
 
-// defineJoined defines a kind whose key is the fields that fields selects,
-// joined with "|" in that order, and rebuilt from a key with fillFromKey.
+// defineJoined registers a key made by joining selected fields with "|", with matching field
+// recovery.
 func defineJoined[A any](k Kind, fields func(*A) []*string) Keyed[A] {
 	return defineKeyed(k,
 		func(a A) string {
@@ -203,9 +180,8 @@ func defineJoined[A any](k Kind, fields func(*A) []*string) Keyed[A] {
 		func(key string, a *A) { fillFromKey(key, fields(a)...) })
 }
 
-// fillFromKey sets each empty *dst to its part of a "|"-joined key, the last
-// taking the rest of the key (a TXT value may hold a bar). It sets nothing
-// when the key has too few parts, or when no *dst is empty.
+// fillFromKey fills empty destinations from a "|"-joined key. The last field takes the
+// remainder, allowing bars in TXT values. Too few parts leaves all fields unchanged.
 func fillFromKey(key string, dst ...*string) {
 	if !slices.ContainsFunc(dst, func(p *string) bool { return *p == "" }) {
 		return
@@ -236,11 +212,10 @@ func Get(name string) (Kind, bool) {
 	return table[i], true
 }
 
-// handle is a kind handle found by name. It reads; it cannot make observations.
+// handle supports generic kind reads but cannot construct observations.
 type handle struct{ ref }
 
-// Lookup returns the handle of a kind by name, for a reader that walks kinds by
-// name (see All) and asks the Visibility about them.
+// Lookup resolves a kind by name for generic readers using All and Visibility.
 func Lookup(name string) (Named, bool) {
 	k, ok := Get(name)
 	return handle{ref{k}}, ok
@@ -249,15 +224,16 @@ func Lookup(name string) (Named, bool) {
 // All returns every kind sorted by name.
 func All() []Kind { return slices.Clone(table) }
 
-// Size is a byte count, or "<n>+" when the body was cut short and its real
-// size is unknown. An exact size is stored as a number.
+// Size formats byte counts, adding "+" for truncated bodies of unknown total size. Exact counts
+// remain numeric.
 type Size string
 
 // SizeOf is an exact size.
 func SizeOf(n int64) Size { return Size(strconv.FormatInt(n, 10)) }
 
 func (s Size) MarshalJSON() ([]byte, error) {
-	// Only a canonical integer is a valid JSON number ("+5" and "007" parse but are not).
+	// JSON numbers require canonical integers, excluding accepted-but-noncanonical forms
+	// such as +5 or 007.
 	if n, err := strconv.ParseInt(string(s), 10, 64); err == nil && strconv.FormatInt(n, 10) == string(s) {
 		return []byte(s), nil
 	}

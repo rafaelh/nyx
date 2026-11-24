@@ -20,16 +20,10 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// Host is the shodan-host stage: the TCP ports, banners and hostnames Shodan
-// holds for one address, asked of every address that may be port-checked and that
-// the netblock search did not cover: one outside every in-scope netblock, or
-// inside one whose search stopped at its page cap without returning it.
-//
-// The check key is the address, so Shodan's data for an address is refreshed
-// only by --redo shodan-host. The key carries no scope: a hostname under a root
-// promoted later was recorded only as a candidate root until the redo. The stage
-// is budgeted by shodan.max_hosts; an address past the budget waits for the next
-// run, in address order.
+// Host retrieves services/names for eligible addresses outside netblock-search coverage,
+// including addresses missed by capped searches. Checks use address-only keys and refresh
+// through --redo shodan-host. Newly promoted hostname roots need redo for reclassification.
+// shodan.max_hosts defers excess addresses in sorted order to later runs.
 type Host struct{ shodanAPI }
 
 // NewHost returns the shodan-host stage.
@@ -37,7 +31,7 @@ func NewHost() *Host { return &Host{} }
 
 func (*Host) Name() string { return "shodan-host" }
 
-// CandidateSources: what Shodan holds is passive DNS.
+// CandidateSources classifies Shodan evidence as passive DNS.
 func (*Host) CandidateSources() map[string]string {
 	return map[string]string{"shodan-host": candidates.PassiveDNS}
 }
@@ -45,21 +39,19 @@ func (*Host) CandidateSources() map[string]string {
 // Budget is shodan.max_hosts: each check is one address.
 func (*Host) Budget(s config.Settings) int { return s.Shodan.MaxHosts }
 
-// hostInput is the Check.Input. The scope travels in it so that Run can tell a
-// hostname under an in-scope root from one that is not.
+// hostInput carries scope to classify returned names under input roots.
 type hostInput struct {
 	addr netip.Addr
 	sc   *scope.Scope
 }
 
-// Checks yields, in address order, each known address that may be port-checked
-// and that no complete netblock search covered.
+// Checks selects sorted eligible addresses outside completed search coverage.
 func (*Host) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		sc := v.Scope()
 		cut := truncated(v)
-		// The addresses the shodan stage returned, whether or not it returned a
-		// TCP port for them (a match may be a UDP service only).
+		// Keep every address returned by netblock search, including UDP-only results,
+		// to avoid redundant host lookups.
 		returned := map[netip.Addr]bool{}
 		for _, rec := range v.Records(kinds.IP) {
 			if a, err := netip.ParseAddr(rec.Key); err == nil && slices.Contains(rec.Stages, "shodan") {
@@ -98,11 +90,9 @@ type hostAnswer struct {
 	} `json:"data"`
 }
 
-// Run asks for one address. A 404 is an address Shodan knows nothing about, a
-// completed check with nothing found. Each TCP service is a reported_port (UDP
-// is not recorded); a hostname under an in-scope root becomes a hostname and is
-// tied to the address, and any other gives its registrable domain as a
-// candidate root.
+// Run completes empty for unknown addresses. TCP services become reports; in-scope names are
+// tied to the address, while other names contribute candidate registrable roots. UDP is
+// ignored.
 func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(hostInput)
 	body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
@@ -122,7 +112,7 @@ func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 	seen := map[string]bool{}
 	names := slices.Clone(r.Hostnames)
 	for _, d := range r.Data {
-		// A service listed twice (two modules saw the port) keeps its first entry.
+		// Keep the first report when several Shodan modules describe one service.
 		if o, ok := reportedPort(in.addr.String(), d.Port, d.Transport, d.Data, d.Timestamp); ok && !seen[o.Key] {
 			seen[o.Key] = true
 			obs = append(obs, o)
@@ -135,11 +125,9 @@ func (*Host) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Obse
 	return obs, nil
 }
 
-// nameObs are the observations of hostnames Shodan reported, each cleaned and
-// taken once (seen holds them as "name|<name>", and their roots as
-// "root|<root>"): a name under an in-scope root is a hostname, followed by
-// its ip_hostname pairing with addr if addr is not "", and any other name gives
-// its registrable domain as a candidate root.
+// nameObs cleans and deduplicates returned names/roots. In-scope hostnames get optional address
+// pairings; external names contribute candidate roots. seen uses type-prefixed keys to keep
+// both distinct.
 func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string) []run.Observation {
 	var obs []run.Observation
 	for _, n := range names {

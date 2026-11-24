@@ -111,7 +111,7 @@ func (w *world) openErr() *setup.FileError {
 	return fe
 }
 
-// problems is what config.Check says of body, by setting key.
+// problems indexes config.Check diagnostics by setting key.
 func problems(t *testing.T, body, path string, env config.Env) clierr.Problems {
 	t.Helper()
 	_, err := config.Check([]byte(body), path, env)
@@ -473,9 +473,8 @@ func TestStore_KeepsHomeForTilde(t *testing.T) {
 	}
 }
 
-// A setting the loader reads differently from how the file spells it is marked invalid, not shown
-// as something a run does not use. The loader accepts a literal dotted key, which the editor does
-// not find under its block.
+// Flag YAML values whose loader interpretation differs from the editor's view, including
+// literal dotted keys.
 func TestStore_ASettingThatDoesNotReadBackAsShownIsInvalid(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, new("rate.per_host: 9\nrate:\n  dns: 3\n"))
@@ -493,7 +492,7 @@ func TestStore_ASettingThatDoesNotReadBackAsShownIsInvalid(t *testing.T) {
 	}
 }
 
-// A setting with no value is not set, as the loader reads it.
+// Valueless settings remain unset under loader rules.
 func TestStore_ASettingWithNoValueIsNotSet(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, new("concurrency:\noutput_dir:\nkeys:\n  shodan:\n"))

@@ -196,7 +196,7 @@ func TestFields_NeedsDefaultAllNeverProbes(t *testing.T) {
 	}
 }
 
-// encode is v as the command writes it: without HTML escaping.
+// encode emits command-style JSON without HTML escaping.
 func encode(t *testing.T, v any) string {
 	t.Helper()
 	var b bytes.Buffer
@@ -306,8 +306,7 @@ func TestProjected_Accessors(t *testing.T) {
 	}
 }
 
-// abusive_networks is answered by the snapshot built into nyx and asks no source; abusive_asn is
-// the origin AS's match, so it asks Team Cymru, as asn does.
+// Network abuse fields need no source; ASN abuse fields depend on Cymru.
 func TestSelect_AbusiveKeysAndTheirSources(t *testing.T) {
 	t.Parallel()
 	nets := mustSelect(t, "abusive_networks", false)
@@ -333,7 +332,7 @@ func TestSelect_AbusiveKeysAndTheirSources(t *testing.T) {
 	}
 }
 
-// A match's JSON has the types a record promises, and a key that is null encodes as null.
+// Match JSON preserves field types and null values.
 func TestProjected_AbusiveKeysEncode(t *testing.T) {
 	t.Parallel()
 	r := Record{Address: "203.0.113.9", Hostnames: []string{}, Kind: "public", Failures: []Failure{},
@@ -351,10 +350,7 @@ func TestProjected_AbusiveKeysEncode(t *testing.T) {
 	}
 }
 
-// drop_networks is answered by the DROP lists in use and asks no source, so it is a source that
-// always answers; drop_asn is the origin AS's ASN-DROP entry, so it asks Team Cymru, as abusive_asn
-// does. Both come right after abusive_asn, in the default selection, and before the keys only
-// --active has.
+// DROP fields preserve default ordering and their local-network/Cymru-ASN dependency split.
 func TestSelect_DropKeysAndTheirSources(t *testing.T) {
 	t.Parallel()
 	nets := mustSelect(t, "drop_networks", false)
@@ -394,8 +390,7 @@ func TestSelect_DropKeysAndTheirSources(t *testing.T) {
 	}
 }
 
-// A DROP match's JSON has the keys and order a record promises: the list's date is RFC 3339, an
-// empty field of a Spamhaus row is "", and a key with no answer is null.
+// Pin DROP JSON order, date format, empty metadata and null unknown values.
 func TestProjected_DropKeysEncode(t *testing.T) {
 	t.Parallel()
 	r := Record{Address: "203.0.113.9", Hostnames: []string{}, Kind: "public", Failures: []Failure{},

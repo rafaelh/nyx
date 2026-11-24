@@ -8,8 +8,7 @@ import (
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// Every row of the two IANA special-purpose registries that is not globally reachable, with the
-// first and last address it covers where no more specific row takes them.
+// Cover unreachable IANA entries at their boundaries, accounting for more-specific exceptions.
 func TestOf_RegistryRows(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -215,7 +214,7 @@ func TestOf_LongestPrefixWins(t *testing.T) {
 	}
 }
 
-// IPv4-mapped IPv6 addresses are looked up as the IPv4 address, and a zone is ignored.
+// Mapped addresses use IPv4 classification; zone identifiers do not affect kind.
 func TestOf_UnmapsFirst(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

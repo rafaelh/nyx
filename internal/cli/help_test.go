@@ -28,10 +28,8 @@ func stageRow(topic, stage string) string {
 	return ""
 }
 
-// --help is coloured on a terminal, and plain when stdout is not a terminal, under NO_COLOR (laid
-// out, with no escape byte) and under --json. At a width where nothing wraps the colour is the
-// colour help has always had: info names, muted value types, defaults and notes, bold headings now
-// in the info colour. Off a terminal the plain text is pinned by TestHelp_PlainJoin.
+// Help uses terminal colour/layout only when appropriate. NO_COLOR keeps layout; JSON uses
+// plain output. Separate goldens pin non-terminal text.
 func TestHelp_Colour(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
@@ -66,14 +64,13 @@ func TestHelp_Colour(t *testing.T) {
 	if want := "\n  Example: " + example("nyx cve CVE-2021-44228 CVE-2024-3094 --json") + "\n"; !strings.Contains(rootColoured, want) {
 		t.Errorf("root help lacks the coloured example %q", want)
 	}
-	// Taking the colour away leaves the plain words, in the same order, but for the lines of
-	// running text, which re-flow to the width.
+	// Removing styles preserves help content apart from width-dependent paragraph reflow.
 	words := func(s string) []string { return strings.Fields(sgr.ReplaceAllString(s, "")) }
 	if !slices.Equal(words(coloured), strings.Fields(plain)) {
 		t.Error("coloured help differs from the plain help in more than colour and layout")
 	}
 
-	// The findings topic is coloured too, its severities as badges.
+	// Findings help uses severity badges.
 	if got := helpOn(t, d, 80, "help", "findings"); !strings.Contains(got, d.Value(palette.Severity, "high")) {
 		t.Errorf("findings topic severities are not badges:\n%s", got)
 	}
@@ -91,8 +88,8 @@ func TestHelp_Colour(t *testing.T) {
 	}
 }
 
-// The word help as a command's first argument is --help, after any subcommand names and flag
-// values; after another argument or a bare -- it is an argument like any other.
+// First-positional help acts as --help after subcommands/flag values, but stays literal after
+// other arguments or --.
 func TestHelp_HelpWord(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ args, same []string }{
@@ -126,9 +123,8 @@ func helpOff(t *testing.T, args ...string) string {
 	return h.stdout.String()
 }
 
-// nyx help stages lists every registered stage in run order with whom it
-// contacts and what it does, marks the stages --skip refuses, and the stage
-// list is not in recon --help.
+// The stages topic follows registry order and marks required stages; recon help omits the full
+// list.
 func TestHelp_StagesTopic(t *testing.T) {
 	t.Parallel()
 	stages := defaultStageList()
@@ -179,8 +175,8 @@ func TestHelp_StagesTopic(t *testing.T) {
 		t.Error("the root help does not list nyx help stages")
 	}
 
-	// On a terminal the topic is a table, and a target stage's contact is in the warning colour
-	// (TestHelp_StagesTopicTable has the rest of its layout).
+	// Terminal stages tables warn-colour target contact; detailed layout is tested
+	// separately.
 	colourAt(t, h, palette.TrueColor)
 	coloured := h.stagesHelp()
 	if !strings.Contains(coloured, palette.TrueColor.Text(palette.Semantic, "warning", "target")) {

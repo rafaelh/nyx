@@ -22,8 +22,7 @@ import (
 // cveOptions are the flags of nyx cve.
 type cveOptions struct {
 	fields, timeout, configPath string
-	// limit and match are kept as given, with how many times each was set, so that an
-	// invalid or repeated one is a usage error and the retry command repeats it as typed.
+	// Keep limit and match text and occurrence counts for validation and exact retry hints.
 	limit, match         string
 	limitSets, matchSets int
 }
@@ -31,7 +30,7 @@ type cveOptions struct {
 // cveConcurrency is how many lookups are in flight at once.
 const cveConcurrency = 4
 
-// newCVECommand builds the cve command: CVE records from the NVD, by CVE ID.
+// newCVECommand configures CVE-ID lookup against NVD.
 func newCVECommand(inv *invocation) *cobra.Command {
 	o := &cveOptions{timeout: "60s"}
 	fieldsLine := "Fields accepted by --fields: " + strings.Join(cve.FieldNames(), ", ") + ", all"
@@ -68,9 +67,8 @@ func newCVECommand(inv *invocation) *cobra.Command {
 	return cmd
 }
 
-// runCVE checks every flag and argument, reporting all problems in one usage
-// error before stdin is read or the NVD is asked, then looks the IDs up and
-// writes the records, unless a signal arrived while it did.
+// runCVE validates all flags and arguments before reading stdin or contacting NVD, then fetches
+// and writes records unless interrupted.
 func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []string, o *cveOptions) (err error) {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d
@@ -119,10 +117,9 @@ func runCVE(ctx context.Context, inv *invocation, cmd *cobra.Command, args []str
 	return endLookup(outErr, func() error { return writeCVE(inv, records, metaErrs, view, warnings, red) })
 }
 
-// cveView is the cut --fields, --limit and --match ask for, with each problem they have added to
-// probs: a --limit that is not a positive whole number, a --match with no text, either given twice,
-// and a flag with nothing to act on. The last is left unsaid when --fields has unknown names, as the
-// selection is then unknown too.
+// cveView validates the requested field selection, limits and matches. It collects invalid or
+// repeated values and flags targeting unselected fields. Unknown field names suppress the
+// latter check because the selection is unresolved.
 func cveView(probs *clierr.Problems, o *cveOptions, fields cve.Fields, known bool) cve.View {
 	view := cve.View{Fields: fields}
 	if o.limitSets > 0 {
@@ -159,8 +156,7 @@ func cveView(probs *clierr.Problems, o *cveOptions, fields cve.Fields, known boo
 	return view
 }
 
-// cveKey is the NVD's API key, "" for none, and the hint of its refusal: the
-// trimmed keys.nvd from the configuration.
+// cveKey returns the trimmed configured NVD key and rejection guidance.
 func cveKey(env config.Env, settings config.Settings, configPath string) (key, authHint string) {
 	if k := strings.TrimSpace(settings.Keys["nvd"].Reveal()); k != "" {
 		if configPath == "" {
@@ -171,13 +167,12 @@ func cveKey(env config.Env, settings config.Settings, configPath string) (key, a
 	return "", ""
 }
 
-// cveStdin is what nyx cve reads from stdin.
+// cveStdin supplies CVE-specific stdin/error wording.
 var cveStdin = stdinWords{none: "no CVE IDs given: pass one or more", key: "id",
 	plural: "CVE IDs", perLine: "one CVE ID per line", asArgs: "IDs"}
 
-// cveTargets are the results to fill, one per argument once normalised and
-// deduplicated, in argument order. A malformed argument already holds its
-// failure.
+// cveTargets normalises and deduplicates inputs in argument order, pre-filling invalid-input
+// failures.
 func cveTargets(inputs []string) []cve.Result {
 	seen := map[string]bool{}
 	var out []cve.Result
@@ -198,12 +193,10 @@ func cveTargets(inputs []string) []cve.Result {
 	return out
 }
 
-// fetchFunc looks one ID up: a record, or an error that is a *cve.Failure or
-// the context's.
+// fetchFunc returns one CVE record or a lookup/context failure.
 type fetchFunc func(context.Context, string) (cve.Record, error)
 
-// lookUp fills each result that has no failure yet with what fetch returns
-// for its ID, cveConcurrency at a time.
+// lookUp fills valid pending slots with bounded concurrent fetches.
 func lookUp(ctx context.Context, results []cve.Result, fetch fetchFunc) {
 	var todo []int
 	for i, r := range results {
@@ -214,8 +207,7 @@ func lookUp(ctx context.Context, results []cve.Result, fetch fetchFunc) {
 	batch.Each(len(todo), cveConcurrency, func(j int) { lookUpOne(ctx, &results[todo[j]], fetch) })
 }
 
-// lookUpOne fills r with what fetch returns for its ID. A panic is that ID's
-// unexpected failure.
+// lookUpOne isolates panics as failures of the current ID.
 func lookUpOne(ctx context.Context, r *cve.Result, fetch fetchFunc) {
 	defer func() {
 		if v := recover(); v != nil {
@@ -234,10 +226,8 @@ func lookUpOne(ctx context.Context, r *cve.Result, fetch fetchFunc) {
 	}
 }
 
-// nvdHTTP is the client to the NVD: base's options (so tests can redirect it)
-// with the key of the "nvd" source, when there is one, and the call's
-// redactor. egress's own per-source limit never binds, as the window paces
-// every request.
+// nvdHTTP combines the base egress options, configured NVD key and invocation redactor. The NVD
+// sliding window handles pacing before egress's per-source limit can bind.
 func nvdHTTP(base egress.Options, key string, red *config.Redactor) egress.ThirdPartyHTTP {
 	o := base
 	o.Keys = nil
@@ -249,9 +239,9 @@ func nvdHTTP(base egress.Options, key string, red *config.Redactor) egress.Third
 	return egress.New(o).Clients(false, []string{cve.Host}).ThirdParty
 }
 
-// writeCVE writes the records cut by view: the envelope, with the note on how to see the lists the
-// view leaves out as its hint, under --json, else the cve tool's layout, which writes nothing when
-// there is no record and names the flag of each list it leaves out in that list's heading.
+// writeCVE applies the selected fields, limits and matches. JSON includes any list-expansion
+// hint in the envelope; human output names the flags for omitted lists and writes nothing for
+// an empty result.
 func writeCVE(inv *invocation, records []cve.Record, metaErrs []*clierr.Error, view cve.View, warnings *report.Warnings, red *config.Redactor) error {
 	projected := make([]cve.Projected, len(records))
 	for i, r := range records {

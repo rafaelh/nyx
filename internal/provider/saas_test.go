@@ -6,7 +6,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// The cname entries carry a class, an nxdomain flag and a body fingerprint.
+// Provider CNAME entries retain classification and takeover fingerprints.
 func TestCNAMEEntries(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()
@@ -14,7 +14,7 @@ func TestCNAMEEntries(t *testing.T) {
 		target   string
 		class    string
 		nxdomain bool
-		body     string // a body the fingerprint must match; "" means no fingerprint
+		body     string // positive body example; empty denotes no fingerprint
 	}{
 		{"acme.s3.amazonaws.com", "", false, "<Error><Code>NoSuchBucket</Code></Error>"},
 		{"acme.herokuapp.com", "", false, "<title>No such app</title>"},
@@ -55,7 +55,7 @@ func TestCNAMEEntries(t *testing.T) {
 	}
 }
 
-// A matched entry has a short stable hash that changes when the entry does.
+// Check hashes remain stable until fingerprint-relevant data changes.
 func TestEntryHash(t *testing.T) {
 	t.Parallel()
 	a, err := provider.Parse([]byte("cname:\n  - {suffix: x.test, provider: p, service: S, body: 'foo'}\n"))
@@ -81,25 +81,25 @@ func TestParseRejectsBadFingerprint(t *testing.T) {
 	}
 }
 
-// SaaS is recognised by CNAME, ASN or address range.
+// All supported evidence routes identify SaaS hosting.
 func TestSaaSRecognition(t *testing.T) {
 	t.Parallel()
 	db := provider.Default()
-	// By address range (apex records): GitHub Pages.
+	// GitHub Pages apex-range evidence
 	res := db.Classify(ip("185.199.108.153"), provider.Owner{}, nil)
 	if !res.Shared || res.Provider != "github" || res.Class != "saas" || res.Evidence != "range" {
 		t.Errorf("github pages range = %+v", res)
 	}
-	// By ASN: Shopify.
+	// Shopify ASN evidence
 	res = db.Classify(ip("23.227.38.65"), provider.Owner{ASN: 62679, Known: true}, nil)
 	if !res.Shared || res.Provider != "shopify" || res.Class != "saas" || res.Evidence != "asn" {
 		t.Errorf("shopify asn = %+v", res)
 	}
-	// A CDN ASN is a CDN, not SaaS.
+	// CDN classification does not imply SaaS.
 	if res = db.Classify(ip("104.16.0.1"), provider.Owner{ASN: 13335, Known: true}, nil); res.Class != provider.ClassCDN {
 		t.Errorf("cloudflare class = %q, want %q", res.Class, provider.ClassCDN)
 	}
-	// An ordinary address is none of these.
+	// Ordinary addresses have no provider class.
 	if res = db.Classify(ip("203.0.113.5"), provider.Owner{ASN: 64500, Known: true}, nil); res.Shared || res.Class != "" {
 		t.Errorf("ordinary = %+v", res)
 	}

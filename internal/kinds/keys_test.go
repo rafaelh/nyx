@@ -7,9 +7,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// keyed is one kind whose key is made from its attributes: an observation of
-// attrs, the key it must have, and the attributes a record that is no longer
-// current (its key alone) reads back.
+// keyed pairs identifying attributes with exact stored keys and fields recoverable after
+// retirement.
 type keyed struct {
 	name    string
 	obs     store.Obs
@@ -23,9 +22,8 @@ func attrsOf[A any](k kinds.Keyed[A]) func(store.Record) any {
 	return func(r store.Record) any { return k.Attrs(r) }
 }
 
-// Each keyed kind makes its key from its attributes, byte for byte as records
-// already stored have it, and a record that has lost its attributes reads the
-// fields its key carries back from the key.
+// Preserve key bytes for existing state and recover identifying attributes from non-current
+// records.
 func TestKeyedKinds_KeyAndRebuild(t *testing.T) {
 	t.Parallel()
 	for _, c := range []keyed{
@@ -81,7 +79,7 @@ func TestKeyedKinds_KeyAndRebuild(t *testing.T) {
 	}
 }
 
-// The key fills in only what a record lacks: attributes it has are kept.
+// Key recovery fills missing fields without overwriting stored attributes.
 func TestKeyedKinds_StoredAttributesWin(t *testing.T) {
 	t.Parallel()
 	r := store.Record{Key: "a.example.com|A|192.0.2.1", Attrs: map[string]any{"name": "b.example.com"}}

@@ -16,9 +16,8 @@ import (
 	"github.com/rafaelh/nyx/internal/thirdparty"
 )
 
-// deriveInput is what a deriver reads: the current Scope, Inventory and their
-// Visibility, the engagement's inputs, the date, and the store through the
-// records of a kind (current or not) and the completed checks observing them.
+// deriveInput provides the scope, inventory, visibility, inputs, date and record readers used
+// to calculate derived records.
 type deriveInput struct {
 	Scope     *scope.Scope
 	Inv       *inventory.Inventory
@@ -29,31 +28,25 @@ type deriveInput struct {
 	Observers func(kinds.Named) map[string][]store.Observer
 }
 
-// deriver computes records from other records and stores them as the
-// observations of a single check "derived" of the pseudo-stage name. A record
-// it no longer emits loses its only observation, so it stops being current. It
-// runs after every stage that did work and before every render, and is skipped
-// while the version of each kind in reads and the date are unchanged. A deriver
-// reads nothing else but its own earlier records, and writes only records of
-// its kind writes, which no deriver reads.
+// deriver calculates records and stores them under one synthetic stage and check. Records it
+// stops producing become non-current. It runs after stage work and before rendering when its
+// input versions or the date change. Each deriver writes one kind; other derivers do not read
+// that output.
 //
-// derive returns the records and, if it needs one, a hook run once they are
-// stored (stored is false when they were the same as last stored, so nothing
-// changed). The hook is not run when a read failed, and the deriver then runs
-// again next time.
+// The optional hook runs after storage, with stored=false if the records were unchanged. Read
+// failures skip the hook and leave the derivation due for retry.
 type deriver struct {
 	name   string
 	reads  []kinds.Named
 	writes kinds.Named
 	derive func(deriveInput) (obs []store.Obs, after func(stored bool))
 
-	sig    string            // what it was last derived from
-	stored [sha256.Size]byte // the date and records last stored (see storeDerived)
+	sig    string            // signature of the inputs used for the last derivation
+	stored [sha256.Size]byte // hash of the last stored date and records
 }
 
-// newDerivers lists the derivers in the order they run. The findings come
-// first and read every kind but the derived ones, so that storing a derived
-// record never derives the findings again.
+// newDerivers orders the calculations. Findings read all non-derived kinds so writing derived
+// records cannot trigger another findings calculation.
 func (r *Runner) newDerivers() []*deriver {
 	others := []*deriver{
 		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: plain(r.rankCandidates)},
@@ -73,16 +66,13 @@ func (r *Runner) newDerivers() []*deriver {
 	return append([]*deriver{{name: "findings", reads: evidence, writes: kinds.Finding, derive: r.deriveFindings}}, others...)
 }
 
-// plain adapts a derivation that needs no hook.
 func plain(f func(deriveInput) []store.Obs) func(deriveInput) ([]store.Obs, func(bool)) {
 	return func(in deriveInput) ([]store.Obs, func(bool)) { return f(in), nil }
 }
 
-// deriveFindings derives the findings from the evidence. A new finding is
-// printed once by the store's OnNew callback; its hook prints again a finding
-// whose severity has risen (an unconfirmed port a handshake then confirmed),
-// but not one that has fallen, and keeps the storage attribution the render
-// needs, computed from the same evidence.
+// deriveFindings calculates findings and storage attribution from the same evidence. The store
+// announces new findings. The returned hook also announces severity increases, such as a port
+// confirmed by a handshake, and saves attribution for rendering.
 func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
 	fs, attribution := findings.DeriveAll(findings.Input{Scope: in.Scope, Inv: in.Inv, Settings: r.cfg.Settings,
 		Today: in.Today, Records: in.Records, Roots: in.Inputs.Roots, Orgs: in.Inputs.Orgs, Vis: in.Vis,
@@ -111,15 +101,13 @@ func (r *Runner) deriveFindings(in deriveInput) ([]store.Obs, func(bool)) {
 	}
 }
 
-// thirdPartyCNAME derives the SaaS platforms in-scope names are served by. Its
-// deriver reads the kinds the inventory's provider hosts come from, and not
-// third_party, which it and the stages write.
+// thirdPartyCNAME identifies SaaS platforms serving in-scope names. It reads the inventory's
+// source kinds rather than third_party, which both this deriver and stages write.
 func thirdPartyCNAME(in deriveInput) []store.Obs {
 	return thirdparty.CNAME(in.Scope, in.Inv)
 }
 
-// derive runs the derivers whose inputs have changed. Every place that derives
-// calls it, so that a new derivation cannot be missed at one of them.
+// derive is the shared entry point for recalculating derived records whose inputs changed.
 func (r *Runner) derive() error {
 	sc, inv, vis := r.sc.Load(), r.inv.Load(), r.vis.Load()
 	if sc == nil || inv == nil {
@@ -149,10 +137,9 @@ func (r *Runner) derive() error {
 	return nil
 }
 
-// evidence is what one completed check contributes to a candidate it observes:
-// the stage's own account of its source and item if it gives one (Evidencer),
-// else the stage and the check key, with the family the stages name for the
-// source.
+// evidence describes a check's support for a candidate. Stages implementing Evidencer supply
+// the source and item; others use the stage name and check key. The source determines the
+// family.
 func (r *Runner) evidence(stage, check string) candidates.Evidence {
 	source, item := stage, check
 	if e, ok := r.evidencers[stage]; ok {
@@ -161,8 +148,8 @@ func (r *Runner) evidence(stage, check string) candidates.Evidence {
 	return candidates.Evidence{Source: source, Item: item, Family: r.families.Of(source)}
 }
 
-// rankCandidates ranks every candidate from the completed checks that observe
-// it, by the rules of candidates.RankAll.
+// rankCandidates calculates candidate ranks from the completed checks supporting each
+// candidate.
 func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
 	last := map[candidates.Key]candidates.Rank{}
 	for _, rec := range in.Records(kinds.CandidateRank) {
@@ -194,7 +181,6 @@ func (r *Runner) rankCandidates(in deriveInput) []store.Obs {
 	return obs
 }
 
-// rankOf is the rank a candidate_rank record stores.
 func rankOf(a kinds.CandidateRankAttrs) candidates.Rank {
 	var sources []string
 	if a.Sources != "" {
@@ -203,9 +189,9 @@ func rankOf(a kinds.CandidateRankAttrs) candidates.Rank {
 	return candidates.Rank{Sources: sources, Count: a.EvidenceCount, Confidence: candidates.Confidence(a.Confidence)}
 }
 
-// historyOnly says whether DNS history alone names an address: its current ip record is observed
-// only by stages that are Historical. Code outside a stage never names one, so the stages say it
-// through that marker. It is nil when no stage is historical.
+// historyOnly returns a predicate for addresses observed exclusively by Historical stages. Such
+// addresses may no longer belong to the engagement. It returns nil if no stages provide
+// historical data.
 func (r *Runner) historyOnly(records func(kinds.Named) []store.Record) func(netip.Addr) bool {
 	if len(r.historical) == 0 {
 		return nil

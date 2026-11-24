@@ -16,10 +16,8 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// The docs give the date of each of the five built-in lists, read from the copies built into
-// nyx, so that a refresh that moves a date fails this test until the docs follow. They also name
-// both sources, how to refresh the built-in copies, and the finding, its file, the keys, the stage
-// and the AS lookup.
+// Pin documentation to all five embedded list dates so refreshes cannot silently leave the
+// guide stale.
 func TestAbusiveDocs_GiveTheSnapshotDates(t *testing.T) {
 	t.Parallel()
 	docs := docsText(t)
@@ -106,9 +104,8 @@ func TestAbusiveDocs_Help(t *testing.T) {
 	}
 }
 
-// make threat-data fetches the five lists with curl into a temporary directory that is removed
-// however the target ends, stops before the refresh when a fetch fails, and runs the refresh tool
-// against the two built-in copies; ALLOW_SHRINK passes -allow-shrink. make abusive-data is gone.
+// Check that make threat-data downloads all lists before refreshing and cleans temporary files,
+// including on failure.
 func TestAbusiveDocs_MakefileTarget(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile("../../Makefile")
@@ -164,9 +161,8 @@ func TestAbusiveDocs_MakefileTarget(t *testing.T) {
 	}
 }
 
-// No command contacts Spamhaus or ipapi.is as a threat-data source, other than an update: no
-// stage declares either host, nyx ip asks and paces neither, the NVD is neither, egress names
-// neither, and no key test is for either.
+// Only explicit threat-data updates may contact either provider; ordinary commands and key
+// tests must not.
 func TestAbusiveDocs_NoCommandContactsTheThreatDataHosts(t *testing.T) { // mutation target
 	t.Parallel()
 	if threatdata.SpamhausHost != "www.spamhaus.org" || threatdata.IpapiHost != "ipapi.is" {

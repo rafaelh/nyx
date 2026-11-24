@@ -9,13 +9,12 @@ import (
 	wappalyzer "github.com/projectdiscovery/wappalyzergo"
 )
 
-// fingerprints loads wappalyzergo's fingerprints once per process. httpprobe
-// warns while they fail to load, and technologies is then empty.
+// fingerprints caches Wappalyzer loading per process; failures leave technologies empty and
+// httpprobe warns.
 var fingerprints = sync.OnceValues(wappalyzer.New)
 
-// technologies identifies technologies from a response's headers (Set-Cookie
-// carries cookies, X-Powered-By is a header) and body, as sorted names joined
-// with ";". A name carries its version when one is detected ("Nginx:1.25.3").
+// technologies combines header/body detection as sorted semicolon-separated names, adding
+// detected versions after a colon.
 func technologies(header map[string][]string, body []byte) string {
 	w, err := fingerprints()
 	if err != nil {

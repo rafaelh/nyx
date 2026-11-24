@@ -208,9 +208,7 @@ func TestSources_KeyFailuresAbortAndRetry(t *testing.T) {
 	}
 }
 
-// A 404 that means "no data" completes the check: VirusTotal for an unknown
-// domain, and a Common Crawl page with no captures (a page is a run of index
-// blocks, not of matches).
+// Source-specific no-data 404s complete checks rather than retrying indefinitely.
 func TestSources_NotFoundIsNoData(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -560,9 +558,7 @@ func TestWildcards(t *testing.T) {
 	}
 }
 
-// With permutations on (the default), a zone already known to be a wildcard is
-// not permuted: its generated names would all "exist". Only the real host is
-// probed, besides the root, and nothing is wildcard-only.
+// Skip name generation beneath known wildcards while continuing to probe real hosts and roots.
 func TestWildcards_WildcardWithDefaultPermutations(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -738,8 +734,8 @@ func TestOwnerLookupFailureFailsClosed(t *testing.T) {
 	w.crtsh(map[string][]string{"example.com": {"cdn.example.com"}}, nil)
 	w.dns.A("cdn.example.com", "104.16.0.5")
 	w.dns.RcodeSuffix("asn.cymru.com", int(mdns.RcodeServerFailure))
-	// The default Cloudflare list names this address, so a range would say who owns it. Here only the
-	// owner source could, and it fails.
+	// Remove the usual range evidence so only the failing owner source could identify this
+	// address.
 	w.handle("www.cloudflare.com", func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/ips-v4" {
 			_, _ = rw.Write([]byte("100.70.0.0/24\n"))

@@ -13,8 +13,7 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// nginx118End is the day Nginx 1.18's security support ended; it is in the past for every date
-// these tests use, and the tests move the run date around it.
+// nginx118End anchors clock-sensitive tests to an embedded support-end date.
 const nginx118End = "2021-04-20"
 
 // eolService adds a probed web service of host with the technologies a probe stored.
@@ -48,8 +47,8 @@ func date(t *testing.T, d string, n int) string {
 	return v.AddDate(0, 0, n).Format(time.DateOnly)
 }
 
-// A technology whose version is past the end of security support is a medium finding of
-// type eol, one for each product on the service, with the columns of risk-eol-software.csv.
+// Create one medium EOL finding per unsupported product on a service with complete risk-file
+// fields.
 func TestEOL_WebTechnologiesPastTheEnd(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -97,9 +96,8 @@ func TestEOL_CycleWithNoKnownEndDate(t *testing.T) {
 	}
 }
 
-// The run date is compared with the end date as a UTC day: on the end date the version is
-// end of life; the day before it is approaching, within eol_warn_days; and beyond the window
-// there is nothing. A warning window of 0 turns the approaching type off and leaves eol.
+// Compare UTC days inclusively at support end. Zero warning days disables approaching findings
+// only.
 func TestEOL_DateBoundaryAndWarnWindow(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -161,8 +159,7 @@ func TestEOL_DistributionBuildIsOneStepLower(t *testing.T) {
 	wantSet(t, g.eol(t), "eol-software/eol-approaching=low")
 }
 
-// Wappalyzer reports a header's version without its distribution suffix, so the Server and
-// X-Powered-By values that carry the version decide whether it is a distribution build.
+// Use matching header context to recover distribution builds omitted by Wappalyzer.
 func TestEOL_DistributionBuildFromTheHeaders(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -203,8 +200,8 @@ func TestEOL_DistributionBuildFromTheHeaders(t *testing.T) {
 	}
 }
 
-// A banner in open-ports is assessed by its parsed product and version, with the address and
-// port as the target and the hostnames behind the address.
+// Port EOL targets use parsed banner product/version and address/port, with associated
+// hostnames.
 func TestEOL_PortBanners(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -247,9 +244,8 @@ func TestEOL_PortBannerDistributionBuild(t *testing.T) {
 	}
 }
 
-// A version known only from a Shodan port report is one step lower and unconfirmed; once
-// nyx opens the port with a banner it is the full severity and confirmed. A banner nyx
-// received that names no version does not hide the one Shodan reports.
+// Third-party versions remain downgraded/unconfirmed until nyx captures a version itself.
+// Versionless own banners do not discard useful reports.
 func TestEOL_VersionReportedByAThirdParty(t *testing.T) {
 	t.Parallel()
 	const shodan = `220 ProFTPD 1.3.5e Server (ProFTPD)`
@@ -332,8 +328,7 @@ func TestEOL_ExcludedServiceIsNotAssessed(t *testing.T) {
 	wantSet(t, f.eol(t))
 }
 
-// The key is eol-software|<type>|<target>|<product>; ParseKey gives the category, type and
-// target, and a finding no longer derived still lists its type, target and product from the key.
+// Product-bearing EOL keys retain identity fields after observations disappear.
 func TestEOL_KeyAndFile(t *testing.T) {
 	t.Parallel()
 	x := findings.Finding{Category: findings.EOLSoftware, Type: "eol-approaching", Target: "198.51.100.5:25",

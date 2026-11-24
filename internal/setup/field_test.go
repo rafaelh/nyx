@@ -30,13 +30,13 @@ func TestField_EditsAtTheCursor(t *testing.T) {
 	if f.text() != "bd" {
 		t.Fatalf("text = %q", f.text())
 	}
-	f.press("backspace") // at the start: nothing
+	f.press("backspace") // left boundary: no movement
 	f.press("end")
 	f.insert("é日")
 	if f.text() != "bdé日" {
 		t.Fatalf("text = %q", f.text())
 	}
-	f.press("right") // at the end: nothing
+	f.press("right") // right boundary: no movement
 	f.press("backspace")
 	if f.text() != "bdé" {
 		t.Fatalf("text = %q", f.text())

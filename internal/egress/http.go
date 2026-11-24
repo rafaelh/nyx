@@ -30,8 +30,8 @@ const DefaultUserAgent = "nyx/devel"
 const (
 	// MaxTargetBody is the cap on Response.Body; Response.Truncated says whether it cut the body.
 	MaxTargetBody = 1 << 20
-	// MaxScriptBody is the cap on the body of a Script request (and of a redirect
-	// from one). It is larger than MaxTargetBody because bundles are large.
+	// MaxScriptBody allows larger script bundles than ordinary target responses, including
+	// script redirects.
 	MaxScriptBody = 4 << 20
 )
 
@@ -57,8 +57,7 @@ type Response struct {
 	// Truncated is set when the body cap cut the body.
 	Truncated bool
 	PeerCerts []*x509.Certificate
-	// TLSVersion ("TLS 1.2") and TLSCipher (the IANA suite name) are what the
-	// handshake negotiated; both are empty for plain HTTP.
+	// TLSVersion and TLSCipher record negotiated values; plain HTTP leaves both empty.
 	TLSVersion, TLSCipher string
 
 	tlsAt  time.Time // when a TLS response arrived; zero for plain HTTP
@@ -72,8 +71,8 @@ func (Response) httpResult()  {}
 func (NoService) httpResult() {}
 func (Refused) httpResult()   {}
 
-// origin is where a Response came from. uri is the request URI, so a relative
-// reference in the body or in Location resolves against the page's real URL.
+// origin preserves the response's request URI so relative body/Location references resolve from
+// the actual page URL.
 type origin struct {
 	scheme, host string
 	port         int
@@ -157,9 +156,8 @@ func ParseService(origin string) (Service, bool) {
 	return Service{Host: strings.ToLower(u.Hostname()), Scheme: u.Scheme, Port: port}, true
 }
 
-// Request is a typed target request. It can only be built with Root, RootAt,
-// SensitivePath, Script, Link or Redirect; there is no way to name an arbitrary
-// URL: Script names one only if the policy lists it.
+// Request represents a permitted target request. Constructors restrict URL and path choices;
+// Script additionally requires a URL recorded in policy.
 type Request interface{ target() target }
 
 type target struct {
@@ -190,18 +188,15 @@ func Root(host, scheme string, port int) Request {
 	return req{target{scheme: scheme, host: host, port: port, requestURI: "/"}}
 }
 
-// RootAt requests "/" of a service by name, dialling only addr, so the answer
-// is known to come from that address. addr must be one of the name's permitted
-// addresses. Redirects and links from the response are not pinned.
+// RootAt pins a named service's root request to one permitted address. Redirects and discovered
+// links are not pinned.
 func RootAt(host, scheme string, port int, addr netip.Addr) Request {
 	return req{target{scheme: scheme, host: host, port: port, requestURI: "/", pin: addr.Unmap()}}
 }
 
-// OriginCheck requests "/" of a candidate origin: it dials addr on port 443 (https) or 80 (http),
-// with host as both the TLS server name and the Host header, so the answer says what that address
-// serves for the host. host must be an in-scope hostname, and addr must not be excluded and must be
-// inside an in-scope netblock or be port-eligible. Unlike RootAt it does not require addr to be one
-// of host's resolved addresses. Redirects are not followed.
+// OriginCheck sends GET / to addr on 443 or 80, using host for SNI and Host. host must be in
+// scope; addr must pass exclusions and port eligibility, but need not be a current DNS address
+// for host. Redirects are not followed.
 func OriginCheck(host, scheme string, addr netip.Addr) Request {
 	return req{target{scheme: scheme, host: host, port: defaultPort(scheme), requestURI: "/", pin: addr.Unmap(), origin: true}}
 }
@@ -211,9 +206,8 @@ func SensitivePath(svc Service, index int) Request {
 	return req{target{scheme: svc.Scheme, host: svc.Host, port: svc.Port, sensitive: index + 1}}
 }
 
-// Script requests a script file by its URL, which must be one of Policy.Scripts
-// (the URLs the crawl recorded from <script src> elements). Any other URL is
-// refused, as is one the host policy refuses. The body is read up to MaxScriptBody.
+// Script fetches a crawled script URL listed in Policy.Scripts, after normal host-policy
+// checks. Responses are capped at MaxScriptBody.
 func Script(rawURL string) Request {
 	var t target
 	if u, err := url.Parse(rawURL); err == nil {
@@ -301,17 +295,15 @@ func (t *targetHTTP) do(ctx context.Context, method string, r Request) (HTTPResu
 	return t.e.fetch(ctx, method, tg, pl)
 }
 
-// httpPlan is a target request that passed every policy check: the host it names, the request
-// URI and the addresses that may be dialled for it, in order.
+// httpPlan contains a policy-approved host, request URI and ordered dial addresses.
 type httpPlan struct {
 	host  string
 	uri   string
 	addrs []netip.Addr
 }
 
-// planHTTP applies the policy to a target request, in order: the shared target gate, the
-// recorded scripts, the shape of the URL, the scope of the host or address, the port, the
-// request path and the addresses that may be dialled. A refusal says why.
+// planHTTP checks target permission, recorded scripts, URL shape, host scope, port, path and
+// dial addresses in order. Refusals include a reason.
 func (p *Policy) planHTTP(tg target) (httpPlan, Refused, bool) {
 	if r, ok := p.targetRefusal(); ok {
 		return httpPlan{}, r, true
@@ -358,8 +350,8 @@ func shapeRefusal(tg target, isIP bool) (Refused, bool) {
 	return Refused{}, false
 }
 
-// webScopeRefusal refuses a web target that is out of scope or excluded, reporting an excluded
-// address. host is the normalised hostname, or the address's string when isIP.
+// webScopeRefusal enforces host/address scope and reports excluded addresses. host is already
+// normalised.
 func (p *Policy) webScopeRefusal(host string, lit netip.Addr, isIP bool) (Refused, bool) {
 	if !isIP {
 		switch c := p.Scope.ClassifyHost(host); c.Class {
@@ -371,8 +363,8 @@ func (p *Policy) webScopeRefusal(host string, lit netip.Addr, isIP bool) (Refuse
 		}
 		return Refused{}, false
 	}
-	// An address is a web target iff it is in an in-scope netblock and not
-	// excluded; a hostname that resolves there is probed by name instead.
+	// IP-literal web targets require in-scope netblock membership after exclusions.
+	// Hostname services are probed by name.
 	if !p.Scope.InScopeIP(lit) {
 		return Refused{"address is not in scope"}, true
 	}
@@ -400,14 +392,15 @@ func (p *Policy) requestURI(tg target) (string, Refused, bool) {
 	return uri, Refused{}, false
 }
 
-// dialAddrs are the addresses a request may dial: the literal address, the origin check's
-// candidate address, or the host's vetted addresses, narrowed to the pinned address if any.
+// dialAddrs selects the literal, candidate-origin or vetted DNS addresses, applying any address
+// pin.
 func (p *Policy) dialAddrs(tg target, host string, lit netip.Addr, isIP bool) ([]netip.Addr, Refused, bool) {
 	addrs := []netip.Addr{lit}
 	switch {
 	case tg.origin:
-		// The address is a candidate origin, so it is not one of the host's. It must be one that
-		// may be port-checked: not excluded, and in an in-scope netblock or dedicated and known.
+		// Candidate origins need not match current DNS. Their addresses still need port
+		// eligibility: an in-scope netblock or known dedicated hosting, after
+		// exclusions.
 		if !tg.pin.IsValid() {
 			return nil, Refused{"no address"}, true
 		}
@@ -482,8 +475,8 @@ func (e *Egress) fetch(ctx context.Context, method string, tg target, pl httpPla
 	return out, nil
 }
 
-// dialFirst is a DialContext that tries addrs in order on port, each after its host's rate
-// limiter, and returns the first connection. The first dial starts the HTTP deadline.
+// dialFirst tries addresses in order after each host's rate limiter and returns the first
+// connection. The HTTP deadline starts with the first dial.
 func (e *Egress) dialFirst(addrs []netip.Addr, port int, deadline func() *time.Timer) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var last error
@@ -503,8 +496,8 @@ func (e *Egress) dialFirst(addrs []netip.Addr, port int, deadline func() *time.T
 	}
 }
 
-// requestFailure classifies a request that got no response. Cancelling the run, and a failure
-// on this side, are errors; anything else means no service answered.
+// requestFailure preserves cancellation/local errors; other failures mean no HTTP service
+// answered.
 func requestFailure(parent, ctx context.Context, err error) (HTTPResult, error) {
 	switch perr := parent.Err(); {
 	case perr != nil && !errors.Is(perr, context.DeadlineExceeded):
@@ -517,8 +510,8 @@ func requestFailure(parent, ctx context.Context, err error) (HTTPResult, error) 
 	return NoService{classify(err)}, nil
 }
 
-// bodyFailure is the error for a response body that failed mid-read: the run's own error if it
-// was cancelled, otherwise the read error (errHTTPTimeout if the deadline cut it) naming host.
+// bodyFailure preserves run cancellation; otherwise it reports a body-read failure for host,
+// using errHTTPTimeout when the request deadline expired.
 func bodyFailure(parent, ctx context.Context, host string, err error) error {
 	if perr := parent.Err(); perr != nil {
 		return perr
@@ -539,9 +532,8 @@ func readCapped(r io.Reader, n int) (body []byte, truncated bool, err error) {
 	return body, false, err
 }
 
-// vetted returns the addresses a request for host may be sent to: never an
-// address in an excluded CIDR, and never an address of an excluded hostname
-// unless that address is shared provider infrastructure.
+// vetted removes excluded CIDRs and addresses of name-excluded hosts. Known shared
+// infrastructure is exempt only from name-based exclusions.
 func (p *Policy) vetted(host string) []netip.Addr {
 	var out []netip.Addr
 	for _, a := range p.Resolutions[host] {

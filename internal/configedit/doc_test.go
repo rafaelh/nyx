@@ -230,7 +230,7 @@ func TestDoc_SetListWritesABlockSequenceAndKeepsItemComments(t *testing.T) {
 	}), "x: 1\n")
 }
 
-// Unknown key sources and every other setting are left exactly as they were.
+// Editing preserves unknown-source credentials and unrelated settings.
 func TestDoc_UnknownEntriesSurviveByteForByte(t *testing.T) {
 	t.Parallel()
 	src := "keys:\n  foo: \"quoted: value # not a comment\" # mine\n  bar: 'it''s'\n  shodan: a\nzzz: [1, 2]\n"

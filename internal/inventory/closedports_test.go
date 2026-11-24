@@ -8,8 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// The ports nyx found closed are part of the inventory data; an IPv4-mapped
-// address is the same address.
+// Inventory normalises mapped addresses when recording closed ports.
 func TestPortClosed(t *testing.T) {
 	t.Parallel()
 	inv := inventory.New(inventory.Data{ClosedPorts: []netip.AddrPort{

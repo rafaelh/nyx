@@ -105,8 +105,7 @@ func TestFileOrder(t *testing.T) {
 	}
 }
 
-// A file with no rows is not written, and one that had rows is removed once it has none.
-// A TXT file lists current rows only, so one with no current rows counts as empty.
+// No-row files are absent, including TXT files with only historical records.
 func TestEmptyFilesNotWritten(t *testing.T) {
 	t.Parallel()
 	dir := newDir(t)
@@ -216,8 +215,7 @@ func TestDefaultRegistry(t *testing.T) {
 	}
 }
 
-// changes.csv lists the snapshot's changes, new then returned then gone, then by
-// kind and key; a gone row is not current. It is removed when a run has none.
+// Changes CSV orders new/returned/gone rows and removes itself when no changes remain.
 func TestChangesFile(t *testing.T) {
 	t.Parallel()
 	dir := newDir(t)
@@ -249,8 +247,8 @@ func TestChangesFile(t *testing.T) {
 	}
 }
 
-// A Writer replaces a file only when its contents change, or when the file has gone since it
-// wrote it; a new Writer writes every file.
+// Writers skip unchanged existing files but recreate missing files and refresh all files with a
+// new cache.
 func TestWriter_RewritesOnlyChangedFiles(t *testing.T) {
 	t.Parallel()
 	dir := newDir(t)

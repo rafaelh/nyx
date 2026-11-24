@@ -8,17 +8,16 @@ import (
 	"github.com/rafaelh/nyx/internal/layout"
 )
 
-// The lines the frame always spends besides the body: the header, the tabs, the rule under them, one
-// for the notice and two for the keys.
+// Reserve frame rows for header, tabs, rule, notice and two shortcut lines.
 const chromeLines = 6
 
-// bodyTop is the line the body starts on: after the header, the tabs and the rule.
+// bodyTop follows the header, tab row and separator.
 const bodyTop = 3
 
-// sizeMessage is all the view shows in a terminal below the minimum size.
+// sizeMessage replaces the UI below its minimum dimensions.
 const sizeMessage = "Make the terminal at least 60×16"
 
-// fitTail cuts s to w cells from its start, so the end of a path stays.
+// fitTail retains the end of long paths within w cells.
 func fitTail(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -39,13 +38,13 @@ func fitTail(s string, w int) string {
 	return "…" + string(r[i:])
 }
 
-// view is the frame as text.
+// view assembles the terminal frame.
 func (m *model) view() string {
 	s, _ := m.viewCursor()
 	return s
 }
 
-// viewCursor is the frame and, while a field is being edited, where its cursor is.
+// viewCursor returns the frame and optional active-field cursor.
 func (m *model) viewCursor() (string, *tea.Cursor) {
 	if m.width < minWidth || m.height < minHeight {
 		return m.tooSmall(), nil
@@ -118,7 +117,7 @@ func (m *model) rule() string {
 	return fit(line{m.paint(roleFaint, strings.Repeat("─", m.width))}, m.width)
 }
 
-// body is the lines of the active tab, or of the open dialog, exactly the body height.
+// body fills the exact body height with the active tab or dialog.
 func (m *model) body() ([]string, *cursorAt) {
 	room := m.bodyHeight()
 	var lines []string
@@ -147,8 +146,8 @@ func (m *model) body() ([]string, *cursorAt) {
 	return lines[:room], cur
 }
 
-// keymap is the keys the active mode offers, as lines of hints. The tab key also moves to the next
-// tab, and is left out to keep the line short.
+// keymap returns shortcuts for the active mode. Tab also advances tabs but is omitted to keep
+// the footer short.
 func (m *model) keymap() [][]hint {
 	move := []hint{{"↑/↓", "Move"}, {"←/→", "Switch tab"}, {"q/esc", "Quit"}}
 	switch m.mode {

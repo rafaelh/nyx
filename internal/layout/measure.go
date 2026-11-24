@@ -8,12 +8,9 @@ import (
 	"golang.org/x/text/width"
 )
 
-// Measure is the width of s in terminal cells. Each escape sequence (ESC [ …
-// up to its final byte) counts zero. East Asian Wide and Fullwidth runes count
-// two. Combining marks (categories Mn and Me), U+200B to U+200D and the
-// variation selectors U+FE00 to U+FE0F count zero. Every other rune counts one,
-// East Asian Ambiguous ones included. Emoji sequences may be measured
-// imprecisely.
+// Measure counts terminal cells, ignoring ANSI control sequences, combining marks and
+// zero-width modifiers. Wide/fullwidth runes count two; other runes, including ambiguous-width
+// characters, count one. Complex emoji may be approximate.
 func Measure(s string) int {
 	n := 0
 	for i := 0; i < len(s); {
@@ -49,8 +46,7 @@ func runeWidth(r rune) int {
 	}
 }
 
-// PadRight pads s with spaces on the right to w cells. A string already w cells
-// wide or wider is returned unchanged.
+// PadRight left-aligns s to w cells without truncating wider strings.
 func PadRight(s string, w int) string {
 	if n := Measure(s); n < w {
 		return s + strings.Repeat(" ", w-n)
@@ -58,8 +54,7 @@ func PadRight(s string, w int) string {
 	return s
 }
 
-// PadLeft pads s with spaces on the left to w cells, so it is right-aligned. A
-// string already w cells wide or wider is returned unchanged.
+// PadLeft right-aligns s to w cells without truncating wider strings.
 func PadLeft(s string, w int) string {
 	if n := Measure(s); n < w {
 		return strings.Repeat(" ", w-n) + s

@@ -47,9 +47,8 @@ func deferredBlock(t *testing.T, out string) string {
 	return out[i:]
 }
 
-// The first check that would pass the budget, and every check after it, is
-// deferred. Deferred checks are not run, not failed and not recorded, and the
-// stage shows done.
+// Overflowing checks and all later checks are deferred without attempts, failures or completion
+// markers.
 func TestBudget_StopsAtFirstOverflow(t *testing.T) {
 	t.Parallel()
 	st := budgeted(3, func(run.View) []run.Check { return costed(1, 1, 1, 1, 1) })
@@ -72,8 +71,7 @@ func TestBudget_StopsAtFirstOverflow(t *testing.T) {
 	}
 }
 
-// A check is deferred when it would pass the budget, not when the budget is
-// already spent, and the checks after it wait even if they are cheaper.
+// Stop at the first overflowing check even when cheaper later checks could fit.
 func TestBudget_CostsAddUpAndLaterChecksWait(t *testing.T) {
 	t.Parallel()
 	st := budgeted(10, func(run.View) []run.Check { return costed(4, 4, 3, 1, 1) })
@@ -147,8 +145,7 @@ func TestBudget_RemainderRunsNextTime(t *testing.T) {
 	}
 }
 
-// Within one run the budget is spent across passes: the exception for the
-// first check does not take a second overflowing check in a later pass.
+// The first-check budget exception applies once per run, not once per pass.
 func TestBudget_LaterPassDoesNotTakeAnotherOverflowingCheck(t *testing.T) {
 	t.Parallel()
 	passes := 0
@@ -186,8 +183,7 @@ func TestBudget_UnbudgetedStageIsUnlimited(t *testing.T) {
 	}
 }
 
-// A check that fails still spent its share of the budget in this run, and the
-// deferred checks are not counted as failures.
+// Failed checks still consume budget; deferred checks do not become failures.
 func TestBudget_FailedCheckSpendsBudgetDeferredAreNotFailures(t *testing.T) {
 	t.Parallel()
 	st := budgeted(2, func(run.View) []run.Check { return costed(1, 1, 1) })
@@ -223,9 +219,8 @@ func TestBudget_ConsoleBlock(t *testing.T) {
 	}
 }
 
-// Redoing a budgeted stage that retires what it no longer yields keeps the
-// earlier hits of the checks it defers current: they are still valid checks,
-// only not repeated yet. A hit whose check ran again is replaced by the new result.
+// Deferred checks retain earlier evidence through redo/retirement; rerun checks replace their
+// evidence.
 func TestBudget_RedoKeepsDeferredHitsCurrent(t *testing.T) {
 	t.Parallel()
 	hit := func(_ context.Context, c run.Check, _ egress.Clients) ([]run.Observation, error) {

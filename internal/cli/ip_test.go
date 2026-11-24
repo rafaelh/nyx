@@ -18,9 +18,8 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// nyx ip: inputs, hostnames, CIDRs, the cap, non-public addresses, the record of a public address,
-// --fields and the envelope. Every host nyx ip asks, and every address it may connect to, is a fake
-// from ip_world_test.go; a test that leaks a request shows up as a count.
+// IP input tests route all source/target traffic through counting fakes so any unexpected
+// request is visible.
 
 // ---- inputs ----
 
@@ -73,7 +72,7 @@ func TestIP_DashWithOtherArgumentsIsAUsageError(t *testing.T) {
 	}
 }
 
-// A stdin that is never closed ends at the deadline as a timeout, and the call returns.
+// Open stdin must return a timeout rather than hang the call.
 func TestIP_StdinNeverClosedTimesOut(t *testing.T) {
 	t.Parallel()
 	for _, jsonMode := range modes {
@@ -129,8 +128,7 @@ func TestIP_ConfigIsAnUnknownFlag(t *testing.T) {
 	}
 }
 
-// Neither a configuration file nor a NYX_* variable changes anything: not the result, not where
-// anything is written, and an invalid one is not an error.
+// IP lookups ignore config files and NYX_* settings, including invalid values.
 func TestIP_SettingsAreNotRead(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -224,8 +222,7 @@ func TestIP_URLAndHostPortHintAtTheBareHost(t *testing.T) {
 	}
 }
 
-// Every invalid input is reported together when the call exits 2: a name of digits and dots, a
-// single-label name without --active, a malformed name and a URL.
+// Collect all invalid IP/hostname inputs in one usage error.
 func TestIP_EveryInvalidInputIsListedTogether(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -245,8 +242,7 @@ func TestIP_EveryInvalidInputIsListedTogether(t *testing.T) {
 	w.untouched()
 }
 
-// A single-label name is a hostname only under --active, and then this machine's resolver is the
-// only one asked: the public resolvers never see it.
+// Single-label names require active mode and resolve locally without public-DNS queries.
 func TestIP_SingleLabelNamesResolveOnlyThroughTheLocalResolver(t *testing.T) { // mutation target
 	t.Parallel()
 	t.Run("without --active", func(t *testing.T) {
@@ -284,8 +280,7 @@ func TestIP_SingleLabelNamesResolveOnlyThroughTheLocalResolver(t *testing.T) { /
 	})
 }
 
-// One invalid input among valid ones does not stop the others: they are returned, the call exits 7
-// and the failure is in meta.errors under the input as given.
+// Invalid inputs produce per-input errors while valid lookups still return partial results.
 func TestIP_OneInvalidInputAmongValidExits7(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -308,8 +303,7 @@ func TestIP_OneInvalidInputAmongValidExits7(t *testing.T) {
 
 // ---- resolving hostnames ----
 
-// A name with no address (NXDOMAIN) and a name with no A and no AAAA record (NODATA) are NOT_FOUND:
-// exit 3, nothing on stdout, and the hostname is in the error.
+// NXDOMAIN and empty A/AAAA answers return NOT_FOUND with no record.
 func TestIP_NamesWithNoAddressAreNotFound(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, host string }{{"NXDOMAIN", "nx.example.com"}, {"NODATA", "nodata.example.com"}} {
@@ -364,9 +358,8 @@ func TestIP_ResolverFailuresAreTransient(t *testing.T) {
 	})
 }
 
-// Under --active a name the public resolvers do not know (NXDOMAIN or no addresses) is tried again
-// through this machine's resolver; without --active it is not, and a name they do know is never sent
-// to it.
+// Active mode tries local DNS only when public resolution has no addresses; default mode never
+// falls back locally.
 func TestIP_ActiveRetriesAnUnknownNameThroughTheLocalResolver(t *testing.T) {
 	t.Parallel()
 	t.Run("NXDOMAIN", func(t *testing.T) {
@@ -419,8 +412,8 @@ func TestIP_ActiveRetriesAnUnknownNameThroughTheLocalResolver(t *testing.T) {
 
 // ---- CIDRs, order and duplicates ----
 
-// A CIDR's host bits are masked and it expands to every address in it, the first and last included,
-// in address order and canonical form; nothing is asked for them with no field selected.
+// CIDRs are masked and expanded in sorted canonical order, including endpoints. Empty field
+// selection makes no requests.
 func TestIP_CIDRsExpandInOrder(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -462,8 +455,8 @@ func TestIP_HostnameAddressesComeIPv4ThenIPv6InOrder(t *testing.T) {
 	}
 }
 
-// An address that several inputs give has one record, where it first appeared, listing every input
-// hostname that gave it; a literal and a CIDR give none to list.
+// Deduplicate addresses at first appearance and collect all contributing hostnames without
+// inventing names for literals/CIDRs.
 func TestIP_DuplicatesGiveOneRecordAtFirstAppearance(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -496,8 +489,8 @@ func TestIP_IPv4MappedAddressIsTheIPv4Address(t *testing.T) {
 
 // ---- the cap ----
 
-// A call holds at most 256 distinct addresses: exactly 256 is allowed, and more than that from
-// literals and CIDRs alone exits 2 before anything is sent.
+// The 256-address cap is inclusive and rejects oversized literal/CIDR plans before network
+// activity.
 func TestIP_MoreThan256AddressesIsRefusedBeforeAnyRequest(t *testing.T) {
 	t.Parallel()
 	var literals []string
@@ -575,8 +568,8 @@ func TestIP_HostnamesPastTheCapSendOnlyDNSLookups(t *testing.T) {
 	}
 }
 
-// A call that exits 2 at the cap still reports every invalid input with it, whether the literals
-// pass the cap or the hostnames do once they resolve.
+// Cap errors still include every invalid input, whether discovered before or after DNS
+// expansion.
 func TestIP_TheCapErrorListsTheInvalidInputsToo(t *testing.T) {
 	t.Parallel()
 	t.Run("literals", func(t *testing.T) {
@@ -612,7 +605,7 @@ func TestIP_TheCapErrorListsTheInvalidInputsToo(t *testing.T) {
 	})
 }
 
-// reverseName is the PTR name of an address, as the DNS fakes hold it.
+// reverseName builds the PTR name used by DNS fixtures.
 func reverseName(addr string) string {
 	rev, err := mdns.ReverseAddr(addr)
 	if err != nil {
@@ -623,17 +616,15 @@ func reverseName(addr string) string {
 
 // ---- non-public addresses ----
 
-// nonPublic are addresses IANA's special-purpose registries mark as not globally reachable, with the
-// kind each one is called.
+// nonPublic pairs special-purpose fixture addresses with expected kinds.
 var nonPublic = []struct{ addr, kind string }{
 	{"10.0.0.1", "private"}, {"100.64.0.1", "cgnat"}, {"fd00::1", "ula"}, {"169.254.1.1", "link-local"},
 	{"192.0.2.1", "documentation"}, {"224.0.0.1", "multicast"}, {"255.255.255.255", "broadcast"},
 	{"0.0.0.0", "unspecified"}, {"2002::1", "6to4"}, {"2001::1", "teredo"}, {"127.0.0.1", "loopback"}, {"::1", "loopback"},
 }
 
-// A non-public address names its kind and is sent to no third party and to no public resolver:
-// nothing is asked about it, its reverse name included. Every selected key is empty and it is a
-// success. Every source has an answer for it, so a request would show in the record as well.
+// Non-public records return their kind and empty data without external requests. Seeded fakes
+// make any accidental lookup observable.
 func TestIP_NonPublicAddressesAreNeverSentToAThirdParty(t *testing.T) { // mutation target
 	t.Parallel()
 	w := newIPWorld(t)
@@ -668,8 +659,8 @@ func TestIP_NonPublicAddressesAreNeverSentToAThirdParty(t *testing.T) { // mutat
 	w.neverSent(addrs...)
 }
 
-// A hostname that public DNS says is a non-public address gives a record of that kind, with its
-// hostname, and nothing but the lookup of the name is sent.
+// Public DNS can produce a private-kind record but cannot trigger further source lookups for
+// it.
 func TestIP_NonPublicAddressFromAHostnameIsNotSentAnywhere(t *testing.T) { // mutation target
 	t.Parallel()
 	w := newIPWorld(t)
@@ -723,16 +714,14 @@ func TestIP_ActiveLooksUpANonPublicPTROnlyLocally(t *testing.T) { // mutation ta
 	sawOnly(t, w.local, "PTR", reverseName("10.0.0.1"), reverseName("fd00::1"), reverseName("192.0.2.1"))
 }
 
-// A failure of the local PTR lookup of a non-public address is a failure of its ptr source; the other
-// address, whose lookup worked, is returned.
+// A failed private PTR lookup is isolated to that record's ptr source.
 func TestIP_ActiveLocalPTRFailureIsReported(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
 	w.local.PTR("10.0.0.2", "ok.corp.example")
 	w.local.Rcode(reverseName("10.0.0.1"), int(mdns.RcodeServerFailure))
 	w.sealProbes([]string{"10.0.0.1", "10.0.0.2"})
-	// A non-public address is a success whatever its local lookup does: the failure is listed in
-	// its record, and the call still exits 0.
+	// Private records remain successful despite local lookup failures.
 	env := w.lookup("10.0.0.1", "10.0.0.2", "--active", "--fields", "ptr")
 	if len(env.Records) != 2 || len(env.Meta.Errors) != 0 {
 		t.Fatalf("envelope %s", w.h.stdout.String())
@@ -781,8 +770,8 @@ func TestIP_AFullRecordHasEveryKeyInOrder(t *testing.T) {
 	}
 }
 
-// An IPv6 address has the same keys; HackerTarget is not asked for it and the reverse-IP keys are
-// null, which is not a failure.
+// IPv6 retains the same keys but skips unsupported HackerTarget lookups without recording a
+// failure.
 func TestIP_AnIPv6AddressIsNotAskedOfHackerTarget(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -856,8 +845,7 @@ func TestIP_ASourceWithNothingToSayHasAnswered(t *testing.T) {
 	}
 }
 
-// ipFailureCase is one way a source fails for the one address of a call: how the fake is broken, the
-// failure entry the record should hold, and the keys that should be null.
+// ipFailureCase pairs a source fault with its expected failure entry and null fields.
 type ipFailureCase struct {
 	name, source  string
 	codes         []string // the codes the failure may have
@@ -954,8 +942,8 @@ func ipHTTPFailures() []ipFailureCase {
 	return out
 }
 
-// ipDNSFailures are the ways Team Cymru's lookup and the PTR lookup fail. The owner's failure also
-// leaves the provider and the reverse-IP names, which depend on it, out of what is compared.
+// ipDNSFailures covers Cymru/PTR faults; ownership-dependent fields are excluded when their
+// prerequisite fails.
 func ipDNSFailures() []ipFailureCase {
 	const addr = "8.8.4.4"
 	var out []ipFailureCase
@@ -977,9 +965,7 @@ func ipDNSFailures() []ipFailureCase {
 	return out
 }
 
-// A source that fails (a 429, a 500, a body that is malformed or cut short, no answer by the
-// deadline, a DNS error) gives a failure entry in the record and nothing else: its keys are null and
-// every other source's keys are whole.
+// Source faults null only that source's fields and preserve complete data from others.
 func TestIP_AFailingSourceNullsOnlyItsOwnKeys(t *testing.T) {
 	t.Parallel()
 	for _, c := range append(ipHTTPFailures(), ipDNSFailures()...) {
@@ -1019,8 +1005,8 @@ func TestIP_AFailureForOneAddressLeavesTheOthersWhole(t *testing.T) {
 	}
 }
 
-// HackerTarget is asked for a dedicated address, a cloud (hyperscaler) address included, and not
-// for an address of shared provider infrastructure, whose keys are null with no failure.
+// Reverse-IP lookup applies to dedicated cloud VMs but skips multi-customer infrastructure
+// without a failure.
 func TestIP_HackerTargetIsAskedOnlyForAddressesThatAreNotShared(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
@@ -1077,8 +1063,7 @@ func TestIP_ReverseIPNamesAreCleanedSortedAndCapped(t *testing.T) {
 	})
 }
 
-// Geolocation: a country of "?" and a city of "" are null, and with several locations the one that
-// covers the most is used.
+// Geolocation normalises missing country/city and chooses the largest-resource location.
 func TestIP_GeolocationFollowsTheMostCoveredLocation(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -1104,8 +1089,7 @@ func TestIP_GeolocationFollowsTheMostCoveredLocation(t *testing.T) {
 	}
 }
 
-// The registered netblock is the CIDR when the range is exactly one, and start-end otherwise; the
-// registry is the one that answered, a referral being followed.
+// RDAP follows referrals and formats exact CIDRs or inclusive endpoint ranges.
 func TestIP_RDAPNetblockRegistryAndReferrals(t *testing.T) {
 	t.Parallel()
 	t.Run("a CIDR", func(t *testing.T) {
@@ -1155,9 +1139,7 @@ func TestIP_RDAPNetblockRegistryAndReferrals(t *testing.T) {
 
 // ---- default contact ----
 
-// By default only third parties and DNS resolvers are contacted: the address itself receives
-// nothing, whatever InternetDB says is open on it, and every HTTP request is to a source host
-// (checked by each fake as it answers).
+// Default mode contacts sources and DNS only, regardless of reported open ports.
 func TestIP_DefaultModeNeverContactsTheAddress(t *testing.T) { // mutation target
 	t.Parallel()
 	w := newIPWorld(t)
@@ -1168,8 +1150,8 @@ func TestIP_DefaultModeNeverContactsTheAddress(t *testing.T) { // mutation targe
 	w.seed("9.9.9.9")
 	w.seed("2606:4700::1")
 	w.seed("10.1.1.1")
-	// Every kind of target the probes could reach: a web server on each web port, a TLS one on each
-	// TLS port, a banner on 22 and a closed port among the sealed ones. None may see a connection.
+	// Install targets for every possible probe protocol so any default-mode contact is
+	// detected.
 	for _, a := range addrs {
 		for _, p := range ipTLSPorts {
 			w.serveTLS(a, p, http.NotFoundHandler())
@@ -1220,8 +1202,7 @@ func TestIP_DefaultModeNeverContactsTheAddress(t *testing.T) { // mutation targe
 
 // ---- --fields ----
 
-// Only the sources the selected keys need are asked, with the sources those depend on: the provider
-// and the reverse-IP names need Team Cymru, and nothing else is.
+// Field selection requests only required sources and prerequisites such as ownership.
 func TestIP_FieldsAskOnlyTheSourcesTheyNeed(t *testing.T) {
 	t.Parallel()
 	const addr = "8.8.4.4"
@@ -1281,8 +1262,7 @@ func TestIP_FieldsAskOnlyTheSourcesTheyNeed(t *testing.T) {
 	}
 }
 
-// --fields "" asks nothing and returns the keys that are always there; naming a key is how to ask
-// for it, and --fields all is what no --fields gives.
+// Empty fields selects mandatory keys only; all matches the default full selection.
 func TestIP_FieldsEmptyAndAll(t *testing.T) {
 	t.Parallel()
 	t.Run("empty", func(t *testing.T) {
@@ -1334,8 +1314,7 @@ func TestIP_FieldsKeepTheRecordOrder(t *testing.T) {
 	}
 }
 
-// An unknown name, and an --active key without --active, exit 2 with every problem and the valid
-// names in the hint, before anything is asked.
+// Reject unknown/active-only field misuse with all problems before sending requests.
 func TestIP_FieldsProblemsAreReportedTogether(t *testing.T) {
 	t.Parallel()
 	t.Run("unknown and active-only", func(t *testing.T) {
@@ -1405,9 +1384,7 @@ func TestIP_ActiveFieldsStillRunTheSharedCheck(t *testing.T) {
 
 // ---- --json ----
 
-// The envelope has exactly its keys in order, meta.hint is null whatever the outcome, and each
-// meta.errors entry has the five keys of an error with its input as documented: the inputs as given
-// that named it and, for an address that failed, the address.
+// Pin envelope/error key order and preserve both original inputs and failed resolved addresses.
 func TestIP_EnvelopeKeysAndErrorEntries(t *testing.T) {
 	t.Parallel()
 	t.Run("success", func(t *testing.T) {
@@ -1472,9 +1449,8 @@ func checkErrorKeys(t *testing.T, envelope []byte) {
 	}
 }
 
-// checkErrorEntries checks the three entries of the call of TestIP_EnvelopeKeysAndErrorEntries: an
-// invalid input and an input with no address name only the input, and an address that failed also
-// names itself and the CIDR that gave it.
+// checkErrorEntries distinguishes invalid/unresolved inputs from failed addresses derived from
+// a CIDR.
 func checkErrorEntries(t *testing.T, errs []ipMetaError) {
 	t.Helper()
 	byCode := map[string]ipMetaError{}

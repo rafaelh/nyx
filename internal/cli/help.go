@@ -13,27 +13,24 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// The annotations a command carries for the help, so a command added to the
-// tree is in the root help with no list of commands to keep in step.
+// Command annotations supply help content so adding a command does not require a second command
+// list.
 const (
-	// annotationEveryday names the flags the root help shows, separated by
-	// commas; absent means every flag of the command.
+	// annotationEveryday lists root-help flags in order; absent means all command flags.
 	annotationEveryday = "nyx.everyday"
-	// annotationValues is the lines that name the valid values of the
-	// command's fixed-set flags, shown in the root help.
+	// annotationValues supplies fixed-choice value lines for root help.
 	annotationValues = "nyx.values"
 	// annotationNote is a line the root help adds after them.
 	annotationNote = "nyx.note"
-	// annotationFooter is what the command's own help shows after its flags.
+	// annotationFooter supplies text after command flags.
 	annotationFooter = "nyx.footer"
 )
 
 // exitCodesLine is the last line of every help text.
 const exitCodesLine = "Exit codes: 0 success, 1 system error, 2 usage error, 3 not found, 7 partial result, 130/143/129 interrupted (SIGINT/SIGTERM/SIGHUP)"
 
-// newRoot builds the command tree: nyx, recon and its export, cve, help and
-// the help topics. The root owns the shared flags, which every command takes
-// before or after its name.
+// newRoot builds commands and help topics. Shared root flags work before or after command
+// names.
 func newRoot(inv *invocation) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "nyx",
@@ -68,8 +65,7 @@ func newRoot(inv *invocation) *cobra.Command {
 	return root
 }
 
-// newHelpCommand is nyx help [command]: the root help, or the named command's,
-// exactly as --help prints it.
+// newHelpCommand resolves nyx help [command] to the same text as --help.
 func newHelpCommand(inv *invocation, root *cobra.Command) *cobra.Command {
 	return &cobra.Command{
 		Use:   "help [command]",
@@ -95,8 +91,7 @@ func newHelpCommand(inv *invocation, root *cobra.Command) *cobra.Command {
 	}
 }
 
-// helpStream is the stream help text and the palette sheet are laid out for: stdout's, except
-// under --json, when they are written as for a stream that is not a terminal.
+// helpStream uses stdout's layout, except --json always selects non-terminal formatting.
 func (inv *invocation) helpStream() layout.Stream {
 	if inv.raw.json || inv.sh.json {
 		return layout.Stream{Width: inv.st.out.Width}
@@ -114,9 +109,8 @@ func (inv *invocation) printHelp(root, c *cobra.Command) {
 	})
 }
 
-// showHelp writes a help text to stdout, unless the shared flags are refused
-// (--quiet with --debug): then that usage error is the call's outcome and
-// nothing is printed.
+// showHelp validates shared flags before writing help. Conflicting --quiet/--debug returns a
+// usage error with no help output.
 func (inv *invocation) showHelp(c *cobra.Command, text func() string) {
 	if err := inv.problems().Err(); err != nil {
 		_ = inv.start(c, err)
@@ -125,8 +119,7 @@ func (inv *invocation) showHelp(c *cobra.Command, text func() string) {
 	fmt.Fprint(inv.d.Stdout, text())
 }
 
-// runnable are the commands that do work, in tree order, children after
-// their parent; help and the topics are not among them.
+// runnable walks work-performing commands parent-first, omitting help/topics.
 func runnable(root *cobra.Command) []*cobra.Command {
 	var out []*cobra.Command
 	for _, c := range descendants(root) {
@@ -147,9 +140,8 @@ func firstExample(c *cobra.Command) string {
 	return ""
 }
 
-// A help screen is built as a list of blocks, each of one kind, so that it can be written two ways:
-// off a terminal the blocks are joined back into the text nyx has always written, and on a terminal
-// each kind is laid out to the stream's width.
+// Help uses typed blocks so plain output can preserve its text while terminal output lays each
+// block out to the available width.
 type blockKind int
 
 const (
@@ -168,21 +160,20 @@ const (
 // helpBlock is one block of a help screen.
 type helpBlock struct {
 	kind  blockKind
-	lines []string // the block's plain text, a line each, without line breaks
+	lines []string // plain block lines without newline characters
 	// rows are the rows of a command list.
 	rows []commandRow
-	// table builds the table of a blockTable for a stream, whose colours its cells take.
+	// table builds a help table using the selected stream's styles.
 	table func(layout.Stream) layout.Table
 }
 
-// commandRow is a row of a command list: its indent, the name, the gap that aligns the summaries
-// and the summary, which together are the row's plain text.
+// commandRow separates indentation, name, alignment gap and summary while preserving plain
+// text.
 type commandRow struct{ lead, name, gap, summary string }
 
 func (r commandRow) plain() string { return r.lead + r.name + r.gap + r.summary }
 
-// plainHelp is the blocks as text for a stream that is not a terminal: every line of every block,
-// each ended by a line break.
+// plainHelp joins block lines with newline endings for non-terminal output.
 func plainHelp(blocks []helpBlock) string {
 	var b strings.Builder
 	for _, bl := range blocks {
@@ -193,8 +184,7 @@ func plainHelp(blocks []helpBlock) string {
 	return b.String()
 }
 
-// renderHelp is the blocks as text for s: the text of a stream that is not a terminal, or each block
-// laid out to the width of one that is.
+// renderHelp preserves plain-stream text or lays out blocks to a terminal's width.
 func renderHelp(blocks []helpBlock, s layout.Stream) string {
 	if !s.Terminal {
 		return plainHelp(blocks)
@@ -207,8 +197,8 @@ func renderHelp(blocks []helpBlock, s layout.Stream) string {
 	return b.String()
 }
 
-// layoutBlock is one block laid out for a terminal stream: its lines, each ended by a line break.
-// Text wraps to the stream's width, but for a usage or example line, which never wraps.
+// layoutBlock returns newline-terminated terminal lines. Text wraps to width; usage and example
+// lines remain unwrapped.
 func layoutBlock(b helpBlock, s layout.Stream) string {
 	if b.kind == blockTable {
 		return b.table(s).Render(s)
@@ -266,8 +256,8 @@ func layoutBlock(b helpBlock, s layout.Stream) string {
 	return out.String()
 }
 
-// exampleLine is an example line with its nyx call, from "nyx" to the end of the line, in the
-// example colour; its indent and any label before the call stay plain.
+// exampleLine colours the nyx invocation while leaving indentation and any preceding label
+// plain.
 func exampleLine(l string, d palette.Depth) string {
 	at := strings.Index(l, "nyx ")
 	if at < 0 {
@@ -276,8 +266,8 @@ func exampleLine(l string, d palette.Depth) string {
 	return l[:at] + d.Text(palette.Semantic, "example", l[at:])
 }
 
-// reflow is the lines of a paragraph joined by spaces and wrapped to cols, its first line and its
-// continuation lines indented as the first line was.
+// reflow joins paragraph lines and wraps to cols, preserving the first line's indentation
+// throughout.
 func reflow(lines []string, cols int) []string {
 	words := make([]string, len(lines))
 	for i, l := range lines {
@@ -292,8 +282,7 @@ func indentOf(l string) int { return len(l) - len(strings.TrimLeft(l, " ")) }
 // flagNotes are the usage notes that may come anywhere in a flag's description.
 var flagNotes = []string{"(# comments allowed)", "(repeatable)"}
 
-// asideAt is where the default or example that a flag's description ends with begins, at its
-// leading space, or -1 when it has none.
+// asideAt locates the leading space of a trailing default/example note, or -1 when absent.
 func asideAt(desc string) int {
 	if !strings.HasSuffix(desc, ")") {
 		return -1
@@ -307,8 +296,8 @@ func asideAt(desc string) int {
 	return at
 }
 
-// flagSpans are the parts of a flag's description: its notes and its trailing default or example
-// take style muted, and the rest is plain.
+// flagSpans de-emphasises notes and trailing defaults/examples while keeping the main
+// description plain.
 func flagSpans(desc string, muted func(string) string) []layout.Span {
 	aside := ""
 	if at := asideAt(desc); at >= 0 {
@@ -352,7 +341,7 @@ func (h *helpBuilder) values(line string)  { h.add(blockValues, line) }
 // flags adds the flag list text of flagUsages, a row to a line.
 func (h *helpBuilder) flags(text string) { h.add(blockFlags, textLines(text)...) }
 
-// textLines are the lines of text, which ends with a line break unless it is empty.
+// textLines splits newline-terminated text without adding a spurious final line.
 func textLines(text string) []string {
 	if text == "" {
 		return nil
@@ -360,13 +349,13 @@ func textLines(text string) []string {
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
-// free adds free text, a line break ending each line: a line in values is a labelled list of
-// values, and the rest is split by freeBlocks.
+// free adds newline-terminated text using labelled values where known and freeBlocks for other
+// text.
 func (h *helpBuilder) free(text string, values map[string]bool) {
 	h.blocks = append(h.blocks, freeBlocks(text, values)...)
 }
 
-// valueLines is the set of lines of text, the lines of an annotation that names values.
+// valueLines identifies labelled value lines from an annotation.
 func valueLines(text string) map[string]bool {
 	set := map[string]bool{}
 	for l := range strings.SplitSeq(text, "\n") {
@@ -375,9 +364,8 @@ func valueLines(text string) map[string]bool {
 	return set
 }
 
-// freeBlocks splits free text into blocks: a blank line is a blank block, a line in values is a
-// labelled list of values, an unindented line that ends in a colon is a heading, and a run of the
-// other lines with one indent is a paragraph.
+// freeBlocks recognises blank lines, labelled value lists, unindented colon-ended headings and
+// paragraphs sharing an indent.
 func freeBlocks(text string, values map[string]bool) []helpBlock {
 	var out []helpBlock
 	var run []string
@@ -409,10 +397,8 @@ func freeBlocks(text string, values map[string]bool) []helpBlock {
 	return out
 }
 
-// rootHelp is the whole reference, rendered from the tree: examples that pass
-// --json, the shared flags, then every command with its usage, one example,
-// its everyday flags and the valid values of its fixed-set flags, the help
-// commands, and the exit codes.
+// rootHelp builds the reference from the command tree: JSON examples, shared flags, commands
+// and their common flags, help topics, then exit codes.
 func rootHelp(root *cobra.Command, s layout.Stream) string {
 	return renderHelp(rootHelpBlocks(root), s)
 }
@@ -448,8 +434,7 @@ func rootHelpBlocks(root *cobra.Command) []helpBlock {
 	return b.blocks
 }
 
-// commandReference adds one command's entry in the reference: its usage, its summary, one
-// example, its everyday flags and its notes.
+// commandReference assembles usage, summary, example, common flags and notes.
 func (h *helpBuilder) commandReference(root, c *cobra.Command) {
 	h.blank()
 	h.usage(c.UseLine())
@@ -469,9 +454,8 @@ func (h *helpBuilder) commandReference(root, c *cobra.Command) {
 	}
 }
 
-// everydayFlags are the flags the reference shows for c: those its everyday
-// annotation names, in that order, or else all of them, leaving out help,
-// hidden flags and the shared flags.
+// everydayFlags uses a command's annotated flag order, or all flags by default. It omits help,
+// hidden and shared flags.
 func everydayFlags(c *cobra.Command, shared *pflag.FlagSet) *pflag.FlagSet {
 	fs := pflag.NewFlagSet(c.Name(), pflag.ContinueOnError)
 	fs.SortFlags = false
@@ -490,8 +474,7 @@ func everydayFlags(c *cobra.Command, shared *pflag.FlagSet) *pflag.FlagSet {
 	return fs
 }
 
-// helpCommands adds the reference's list of help commands: help itself and each help topic, with
-// their summaries in one aligned column.
+// helpCommands aligns help-command and topic summaries in the root reference.
 func (h *helpBuilder) helpCommands(root *cobra.Command) {
 	h.blank()
 	h.heading("Help:")
@@ -523,9 +506,8 @@ func (h *helpBuilder) commands(rows []commandRow) {
 	h.blocks = append(h.blocks, helpBlock{kind: blockCommands, lines: lines, rows: rows})
 }
 
-// flagUsages is fs's flag list as help shows it: a switch reads "--passive",
-// not pflag's "--passive[=true|false]". It renders a copy of fs, leaving the
-// flags that parsing uses unchanged.
+// flagUsages renders boolean switches as --passive rather than pflag's value syntax. It works
+// on a copy so help formatting cannot affect parsing.
 func flagUsages(fs *pflag.FlagSet) string {
 	shown := pflag.NewFlagSet(fs.Name(), pflag.ContinueOnError)
 	shown.SortFlags = fs.SortFlags
@@ -539,12 +521,10 @@ func flagUsages(fs *pflag.FlagSet) string {
 	return shown.FlagUsages()
 }
 
-// plainSwitch hides a bool flag value's IsBoolFlag method, which pflag's usage
-// text marks with "[=true|false]".
+// plainSwitch hides IsBoolFlag so pflag omits the [=true|false] usage suffix.
 type plainSwitch struct{ pflag.Value }
 
-// commandHelp is a command's own help: its examples, its description, its
-// usage, its subcommands, every flag, its footer and the exit codes.
+// commandHelp assembles complete help for one command.
 func commandHelp(c *cobra.Command, s layout.Stream) string {
 	return renderHelp(commandHelpBlocks(c), s)
 }
@@ -586,8 +566,8 @@ func commandHelpBlocks(c *cobra.Command) []helpBlock {
 		b.heading("Shared flags:")
 		b.flags(flagUsages(inherited))
 	}
-	// A line break ends the footer's last line, so a blank line follows it only when the footer
-	// itself ends with one.
+	// The footer already has a final newline; add spacing only when it explicitly ends with
+	// a blank line.
 	b.blank()
 	if footer := c.Annotations[annotationFooter]; footer != "" {
 		b.free(footer, valueLines(c.Annotations[annotationValues]))
@@ -599,7 +579,7 @@ func commandHelpBlocks(c *cobra.Command) []helpBlock {
 // findingsHeading is the heading of the findings topic.
 const findingsHeading = "Findings and their default severities (fixed in code, not configurable; the summary lists high and medium):"
 
-// findingsBlocks are the blocks of nyx help findings: its heading and its table of severities.
+// findingsBlocks builds the findings heading and severity table.
 func findingsBlocks() []helpBlock {
 	var b helpBuilder
 	b.heading(findingsHeading)
@@ -623,9 +603,8 @@ func findingsTable(s layout.Stream) layout.Table {
 	return t
 }
 
-// newTopic builds a help topic: a command with no run of its own, which the root's help lists under
-// "Help topics" and which nyx help <name>, nyx <name> and nyx <name> --help print. render gives its
-// text for s, the stream help is laid out for when the tree is built.
+// newTopic creates a help-only command available through nyx help <name>, nyx <name> and
+// --help. render receives the stream selected when building the tree.
 func newTopic(inv *invocation, name, short string, render func(layout.Stream) string, s layout.Stream) *cobra.Command {
 	cmd := &cobra.Command{Use: name, Short: short}
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
@@ -637,5 +616,5 @@ func newTopic(inv *invocation, name, short string, render func(layout.Stream) st
 // findingsHelp is the findings topic for s.
 func findingsHelp(s layout.Stream) string { return renderHelp(findingsBlocks(), s) }
 
-// helpFlag is a flag line: indent, names, an optional value type, the gap and the description.
+// helpFlag separates flag names/type from alignment and description.
 var helpFlag = regexp.MustCompile(`^(\s+)((?:-\w, )?--[\w-]+)( \w+)?(\s{2,})(.*)$`)

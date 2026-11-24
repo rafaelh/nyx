@@ -17,9 +17,8 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Trust states of a presented certificate chain, as CertTrust reports them.
-// They are stored as tls_trust, and kinds holds the same values (a test there
-// pins them) so the record layer need not import egress.
+// Certificate trust values are stored as tls_trust. kinds mirrors them to avoid importing
+// egress; tests keep the values aligned.
 const (
 	TrustExpired          = "expired" // including not yet valid
 	TrustHostnameMismatch = "hostname-mismatch"
@@ -28,11 +27,8 @@ const (
 	TrustTrusted          = "trusted"
 )
 
-// targetCipherSuites is what requests to target services offer: every suite
-// Go considers secure, plus the CBC-mode and RSA key-exchange suites it
-// considers insecure, so a service that has not moved on from them can still
-// be seen. RC4 and 3DES are left out: no service is worth reaching with those.
-// Built once, because the lists are fixed for the life of the process.
+// targetCipherSuites includes Go's secure suites plus CBC and RSA key-exchange suites to reach
+// older services. RC4 and 3DES remain excluded. The fixed list is built once per process.
 var targetCipherSuites = sync.OnceValue(func() []uint16 {
 	var ids []uint16
 	for _, s := range tls.CipherSuites() {
@@ -46,23 +42,16 @@ var targetCipherSuites = sync.OnceValue(func() []uint16 {
 	return ids
 })
 
-// targetTLSConfig is the client TLS configuration for every request to a
-// target service. Verification is skipped for the connection itself (the
-// chain is judged afterwards, by CertTrust) so an expired or self-signed
-// service is still reached. The minimum version is TLS 1.0, so a service that
-// offers nothing newer is recorded with the version it negotiated instead of
-// failing. SSL 3.0 is not supported by Go at all. Only the version actually
-// negotiated is seen: an old version offered alongside a new one is not.
+// targetTLSConfig permits TLS 1.0 and skips connection-time verification so old, expired and
+// self-signed services can be observed. CertTrust evaluates the chain afterwards. Only the
+// negotiated version is recorded, not every supported version. Go does not support SSL 3.0.
 func targetTLSConfig(host string) *tls.Config {
 	return &tls.Config{InsecureSkipVerify: true, ServerName: host, MinVersion: tls.VersionTLS10, CipherSuites: targetCipherSuites()}
 }
 
-// CertTrust is the first state that applies to the certificate the service
-// presented, as of when the response arrived: TrustExpired (including not yet
-// valid), TrustHostnameMismatch, TrustSelfSigned, TrustUntrustedChain or
-// TrustTrusted. It is "" for plain HTTP. Whether a chain is trusted depends on
-// the root store of the machine running the check. It is computed on each call:
-// most callers never ask.
+// CertTrust checks certificate validity, hostname, self-signing and chain trust in that order.
+// Plain HTTP returns "". Chain trust uses the operator's root store. The result is calculated
+// on demand.
 func (r Response) CertTrust() string {
 	if r.tlsAt.IsZero() {
 		return ""
@@ -76,12 +65,9 @@ func (r Response) SelfSigned() bool {
 	return len(r.PeerCerts) > 0 && selfSigned(r.PeerCerts[0])
 }
 
-// certTrust judges the presented chain separately from the connection (which
-// skips verification), against roots or, if nil, the system's. Validity and
-// hostname are checked here, not left to Verify, because on macOS and Windows
-// Verify defers to the platform verifier. That verifier reports a different
-// error for the same certificate (an expired leaf reads as "unknown authority"
-// on macOS), so the answer would otherwise depend on the operator's OS.
+// certTrust evaluates chains separately from the unverified connection. It checks dates and
+// hostname before Verify because platform verifiers can otherwise classify the same certificate
+// differently across operating systems. Nil roots uses the system store.
 func certTrust(host string, certs []*x509.Certificate, now time.Time, roots *x509.CertPool) string {
 	if len(certs) == 0 {
 		return ""
@@ -105,9 +91,8 @@ func certTrust(host string, certs []*x509.Certificate, now time.Time, roots *x50
 	return TrustTrusted
 }
 
-// selfSigned reports whether the certificate was issued and signed by itself.
-// Checking the signature directly, not CheckSignatureFrom, also covers a
-// self-signed leaf that is not marked as a CA.
+// selfSigned checks issuer identity and the certificate's own signature directly, covering
+// leaves without the CA flag as well as CA certificates.
 func selfSigned(c *x509.Certificate) bool {
 	return bytes.Equal(c.RawIssuer, c.RawSubject) &&
 		c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature) == nil
@@ -116,7 +101,7 @@ func selfSigned(c *x509.Certificate) bool {
 // TLSResult is the outcome of a TLS handshake: a TLSCert, NoService or Refused.
 type TLSResult interface{ tlsResult() }
 
-// TLSCert is what a service presented when a handshake completed. Nothing was sent after it.
+// TLSCert captures the certificate after handshake without sending application data.
 type TLSCert struct {
 	Names    []string // the DNS and IP subject alternative names; an address is in its text form
 	Issuer   string   // the issuer's distinguished name
@@ -153,10 +138,9 @@ func (t *targetTLS) Handshake(ctx context.Context, addr netip.Addr, port int, se
 	return t.e.handshake(ctx, addr, port, serverName)
 }
 
-// handshake dials addr, completes a TLS handshake offering serverName and closes the connection
-// without sending anything else. The dial is bounded by ConnectTimeout, and the dial and handshake
-// together by HTTPTimeout. A refused connection, a service that is not TLS, and one that
-// does not answer in time are results; a failure of this machine, and a cancelled ctx, are errors.
+// handshake connects, negotiates TLS with serverName and closes without application data.
+// ConnectTimeout bounds the dial; HTTPTimeout bounds the whole operation. Refusal, non-TLS and
+// timeout are probe results; cancellation and local failures are errors.
 func (e *Egress) handshake(ctx context.Context, addr netip.Addr, port int, serverName string) (TLSResult, error) {
 	hctx, cancel := context.WithTimeout(ctx, e.opts.HTTPTimeout)
 	defer cancel()
@@ -185,9 +169,8 @@ func (e *Egress) handshake(ctx context.Context, addr netip.Addr, port int, serve
 	return out, nil
 }
 
-// handshakeFailure classifies a dial or handshake that failed, as requestFailure does a request.
-// Cancelling the run, and a failure on this side, are errors; the deadline is a timeout; anything
-// else is the reason the classifier gives.
+// handshakeFailure distinguishes cancellation/local errors, request timeout and other
+// classified handshake results, following requestFailure's rules.
 func handshakeFailure(parent, ctx context.Context, err error, reason func(error) string) (TLSResult, error) {
 	switch perr := parent.Err(); {
 	case perr != nil && !errors.Is(perr, context.DeadlineExceeded):
@@ -222,9 +205,8 @@ type Probe struct {
 	TLS  TargetTLS
 }
 
-// ProbePolicy is the Policy of the probe of one address: the address is the only netblock, the
-// hostnames that gave it are the roots and resolve to it, the ports are the only ports, the
-// contact is acknowledged and nothing is shared.
+// ProbePolicy permits one address, the hostnames resolving to it and only the selected ports.
+// It acknowledges contact and treats the address as dedicated.
 func ProbePolicy(addr netip.Addr, hostnames []string, ports []int) *Policy {
 	res := map[string][]netip.Addr{}
 	for _, h := range hostnames {

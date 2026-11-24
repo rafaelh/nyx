@@ -10,9 +10,8 @@ import (
 // originArrow joins the hostname and the address of an origin exposure's target.
 const originArrow = " -> "
 
-// originTarget is the target of an origin exposure: the hostname and the address it may be exposed
-// at. The record key holds the same two parts, so a pair keeps one row whether it is a possible
-// origin or a confirmed one.
+// originTarget identifies a hostname/address pair. The same key preserves one finding row as
+// the origin moves between possible and confirmed.
 func originTarget(host, addr string) string { return host + originArrow + addr }
 
 // splitOriginTarget reverses originTarget.
@@ -21,11 +20,9 @@ func splitOriginTarget(target string) (host, addr string) {
 	return host, addr
 }
 
-// originExposure derives one finding for each candidate origin of a hostname behind a CDN or WAF
-// (see package origin). It is confirmed (medium) when the origincheck answer for the pair meets the
-// confirmation rules against what the probe saw of the hostname; otherwise it is possible (low),
-// which includes a candidate that may not be contacted and one whose answer does not confirm. A
-// pair that no longer qualifies is not derived, so its finding stops being current.
+// originExposure compares candidate origins with the hostname's probed service. Matching
+// confirmation rules yield medium severity; other candidates remain possible at low severity,
+// including uncontactable ones. Pairs that stop qualifying are no longer derived.
 func (d *deriver) originExposure() []Finding {
 	pairs := origin.Pairs(d.in.Scope, d.in.Inv, d.vis, d.in.Records, d.in.Settings.OriginCheck.MaxCandidates)
 	if len(pairs) == 0 {

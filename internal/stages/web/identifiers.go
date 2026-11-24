@@ -16,10 +16,8 @@ import (
 // maxCopyrightRunes is the longest copyright line recorded.
 const maxCopyrightRunes = 120
 
-// The shapes of the identifiers. Each is read only in one of the contexts a
-// tracker is installed in, never from loose text: a page that merely mentions
-// "UA-12345678-1" does not use it. Each ends at a word boundary, so that a longer
-// token is not read as the ID that is its first characters.
+// Identifier patterns require tracker installation syntax and word boundaries, so loose
+// mentions and prefixes of longer tokens do not count as installed IDs.
 const (
 	analyticsID = `(UA-\d{4,10}-\d{1,4}|G-[A-Z0-9]{6,12}|GTM-[A-Z0-9]{4,10})\b`
 	pixelID     = `(\d{6,20})\b`
@@ -37,17 +35,15 @@ var (
 	// The pixel's noscript image: facebook.com/tr?id=1234567890
 	pixelImage = regexp.MustCompile(`facebook\.com/tr/?\?id=` + pixelID)
 
-	// A copyright mark with a year after it on the same line, next to it ("© 2026
-	// Acme") or after the holder's name ("© Acme Pty Ltd 2026").
+	// Match a copyright mark and year on one line, with the year before or after the
+	// holder.
 	copyrightMark = regexp.MustCompile(`(?i)(?:©|\(c\)).*?\b(?:19|20)\d\d\b`)
 )
 
-// extractIdentifiers returns the Google Analytics and Tag Manager IDs and the
-// Facebook pixel IDs a page's source names in the contexts a tracker is
-// installed in, each sorted and without repeats.
+// extractIdentifiers finds installed Google Analytics/Tag Manager and Facebook pixel IDs,
+// returning each group sorted and unique.
 func extractIdentifiers(body []byte) (analytics, pixels []string) {
-	// Every match of a group's patterns contains one of its hints, so a page with
-	// none of them, as most pages are, is not scanned by the patterns.
+	// Skip regex work when none of the group's required literal hints occurs in the page.
 	if containsAny(body, "gtag", "googletagmanager", "GTM-") {
 		analytics = findAll(body, analyticsLoader, analyticsConfig, analyticsSnippet)
 	}
@@ -66,7 +62,7 @@ func containsAny(body []byte, hints ...string) bool {
 	return false
 }
 
-// findAll is the first group of every match of any of the patterns, sorted, without repeats.
+// findAll returns sorted, unique first-capture matches across patterns.
 func findAll(body []byte, patterns ...*regexp.Regexp) []string {
 	var out []string
 	for _, re := range patterns {
@@ -81,8 +77,7 @@ func findAll(body []byte, patterns ...*regexp.Regexp) []string {
 // skippedText are the elements whose text a reader does not see.
 var skippedText = map[string]bool{"script": true, "style": true, "noscript": true, "template": true, "head": true, "title": true}
 
-// lineBreaks are the elements that start and end a line of text, as a browser
-// lays them out.
+// lineBreaks identifies block/line-break elements for visible-text extraction.
 var lineBreaks = map[string]bool{
 	"br": true, "address": true, "article": true, "aside": true, "blockquote": true, "dd": true, "div": true, "dl": true, "dt": true,
 	"fieldset": true, "figcaption": true, "figure": true, "footer": true, "form": true, "h1": true, "h2": true, "h3": true, "h4": true,
@@ -90,10 +85,8 @@ var lineBreaks = map[string]bool{
 	"section": true, "table": true, "td": true, "th": true, "tr": true, "ul": true,
 }
 
-// visibleLines are the lines of the page's visible text, as a browser would lay
-// them out: text runs together across inline elements, and a line break element
-// starts a new line. Whitespace is collapsed and invalid UTF-8 replaced; empty
-// lines are left out.
+// visibleLines joins inline text and breaks at block/line-break elements. It collapses
+// whitespace, replaces invalid UTF-8 and drops empty lines.
 func (p page) visibleLines() []string {
 	var lines []string
 	var cur strings.Builder
@@ -128,9 +121,8 @@ func (p page) visibleLines() []string {
 	return lines
 }
 
-// copyright is the first line of the page's visible text that has a copyright
-// mark, "©" or "(c)", followed by a year: sanitised and cut to 120 characters. It
-// is "" if there is none.
+// copyright returns the first visible copyright/year line, sanitised and capped at 120
+// characters, or "".
 func (p page) copyright() string {
 	for _, line := range p.visibleLines() {
 		if copyrightMark.MatchString(line) {
@@ -140,8 +132,7 @@ func (p page) copyright() string {
 	return ""
 }
 
-// identifierSet collects the web_identifier observations of one web service
-// into an obsSet, which drops repeats.
+// identifierSet deduplicates identifier observations for one service.
 type identifierSet struct {
 	service, host string
 	obs           *obsSet
@@ -169,9 +160,8 @@ func (s *identifierSet) source(body []byte) {
 	}
 }
 
-// chain reads the pages of a probe's redirect chain that the service's own origin
-// served, and the copyright line of the last of them, the root page the service
-// ends on.
+// chain extracts identifiers from same-origin redirect pages and copyright from the last such
+// page.
 func (s *identifierSet) chain(chain []*hop) {
 	for _, h := range chain {
 		if h.isHTML && h.origin == chain[0].origin {

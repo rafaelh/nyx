@@ -7,8 +7,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 )
 
-// httpStub answers each request with the reply registered for its URL, and
-// records the URLs asked in order.
+// httpStub logs ordered URLs and supplies registered responses.
 type httpStub struct {
 	mu      sync.Mutex
 	replies map[string]egress.ThirdPartyResponse
@@ -45,7 +44,7 @@ func ok(body string) egress.ThirdPartyResponse {
 	return egress.ThirdPartyResponse{Status: 200, Body: []byte(body)}
 }
 
-// dnsStub answers each query name with the result registered for it.
+// dnsStub supplies registered query results.
 type dnsStub struct {
 	results map[string]egress.DNSResult
 	err     error

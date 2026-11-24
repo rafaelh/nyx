@@ -28,17 +28,14 @@ type exportWorld struct {
 	title   atomic.Value // the title disc gives the web service on www.a.com
 }
 
-// newExportWorld records an engagement with every sort of line the export has:
-// entities of each scope, shown and hidden web records, a record merged from
-// stages that disagree, inputs and exclusions. A second run, after
-// markOldGone, makes old.a.com not current.
+// newExportWorld covers placements, visibility, merged attributes and historical records in one
+// engagement.
 func newExportWorld(t *testing.T) *exportWorld {
 	t.Helper()
 	w := &exportWorld{dropOld: &atomic.Bool{}}
 	w.title.Store("Welcome")
-	// zeta comes before alpha in the registry, and after it by name, so a merge
-	// that follows the registry gives alpha's title and one that follows the
-	// names gives zeta's.
+	// Use registry order opposite name order so the winning title reveals which merge order
+	// was used.
 	zeta := finder("zeta", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
 		"title", "from zeta", "server", "zeta-server"))
 	alpha := finder("alpha", obs("web_service", "https://shared.a.com", "url", "https://shared.a.com", "host", "shared.a.com",
@@ -232,9 +229,8 @@ func checkExportPlacement(t *testing.T, lines []exLine) {
 	}
 }
 
-// checkExportRecordFields checks that a record that is current names the
-// stages observing it and carries its merged attributes and dates, that one
-// that is not has neither, and that derived records come from their pseudo-stage.
+// checkExportRecordFields verifies merged attributes, empty historical records and
+// derived-record sources.
 func checkExportRecordFields(t *testing.T, lines []exLine) {
 	t.Helper()
 	www := exportLine(t, lines, "hostname", "www.a.com")
@@ -242,8 +238,7 @@ func checkExportRecordFields(t *testing.T, lines []exLine) {
 		www.str("first_seen") != "2026-11-01" || www.str("last_seen") != "2026-11-01" {
 		t.Errorf("www.a.com = %v", www)
 	}
-	// The store keeps attributes only from current observations, so a record
-	// that was found and is not current any more has none, and no stages.
+	// Non-current records have no current observations, attributes or observing stages.
 	for _, k := range []struct{ kind, key string }{{"hostname", "old.a.com"}, {"web_service", "https://old.a.com"}} {
 		old := exportLine(t, lines, k.kind, k.key)
 		if old["current"] != false || len(old.stages()) != 0 || old["attrs"] == nil || len(old.attrs()) != 0 {
@@ -295,9 +290,7 @@ func checkExportInputs(t *testing.T, lines []exLine) {
 	}
 }
 
-// checkExportNothingElse checks that the acknowledgement, netblock approval
-// and settings are not exported, and nothing else is: every line is a known
-// kind with the fields it is documented to have.
+// checkExportNothingElse rejects settings/approvals and any undocumented record kind or field.
 func checkExportNothingElse(t *testing.T, stdout string, lines []exLine) {
 	t.Helper()
 	known := map[string]bool{"input": true, "exclusion": true}
@@ -721,8 +714,8 @@ func TestExport_NoEngagement(t *testing.T) {
 		t.Errorf("export created %v", entries)
 	}
 
-	// A directory with something in it and no .nyx is not an engagement: a usage error. An empty
-	// one has nothing in it, so there is no engagement of that name yet.
+	// Populated foreign directories are invalid; empty directories represent a missing
+	// engagement.
 	other := filepath.Join(h.out, "other")
 	if err := os.Mkdir(other, 0o755); err != nil {
 		t.Fatal(err)
@@ -764,7 +757,7 @@ func inode(fi fs.FileInfo) uint64 {
 	return st.Ino
 }
 
-// The engagement is found under output_dir from the configuration, as for a run.
+// Export resolves configured output_dir the same way as recon.
 func TestExport_FindsEngagementUnderConfiguredOutputDir(t *testing.T) {
 	t.Parallel()
 	w := newExportWorld(t)

@@ -6,14 +6,13 @@ import (
 	"sync"
 )
 
-// Envelope is the one object a recon --json run writes to stdout. Its keys are a
-// stable interface (see Summary).
+// Envelope is recon's single stdout JSON object. Its keys follow the stable Summary interface.
 type Envelope struct {
 	Data Summary `json:"data"`
 	Meta Meta    `json:"meta"`
 }
 
-// Meta is what the envelope says about the run itself.
+// Meta describes invocation status and diagnostics around the data.
 type Meta struct {
 	Count            int      `json:"count"`
 	DeadlineExceeded bool     `json:"deadline_exceeded"`
@@ -22,23 +21,21 @@ type Meta struct {
 	Warnings         []string `json:"warnings"`
 }
 
-// Map returns a copy of e with every string mapped, the warnings included. The copy
-// shares no slice or pointer with e. A nil list stays nil.
+// Map deep-copies all strings, including warnings, without sharing slices or pointers. Nil
+// lists stay nil.
 func (e Envelope) Map(f func(string) string) Envelope {
 	return e.clone(f, false)
 }
 
-// WriteEnvelope writes e as one compact JSON line, with the keys in the order of the
-// types and HTML characters as they are. Every list is written as [] when it is nil, so
-// every key appears on every run; a nil detail and nil changes are null. e is not changed.
+// WriteEnvelope emits one compact JSON line in struct-field order without HTML escaping. Nil
+// lists become []; nil detail/changes remain null. It does not mutate e.
 func WriteEnvelope(w io.Writer, e Envelope) error {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(e.clone(func(s string) string { return s }, true))
 }
 
-// clone is the deep copy behind Map and WriteEnvelope: every string goes through f, and
-// when nonNil is set a nil list becomes an empty one.
+// clone maps strings in a deep copy and optionally converts nil lists to empty lists.
 func (e Envelope) clone(f func(string) string, nonNil bool) Envelope {
 	s := e.Data
 	stage := func(r StageCount) StageCount { return StageCount{f(r.Stage), r.N} }
@@ -86,8 +83,7 @@ func mapFindings(rows []FindingRow, nonNil bool, f func(string) string) []Findin
 	})
 }
 
-// mapRows is a new slice of f of each element. A nil slice stays nil unless nonNil is
-// set.
+// mapRows copies mapped elements, optionally normalising nil to an empty slice.
 func mapRows[T any](rows []T, nonNil bool, f func(T) T) []T {
 	if rows == nil && !nonNil {
 		return nil
@@ -99,8 +95,7 @@ func mapRows[T any](rows []T, nonNil bool, f func(T) T) []T {
 	return out
 }
 
-// Warnings is an Emitter that keeps the message of each warning event, in order, and
-// nothing else. It is safe for concurrent use.
+// Warnings safely collects only warning messages in emission order across goroutines.
 type Warnings struct {
 	mu   sync.Mutex
 	msgs []string

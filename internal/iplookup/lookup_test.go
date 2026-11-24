@@ -18,8 +18,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 )
 
-// fakeHTTP answers each request with the reply registered for its URL (404 for any other), and
-// records every URL asked.
+// fakeHTTP records URLs and serves registered replies, using 404 for unexpected URLs.
 type fakeHTTP struct {
 	mu      sync.Mutex
 	replies map[string]fakeReply
@@ -73,7 +72,7 @@ func (f *fakeHTTP) set(u string, rep fakeReply) {
 	f.replies[u] = rep
 }
 
-// count is how many requests were made for URLs with the prefix.
+// count filters recorded requests by URL prefix.
 func (f *fakeHTTP) count(prefix string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -92,7 +91,7 @@ func (f *fakeHTTP) total() int {
 	return len(f.asked)
 }
 
-// fakeDNS answers a query by name and type, NXDOMAIN when nothing is set.
+// fakeDNS serves name/type fixtures and defaults to NXDOMAIN.
 type fakeDNS struct {
 	mu      sync.Mutex
 	results map[string]egress.DNSResult
@@ -202,7 +201,7 @@ func ptrAnswer(names ...string) egress.DNSResult {
 	return r
 }
 
-// fakeLocal is this machine's resolver.
+// fakeLocal supplies machine-resolver fixtures.
 type fakeLocal struct {
 	mu       sync.Mutex
 	names    map[string][]netip.Addr
@@ -237,7 +236,7 @@ func (f *fakeLocal) asked() []string {
 	return slices.Clone(f.askedFor)
 }
 
-// world is the fakes a lookup runs against.
+// world groups source/resolver fakes for a lookup.
 type world struct {
 	t     *testing.T
 	http  *fakeHTTP
@@ -248,7 +247,7 @@ type world struct {
 	cfg   Config
 }
 
-// fieldsFor is the selection for a --fields value; "all" is every key.
+// fieldsFor parses field selections, including all.
 func fieldsFor(t *testing.T, active bool, spec string) Fields {
 	t.Helper()
 	if spec == "all" {
@@ -294,7 +293,7 @@ func (w *world) ctx() context.Context {
 	return ctx
 }
 
-// lookup looks up the addresses, each found as a literal.
+// lookup treats fixture addresses as explicit literal inputs.
 func (w *world) lookup(addrs ...string) []AddressResult {
 	w.t.Helper()
 	return w.lookupCtx(w.ctx(), addrs...)
@@ -309,7 +308,7 @@ func (w *world) lookupCtx(ctx context.Context, addrs ...string) []AddressResult 
 	return Lookup(ctx, w.cfg, r)
 }
 
-// The addresses of the tests are public, and each source's answer for one is made here.
+// Seed all public-address source responses explicitly.
 const (
 	pubAddr = "8.8.4.4"
 	pub6    = "2001:4860:4860::8844"
@@ -336,7 +335,7 @@ const (
 	ripeBase      = "https://rdap.db.ripe.net/"
 )
 
-// bootstrapFile maps 8.0.0.0/8 to ARIN and 9.0.0.0/8 to RIPE.
+// bootstrapFile assigns fixture address blocks to ARIN and RIPE.
 const bootstrapFile = `{"services":[
  [["8.0.0.0/8"],["https://rdap.arin.net/registry/"]],
  [["9.0.0.0/8"],["https://rdap.db.ripe.net/"]]]}`
@@ -346,19 +345,19 @@ func rdapAnswer(start, end, org string) string {
  {"roles":["registrant"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text",%q]]]}]}`, start, start, end, org)
 }
 
-// ownedBy makes Team Cymru answer that the address is announced by asn, held by name.
+// ownedBy seeds Cymru origin/holder replies.
 func (w *world) ownedBy(a string, asn int, prefix, name string) {
 	w.dns.set(originName(a), egress.TypeTXT, txtAnswer(fmt.Sprintf("%d | %s | US | arin | 2000-03-30", asn, prefix)))
 	w.dns.set(fmt.Sprintf("AS%d.asn.cymru.com", asn), egress.TypeTXT, txtAnswer(fmt.Sprintf("%d | US | arin | 2000-03-30 | %s, US", asn, name)))
 }
 
-// bootstrapped makes the RDAP bootstrap answer for both families.
+// bootstrapped configures RDAP discovery for both address families.
 func (w *world) bootstrapped() {
 	w.http.on(bootstrapURL4, 200, bootstrapFile)
 	w.http.on(bootstrapURL6, 200, `{"services":[]}`)
 }
 
-// populate makes every source answer for the public address a (an address of 8.8.4.0/24).
+// populate supplies all source responses for one fixture address.
 func (w *world) populate(a string) {
 	w.ownedBy(a, 15169, "8.8.4.0/24", "GOOGLE")
 	w.dns.set(ptrName(a), egress.TypePTR, ptrAnswer("dns.google.", "Dns.Google"))
@@ -378,7 +377,7 @@ func deref(p *string) string {
 	return *p
 }
 
-// failureOf is the failure of the source in the record, and whether there is one.
+// failureOf selects a source failure and reports its presence.
 func failureOf(r Record, s Source) (Failure, bool) {
 	for _, f := range r.Failures {
 		if f.Source == s {
@@ -396,7 +395,7 @@ func only(t *testing.T, rs []AddressResult) AddressResult {
 	return rs[0]
 }
 
-// Lookup gives one result per address in the order of the addresses, whole.
+// Result order follows input addresses despite concurrent work.
 func TestLookup_ResultsFollowTheAddresses(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, false, "asn")
@@ -417,7 +416,7 @@ func TestLookup_ResultsFollowTheAddresses(t *testing.T) {
 	}
 }
 
-// Addresses are looked up 32 at a time, and 16 at a time under --active.
+// Default/active lookup pools respect their 32/16-address limits.
 func TestLookup_AddressesAtATime(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -440,7 +439,7 @@ func TestLookup_AddressesAtATime(t *testing.T) {
 	}
 }
 
-// A cancelled call returns promptly and leaves nothing running.
+// Cancellation returns promptly and stops outstanding work.
 func TestLookup_CancelReturnsPromptly(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, false, "all")
@@ -469,7 +468,7 @@ func TestLookup_CancelReturnsPromptly(t *testing.T) {
 	}
 }
 
-// The deadline is a failure of each source that had not answered, never a missing record.
+// Deadline expiry records every unfinished source rather than silently dropping results.
 func TestLookup_DeadlineIsATimeoutFailure(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, false, "all")
@@ -487,7 +486,7 @@ func TestLookup_DeadlineIsATimeoutFailure(t *testing.T) {
 			t.Errorf("%s failure = %+v (present %v), want transient TIMEOUT", s, f, ok)
 		}
 	}
-	// HackerTarget needs the owner, which timed out, so it was not asked.
+	// Failed ownership prevents the dependent reverse-IP request.
 	if _, ok := failureOf(r.Record, SourceHackerTarget); ok {
 		t.Error("hackertarget has a failure although the owner never answered")
 	}
@@ -532,7 +531,7 @@ func TestResolve_Hostnames(t *testing.T) {
 	if e := r.Inputs[2].Err; e == nil || e.Transient || e.Hint == "" {
 		t.Errorf("NXDOMAIN error = %+v, want a non-transient NOT_FOUND with a hint", e)
 	}
-	// Hostnames are looked up for A and AAAA, and the recorded address knows how it was found.
+	// A/AAAA results retain how each address was discovered.
 	for _, a := range r.Addresses {
 		if a.Addr.String() == "8.8.4.1" && (a.Found != FoundPublicDNS || !slices.Equal(a.Hostnames, []string{"two.example.com"})) {
 			t.Errorf("8.8.4.1 = %+v", a)

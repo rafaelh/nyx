@@ -16,8 +16,8 @@ import (
 // Source is where a part of a record comes from.
 type Source string
 
-// The sources, in the order a record's keys list them. It is also the order that decides which
-// failing source gives an address its error code when none of its sources answered.
+// Source order determines record field order and which failing source supplies an address's
+// error code.
 const (
 	SourceCymru        Source = "cymru"
 	SourceRDAP         Source = "rdap"
@@ -33,7 +33,7 @@ func Sources() []Source {
 	return []Source{SourceCymru, SourceRDAP, SourcePTR, SourceRIPEstat, SourceInternetDB, SourceHackerTarget, SourceProbe}
 }
 
-// sourceRank is the position of s in Sources, or len(Sources()) for one it does not know.
+// sourceRank orders known sources first, leaving unknown sources last.
 func sourceRank(s Source) int {
 	for i, o := range Sources() {
 		if o == s {
@@ -49,8 +49,8 @@ type Failure struct {
 	Code      clierr.Code `json:"code"`
 	Message   string      `json:"message"`
 	Transient bool        `json:"transient"`
-	// Quota is true only for a source whose allowance is spent (HackerTarget's). It never counts
-	// against the address's success, and it is never worth a retry before the allowance resets.
+	// Quota marks HackerTarget allowance exhaustion. It does not make the address fail and
+	// is not retryable until the allowance resets.
 	Quota bool `json:"quota"`
 }
 
@@ -72,11 +72,11 @@ const (
 	OutcomeNotProbed = "not-probed"
 )
 
-// Port is what the TCP scan found on one port of an address.
+// Port holds one TCP scan result.
 type Port struct {
 	Port  int    `json:"port"`
 	State string `json:"state"`
-	// Banner is the unprompted bytes the port sent, as text (see BannerText); null when none.
+	// Banner contains unprompted service bytes formatted as text, or null when absent.
 	Banner *string `json:"banner"`
 }
 
@@ -89,7 +89,7 @@ type TLSEntry struct {
 	// Names are the certificate's DNS and IP names; [] when there is no certificate.
 	Names  []string `json:"names"`
 	Issuer *string  `json:"issuer"`
-	// Expiry is the certificate's last day as YYYY-MM-DD in UTC (see Expiry).
+	// Expiry records the UTC certificate expiry date; see Expiry.
 	Expiry *string `json:"expiry"`
 }
 
@@ -116,12 +116,9 @@ type WebEntry struct {
 	Location *string `json:"location"`
 }
 
-// Record is the answer for one address. A single unknown value is a nil pointer (null) and a list
-// that has no entries is empty and not nil ([]); a value from a source that failed is nil, lists
-// too, so a nil list is a source that did not answer. The abusive keys are the exception: a
-// non-public address has both nil, as it is checked against no list. Hostnames and Failures encode
-// as [] when they are nil. The active-only keys encode only when selected (see Projected). The
-// order of the fields is the order of the keys.
+// Record holds one address's answer in field order. Unknown scalars are nil; successful empty
+// lists are []; failed-source lists are nil. Non-public addresses have null threat matches.
+// Hostnames and Failures always encode as lists. Projected controls active-only fields.
 type Record struct {
 	Address   string        `json:"address"`
 	Hostnames []string      `json:"hostnames"`
@@ -148,16 +145,15 @@ type Record struct {
 	ReverseIP      []string `json:"reverse_ip"`
 	ReverseIPCount *int     `json:"reverse_ip_count"`
 
-	// AbusiveNetworks are the entries of the abusive network list that hold the address, and
-	// AbusiveASN the entry of its origin AS (a list of at most one). A public address always has
-	// the first, [] when none holds it; the second is [] when the AS is known and not listed or has
-	// no owner, and null when Team Cymru failed. A non-public address has both null.
+	// AbusiveNetworks always holds a list for public addresses, empty when unmatched.
+	// AbusiveASN contains at most one match: empty for an unlisted/unknown-owner AS, null
+	// if Cymru failed. Both are null for non-public addresses.
 	AbusiveNetworks []abusive.NetworkMatch `json:"abusive_networks"`
 	AbusiveASN      []abusive.ASNMatch     `json:"abusive_asn"`
 
-	// DropNetworks are the entries of Spamhaus's DROP or DROPv6 that hold the address, the most
-	// specific first, and DropASN the ASN-DROP entry of its origin AS (a list of at most one). They
-	// follow the rules of the abusive keys.
+	// DropNetworks lists matching DROP/DROPv6 entries, most specific first. DropASN
+	// contains at most one ASN-DROP match. Null and empty-list behaviour matches the
+	// abusive fields.
 	DropNetworks []spamhaus.NetworkMatch `json:"drop_networks"`
 	DropASN      []spamhaus.ASNMatch     `json:"drop_asn"`
 
@@ -170,8 +166,7 @@ type Record struct {
 	Failures []Failure `json:"failures"`
 }
 
-// NewRecord is the record of a with its keys unknown: its canonical address, the hostnames that
-// gave it, its kind and no failures.
+// NewRecord records the address and where it came from, leaving lookup data unknown.
 func NewRecord(a Address) Record {
 	addr := a.Addr.Unmap().WithZone("")
 	return Record{
@@ -190,14 +185,13 @@ func (r Record) Failed(s Source) bool {
 	return slices.ContainsFunc(r.Failures, func(f Failure) bool { return f.Source == s })
 }
 
-// Expiry is a certificate's last day as YYYY-MM-DD in UTC.
+// Expiry formats a certificate's final validity date in UTC.
 func Expiry(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 
 // MaxBanner is the most bytes of a banner a record keeps.
 const MaxBanner = 1024
 
-// BannerText is the unprompted bytes of a port as text: at most MaxBanner bytes, invalid UTF-8
-// replaced with U+FFFD.
+// BannerText caps greetings at MaxBanner bytes and replaces invalid UTF-8.
 func BannerText(b []byte) string {
 	if len(b) > MaxBanner {
 		cut := MaxBanner

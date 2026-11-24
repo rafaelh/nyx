@@ -12,45 +12,40 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// scopeKinds are the kinds BuildScope reads. The candidate-rank deriver reads the
-// same list, so a kind added to the build is also added here, once, and the
-// candidates are ranked again when it changes. It also reads the candidate kinds
-// it ranks (see newDerivers).
+// scopeKinds lists BuildScope's record dependencies. Candidate ranking shares this list so a
+// scope change also triggers reranking. Ranking additionally reads the candidate kinds it
+// produces; see newDerivers.
 var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
 	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration, kinds.ServerAddress}
 
-// ScopeSource is what BuildScope reads: the engagement's records. A run reads
-// them from its store as it works, and an export from one snapshot of it, so
-// both classify with the same rules.
+// ScopeSource supplies records for scope classification. Runs read through the store; exports
+// read a single snapshot. Both use the same classification code.
 type ScopeSource interface {
-	// CurrentRecords returns the current records of a scope kind, their
-	// attributes merged in the registry's stage order.
+	// CurrentRecords returns current records with attributes merged in stage registry
+	// order.
 	CurrentRecords(kinds.Named) ([]store.Record, error)
 	// Observations lists the observations of a kind made by a stage.
 	Observations(kind kinds.Named, stage string) ([]store.ObsRow, error)
 }
 
-// rangeCache is a ScopeSource that keeps the index of the provider_range
-// records between builds. BuildScope indexes them itself for any other source.
+// rangeCache lets BuildScope reuse the provider-range index between builds. Other sources are
+// indexed on each build.
 type rangeCache interface {
 	ProviderRanges() (*provider.Ranges, error)
 }
 
-// Built is the scope of an engagement and what is derived from it.
+// Built holds an engagement's scope, inventory and visibility rules.
 type Built struct {
 	Scope *scope.Scope
 	Inv   *inventory.Inventory
-	// Vis is the showing rules for Scope and Inv: the decision behind every
-	// count, file, found line and finding, and an export's shown.
+	// Vis applies consistent visibility rules to counts, files, found events, findings and
+	// exports.
 	Vis *kinds.Visibility
 }
 
-// BuildScope builds the Scope and Inventory from the engagement's stored
-// inputs and its current records, the same way for a run and for anything
-// that reads an engagement afterwards. stages are the registry, whose
-// ASNExpanders bring the netblocks of the input ASNs into scope. It reads, and
-// writes nothing: the netblock-limit approval and the egress policy belong to
-// the run.
+// BuildScope classifies stored inputs and current records for runs and exports. ASNExpander
+// stages contribute input ASNs' netblocks to scope. This function only reads state; the runner
+// handles netblock approval and egress policy changes.
 func BuildScope(in input.Parsed, stages []Stage, src ScopeSource) (*Built, error) {
 	excl, err := input.ParseExclusions(in.Exclusions)
 	if err != nil {
@@ -83,9 +78,8 @@ func BuildScope(in input.Parsed, stages []Stage, src ScopeSource) (*Built, error
 	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv)}, nil
 }
 
-// asnNetblocks maps each current netblock an ASNExpander of stages observed
-// under a check for an input ASN to that ASN. It never depends on a mutable
-// attribute.
+// asnNetblocks maps netblocks observed by ASNExpander stages to their input ASN. It uses check
+// keys rather than mutable record attributes to establish that relationship.
 func asnNetblocks(src ScopeSource, stages []Stage, in input.Parsed) (map[string]string, error) {
 	want := map[string]bool{}
 	for _, a := range in.ASNs {
@@ -109,7 +103,6 @@ func asnNetblocks(src ScopeSource, stages []Stage, in input.Parsed) (map[string]
 	return out, nil
 }
 
-// inventoryData reads the current records the inventory is computed from.
 func inventoryData(src ScopeSource) (inventory.Data, error) {
 	var d inventory.Data
 	var err error
@@ -146,8 +139,7 @@ func inventoryData(src ScopeSource) (inventory.Data, error) {
 	return d, nil
 }
 
-// currentAs converts the current records of a kind with conv, keeping the
-// values it accepts, in record order.
+// currentAs converts current records in order, dropping any that conv rejects.
 func currentAs[T any](src ScopeSource, k kinds.Named, conv func(store.Record) (T, bool)) ([]T, error) {
 	recs, err := src.CurrentRecords(k)
 	if err != nil {
@@ -188,8 +180,7 @@ func ipOf(rec store.Record) (netip.Addr, bool) {
 	return a.Unmap(), err == nil
 }
 
-// ipOwners are the owners of addresses the ip_owner records name. The map is
-// never nil.
+// ipOwners indexes ip_owner records by address and always returns a non-nil map on success.
 func ipOwners(src ScopeSource) (map[netip.Addr]provider.Owner, error) {
 	recs, err := src.CurrentRecords(kinds.IPOwner)
 	if err != nil {
@@ -236,8 +227,7 @@ func serverAddressOf(rec store.Record) (inventory.ServerAddress, bool) {
 	return inventory.ServerAddress{Host: a.Host, Addr: addr}, err == nil
 }
 
-// providerRanges is the index of the current provider_range records, from the
-// source's cache when it keeps one.
+// providerRanges reuses a source's cached provider-range index when available.
 func providerRanges(src ScopeSource) (*provider.Ranges, error) {
 	if c, ok := src.(rangeCache); ok {
 		return c.ProviderRanges()
@@ -272,9 +262,8 @@ func (s runnerSource) Observations(k kinds.Named, stage string) ([]store.ObsRow,
 	return s.r.st.Observations(k.Name(), stage)
 }
 
-// ProviderRanges re-reads the provider_range records only when the store says
-// they have changed since the last call: there are thousands of them and a
-// build follows every stage.
+// ProviderRanges caches the index until the store's provider_range version changes. Scope is
+// rebuilt after every stage, so this avoids repeatedly indexing thousands of rows.
 func (s runnerSource) ProviderRanges() (*provider.Ranges, error) {
 	r := s.r
 	ver := r.st.KindVersion(kinds.ProviderRange.Name())

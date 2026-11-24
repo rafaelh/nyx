@@ -8,7 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 )
 
-// families are the families of the sources the tests use, as the stages name them.
+// families mirrors stage-declared source families for ranking tests.
 var families = candidates.NewFamilies(map[string]string{
 	"crtsh": candidates.CertTransparency, "certspotter": candidates.CertTransparency, "wayback": candidates.WebArchive,
 	"reverseip": candidates.ReverseIP, "rdap": candidates.Registrant, "whoisxml": candidates.Registrant, "org-asn": candidates.Registrant,
@@ -84,8 +84,7 @@ func TestScoreSources(t *testing.T) {
 	}
 }
 
-// A source has the family named for it, or for the part before a colon; a
-// source no longer run keeps its family; any other is a family of its own.
+// Family lookup handles source suffixes, retired sources and independent unknown sources.
 func TestFamiliesOf(t *testing.T) {
 	t.Parallel()
 	for source, want := range map[string]string{
@@ -165,9 +164,7 @@ func rankOf(rs []candidates.Ranked, typ, value string) (candidates.Ranked, bool)
 	return candidates.Ranked{}, false
 }
 
-// A current root counts the evidence of the current hostnames under it and
-// equal to it; the hostnames keep their own, and a hostname that is not
-// current, or a root that is not, takes no part.
+// Current roots inherit current descendant-hostname evidence without changing hostname ranks.
 func TestRankAllRollUp(t *testing.T) {
 	t.Parallel()
 	own := ev("crtsh", "a")
@@ -196,9 +193,7 @@ func TestRankAllRollUp(t *testing.T) {
 	}
 }
 
-// A candidate keeps its last rank when it is not current, or when it is
-// current but has no evidence of its own; with no last rank, the first is
-// left out and the second is ranked.
+// Unsupported or non-current candidates retain their previous rank where available.
 func TestRankAllKeepsLastRank(t *testing.T) {
 	t.Parallel()
 	last := candidates.Rank{Sources: []string{"crtsh", "wayback"}, Count: 2, Confidence: candidates.Medium}

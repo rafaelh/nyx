@@ -16,9 +16,8 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// The tests of nyx setup --update-threat-data through cli.Execute. internal/threatdata's own tests
-// cover the update's rules case by case; these check that the command applies them, and what it
-// writes and how it exits.
+// CLI update tests focus on output/outcomes; threatdata tests cover individual acceptance
+// rules.
 
 // tdFiveRequests are the requests of one whole update, each list asked for once, in order within
 // each source.
@@ -44,9 +43,7 @@ func updatedBoth(t *testing.T, w *threatWorld) {
 	}
 }
 
-// The update runs, and updates both sources, when stdin and stdout are not terminals, when there is
-// no config file, when the config file is invalid, and when --config names a file that is not there.
-// It reads no config file, so it leaves each as it was.
+// Updates work without terminals or readable config and leave config files untouched.
 func TestThreatUpdate_RunsWithoutATerminalOrAConfigFile(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -67,9 +64,8 @@ func TestThreatUpdate_RunsWithoutATerminalOrAConfigFile(t *testing.T) {
 	}
 }
 
-// runsWithoutAConfig runs an update with the default config file holding config (none when nil) and
-// args, in which MISSING stands for a file that is not there, and checks that it updated both
-// sources and left the config files alone.
+// runsWithoutAConfig verifies updates succeed independently of missing/invalid config
+// arguments.
 func runsWithoutAConfig(t *testing.T, config *string, args []string) {
 	t.Helper()
 	w := newThreatWorld(t)
@@ -166,8 +162,7 @@ func TestThreatUpdate_HelpListsTheFlag(t *testing.T) {
 	}
 }
 
-// One update sends exactly one request for each of the five lists, to the two hosts, and nothing to
-// any target: the harness's DNS, HTTP and TCP canaries see nothing.
+// One update makes five source requests without touching DNS/HTTP/TCP target canaries.
 func TestThreatUpdate_SendsOneRequestPerList(t *testing.T) {
 	t.Parallel()
 	w := newThreatWorld(t)
@@ -202,8 +197,7 @@ func TestThreatUpdate_AFailureStopsItsSource(t *testing.T) {
 	}
 }
 
-// A refused download fails its source and leaves its previous copy, bytes and mode, as it was. A
-// list refused for shrinking names the rule, both counts and a newer build of nyx as the remedy.
+// Rejected downloads preserve prior bytes/mode and explain shrink counts and recovery guidance.
 func TestThreatUpdate_ARefusedListLeavesTheFile(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -253,9 +247,7 @@ func TestThreatUpdate_ARefusedListLeavesTheFile(t *testing.T) {
 	}
 }
 
-// A download dated no later than the copy in use is already current: nothing is written, and each
-// list says so. With one newer list of three, the source is updated and the other two are reported
-// already current.
+// Only newer lists replace active data, including mixed-version source bundles.
 func TestThreatUpdate_AlreadyCurrent(t *testing.T) {
 	t.Parallel()
 	t.Run("every list", func(t *testing.T) {
@@ -302,8 +294,8 @@ func TestThreatUpdate_AlreadyCurrent(t *testing.T) {
 	})
 }
 
-// Within the hour after a source answered, an update sends it nothing and reports it skipped, with
-// when it was last contacted and when it can next be updated; an hour later it is asked again.
+// Responses start a one-hour cooldown; skipped updates report both contact and next-eligible
+// times.
 func TestThreatUpdate_WithinTheHourSendsNothing(t *testing.T) {
 	t.Parallel()
 	w := newThreatWorld(t)
@@ -343,8 +335,7 @@ func TestThreatUpdate_WithinTheHourSendsNothing(t *testing.T) {
 	}
 }
 
-// Two updates at once on one directory: the second waits for the first with each source, then
-// skips it, as the first got a response. Each list is asked for once.
+// Concurrent updates serialise per source so the second skips and each list is requested once.
 func TestThreatUpdate_TwoAtOnce(t *testing.T) {
 	t.Parallel()
 	w := newThreatWorld(t)
@@ -470,9 +461,7 @@ func TestThreatUpdate_NowhereToKeepTheData(t *testing.T) {
 	}
 }
 
-// The human output: a line per list with its source, its old and new date, its entry count and the
-// counts added and removed, or why it was not replaced; then Spamhaus's credit. It is the golden
-// file's, byte for byte.
+// Golden human output pins per-list transitions/counts/status and source credit.
 func TestPlain_ThreatUpdate(t *testing.T) {
 	t.Parallel()
 	// Spamhaus: drop_v4 is newer, the others are already current. ipapi.is: skipped.
@@ -521,8 +510,7 @@ func TestPlain_ThreatUpdate(t *testing.T) {
 	goldenPlain(t, "threat-update-failed", failedAndUpdated)
 }
 
-// checkThreatLines checks the shape of the update's output: the five lists' lines in order, each
-// matching its pattern, then the credit line, and nothing else.
+// checkThreatLines verifies exactly five ordered list lines followed by credit.
 func checkThreatLines(t *testing.T, h *harness, want map[string]string) {
 	t.Helper()
 	lines := h.threatLines()
@@ -665,10 +653,8 @@ type bothFailed struct {
 	whenNext  func(w *threatWorld) []string // what the hint says of when they can next be updated
 }
 
-// When both sources fail the update exits 1 with their shared code, or UPSTREAM_ERROR when the codes
-// differ. Stdout is empty, the error gives each source's reason, it is transient when a failure was a
-// network failure, a timeout or a 429, and its hint says when each source can next be updated: an
-// hour after its response, or now when it got none.
+// Total update failure returns a shared code or UPSTREAM_ERROR with empty stdout, source
+// reasons and cooldown-aware hints. Transience follows network/timeout/rate-limit failures.
 func TestThreatUpdate_BothFailed(t *testing.T) {
 	t.Parallel()
 	nextHour := func(w *threatWorld) []string { return []string{w.h.now.Add(time.Hour).Format("15:04")} }
@@ -740,8 +726,7 @@ func checkBothFailed(t *testing.T, c bothFailed, jsonMode bool) {
 	}
 }
 
-// A directory the update cannot write to fails both sources with UNEXPECTED_ERROR and the reason,
-// before anything is sent, and leaves the previous copies as they were.
+// Unwritable storage fails both sources before requests and preserves previous copies.
 func TestThreatUpdate_AnUnwritableDirectory(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {

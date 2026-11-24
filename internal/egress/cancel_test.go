@@ -18,9 +18,8 @@ import (
 // test would otherwise block for five seconds.
 const cancelBudget = 500 * time.Millisecond
 
-// cancelAfterSignal cancels ctx shortly after ready is closed (the server has the
-// request in hand, so the client is blocked in a read) and returns when the
-// cancel happened.
+// cancelAfterSignal waits until the server has a request before cancelling a client blocked in
+// response reading.
 func cancelAfterSignal(t *testing.T, ready <-chan struct{}, cancel context.CancelFunc) <-chan time.Time {
 	t.Helper()
 	at := make(chan time.Time, 1)
@@ -84,9 +83,8 @@ func TestDNSCancelEndsSilentUDPRead(t *testing.T) {
 	assertPromptCancel(t, err, at)
 }
 
-// truncatingServer answers every UDP query with the truncated bit set and holds
-// every TCP connection open without sending anything. It returns the address and
-// a signal that fires when a TCP connection arrives.
+// truncatingServer forces UDP-to-TCP fallback, then holds TCP silent and signals when
+// connected.
 func truncatingServer(t *testing.T) (string, *signal) {
 	t.Helper()
 	var pc net.PacketConn
@@ -146,8 +144,7 @@ func truncatingServer(t *testing.T) (string, *signal) {
 	return pc.LocalAddr().String(), tcpSeen
 }
 
-// The retry over TCP of a truncated answer ends when the context is cancelled,
-// even though the server accepted the connection and says nothing.
+// Cancellation must interrupt a silent TCP retry after truncated UDP DNS.
 func TestDNSCancelEndsSilentTCPRetry(t *testing.T) {
 	t.Parallel()
 	addr, tcpSeen := truncatingServer(t)
@@ -158,8 +155,7 @@ func TestDNSCancelEndsSilentTCPRetry(t *testing.T) {
 	assertPromptCancel(t, err, at)
 }
 
-// serveTCP accepts connections on a loopback port until the test ends, and
-// returns the port. Each connection is handed to handle (if any) and then closed.
+// serveTCP supplies test-lifetime loopback connections to a handler, then closes them.
 func serveTCP(t *testing.T, handle func(net.Conn)) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -211,8 +207,7 @@ func TestTCPCancelEndsSilentBannerRead(t *testing.T) {
 	}
 }
 
-// Without a cancel, a banner that arrives is returned, and a listener that sends
-// nothing gives an open port with an empty banner once BannerWait runs out.
+// Without cancellation, banners are retained and silent open services finish after BannerWait.
 func TestTCPBannerUnchangedWithoutCancel(t *testing.T) {
 	t.Parallel()
 	bannerPort := serveTCP(t, sshBanner)

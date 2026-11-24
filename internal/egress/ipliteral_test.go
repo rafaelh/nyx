@@ -16,9 +16,8 @@ import (
 	"github.com/rafaelh/nyx/internal/scope"
 )
 
-// Web services on IP literals. The request is allowed iff the
-// address is in an in-scope netblock and not excluded; egress dials that
-// address, sends no SNI, and brackets IPv6 in the Host header on every port.
+// IP-literal HTTP needs an in-scope netblock and no exclusion, sends no SNI and brackets IPv6
+// Host values.
 
 type ipFixture struct {
 	srv   *httptest.Server
@@ -30,8 +29,8 @@ type ipFixture struct {
 	eg    *egress.Egress
 }
 
-// newIPFixture serves one handler on loopback and maps each logical address:port
-// in dial onto it. The policy puts blocks in scope and excludes excl.
+// newIPFixture maps logical destinations to one loopback handler while preserving actual policy
+// addresses.
 func newIPFixture(t *testing.T, tlsServer bool, blocks []string, excl []string, ports []int, dial ...string) *ipFixture {
 	t.Helper()
 	f := &ipFixture{hosts: make(chan string, 64), uris: make(chan string, 64)}

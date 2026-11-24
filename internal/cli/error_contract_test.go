@@ -32,14 +32,13 @@ func TestContract_ErrorLayout(t *testing.T) {
 		t.Errorf("JSON error:\n got %s\nwant %s", got, want)
 	}
 
-	// A character HTML would escape is written as it is.
+	// Preserve characters without HTML escaping.
 	h.failed(h.exec("a<b>&c.com", "--json"), 2, true)
 	if !strings.Contains(h.stderr.String(), `"input":{"domain":["a<b>&c.com"]}`) {
 		t.Errorf("JSON error escapes HTML: %s", h.stderr.String())
 	}
 
-	// A locked engagement has its own code and is worth retrying; its hint says what to do and
-	// no input is at fault, so the input is null.
+	// LOCKED is retryable and names no invalid input, so its JSON input is null.
 	if code := h.exec("a.com"); code != 0 {
 		t.Fatalf("exit %d: %s", code, h.stderr.String())
 	}
@@ -86,8 +85,7 @@ func TestContract_JSONModeWhenParsingFails(t *testing.T) {
 	}
 }
 
-// A recon --json run that fails once it has started writes nothing to stdout: the failure is the
-// error on stderr, and there are no event lines to keep. A run that ends writes the one envelope.
+// Fatal JSON recon failures leave stdout empty; completed runs emit one envelope.
 func TestContract_FailedRunWritesNothingToStdout(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -205,9 +203,7 @@ func TestContract_EveryProblemInOneError(t *testing.T) { //nolint:paralleltest /
 	h.untouched()
 }
 
-// recon -e with no inputs for an engagement that does not exist creates
-// nothing, whether its directory is absent or present and empty; the same
-// call gives the same error again.
+// Repeated missing-engagement invocations create no state, even in an existing empty directory.
 func TestContract_NewEngagementWithoutInputsCreatesNothing(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, noop())
@@ -236,9 +232,8 @@ func TestContract_NewEngagementWithoutInputsCreatesNothing(t *testing.T) {
 	}
 }
 
-// Over the netblock limit is a usage error: the total, a hint that is the same
-// call with --allow-large-netblocks and without --redo, the outputs rendered,
-// and the hint runs.
+// Netblock-limit errors preserve output and suggest a runnable command with approval added and
+// redo removed.
 func TestContract_NetblockLimit(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -349,8 +344,8 @@ func boomFile() output.File {
 		Rows: func(output.Snapshot) []output.Row { panic("row boom") }}
 }
 
-// A panic on the way to the exit is an unexpected failure: exit 1, its stack
-// only under --debug, and the engagement is not left locked.
+// Exit-path panics become unexpected errors, show stacks only in debug and release engagement
+// locks.
 func TestContract_PanicIsAnUnexpectedFailure(t *testing.T) {
 	t.Parallel()
 	for _, debug := range []bool{false, true} {
@@ -398,8 +393,7 @@ func TestContract_PanicIsAnUnexpectedFailure(t *testing.T) {
 	}
 }
 
-// A panic inside one check is that check's failure: the run carries on, the
-// other checks complete, and the panicking ones are retried next run.
+// Check panics do not stop other checks and remain pending for retry next run.
 func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 	t.Parallel()
 	panics := map[string]bool{"c001": true, "c003": true, "c005": true}
@@ -447,9 +441,8 @@ func TestContract_PanicInACheckFailsOnlyThatCheck(t *testing.T) {
 	}
 }
 
-// No command prompts: on a terminal and without --authorised a target stage is
-// not-configured (no authorisation) with the warning, and nothing reaches the
-// target; --authorised stores the acknowledgement for later runs.
+// Recon never prompts for authorisation. Explicit acknowledgement enables and persists target
+// contact.
 func TestContract_NoPrompt(t *testing.T) {
 	t.Parallel()
 	st := ackStage()

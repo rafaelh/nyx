@@ -16,16 +16,12 @@ import (
 	"github.com/rafaelh/nyx/internal/dnsname"
 )
 
-// Reverse lookups from addresses. The tests drive cli.Execute with the real
-// reverseip stage. api.hackertarget.com and api.securitytrails.com are fakes:
-// HackerTarget answers a reverse lookup with one name per line, SecurityTrails
-// answers a domain search filtered by address. Nothing leaves the machine.
+// Reverse-IP tests run real stages against loopback HackerTarget/SecurityTrails responses.
 
 const securityTrailsKey = "st-key-SECRET-0004"
 
-// htReverse is api.hackertarget.com: reverse lookups by address. An address not
-// listed has no records. Anything else it is asked, such as the hostsearch of the
-// hackertarget subdomain stage, is a 404.
+// htReverse serves address results, treating unspecified addresses as empty and unrelated paths
+// as 404.
 type htReverse struct {
 	mu      sync.Mutex
 	replies map[string]string
@@ -88,9 +84,8 @@ func (q stQuery) server() string {
 	return ""
 }
 
-// stReverse is api.securitytrails.com's domain search by address, name server or
-// mail host. The key is checked. A root's subdomain list is empty, and every other request that is
-// not a domain search is a 404.
+// stReverse validates keyed domain searches and supplies empty subdomain responses to isolate
+// the tested stage.
 type stReverse struct {
 	mu                 sync.Mutex
 	byAddr, byNS, byMX map[string][]string
@@ -100,8 +95,7 @@ type stReverse struct {
 }
 
 func (f *stReverse) serve(rw http.ResponseWriter, r *http.Request) {
-	// The subdomain source asks for a root's subdomains; it finds none, so that a failure of the
-	// stage a test is about is the only one in the run.
+	// Return empty subdomains so unrelated source failures cannot make these runs partial.
 	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/domain/") && strings.HasSuffix(r.URL.Path, "/subdomains") {
 		_, _ = rw.Write([]byte(`{"subdomains":[]}`))
 		return
@@ -200,9 +194,8 @@ func manyDomains(n int) []string {
 
 // --- Which addresses are asked ---
 
-// Only dedicated, known-owner, non-excluded addresses are asked: the address of a
-// recorded name, and a netblock address that was recorded, but never the rest of
-// a netblock, and never a shared, excluded or unknown-owner address.
+// Query only recorded eligible addresses, never expanding netblocks or asking
+// shared/excluded/unknown-owner addresses.
 func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -240,9 +233,7 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 	}
 }
 
-// An unkeyed run does not ask about an IPv6 address, which HackerTarget cannot
-// answer. The check exists once a key is added, and the addresses already done
-// are not asked again.
+// Adding SecurityTrails enables IPv6 checks without repeating completed IPv4 work.
 func TestReverseIP_IPv6WaitsForTheKey(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -275,10 +266,8 @@ func TestReverseIP_IPv6WaitsForTheKey(t *testing.T) {
 
 // --- What is recorded ---
 
-// An in-scope name is a hostname, any other gives its registrable domain as a
-// candidate root and is itself dropped, an excluded name is recorded as
-// excluded, and a wildcard name gives its parent. "No records" completes the
-// check with nothing.
+// Keep in-scope/excluded hostnames, turn external names into candidate roots and normalise
+// wildcard names.
 func TestReverseIP_RecordsNamesByScope(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -365,9 +354,7 @@ func TestReverseIP_UnreadableReplyIsAFailedCheck(t *testing.T) {
 
 // --- The shared-hosting guard ---
 
-// More distinct registrable domains than reverseip.max_domains records nothing
-// and warns, naming the address; exactly the cap is recorded. Names under one
-// registrable domain count once. Changing the cap asks again.
+// Enforce distinct registrable-domain caps inclusively and version checks when caps change.
 func TestReverseIP_SharedHostingGuard(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -424,8 +411,7 @@ func TestReverseIP_SharedHostingGuard(t *testing.T) {
 
 // --- Quota and keys ---
 
-// HackerTarget's spent quota, as a 429 or as its 200 reply with a text body,
-// stops the stage with one warning, completes nothing, and is retried next run.
+// Both HTTP and text quota responses abort once, warn once and leave checks pending.
 func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 	t.Parallel()
 	variants := map[string]func(rw http.ResponseWriter){
@@ -478,9 +464,7 @@ func TestReverseIP_QuotaStopsTheStageAndIsRetried(t *testing.T) {
 	}
 }
 
-// With a SecurityTrails key both sources are asked, their names are merged, and
-// IPv6 is covered. The key goes in the APIKEY header and never appears in any
-// output or file.
+// Keyed lookups merge both sources and cover IPv6 without exposing credentials.
 func TestReverseIP_SecurityTrailsKey(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)
@@ -550,9 +534,8 @@ func TestReverseIP_RejectedSecurityTrailsKeyStopsTheStage(t *testing.T) {
 
 // --- Candidates and refresh ---
 
-// A root found on two addresses is medium, with reverseip as its source, and it
-// stays at two pairs when the cap changes and both addresses are asked again. A
-// root on one address is low. No candidate root is resolved or contacted.
+// Two reverse-IP addresses give medium confidence without duplicate evidence after cap changes
+// or candidate contact.
 func TestReverseIP_RootOnTwoAddressesIsMedium(t *testing.T) {
 	t.Parallel()
 	x := newWeb(t)

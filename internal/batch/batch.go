@@ -1,54 +1,16 @@
-// Package batch decides how a command that looks up several inputs ends: which
-// error it returns, what that error says, and the hint that tells the caller
-// how to retry. nyx cve and nyx ip share it, so a batch of either one ends the
-// same way, and look their items up a few at a time with [Each]. It has no I/O
-// and knows nothing of what is looked up.
+// Package batch shares lookup concurrency and outcome rules between nyx cve and nyx ip without
+// I/O or knowledge of record contents. Each schedules items; Outcome builds per-item errors and
+// the final command error.
 //
-// # Terms
+// Failure separates display Name, meta.errors Entry, original Given inputs and Retry arguments.
+// This allows a failed CIDR input to be displayed as entered but retried as individual
+// addresses. Config supplies wording and the retry-command builder.
 //
-// An item is one thing the caller looked up and that either succeeded, giving
-// a record, or failed. The caller counts them: total is how many were asked and
-// returned how many gave a record.
-//
-// A Failure is one item that failed. It has a Name, the item as the user gave
-// it, which is what the messages and the "check ..." hint show; an Entry, the
-// value of its meta.errors entry's input (the Name when nil); Given, the inputs
-// as typed that the error the call ends with lists for it (the Name when nil);
-// a Retry, the text
-// the retry command is given for it, which is empty for a failure that is not
-// worth retrying (a quota that resets daily, say); and the Err that stopped it.
-// A failure's Retry may differ from its Name: a CIDR that failed on some
-// addresses is shown by its Name and retried by those addresses.
-//
-// A Config says how the call is worded: the Noun for the items ("IDs",
-// "inputs"), the Key under which the failed Names are listed in the error's
-// input ("id", "input"), and the Command that retries a list of Retry texts.
-//
-// # The error a call ends with
-//
-// [Outcome] returns the meta.errors entries (one per failure, each a copy of
-// its Err with the input set) and the error the call ends with, nil when
-// nothing failed.
-//
-//   - When no record was returned and every failure has one code, the error has
-//     that code and covers every failure: its message is "<name>: <message>" for
-//     one failure, "<n> <noun>: <message>" when the messages agree, else
-//     "<n> <noun> failed (<CODE>)". A failure that is not transient keeps the
-//     hint of the first one. A transient one gets the retry hint, and when the
-//     code is TIMEOUT also "or raise --timeout", since the same deadline may
-//     time out again ([HintTimeout]).
-//   - In any other case (some records and some failures, or no records and
-//     several codes) the error is PARTIAL: "<returned> of <total> <noun>
-//     returned, <k> failed", or "none of <total> <noun> returned". It lists
-//     each failure in its Targets, names the failed Names under Config.Key in
-//     its input, and is transient when any failure is.
-//
-// The retry hint is "run: <command>" for the Retry texts of the transient
-// failures, after the longest Wait among them ("after 5s, run: ..."). With
-// none to retry it says "check the <noun> that failed: <names>". When the
-// failures are shown (a PARTIAL error, which a caller writes beside its
-// records) and more than twenty would be listed, it points at meta.errors
-// instead of listing them.
+// If nothing returns and failures share a code, Outcome returns that code. Otherwise failures
+// produce PARTIAL with returned/failed counts. Transient failures can be retried after the
+// longest suggested wait; timeout hints also suggest raising --timeout. Non-retryable failures
+// get input-check guidance. Long failure lists point to meta.errors instead of expanding every
+// item.
 package batch
 
 import (
@@ -62,46 +24,42 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 )
 
-// maxListed is how many items a hint lists; past it, the hint points at the
-// failures instead.
+// maxListed bounds expanded failure lists in hints.
 const maxListed = 20
 
-// HintTimeout is the hint that goes with a timeout: the deadline is the
-// caller's to raise.
+// HintTimeout suggests increasing the caller-controlled deadline.
 const HintTimeout = "raise --timeout"
 
-// Config is how a batch is worded and retried.
+// Config supplies item wording and retry-command construction.
 type Config struct {
 	// Noun names the items in messages: "IDs", "inputs".
 	Noun string
-	// Key is the key of the error's input map that lists the failures' Given inputs.
+	// Key names the final error's map entry containing failed original inputs.
 	Key string
-	// Command is the command, with the caller's flags, that looks the given
-	// Retry texts up again.
+	// Command builds a retry invocation using the caller's flags.
 	Command func(retry []string) string
 }
 
 // Failure is one item that failed.
 type Failure struct {
-	// Name is the item as the user gave it.
+	// Name preserves the user's item text for display.
 	Name string
-	// Entry is the value of the failure's meta.errors entry's input; Name when nil.
+	// Entry overrides meta.errors input; nil defaults to Name.
 	Entry any
-	// Given are the inputs as typed that the call's error lists for this failure; [Name]
-	// when nil. A failed address lists the inputs that gave it.
+	// Given preserves original inputs for the final error, defaulting to Name. Failed
+	// addresses can name every input that produced them.
 	Given []string
-	// Retry is what the retry command is given for this failure. Empty when it
-	// is not worth retrying, whether or not Err is transient.
+	// Retry supplies the retry-command argument. Empty disables retry guidance for this
+	// failure even if Err is transient.
 	Retry string
-	// Err is why it failed. Its Input is set by Outcome on a copy.
+	// Err supplies failure details; Outcome copies it before attaching input.
 	Err *clierr.Error
-	// Wait is how long to wait before a retry may succeed; 0 when not known.
+	// Wait suggests a retry delay; zero means unknown.
 	Wait time.Duration
 }
 
-// Outcome is the meta.errors entries and the error a batch of total items
-// ends with, when returned of them gave a record and failures failed, in the
-// order the items were given. The error is nil when there are no failures.
+// Outcome returns ordered per-failure errors and the final error for total items and returned
+// records. No failures means nil error.
 func Outcome(c Config, total, returned int, failures []Failure) ([]*clierr.Error, *clierr.Error) {
 	if len(failures) == 0 {
 		return nil, nil
@@ -132,7 +90,7 @@ func Outcome(c Config, total, returned int, failures []Failure) ([]*clierr.Error
 	}
 	code, single := oneCode(failures)
 	single = single && returned == 0
-	// A single code's error is all that is written, so its hint lists every item however many.
+	// Without per-item output, the shared-code error hint must name all failed items.
 	e := &clierr.Error{Input: map[string][]string{c.Key: given}, Transient: transient, Hint: retryHint(c, failures, names, !single)}
 	if single {
 		first := failures[0].Err
@@ -157,7 +115,7 @@ func Outcome(c Config, total, returned int, failures []Failure) ([]*clierr.Error
 	return metaErrs, e
 }
 
-// oneCode is the code every failure has, if they share one.
+// oneCode detects a code shared by all failures.
 func oneCode(failures []Failure) (clierr.Code, bool) {
 	code := failures[0].Err.Code
 	for _, f := range failures[1:] {
@@ -168,8 +126,7 @@ func oneCode(failures []Failure) (clierr.Code, bool) {
 	return code, true
 }
 
-// oneCodeMessage is the message of an error that covers every failure, all
-// with one code.
+// oneCodeMessage summarises failures sharing an error code.
 func oneCodeMessage(c Config, failures []Failure) string {
 	first := failures[0].Err
 	if len(failures) == 1 {
@@ -183,10 +140,8 @@ func oneCodeMessage(c Config, failures []Failure) string {
 	return fmt.Sprintf("%d %s: %s", len(failures), c.Noun, first.Message)
 }
 
-// retryHint is the command that retries the transient failures, after the
-// longest known wait, or, when none is worth retrying, the items to check.
-// When the failures are written (shown), past maxListed items it points at
-// them instead of listing them.
+// retryHint uses retryable failures and their longest wait. Without any, it lists items to
+// check. Large failure lists already shown in output point to meta.errors.
 func retryHint(c Config, failures []Failure, names []string, shown bool) string {
 	var retry []string
 	var wait time.Duration
@@ -212,14 +167,13 @@ func retryHint(c Config, failures []Failure, names []string, shown bool) string 
 	return prefix + "run: " + c.Command(retry)
 }
 
-// Seconds is d in whole seconds, rounded up so a caller never retries early,
-// and at least 1s: "5s".
+// Seconds rounds delays up to whole seconds, with a one-second minimum to avoid early retries.
 func Seconds(d time.Duration) string {
 	return strconv.Itoa(max(int((d+time.Second-1)/time.Second), 1)) + "s"
 }
 
-// Each calls fn for every index below n, at most workers at a time, and returns once every call
-// has. The indexes are started in order.
+// Each starts indexes in order with at most workers concurrent calls, then waits for all
+// started work to finish.
 func Each(n, workers int, fn func(i int)) {
 	var next atomic.Int64
 	var wg sync.WaitGroup

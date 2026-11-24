@@ -12,8 +12,8 @@ import (
 	"github.com/rafaelh/nyx/internal/palette"
 )
 
-// helpOn is a help screen written to a terminal of colour depth d, cols wide, by a harness with
-// the production stages. Depth None is a terminal under NO_COLOR.
+// helpOn renders production help as a terminal at the chosen width/depth; None represents
+// NO_COLOR.
 func helpOn(t *testing.T, d palette.Depth, cols int, args ...string) string {
 	t.Helper()
 	h := newHarness(t, defaultStageList()...)
@@ -51,8 +51,7 @@ func blockFrom(t *testing.T, lines []string, start string) []string {
 	return lines[i:j]
 }
 
-// hangFrom is the line that starts with start and the lines after it that are indented at least
-// indent cells: a labelled row and its continuation lines.
+// hangFrom extracts a labelled row and its sufficiently indented continuation lines.
 func hangFrom(t *testing.T, lines []string, start string, indent int) []string {
 	t.Helper()
 	i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, start) })
@@ -228,8 +227,7 @@ func TestHelp_UsageAndExamplesNeverWrap(t *testing.T) {
 	}
 }
 
-// A command's summary wraps under its indent, and the rows of a command list wrap under the summary
-// column, with the name in the info colour.
+// Wrapped command lists align summaries while preserving info-coloured names.
 func TestHelp_CommandRowsWrap(t *testing.T) {
 	t.Parallel()
 	root := textLines(helpOn(t, palette.None, 80, "--help"))
@@ -264,8 +262,7 @@ func TestHelp_CommandRowsWrap(t *testing.T) {
 	}
 }
 
-// Every help heading is bold in the info colour, a heading wider than the width wraps with each
-// line in that style, and an uncoloured terminal has plain headings.
+// Heading style continues across wraps, with plain equivalents on colourless terminals.
 func TestHelp_HeadingsStyled(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
@@ -320,7 +317,7 @@ func TestHelp_HeadingsStyled(t *testing.T) {
 	}
 }
 
-// tableCells are the cells of the rows of a bordered table of ASCII borders, a row to a line.
+// tableCells extracts rows/cells from ASCII-bordered tables.
 func tableCells(line string) []string {
 	var cells []string
 	for c := range strings.SplitSeq(strings.Trim(strings.TrimSpace(line), "|"), "|") {
@@ -400,8 +397,7 @@ func TestHelp_FindingsTopicTable(t *testing.T) {
 	}
 }
 
-// The stages topic is a bordered table that keeps the contact colours, wraps what each stage does
-// within its column, and marks the stages --skip refuses.
+// The stages table retains contact colours, wraps descriptions and marks required stages.
 func TestHelp_StagesTopicTable(t *testing.T) {
 	t.Parallel()
 	d := palette.TrueColor
@@ -448,8 +444,7 @@ func TestHelp_StagesTopicTable(t *testing.T) {
 	}
 }
 
-// On a terminal with no colour, whether NO_COLOR or a dumb terminal says so, the help is laid out
-// and writes no escape byte.
+// Colourless terminals retain help layout without emitting escapes.
 func TestHelp_UncolouredTerminalsHaveNoEscapes(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []struct {
@@ -482,8 +477,7 @@ func TestHelp_UncolouredTerminalsHaveNoEscapes(t *testing.T) {
 	}
 }
 
-// Every escape sequence in help on a terminal is one the palette writes: the headings, the names,
-// the muted parts, the table borders and the severity badges.
+// All help escapes must come from the selected palette, including borders and badges.
 func TestHelp_EverySequenceIsThePalettes(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {

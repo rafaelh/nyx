@@ -110,8 +110,7 @@ func TestScript_StillSubjectToHostPolicy(t *testing.T) {
 	}
 }
 
-// A script body is read up to 4 MiB, and Truncated says when the cap cut it. The
-// ordinary 1 MiB cap is unchanged.
+// Scripts have a separate 4 MiB cap without changing ordinary target-body limits.
 func TestScript_BodyCapAndTruncated(t *testing.T) {
 	t.Parallel()
 	const mib = 1 << 20

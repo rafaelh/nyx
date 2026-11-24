@@ -25,8 +25,8 @@ import (
 
 var tlsNow = time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 
-// tlsServer starts an HTTPS server with cfg (httptest's RSA certificate for
-// example.com and 127.0.0.1 unless cfg carries one) and returns its port.
+// tlsServer uses the supplied TLS config, defaulting to httptest's certificate when none is
+// provided.
 func tlsServer(t *testing.T, cfg *tls.Config) int {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("secure")) }))
@@ -37,7 +37,7 @@ func tlsServer(t *testing.T, cfg *tls.Config) int {
 	return portOf(t, strings.TrimPrefix(srv.URL, "https://"))
 }
 
-// getTLS requests / of host over https on port, with the policy resolving host to loopback.
+// getTLS probes a named HTTPS service routed to loopback by policy.
 func getTLS(t *testing.T, host string, port int) egress.HTTPResult {
 	t.Helper()
 	rs := map[string][]netip.Addr{host: {addr("127.0.0.1")}}
@@ -53,7 +53,7 @@ func getTLS(t *testing.T, host string, port int) egress.HTTPResult {
 	return r
 }
 
-// A service whose best version is 1.0 or 1.1 answers, and the version it negotiated is reported.
+// Legacy-only targets remain reachable and report their negotiated version.
 func TestTargetHTTPAcceptsTLS10And11(t *testing.T) {
 	t.Parallel()
 	for want, v := range map[string]uint16{"TLS 1.0": tls.VersionTLS10, "TLS 1.1": tls.VersionTLS11} {
@@ -69,7 +69,7 @@ func TestTargetHTTPAcceptsTLS10And11(t *testing.T) {
 	}
 }
 
-// A server that offers TLS 1.3 negotiates it: the wider offer does not downgrade.
+// Offering legacy compatibility does not downgrade a TLS 1.3-capable target.
 func TestTargetHTTPReportsModernVersionAndCipher(t *testing.T) {
 	t.Parallel()
 	port := tlsServer(t, &tls.Config{})
@@ -84,7 +84,7 @@ func TestTargetHTTPReportsModernVersionAndCipher(t *testing.T) {
 	}
 }
 
-// A server with only an RSA key-exchange CBC suite is reachable.
+// Older RSA/CBC-only targets remain observable.
 func TestTargetHTTPAcceptsRSAKeyExchangeCBC(t *testing.T) {
 	t.Parallel()
 	port := tlsServer(t, &tls.Config{MaxVersion: tls.VersionTLS12, CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_128_CBC_SHA}})
@@ -94,7 +94,7 @@ func TestTargetHTTPAcceptsRSAKeyExchangeCBC(t *testing.T) {
 	}
 }
 
-// RC4 and 3DES are not offered, so a server that has only those fails the handshake.
+// RC4/3DES-only targets cannot negotiate with the client.
 func TestTargetHTTPDoesNotOfferRC4Or3DES(t *testing.T) {
 	t.Parallel()
 	for name, suite := range map[string]uint16{
@@ -108,8 +108,7 @@ func TestTargetHTTPDoesNotOfferRC4Or3DES(t *testing.T) {
 	}
 }
 
-// Third-party requests keep the default minimum version: a TLS 1.1 server is refused on the version,
-// not on its certificate.
+// Third-party clients retain modern minimum TLS requirements independently of target probing.
 func TestThirdPartyStillRefusesTLS11(t *testing.T) {
 	t.Parallel()
 	port := tlsServer(t, &tls.Config{MinVersion: tls.VersionTLS11, MaxVersion: tls.VersionTLS11,
@@ -122,7 +121,7 @@ func TestThirdPartyStillRefusesTLS11(t *testing.T) {
 	}
 }
 
-// --- trust ---
+// Certificate trust
 
 type certSpec struct {
 	dns                 []string
@@ -165,7 +164,7 @@ func leafTemplate(cn string, s certSpec, serial int64) *x509.Certificate {
 	}
 }
 
-// Each trust value comes from a crafted chain checked at the fixed clock, and the first that applies wins.
+// Crafted chains exercise trust precedence at a fixed time.
 func TestCertTrustValues(t *testing.T) {
 	t.Parallel()
 	caKey := trustKey(t)
@@ -176,7 +175,7 @@ func TestCertTrustValues(t *testing.T) {
 	ca := trustCert(t, caTpl, caTpl, &caKey.PublicKey, caKey)
 	trusted := x509.NewCertPool()
 	trusted.AddCert(ca)
-	elsewhere := x509.NewCertPool() // a root store that does not hold the CA
+	elsewhere := x509.NewCertPool() // trust store missing the signing CA
 
 	issued := func(s certSpec) []*x509.Certificate {
 		k := trustKey(t)
@@ -202,7 +201,7 @@ func TestCertTrustValues(t *testing.T) {
 		{"hostname mismatch", issued(other), trusted, "hostname-mismatch"},
 		{"self-signed", self(www), trusted, "self-signed"},
 		{"untrusted chain", issued(www), elsewhere, "untrusted-chain"},
-		// The order: expired, then hostname, then self-signed, then the chain.
+		// Trust precedence is validity, hostname, self-signing, then chain.
 		{"expired beats mismatch", issued(certSpec{dns: other.dns, notAfter: yesterday}), trusted, "expired"},
 		{"expired beats self-signed", self(certSpec{dns: www.dns, notAfter: yesterday}), trusted, "expired"},
 		{"mismatch beats self-signed", self(other), trusted, "hostname-mismatch"},
@@ -217,10 +216,10 @@ func TestCertTrustValues(t *testing.T) {
 	}
 }
 
-// Through a real handshake: a response reports its trust, and plain HTTP reports none.
+// Real HTTPS responses expose trust; HTTP has no certificate state.
 func TestResponseCertTrustAndSelfSigned(t *testing.T) {
 	t.Parallel()
-	port := tlsServer(t, &tls.Config{}) // httptest's certificate: self-signed, names example.com, *.example.com and 127.0.0.1
+	port := tlsServer(t, &tls.Config{}) // httptest's self-signed certificate covers example.com, its wildcard and loopback
 	byName := getTLS(t, "example.com", port).(egress.Response)
 	if byName.CertTrust() != "self-signed" || !byName.SelfSigned() {
 		t.Errorf("example.com: %q selfSigned=%v", byName.CertTrust(), byName.SelfSigned())

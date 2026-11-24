@@ -17,12 +17,10 @@ import (
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
-// Recon and Spamhaus's DROP lists: the findings a DROP match gives, the origin AS checked against
-// ASN-DROP, the threat data a run uses (the built-in copy, a downloaded copy, the copy in place when
-// the run started), and what a run says of an unreadable downloaded copy.
+// Recon DROP tests cover matching, origin-AS lookup, active-copy selection and fallback
+// warnings.
 
-// The dates of the tests' built-in copies and of the downloaded copies they write after them: both
-// within 30 days of the harness's clock, so neither is stale.
+// Keep built-in/download fixture dates within the harness clock's fresh window.
 var (
 	builtInAt    = time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)
 	downloadedAt = time.Date(2026, 10, 30, 6, 0, 0, 0, time.UTC)
@@ -55,10 +53,8 @@ func (x *abWorld) foundOf(addr string) event {
 	return nil
 }
 
-// An address that a DROP or DROPv6 entry holds is a high drop-network finding, and one whose
-// origin AS ASN-DROP lists, a medium drop-asn finding; the risk file names the entries and the
-// date of each list, which is the list's timestamp in RFC 3339 UTC, while ipapi.is's dates stay
-// YYYY-MM-DD. Both are in the run's summary.
+// DROP networks produce high findings; ASN-DROP produces medium, with source details/dates in
+// files and summary.
 func TestThreatRecon_DropMatchesAreFindings(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -121,9 +117,7 @@ func TestThreatRecon_DropMatchesAreFindings(t *testing.T) {
 	}
 }
 
-// The origin AS recon finds for an address is checked against ASN-DROP as it is against ipapi.is's
-// ASN list: the AS of a hostname's address, and the AS Team Cymru gives a netblock's unit, which
-// applies to every address of the unit that is checked.
+// ASN-DROP uses the same address/unit ownership lookup as abuse-AS matching.
 func TestThreatRecon_TheOriginASIsCheckedAgainstASNDrop(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -174,10 +168,8 @@ func TestThreatHelp_FindingsListTheDropTypes(t *testing.T) {
 	}
 }
 
-// After the data in use changes (here, a newer downloaded copy of Spamhaus's lists), the next run's
-// findings follow it with no request: a finding that rises is announced again; one whose strongest
-// match weakens stays one current finding at the lower type and severity, unannounced; one with no
-// match left is no longer current.
+// New local data updates, escalates, downgrades or retires one stable finding per address
+// without requests.
 func TestThreatRecon_ANewerCopyReachesTheNextRun(t *testing.T) { // mutation target
 	t.Parallel()
 	x := newAbWorld(t)
@@ -227,8 +219,7 @@ func TestThreatRecon_ANewerCopyReachesTheNextRun(t *testing.T) { // mutation tar
 	}
 }
 
-// A run uses the threat data in place when it started, through all its passes: a downloaded copy
-// rewritten while the run goes on reaches only the next run.
+// Load threat data once per run so replacements affect only later runs.
 func TestThreatRecon_ARunUsesTheDataItStartedWith(t *testing.T) { // mutation target
 	t.Parallel()
 	x := newAbWorld(t)
@@ -261,8 +252,8 @@ func TestThreatRecon_ARunUsesTheDataItStartedWith(t *testing.T) { // mutation ta
 	}
 }
 
-// nyx recon export reads no threat data: with the downloaded copy now unreadable, it warns of
-// nothing and shows the findings as of the last run.
+// Export preserves last-run findings without reading threat data or warning about later
+// corruption.
 func TestThreatRecon_ExportReadsNoThreatData(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)
@@ -300,8 +291,7 @@ func TestThreatRecon_ExportReadsNoThreatData(t *testing.T) {
 
 func anyString(v any) string { s, _ := v.(string); return s }
 
-// unreadableDrop are downloaded copies of Spamhaus's lists that are unreadable, each newer than the
-// built-in copy and listing 203.0.113.6, which the built-in copy does not.
+// unreadableDrop supplies newer corrupt downloads with an address absent from built-ins.
 var unreadableDrop = []struct{ name, body string }{
 	{"not a bundle", "this is not a bundle\n"},
 	{"drop_v6 without its metadata row", dropBundleText(
@@ -314,8 +304,7 @@ var unreadableDrop = []struct{ name, body string }{
 		dropFileText(downloadedAt, asnDropRows([]spamhaus.ASNEntry{dropFillerASN})))},
 }
 
-// unreadableIpapi are downloaded copies of ipapi.is's lists that are unreadable, each newer than the
-// built-in copy and listing 203.0.113.6, which the built-in copy does not.
+// unreadableIpapi supplies newer corrupt downloads with an address absent from built-ins.
 var unreadableIpapi = []struct {
 	name string
 	snap abusive.Snapshot
@@ -343,9 +332,7 @@ func fallbackWorld(t *testing.T) *abWorld {
 	return x
 }
 
-// A downloaded source that is unreadable falls back, as a whole, to its built-in copy: the run
-// matches against the built-in lists, says so once in meta.warnings under --json, and once an
-// update has replaced the copy, uses it and stops warning.
+// Fallback matches built-ins and warns once until an update installs a valid bundle.
 func TestThreatRecon_AnUnreadableCopyFallsBackToTheBuiltInOne(t *testing.T) {
 	t.Parallel()
 	check := func(t *testing.T, x *abWorld, source, typ string, good func()) {
@@ -442,8 +429,7 @@ func TestThreatRecon_TheWarningIsPrintedOnceEvenUnderQuiet(t *testing.T) {
 	}
 }
 
-// With neither XDG_CONFIG_HOME nor HOME set there is no threat-data directory: a run uses the
-// built-in copy, old as it may be, with no warning and no stale hint.
+// Missing base directories select embedded data silently, regardless of age.
 func TestThreatRecon_NoDirectoryUsesTheBuiltInCopy(t *testing.T) {
 	t.Parallel()
 	x := newAbWorld(t)

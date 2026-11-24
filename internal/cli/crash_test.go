@@ -69,8 +69,7 @@ func childMain() int {
 	d := cli.DefaultDeps()
 	d.Stages = []run.Stage{st}
 	d.Signals = cli.NotifySignals()
-	// The crash tests kill the process, not the machine: the page cache keeps every write, so
-	// output files need no fsync (which on macOS flushes the whole drive cache).
+	// Process-kill tests retain the OS page cache, so they can skip costly file fsyncs.
 	d.NoFsync = true
 	return cli.Execute(context.Background(), strings.Split(os.Getenv("NYX_TEST_ARGS"), "\x1f"), d)
 }
@@ -264,15 +263,10 @@ func finishAndCheck(t *testing.T, out string, wantRun2 []string, o childOpts) {
 	assertOutputsIntact(t, out)
 }
 
-// TestChildProcesses runs the tests that start nyx in a child process, in
-// parallel with each other but with nothing else.
-//
-// It is not parallel itself. Between fork and exec a child holds a copy of
-// every open descriptor, including the engagement lock of any in-process run,
-// so an in-process run that closes its engagement and reopens it could find the
-// flock still held and fail with LOCKED. Go starts the parallel top-level tests
-// only once every other top-level test has finished, so no child is forked
-// while they run.
+// TestChildProcesses isolates fork/exec tests from in-process engagement tests. Fork briefly
+// duplicates lock descriptors, which could make a concurrently reopened engagement appear
+// locked. Its child subtests can run in parallel with each other; the non-parallel parent
+// prevents overlap with other top-level tests.
 func TestChildProcesses(t *testing.T) { //nolint:paralleltest // its subtests fork child processes, so it runs after every parallel test
 	for _, tc := range []struct {
 		name string
@@ -391,9 +385,8 @@ func testCrashDuringRedo(t *testing.T) {
 	}
 }
 
-// Each signal ends the run with its own exit code and one INTERRUPTED error,
-// with the completed checks saved and the outputs rendered; a re-run finishes
-// the rest. In human mode stdout is empty.
+// Signals save completed work and output, use the received signal's status and allow later
+// resume.
 func testSignals(t *testing.T) {
 	for name, c := range map[string]struct {
 		sig  syscall.Signal
@@ -483,7 +476,7 @@ func testStdinIsNotRead(t *testing.T) {
 	}
 }
 
-// changedHosts are the hostnames of the "new" rows of an engagement's changes.csv.
+// changedHosts extracts newly visible hostname entries from changes.csv.
 func changedHosts(t *testing.T, out string) []string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(engDirOf(out), "changes.csv"))
@@ -500,9 +493,8 @@ func changedHosts(t *testing.T, out string) []string {
 	return hosts
 }
 
-// An interrupted run writes changes.csv for the work it completed before it
-// exited 130, and the run that resumes it compares against where that run
-// stopped, so the two files together list each new hostname once.
+// Resume compares against interrupted output so each new hostname appears once across the two
+// runs' changes.
 func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"a.com", "--concurrency", "2"}
@@ -547,12 +539,12 @@ func testSignalsInterruptedRunWritesChanges(t *testing.T) {
 	}
 }
 
-// A real process given --timeout exits 7 by the deadline plus a wide margin (the suite runs under
-// -race), leaves its files intact and writes the envelope, and the run after it finishes the rest.
+// Allow race-detector timing overhead while checking deadline exit, intact output and later
+// resume.
 func testTimeoutInAChildProcess(t *testing.T) {
 	out := t.TempDir()
 	start := time.Now()
-	// The checks wait for an hour unless cancelled: the deadline is what ends them.
+	// Keep checks blocked well past the test so only cancellation can finish them.
 	c1 := startChild(t, out, childOpts{n: nChecks, delay: time.Hour, args: []string{"a.com", "--timeout", "3s"}})
 	code := c1.wait()
 	if code != 7 {

@@ -75,7 +75,7 @@ func TestExtractEndpoints(t *testing.T) {
 	}
 }
 
-// Every example the specification gives for what is and is not recorded.
+// Cover extraction examples for accepted and rejected endpoints.
 func TestExtractEndpoints_SpecificationExamples(t *testing.T) {
 	t.Parallel()
 	body := `a("/api/v1/users"); b("//api.example.com/v2"); c("/.js"); d(s.match(/\d+/g)); e("/ "); f("//comment")`

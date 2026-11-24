@@ -20,8 +20,8 @@ func runRoot(t *testing.T, w *world, extra ...string) {
 	}
 }
 
-// runRootPartial is runRoot for a run in which a check is meant to fail: it exits 7 with the result
-// written, and the error it returns names the stage and its count.
+// runRootPartial checks exit 7 and verifies the failed stage/count after partial output is
+// written.
 func runRootPartial(t *testing.T, w *world, stage string, n int, extra ...string) failure {
 	t.Helper()
 	return w.h.partialFailed(w.run(rootArgs(extra)...), stage, n)
@@ -95,8 +95,7 @@ func TestDNSRoot_SOAMailbox(t *testing.T) {
 	}
 }
 
-// An in-scope name server becomes a hostname and is resolved and probed like
-// any other; one outside scope is a third party, never a candidate.
+// Internal name servers become normal host discoveries; external ones remain third parties.
 func TestDNSRoot_NameServers(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -144,9 +143,8 @@ func TestDNSRoot_NameServers(t *testing.T) {
 			t.Errorf("an out-of-scope name server became a candidate: %v", r)
 		}
 	}
-	// Neither is resolved: no resolution row, no hostname. A known provider's name
-	// server is not looked up at all; one of unknown provider has its address looked
-	// up, only to say whether it is self-hosted.
+	// External server addresses support ownership checks only; known managed providers need
+	// no address lookup.
 	for _, n := range []string{"ns1.cloudflare.com", "ns1.unknown-dns.test"} {
 		if r := resolutionRow(w, n, "A"); r != nil {
 			t.Errorf("out-of-scope %s was resolved: %v", n, r)
@@ -193,8 +191,7 @@ func TestDNSRoot_VerificationPlatforms(t *testing.T) {
 		{"have-i-been-pwned-verification=hibpTOKEN", "Have I Been Pwned"},
 		{"webexdomainverification.AB12=webexTOKEN", "Cisco Webex"},
 	}
-	// The fake DNS server answers over UDP only, so a root's TXT records are
-	// served a few at a time to stay inside one datagram.
+	// Split fixture TXT records across requests to fit the UDP-only fake's datagrams.
 	for _, upper := range []bool{false, true} {
 		for chunk := range slices.Chunk(cases, 5) {
 			w := newWorld(t)
@@ -215,9 +212,8 @@ func TestDNSRoot_VerificationPlatforms(t *testing.T) {
 	}
 }
 
-// checkVerificationRows checks that each platform of the chunk is one
-// third-parties.csv row for the root, whose token is kept out of that file and
-// is in resolutions.csv.
+// checkVerificationRows keeps verification tokens in resolutions.csv and out of dependency
+// rows.
 func checkVerificationRows(t *testing.T, w *world, chunk []verificationTXT, upper bool) {
 	t.Helper()
 	tp := w.table(eng, "third-parties.csv")
@@ -348,8 +344,7 @@ func TestDNSRoot_ChecksAndPassive(t *testing.T) {
 	}
 }
 
-// A root that is an alias has no name servers or SOA of its own, so its alias
-// target's are not recorded as the root's.
+// An aliased root cannot inherit its target zone's NS/SOA ownership.
 func TestDNSRoot_AliasRootTakesNoTargetNameServers(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -504,8 +499,8 @@ func TestDNSRoot_DomainInScopeHidesRow(t *testing.T) {
 	}
 }
 
-// A name server row that is no longer current is also hidden once a root
-// covers its domain, though the store keeps no attributes for it.
+// Recover placement from old row keys so adding a covering root also hides non-current
+// dependencies.
 func TestDNSRoot_DomainInScopeHidesNotCurrentRow(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)

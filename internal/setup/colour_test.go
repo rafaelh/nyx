@@ -12,7 +12,7 @@ import (
 
 func inColour(o *Options) { o.Depth = palette.TrueColor }
 
-// paint is s in a setup role at 24-bit depth, as the frame should hold it.
+// paint styles expected setup text at 24-bit depth.
 func paint(role, s string) string { return palette.TrueColor.Text(palette.Setup, role, s) }
 
 // rowOf is the frame line holding sub.

@@ -455,7 +455,7 @@ func TestStorageAttribution(t *testing.T) {
 	if a := attr["s3|acme-assets"]; a.Severity != "" {
 		t.Errorf("attributed = %+v: severity is only for the unattributed file", a)
 	}
-	// A guessed name that is also referenced is attributed, and not listed as unattributed.
+	// References establish attribution even when the resource was also guessed.
 	f.cname("cdn.example.com", "example-backup.s3.amazonaws.com")
 	f.host("cdn.example.com")
 	got, attr = findings.DeriveAll(f.input(t))
@@ -606,9 +606,8 @@ func TestDeriveDeterministic(t *testing.T) {
 	}
 }
 
-// The findings never read the third parties: the runner leaves that kind, which
-// a deriver writes, out of what makes the findings derive again, so a finding
-// that read it could go stale.
+// Findings cannot depend on third_party because derived writes do not invalidate findings; such
+// a dependency would become stale.
 func TestDerivationNeverReadsThirdParties(t *testing.T) {
 	t.Parallel()
 	f := newFixture()

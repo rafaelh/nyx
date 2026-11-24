@@ -16,10 +16,8 @@ import (
 	"testing"
 )
 
-// Only internal/egress may import raw network packages, and other
-// packages may use only signal and file-lock identifiers from
-// golang.org/x/sys/unix. No first-party package, internal/egress included,
-// may import os/exec.
+// Enforce network imports only in egress, narrowly allow unix signals/locks elsewhere and
+// prohibit first-party os/exec imports.
 func TestPassiveBoundaryImports(t *testing.T) {
 	t.Parallel()
 	root, err := os.Getwd()
@@ -36,9 +34,8 @@ func TestPassiveBoundaryImports(t *testing.T) {
 		}
 		root = parent
 	}
-	// Each supported target is listed separately, so a file built only for
-	// another OS or architecture (a _linux.go suffix or a build tag) is checked
-	// too. Keep in step with TARGETS in the Makefile.
+	// Check each supported build target so platform-specific files cannot evade the import
+	// boundary. Keep targets aligned with Makefile.
 	for _, target := range []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"} {
 		t.Run(strings.ReplaceAll(target, "/", "-"), func(t *testing.T) {
 			t.Parallel()
@@ -48,9 +45,7 @@ func TestPassiveBoundaryImports(t *testing.T) {
 	}
 }
 
-// unixAllowed is what non-egress packages may use from golang.org/x/sys/unix,
-// which otherwise exposes raw sockets (unix.Socket, unix.Connect). Signals, the
-// engagement lock and the threat-data lock need nothing more.
+// unixAllowed limits non-egress use to signals and file locks, excluding raw socket APIs.
 const unixPkg = "golang.org/x/sys/unix"
 
 var unixAllowed = map[string]map[string]bool{

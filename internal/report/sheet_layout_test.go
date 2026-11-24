@@ -19,9 +19,8 @@ func termSheet(s layout.Stream) string {
 	return buf.String()
 }
 
-// On a terminal the sheet holds today's entries and then the layout: a heading, a sample table, a
-// CVE bar for each severity and for UNKNOWN and NONE, a stage line for each state, a found line
-// with a badge and one of the form category: value, and a log line wider than the layout.
+// Terminal sheets exercise headings, tables, severity bars, stage states, found formats and
+// over-width logs.
 func TestSheetLayoutPart(t *testing.T) {
 	t.Parallel()
 	for _, d := range []palette.Depth{palette.None, palette.TrueColor, palette.Color256, palette.Color16} {
@@ -125,8 +124,7 @@ func checkSheetWrapped(t *testing.T, d palette.Depth, added string) {
 	}
 }
 
-// The category and group headings of today's sheet are in the heading style on a coloured
-// terminal, and the entries under them are today's.
+// Terminal sheet headings gain semantic styles without changing palette entries.
 func TestSheetHeadingsOnATerminal(t *testing.T) {
 	t.Parallel()
 	for _, d := range depths {
@@ -144,7 +142,7 @@ func TestSheetHeadingsOnATerminal(t *testing.T) {
 	}
 }
 
-// The sheet follows the stream's width each time it is written: the bars are as wide as the layout.
+// Repeated sheet writes remeasure stream width, including header bars.
 func TestSheetFollowsTheWidth(t *testing.T) {
 	t.Parallel()
 	narrow := termSheet(termStream(palette.None, 60))

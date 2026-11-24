@@ -11,13 +11,13 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 )
 
-// dialError is shaped like the error net.Dialer returns, so errors.Is has to
-// unwrap OpError and SyscallError to reach the errno.
+// dialError wraps errno like net.Dialer so classification must unwrap both operation and
+// syscall errors.
 func dialError(e syscall.Errno) error {
 	return &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", e)}
 }
 
-// What a dial error means.
+// Cover remote results versus local failures.
 func TestClassifyDial(t *testing.T) {
 	t.Parallel()
 	a := netip.MustParseAddr("203.0.113.5")
@@ -31,7 +31,7 @@ func TestClassifyDial(t *testing.T) {
 		name  string
 		err   error
 		route func(netip.Addr) error
-		want  string // closed, filtered or error
+		want  string // expected classification
 	}{
 		{"refused", dialError(syscall.ECONNREFUSED), neverCalled, "closed"},
 		{"timeout", os.ErrDeadlineExceeded, neverCalled, "filtered"},
@@ -66,7 +66,7 @@ func TestClassifyDial(t *testing.T) {
 	}
 }
 
-// The route lookup is made to the address that was dialled.
+// Route diagnosis uses the failed dial's address.
 func TestClassifyDialLooksUpTheSameAddress(t *testing.T) {
 	t.Parallel()
 	a := netip.MustParseAddr("2001:db8::5")
@@ -77,7 +77,7 @@ func TestClassifyDialLooksUpTheSameAddress(t *testing.T) {
 	}
 }
 
-// The default route lookup is a local routing-table query: it succeeds for loopback.
+// The default route query succeeds locally for loopback without traffic.
 func TestUDPRouteLoopback(t *testing.T) {
 	t.Parallel()
 	if err := egress.UDPRoute(netip.MustParseAddr("127.0.0.1")); err != nil {

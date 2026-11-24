@@ -12,9 +12,8 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// Spamhaus and ipapi.is are contacted as threat-data sources only by an update the user asks for:
-// no recon stage, nyx ip, nyx cve or key test sends either host anything, and checking an address
-// against the lists sends no request. Counting fakes stand in for both hosts.
+// Counting source fakes verify threat providers are contacted only for explicit updates, never
+// ordinary lookup/matching.
 
 // The fakes see a request sent to either host, so a count of zero means nothing was sent.
 func TestThreatHosts_TheCanariesSeeARequest(t *testing.T) {
@@ -32,8 +31,7 @@ func TestThreatHosts_TheCanariesSeeARequest(t *testing.T) {
 	}
 }
 
-// A recon run with every stage but the port sweep, every key set and target contact authorised,
-// sends neither host anything, with the built-in threat data in use.
+// An authorised keyed recon run still sends nothing to threat-data source hosts.
 func TestThreatHosts_ReconSendsThemNothing(t *testing.T) { // mutation target
 	t.Parallel()
 	x := newWebWith(t, riskStages...)

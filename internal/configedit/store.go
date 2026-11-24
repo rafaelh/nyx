@@ -22,36 +22,35 @@ import (
 	"github.com/rafaelh/nyx/internal/setup"
 )
 
-// StoreOptions say which file a Store edits and what it may hold.
+// StoreOptions supplies the config path and supported fields.
 type StoreOptions struct {
 	// Path is the config file.
 	Path string
-	// Env is the environment the file is checked in. Only HOME (for "~") is read from it.
+	// Env supplies HOME for tilde expansion during validation.
 	Env config.Env
-	// Sources and Stages are what the setup tabs list, handed back by Info.
+	// Sources and Stages provide setup tab metadata through Info.
 	Sources []setup.Source
 	Stages  []setup.Stage
-	// SkipEntry is nyx recon's check of one skip entry: "" when the stage can be skipped, else its
-	// message.
+	// SkipEntry returns recon's reason for an invalid/unskippable stage, or "" when
+	// accepted.
 	SkipEntry func(name string) string
-	// Getwd is the directory setup runs from, which a relative path is made absolute against. nil
-	// means os.Getwd.
+	// Getwd resolves relative edits from setup's working directory; nil uses os.Getwd.
 	Getwd func() (string, error)
 	// NoFsync and Rename are SaveOptions, for tests.
 	NoFsync bool
 	Rename  func(oldpath, newpath string) error
 }
 
-// Store is a setup.Backend over one config file, except for testing a key. It re-reads the file
-// whenever it is asked to save, so a change made behind its back is found.
+// Store implements setup's file backend, excluding key tests. It rereads before saving to
+// detect external edits.
 type Store struct {
 	o    StoreOptions
 	path string // absolute
 	env  config.Env
-	last []byte // the file as last read or written: what Check puts a value into
+	last []byte // last document used to validate proposed edits
 }
 
-// NewStore returns the Store for o. Like setup.Backend, its methods are called from one goroutine.
+// NewStore expects single-goroutine access, matching setup.Backend.
 func NewStore(o StoreOptions) *Store {
 	path := o.Path
 	if abs, err := filepath.Abs(path); err == nil {
@@ -60,27 +59,26 @@ func NewStore(o StoreOptions) *Store {
 	return &Store{o: o, path: path, env: o.Env}
 }
 
-// Info is the config file's absolute path and what the setup tabs list.
+// Info returns the absolute config path and tab metadata.
 func (s *Store) Info() setup.Info {
 	return setup.Info{Path: s.path, Sources: s.o.Sources, Stages: s.o.Stages}
 }
 
-// fileToken is what a snapshot remembers of the file it was read from: its bytes, or that it was
-// not there.
+// fileToken records original bytes or absence for conflict detection.
 type fileToken struct {
 	absent bool
 	data   string
 }
 
 const (
-	// unreadMessage marks a setting whose entry the loader reads as something other than what the
-	// file seems to say, for example one merged from an anchor.
+	// unreadMessage flags values whose loader interpretation differs from their apparent
+	// YAML text, such as merged anchors.
 	unreadMessage = "the file's entry for this is not read as it is written (check how it is spelled in the file); edit or clear it"
-	// relativeNote begins the line shown beside a path that resolves against the working directory.
+	// relativeNote introduces working-directory path resolution guidance.
 	relativeNote = "Relative: resolves against the directory nyx runs from"
 )
 
-// read is the file's bytes, or absent when there is none (a link to nowhere included).
+// read distinguishes file bytes from absence, including dangling symlinks.
 func (s *Store) read() (data []byte, absent bool, err error) {
 	data, err = os.ReadFile(s.path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -96,8 +94,8 @@ func (s *Store) getwd() (string, error) {
 	return os.Getwd()
 }
 
-// Open reads the file. A missing one is the defaults. A file that cannot be read or parsed, or
-// holds an unknown key, is a *setup.FileError with every problem nyx recon would report for it.
+// Open returns defaults for a missing file. Read, parse and unknown-key failures become
+// setup.FileError with the same validation problems as recon.
 func (s *Store) Open() (setup.Snapshot, error) {
 	data, absent, err := s.read()
 	if err != nil {
@@ -110,7 +108,7 @@ func (s *Store) Open() (setup.Snapshot, error) {
 	return snap, err
 }
 
-// snapshot is the file's bytes as the setup tabs show them.
+// snapshot converts file bytes into setup's displayed state.
 func (s *Store) snapshot(data []byte, absent bool) (setup.Snapshot, error) {
 	snap := setup.Snapshot{
 		Token:    fileToken{absent: absent, data: string(data)},
@@ -146,17 +144,16 @@ func (s *Store) snapshot(data []byte, absent bool) (setup.Snapshot, error) {
 	return snap, nil
 }
 
-// fatal reports whether the problems stop the file being edited: one that is not about a setting.
+// fatal identifies whole-file problems that prevent editing.
 func fatal(probs clierr.Problems) bool {
 	return slices.ContainsFunc(probs, func(p clierr.Problem) bool { return p.Name == "config" || p.Name == "" })
 }
 
-// minRedacted is the shortest key value hidden from a decoding error: the loader's message holds
-// the value it could not decode, which may be a key, and a shorter one would mangle the message.
+// minRedacted avoids exposing keys in decoding errors. Values shorter than this are not masked
+// because they would make error messages unreadable.
 const minRedacted = 4
 
-// fileError is the whole problem set of a file that cannot be edited: what the loader reports, then
-// what the skip list adds.
+// fileError combines loader and skip-validation problems for an uneditable file.
 func (s *Store) fileError(probs clierr.Problems, doc *Doc, settings config.Settings) *setup.FileError {
 	var secrets []string
 	for _, v := range settings.Keys {
@@ -183,7 +180,7 @@ func (s *Store) fileError(probs clierr.Problems, doc *Doc, settings config.Setti
 	return fe
 }
 
-// scalarsUnder is every scalar in the blocks of the document named name, in any case.
+// scalarsUnder searches case-insensitive document blocks for scalar values.
 func scalarsUnder(d *Doc, name string) []string {
 	var out []string
 	var walk func(n *yaml.Node)
@@ -208,7 +205,7 @@ func (s *Store) skipEntry(name string) string {
 	return s.o.SkipEntry(name)
 }
 
-// twice is the message for a setting the file spells in more than one case.
+// twice explains conflicting case-variant settings.
 func twice(variants []string) string {
 	q := make([]string, len(variants))
 	for i, v := range variants {
@@ -245,24 +242,23 @@ func (s *Store) keyState(doc *Doc, settings config.Settings, name string) setup.
 	return ks
 }
 
-// recordsKey is the block nyx setup records key tests in: key_tests.<source> holds the result, the
-// day and the fingerprint of the key it was given for.
+// recordsKey stores per-source test result, date and key fingerprint under key_tests.
 const recordsKey = "key_tests"
 
 // recordDay is how a record's day is written.
 const recordDay = "2006-01-02"
 
-// fingerprint identifies a key value in its record without holding the key: the first 8 hex digits
-// of its SHA-256. A key changed by hand no longer matches its record.
+// fingerprint uses the first eight SHA-256 hex digits to associate a key-test record with a key
+// without storing the key itself. Manual changes invalidate the match.
 func fingerprint(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:4])
 }
 
-// readRecord is the file's record of source's key, which is key: nil when there is none, it cannot
-// be read, or it was made for another key.
+// readRecord returns a readable record only when its fingerprint matches the current key.
 func readRecord(doc *Doc, source, key string) *setup.KeyRecord {
-	// A field is read as the text it is written as: an unquoted date is a timestamp to YAML.
+	// Decode record fields as written text; unquoted YAML dates otherwise become
+	// timestamps.
 	field := func(name string) string {
 		e := doc.Lookup(recordsKey + "." + source + "." + name)
 		n := e.Node
@@ -285,8 +281,8 @@ func readRecord(doc *Doc, source, key string) *setup.KeyRecord {
 	return &setup.KeyRecord{Result: result, Day: day}
 }
 
-// records writes the records of edits and removes the record of each known source whose key the
-// document no longer holds.
+// records applies test-result edits and removes known-source records when their keys were
+// cleared.
 func (s *Store) records(doc *Doc, edits setup.Edits) error {
 	for _, src := range s.o.Sources {
 		at := recordsKey + "." + src.Name
@@ -311,7 +307,7 @@ func (s *Store) records(doc *Doc, edits setup.Edits) error {
 	return nil
 }
 
-// number reads text as the loader does, giving its canonical form: ok is false when it is not one.
+// number reproduces the loader's canonical numeric text, rejecting nonnumeric values.
 func number(key, text string) (string, bool) {
 	text = strings.TrimSpace(text)
 	if key == "concurrency" {
@@ -326,12 +322,12 @@ func isPath(key string) bool {
 	return key == "output_dir" || key == "wordlist" || key == "sensitive_paths"
 }
 
-// value is how the file holds one non-key setting.
+// value converts a stored non-key setting to display/edit state.
 func (s *Store) value(doc *Doc, settings config.Settings, probs clierr.Problems, key string) setup.Value {
 	v := setup.Value{Default: config.DefaultText(key)}
 	e := doc.Lookup(key)
 	if e.Node != nil && e.Node.Kind == yaml.ScalarNode && e.Node.Tag == "!!null" {
-		// "concurrency:" with no value: the loader treats it as not set.
+		// Valueless YAML entries use loader defaults.
 		e.Node = nil
 	}
 	text, readable := "", true
@@ -340,7 +336,7 @@ func (s *Store) value(doc *Doc, settings config.Settings, probs clierr.Problems,
 		text, readable = DecodedText(e.Node)
 		v.Text = text
 	}
-	var shown string // what the file says, in the form the loader's result is compared in
+	var shown string // normalised YAML text for comparison with loader output
 	switch {
 	case isPath(key):
 		shown = config.ExpandHome(text, s.env)
@@ -371,7 +367,7 @@ func (s *Store) value(doc *Doc, settings config.Settings, probs clierr.Problems,
 	return v
 }
 
-// problemFor is the loader's message for the setting named key, or "".
+// problemFor selects one setting's loader diagnostic, or "".
 func problemFor(probs clierr.Problems, key string) string {
 	for _, p := range probs {
 		if p.Name == key {
@@ -381,8 +377,8 @@ func problemFor(probs clierr.Problems, key string) string {
 	return ""
 }
 
-// relative is the line beside the path p (as value works it out, "~" expanded) when it resolves
-// against the directory nyx is run from: the unset output_dir, and a relative path the file holds.
+// relative explains how an unset output_dir or stored relative path resolves from nyx's working
+// directory, after tilde expansion.
 func (s *Store) relative(p string) string {
 	if p == "" || filepath.IsAbs(p) {
 		return ""
@@ -394,8 +390,8 @@ func (s *Store) relative(p string) string {
 	return relativeNote + ", e.g. " + filepath.Join(cwd, p)
 }
 
-// skipEntries reads the node of a skip setting as the loader does: a sequence's items, or one
-// scalar split on commas, as config.SkipNames gives them. It is false when the node is neither.
+// skipEntries accepts a YAML sequence or comma-separated scalar and normalises it with
+// config.SkipNames. Other node types return false.
 func skipEntries(n *yaml.Node) ([]string, bool) {
 	var items []string
 	switch {
@@ -442,9 +438,8 @@ func (s *Store) skip(snap *setup.Snapshot, doc *Doc, settings config.Settings, p
 	}
 }
 
-// Check validates one non-key setting as it is entered, with the message nyx recon gives for a
-// file that holds it, and returns what to store: a relative path made absolute against the
-// directory setup runs from, anything else as given.
+// Check validates an entered non-key setting with recon's rules. It makes relative paths
+// absolute from setup's working directory and preserves other valid text.
 func (s *Store) Check(key, value string) (string, error) {
 	if !utf8.ValidString(value) {
 		return "", fmt.Errorf("%s: the value is not valid UTF-8", key)
@@ -467,7 +462,7 @@ func (s *Store) Check(key, value string) (string, error) {
 	if err := doc.SetString(key, stored); err != nil {
 		return "", err
 	}
-	// Only key's problem counts, so the lists of the other settings are not read.
+	// Validate only the edited setting instead of loading unrelated list files.
 	for _, list := range []string{"wordlist", "sensitive_paths"} {
 		if list != key {
 			doc.Clear(list)
@@ -486,9 +481,8 @@ func (s *Store) Check(key, value string) (string, error) {
 	return stored, nil
 }
 
-// Save applies edits to the file the snapshot was read from. When the file differs from the
-// snapshot it writes nothing and returns setup.ErrConflict. On any other error the file is
-// unchanged.
+// Save applies edits only if the file still matches the snapshot. Conflicts return
+// setup.ErrConflict; all errors leave the file unchanged.
 func (s *Store) Save(snap setup.Snapshot, edits setup.Edits) (setup.Snapshot, error) {
 	tok, ok := snap.Token.(fileToken)
 	if !ok {
@@ -504,9 +498,9 @@ func (s *Store) Save(snap setup.Snapshot, edits setup.Edits) (setup.Snapshot, er
 	return s.apply(snap, data, edits)
 }
 
-// Overwrite applies edits to the file as it is now, whatever changed since it was read. A file that
-// cannot be read, parsed or opened (an unknown key) has nothing left to keep: it is replaced by one
-// holding just the edits.
+// Overwrite applies edits to the latest readable document. If the file cannot be read, parsed
+// or accepted because of unknown keys, it replaces it with a document containing only the
+// edits.
 func (s *Store) Overwrite(edits setup.Edits) (setup.Snapshot, error) {
 	data, absent, err := s.read()
 	if _, serr := s.snapshot(data, absent); err != nil || serr != nil {
@@ -515,7 +509,7 @@ func (s *Store) Overwrite(edits setup.Edits) (setup.Snapshot, error) {
 	return s.apply(setup.Snapshot{}, data, edits)
 }
 
-// apply puts edits into the document of data, saves it and reads the file back.
+// apply writes the requested edits, saves the document atomically and reads it back.
 func (s *Store) apply(prev setup.Snapshot, data []byte, edits setup.Edits) (setup.Snapshot, error) {
 	if !edits.Empty() {
 		doc, err := Parse(data)
@@ -540,8 +534,7 @@ func (s *Store) apply(prev setup.Snapshot, data []byte, edits setup.Edits) (setu
 	return snap, nil
 }
 
-// edit applies the edits to doc: clears first, then values in the order the tabs list them, then
-// the skip list.
+// edit applies clears, tab-ordered values and the complete skip list in that order.
 func (s *Store) edit(doc *Doc, edits setup.Edits) error {
 	for _, key := range edits.Clear {
 		doc.Clear(key)

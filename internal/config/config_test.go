@@ -17,8 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 )
 
-// load parses args as flags and loads the settings with only env as the environment, so a test
-// never sees the process's and can run in parallel.
+// load uses only the supplied environment, keeping config tests independent and parallel-safe.
 func load(t *testing.T, env config.Env, cfgPath string, args ...string) (config.Settings, error) {
 	t.Helper()
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
@@ -96,9 +95,8 @@ func TestPrecedence(t *testing.T) {
 	}
 }
 
-// Load reads no setting or key from the environment, neither the one it is given nor the
-// process's; it reads only where the config file is, and that from the given environment. It sets
-// the process environment, so it cannot be parallel.
+// Settings/keys ignore environment values; only config-location variables are read. This
+// process-environment test cannot run in parallel.
 func TestLoadReadsNoSettingFromTheEnvironment(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("NYX_CONCURRENCY", "3")
@@ -327,8 +325,8 @@ func TestHomeExpansion(t *testing.T) {
 	}
 }
 
-// A numeric setting's flag takes any text, which Load checks with the rest, so
-// a bad number is reported by its key and value; help shows integer or float.
+// Numeric flags preserve invalid text for combined validation while help still names their
+// numeric type.
 func TestNumericFlagsTakeAnyText(t *testing.T) {
 	t.Parallel()
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
@@ -361,9 +359,7 @@ func TestNumericFlagsTakeAnyText(t *testing.T) {
 	}
 }
 
-// A config file that cannot be read, or that has an unknown key, is reported
-// with every other problem, and the keys that did load are still returned so
-// they can be masked.
+// Return loaded keys for redaction even when file/setting problems make config unusable.
 func TestLoadReportsFileProblemsWithTheRest(t *testing.T) {
 	t.Parallel()
 	cfg := writeFile(t, "concurency: 3\nkeys:\n  shodan: filekey\n")
@@ -389,9 +385,8 @@ func yamlFor(key, val string) string {
 	return key + ": " + val + "\n"
 }
 
-// Each whole-number setting has its default (shown in its flag's help), takes the config file and
-// a flag over it, and accepts its least value. A value below that, or not a whole number, is an
-// error naming the key from either.
+// Check defaults, file/flag precedence, inclusive minimums and invalid numeric input for each
+// integer setting.
 func TestIntSettings(t *testing.T) {
 	t.Parallel()
 	for _, c := range []intSetting{
@@ -452,8 +447,7 @@ func checkIntPrecedence(t *testing.T, c intSetting) {
 	}
 }
 
-// checkIntRejected checks that a value below the least, or not a whole number, is an error
-// naming the key, whether it comes from a flag or the file.
+// checkIntRejected verifies invalid integers identify their key from either flags or YAML.
 func checkIntRejected(t *testing.T, c intSetting) {
 	t.Helper()
 	for _, bad := range []string{strconv.Itoa(c.min - 1), "many"} {

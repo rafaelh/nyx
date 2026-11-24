@@ -12,22 +12,10 @@ const (
 	trailingPunct = ")]}>\"',.;:"
 )
 
-// Protected reports whether a word must never be broken: a URL with a scheme, an
-// email address, an IP address or CIDR netblock, or a hostname. The word is
-// first stripped of surrounding punctuation: any of ([{<"' at the start and any
-// of )]}>"',.;: at the end. A word is a run of characters with no space in it.
-//
-//   - A URL is scheme:// followed by at least one character, the scheme being a
-//     letter and then letters, digits, + . or -.
-//   - An email address has one @, a non-empty local part and a hostname after it.
-//   - An IP address or netblock is what net/netip parses.
-//   - A hostname has at least one dot and every label passes dnsname.ValidLabel,
-//     with an optional leading "*.". Labels are compared in lower case.
-//   - An address or a hostname may carry a port, as a risky port's target does:
-//     192.0.2.1:3389, [2001:db8::1]:3389 or www.example.com:8443.
-//
-// CVSS:3.1/AV:N/… is none of these. "e.g" and a version number such as "2.4.41"
-// do count as hostnames: they are short, so protecting them does no harm.
+// Protected recognises tokens that wrapping should keep whole: URLs, email addresses, IPs,
+// CIDRs and dotted hostnames, including optional ports and wildcard prefixes. Surrounding
+// punctuation is ignored. Schemes follow URL syntax; hostname labels use dnsname.ValidLabel.
+// Short values such as versions or "e.g" may qualify harmlessly; CVSS vectors do not.
 func Protected(token string) bool {
 	t := strings.TrimLeft(token, leadingPunct)
 	t = strings.TrimRight(t, trailingPunct)
@@ -44,9 +32,8 @@ func Protected(token string) bool {
 	return err == nil
 }
 
-// isAddrPort reports whether token, less its trailing punctuation and any of its
-// leading punctuation, is an address and port. The bracket that opens an IPv6
-// address and port is leading punctuation too, so each amount of it is tried.
+// isAddrPort tries punctuation trimming lengths so the opening bracket of an IPv6 address is
+// preserved when needed for parsing.
 func isAddrPort(token string) bool {
 	t := strings.TrimRight(token, trailingPunct)
 	for t != "" {

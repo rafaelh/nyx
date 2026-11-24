@@ -8,8 +8,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// An origin exposure is keyed by hostname and address alone, so the row is the same whether the pair
-// is a possible origin or a confirmed one; ParseKey reverses Key, giving the target "host -> address".
+// Origin keys identify the pair independently of confirmation and decode to a readable
+// host/address target.
 func TestOriginExposure_KeyIsStableBetweenPossibleAndConfirmed(t *testing.T) {
 	t.Parallel()
 	possible := findings.Finding{Category: findings.OriginExposure, Type: "possible", Target: "www.example.com -> 203.0.113.20"}

@@ -16,15 +16,11 @@ import (
 // HackerTargetHost is the host HackerTarget's API is at.
 const HackerTargetHost = "api.hackertarget.com"
 
-// HackerTargetLines returns the lines of a HackerTarget reply, trimmed and
-// without the empty ones. An empty body and its "nothing found" replies give no
-// lines. Its spent quota is a 200 reply with a text body, which is quota, the
-// same as its 429. The reply rules are written once, for every stage and
-// command that asks HackerTarget.
+// HackerTargetLines trims and filters response lines, treating empty/not-found replies as no
+// results. Text quota replies with status 200 return quota, matching 429 handling.
 func HackerTargetLines(body []byte) (lines []string, quota bool) {
 	text := strings.TrimSpace(string(body))
-	// Only the start is lowered: every reply compared here is shorter than 40
-	// bytes, and a lookup can be thousands of lines.
+	// Lowercase only the short comparison prefix to avoid copying large hostname lists.
 	switch lower := strings.ToLower(text[:min(len(text), 40)]); {
 	case lower == "", lower == "no records found", lower == "error check your search parameter",
 		strings.HasPrefix(lower, "no dns a records found"):
@@ -40,13 +36,12 @@ func HackerTargetLines(body []byte) (lines []string, quota bool) {
 	return lines, false
 }
 
-// errUnreadable is the error of a reverse lookup reply that is not a list of names.
+// errUnreadable reports a response that cannot be interpreted as a hostname list.
 var errUnreadable = errors.New("unreadable HackerTarget response")
 
-// ReverseLines reads HackerTarget's reverse lookup reply, one name per line, and
-// returns the lines as sent. A line that is not a name (it has a space, tab,
-// comma, "<" or ">") means the reply is not a list, which is an error and not
-// "no names". quota is HackerTarget's spent quota.
+// ReverseLines validates a one-name-per-line reply while preserving source lines. Whitespace,
+// commas or markup indicate an error rather than empty results. quota supplies the exhaustion
+// error.
 func ReverseLines(body []byte) (lines []string, quota bool, err error) {
 	lines, quota = HackerTargetLines(body)
 	if quota {
@@ -60,9 +55,8 @@ func ReverseLines(body []byte) (lines []string, quota bool, err error) {
 	return lines, false, nil
 }
 
-// ReverseNames reads a reverse lookup reply (ReverseLines) and returns its
-// names cleaned (input.CleanName), without repeats and sorted. Lines that are not
-// valid hostnames are dropped.
+// ReverseNames cleans, deduplicates and sorts validated reverse lookup names, dropping invalid
+// hostnames.
 func ReverseNames(body []byte) (names []string, quota bool, err error) {
 	lines, quota, err := ReverseLines(body)
 	if err != nil || quota {
@@ -79,11 +73,9 @@ func ReverseNames(body []byte) (names []string, quota bool, err error) {
 	return names, false, nil
 }
 
-// HackerTargetReverse asks HackerTarget for the names that point at an IPv4
-// address, cleaned, without repeats and sorted. A 404 and the "nothing found"
-// replies are no names. A 429 and a spent quota in a 200 reply are errors that
-// wrap ErrQuota (a *RateLimitedError for the 429); any other status, a
-// truncated body or a reply that is not a list is an error.
+// HackerTargetReverse fetches sorted, unique IPv4 reverse names. Empty/404 replies succeed
+// without names. Text quota replies and 429 match ErrQuota; other statuses, truncation and
+// invalid lists are errors.
 func HackerTargetReverse(ctx context.Context, c egress.ThirdPartyHTTP, addr netip.Addr) ([]string, error) {
 	u := "https://" + HackerTargetHost + "/reverseiplookup/?" + url.Values{"q": {addr.String()}}.Encode()
 	resp, err := c.Do(ctx, egress.ThirdPartyRequest{Method: "GET", URL: u})

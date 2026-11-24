@@ -16,7 +16,7 @@ import (
 // that day.
 var pagesNow = time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 
-// headerOrg is the organisation column's header as ipapi.is spells it.
+// headerOrg selects the source's organisation-column spelling.
 const headerOrg = "Organization" //nolint:misspell // the page's own spelling
 
 func page(t *testing.T, name string) string {
@@ -286,8 +286,7 @@ func TestParsePages_Refuses(t *testing.T) {
 	}
 }
 
-// A page that lists 90% of what it states passes, and one with one fewer entry fails. More rows than
-// stated pass too, and the stated count is the page's.
+// The 90% completeness threshold is inclusive; extra source rows are allowed.
 func TestParsePages_TheSizeCheckIsNinetyPercent(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -306,8 +305,8 @@ func TestParsePages_TheSizeCheckIsNinetyPercent(t *testing.T) {
 	}
 }
 
-// A date of tomorrow in UTC passes, and today's passes; the day after fails. An old date passes too:
-// whether a list is newer than the copy in use is not the parser's to decide.
+// Allow tomorrow UTC for source time zones, reject later dates, and leave age comparisons to
+// callers.
 func TestParsePages_DateWindow(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -324,8 +323,7 @@ func TestParsePages_DateWindow(t *testing.T) {
 			t.Errorf("%s: err = %v, want ok=%v", tc.date, err, tc.ok)
 		}
 	}
-	// Tomorrow is UTC's, whatever zone the clock is given in: 08:00 on the 22nd at UTC+10 is 22:00
-	// on the 21st in UTC, so the 23rd is still the day after tomorrow.
+	// Use UTC for tomorrow even when the supplied clock is already on the next local day.
 	east := time.Date(2026, 11, 22, 8, 0, 0, 0, time.FixedZone("AEST", 10*60*60))
 	p := fixtures(t)
 	p.networks = replaceOnce(t, p.networks, "November 21, 2026", "November 23, 2026")
@@ -339,8 +337,8 @@ func TestParsePages_DateWindow(t *testing.T) {
 	}
 }
 
-// A numeric reference beyond the C1 range is read as the character it names, even when its first
-// digits spell a C1 code point (&#x8F66; is not &#x8F followed by 66;), so the page is not refused.
+// Consume the whole numeric reference so a valid character such as &#x8F66; is not mistaken for
+// a C1 control prefix.
 func TestParsePages_ReferencesBeyondC1(t *testing.T) {
 	t.Parallel()
 	p := fixtures(t)

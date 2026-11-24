@@ -1,9 +1,6 @@
-// Package fault provides deterministic crash points for subprocess tests.
-//
-// When NYX_FAULT names a point, the first goroutine to reach it writes the
-// point (and optional detail) to NYX_FAULT_FILE and then blocks forever so a
-// test can kill the process at a known moment. With NYX_FAULT unset, Point
-// does nothing.
+// Package fault exposes deterministic crash-test checkpoints. The first goroutine reaching
+// NYX_FAULT writes optional detail to NYX_FAULT_FILE and blocks for the test to kill it. Unset
+// NYX_FAULT disables the hook.
 package fault
 
 import (

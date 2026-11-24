@@ -99,8 +99,7 @@ func TestSave_TightensAnExistingFilesPermissions(t *testing.T) {
 	}
 }
 
-// layout makes a directory holding the link and the file it leads to, and returns the config path
-// handed to Save, the file that should be updated and what the link should still say afterwards.
+// layout returns symlink path, target file and expected preserved link text.
 type layout func(t *testing.T, root string) (path, target, linkTo string)
 
 func mkdirs(t *testing.T, dirs ...string) {
@@ -119,8 +118,7 @@ func link(t *testing.T, oldname, newname string) {
 	}
 }
 
-// saveThroughLink saves new content at the layout's config path and checks the target got it, the
-// link stayed and nothing else was left in the target's directory.
+// saveThroughLink checks target replacement, link preservation and temporary-file cleanup.
 func saveThroughLink(t *testing.T, l layout, targetExists bool) {
 	t.Helper()
 	root := t.TempDir()
@@ -282,8 +280,7 @@ func TestSave_ErrorsUnwrapToTheCause(t *testing.T) {
 	}
 }
 
-// startChild runs the test binary as a process that saves "new: content" to path. With fault set
-// it stops at that fault point; the returned file appears when it has.
+// startChild launches a save subprocess and optionally blocks at a fault checkpoint.
 func startChild(t *testing.T, path, fault string) (*exec.Cmd, string) {
 	t.Helper()
 	ff := filepath.Join(t.TempDir(), "fault")
@@ -311,8 +308,8 @@ func waitForFile(t *testing.T, path string) {
 	t.Fatal("the child never reached the fault point")
 }
 
-// crashDuringSave kills a child at the point where the temp file exists but nothing is written, and
-// checks the config file at path: the old content, or none when old is nil.
+// crashDuringSave kills before temporary-file content is written and verifies the original file
+// or original absence.
 func crashDuringSave(t *testing.T, old *string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sub", "config.yaml")

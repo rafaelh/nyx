@@ -1,11 +1,6 @@
-// Package clierr is the one error a nyx command reports: what went wrong (the
-// message), its error code, what to try next (the hint), the failing input,
-// and whether a retry after a wait may succeed. The error codes, the exit code
-// each one gets and the five keys of the JSON error are a stable interface:
-// adding one is compatible, renaming or removing one is a breaking change.
-//
-// The package does no I/O. cli writes the error and picks the exit code;
-// config, input and the stages classify their own failures with these codes.
+// Package clierr defines command errors with a code, message, hint, input and retry status.
+// Codes, exit mappings and JSON keys form a stable interface. The package performs no I/O; cli
+// prints errors and selects exit codes, while callers classify failures.
 package clierr
 
 import (
@@ -33,8 +28,8 @@ const (
 	Interrupted   Code = "INTERRUPTED"
 )
 
-// exitCodes maps each error code to its exit code. INTERRUPTED's is SIGINT's;
-// the caller that knows which signal arrived uses that signal's code instead.
+// exitCodes maps errors to process status. INTERRUPTED defaults to SIGINT; signal-aware callers
+// use the received signal's status instead.
 var exitCodes = map[Code]int{
 	NetworkError: 1, Timeout: 1, RateLimited: 1, UpstreamError: 1, AuthFailed: 1, Unexpected: 1, Locked: 1,
 	InvalidInput: 2,
@@ -43,8 +38,7 @@ var exitCodes = map[Code]int{
 	Interrupted:  130,
 }
 
-// ExitCode is the exit code of an error code; an unknown code is a system
-// error.
+// ExitCode defaults unrecognised error codes to system failure.
 func ExitCode(c Code) int {
 	if n, ok := exitCodes[c]; ok {
 		return n
@@ -52,15 +46,13 @@ func ExitCode(c Code) int {
 	return 1
 }
 
-// Target is how one target of a call with several failed, for the per-target
-// lines of a partial result.
+// Target supplies failed-item detail lines for partial command outcomes.
 type Target struct {
 	Input, Message string
 	Code           Code
 }
 
-// Error is everything the error a command reports needs. Input is what the
-// JSON error's input key holds: nil when no input was at fault.
+// Error describes a command failure. Input is nil when no particular input caused it.
 type Error struct {
 	Code      Code
 	Message   string
@@ -72,15 +64,14 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-// Problem is one failed check of a value or a combination: the argument's name
-// (a setting's key, an input's flag name), the value as given, what is wrong
-// and what to try instead.
+// Problem identifies an invalid argument or combination, preserving its original value,
+// explanation and suggested correction.
 type Problem struct {
 	Name, Value, Message, Hint string
 }
 
-// Problems collects every problem a command's checks find, so they are
-// reported together as one usage error. It is an error when it holds any.
+// Problems collects validation failures for one usage error; an empty collection is not an
+// error.
 type Problems []Problem
 
 // Add records one problem.
@@ -88,8 +79,7 @@ func (p *Problems) Add(name, value, message, hint string) {
 	*p = append(*p, Problem{Name: name, Value: value, Message: message, Hint: hint})
 }
 
-// Merge records err: the problems it holds when it is Problems, else one
-// problem with its text.
+// Merge flattens Problems or adds a generic error's text as one problem.
 func (p *Problems) Merge(err error) {
 	if err == nil {
 		return
@@ -101,7 +91,7 @@ func (p *Problems) Merge(err error) {
 	p.Add("", "", err.Error(), "")
 }
 
-// Err is p as an error, or nil when it holds no problem.
+// Err returns nil for no problems, otherwise the collection as an error.
 func (p Problems) Err() error {
 	if len(p) == 0 {
 		return nil
@@ -118,11 +108,9 @@ func (p Problems) Error() string {
 	return strings.Join(msgs, "; ")
 }
 
-// Usage is p as one INVALID_INPUT error: the messages joined by "; ", the
-// distinct hints joined by "; " (defaultHint when none has one), and an input
-// that maps each named argument to the list of its failing values. Each name
-// maps to a list whatever the number of values, so the shape never depends on
-// how many failed.
+// Usage combines problems as INVALID_INPUT. It joins messages and distinct hints, falling back
+// to defaultHint. Input maps each argument name to a list of invalid values, keeping the JSON
+// shape consistent even for one value.
 func (p Problems) Usage(defaultHint string) *Error {
 	var hints []string
 	input := map[string][]string{}
@@ -152,8 +140,7 @@ func (p Problems) Usage(defaultHint string) *Error {
 	return e
 }
 
-// PanicError is a panic recovered on the way to the exit: an unexpected
-// failure, with the stack where it happened.
+// PanicError carries an unexpected recovered panic with its captured stack.
 type PanicError struct {
 	Value any
 	Stack []byte

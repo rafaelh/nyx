@@ -22,8 +22,8 @@ const (
 	failText = "failed: HTTP 503"
 )
 
-// testThreat is the five lists in use: a mix of downloaded and built-in copies, each with a count
-// under 1000 so that no digit grouping is in question.
+// testThreat mixes downloaded/built-in lists with small counts so digit grouping does not
+// affect assertions.
 func testThreat() []ThreatList {
 	return []ThreatList{
 		{Source: "spamhaus", List: "drop_v4", Date: "2026-11-21T17:56:44Z", Entries: 812, Downloaded: true, Copyright: testCopyright, Terms: testTerms},
@@ -40,7 +40,7 @@ func newThreatFake() *fakeBackend {
 	return b
 }
 
-// resultOf is a result that leaves every list as it is, each with outcome o and text, by source.
+// resultOf assigns one outcome/message to unchanged lists grouped by source.
 func resultOf(outcome map[string]ThreatOutcome, text map[string]string) ThreatResult {
 	var r ThreatResult
 	for _, l := range testThreat() {
@@ -100,8 +100,7 @@ func rowIndex(frame, list string) int {
 	return -1
 }
 
-// threatRow is the lines of the body that belong to list's row: the line that names it and those
-// under it, up to the next list's row, a blank line, the credit, or the end of the body.
+// threatRow extracts one list's display block through the next row, blank, credit or end.
 func threatRow(t *testing.T, frame, list string) string {
 	t.Helper()
 	lines := strings.Split(frame, "\n")

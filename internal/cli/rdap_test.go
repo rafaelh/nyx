@@ -14,10 +14,8 @@ import (
 	"github.com/rafaelh/nyx/internal/run"
 )
 
-// RDAP for netblocks and registrants. The tests drive cli.Execute with the real
-// rdap stage. data.iana.org is a fake bootstrap file and each registry is a
-// fake that answers address lookups, organisation searches and an entity's
-// networks, in the shape that registry uses, so nothing leaves the machine.
+// RDAP tests use real stages with loopback IANA/registry responses matching each registry's
+// formats.
 
 const (
 	hostIANA    = "data.iana.org"
@@ -28,8 +26,7 @@ const (
 	hostAFRINIC = "rdap.afrinic.net"
 )
 
-// rdapBase is the path each registry serves RDAP under, which the IANA
-// bootstrap file gives as its service URL.
+// rdapBase supplies bootstrap service paths per registry.
 var rdapBase = map[string]string{hostARIN: "/registry/", hostRIPE: "/", hostAPNIC: "/", hostLACNIC: "/rdap/", hostAFRINIC: "/rdap/"}
 
 var rdapRegistries = []string{hostARIN, hostRIPE, hostAPNIC, hostLACNIC, hostAFRINIC}
@@ -155,9 +152,8 @@ type rdapWorld struct {
 	reg map[string]*rdapFake
 }
 
-// newRDAP returns a world with the named hosts in example.com, a bootstrap file
-// that sends 203/8 and 104/8 to ARIN and 198/8 to RIPE, and an empty registry
-// at each host. A host is "name=address" and has a known owner.
+// newRDAP seeds known-owner hosts and fake bootstrap assignments, leaving all registries empty
+// until configured.
 func newRDAP(t *testing.T, hosts ...string) *rdapWorld {
 	t.Helper()
 	x := &rdapWorld{world: newWorld(t), reg: map[string]*rdapFake{}}
@@ -295,8 +291,7 @@ func globexNets() (r1, r2, r3 rdapNet) {
 
 // --- address lookups ---
 
-// An address is looked up at the registry the bootstrap file names, and a second
-// address in the same registered range costs no request.
+// A registration lookup covers later addresses in the same range without another request.
 func TestRDAP_AddressLookupAtBootstrapRegistry(t *testing.T) {
 	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=198.51.100.7", "c=203.0.113.8")
@@ -733,9 +728,8 @@ func TestRDAP_QuotaStopsTheStageAndTheChecksRunNextTime(t *testing.T) {
 	}
 }
 
-// Each lookup is made once per engagement, again only with --redo rdap. After a
-// redo two addresses of one range fetch the range once, and an organisation
-// search is made again.
+// Redo refreshes organisations/allocations while still sharing one lookup across addresses in a
+// range.
 func TestRDAP_LookupsOnceAndRefreshedByRedo(t *testing.T) {
 	t.Parallel()
 	x := newRDAP(t, "a=203.0.113.7", "b=203.0.113.8")
@@ -826,8 +820,7 @@ func TestRDAP_BootstrapFailureRetriesNextRun(t *testing.T) {
 	}
 }
 
-// The stage is available under --passive and contacts only IANA and the
-// registries: it is in the registry after dnsroot and is a third-party stage.
+// RDAP remains third-party/passive and contacts only bootstrap/registry sources.
 func TestRDAP_RunsUnderPassiveAndIsRegistered(t *testing.T) {
 	t.Parallel()
 	var names []string

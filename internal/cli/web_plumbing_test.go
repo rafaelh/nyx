@@ -47,7 +47,8 @@ func TestWebPlumbing_FilesAreSortedSafeDatedAndCounted(t *testing.T) {
 		t.Errorf("a title starting with = must be neutralised:\n%s", raw)
 	}
 
-	// web_service is printed, url is only counted, http_port is neither.
+	// Discovery kinds differ deliberately: web services print, URLs count, HTTP-port
+	// evidence stays internal.
 	evs := x.h.events()
 	var printed []string
 	for _, e := range ofType(evs, "found") {
@@ -76,7 +77,7 @@ func TestWebPlumbing_FilesAreSortedSafeDatedAndCounted(t *testing.T) {
 		}
 	}
 
-	// An idle re-run changes nothing.
+	// An idle rerun preserves output and state.
 	before := map[string]string{}
 	for _, f := range []string{"web-services.csv", "urls.csv", "subdomains.txt"} {
 		before[f] = x.file(eng, f)

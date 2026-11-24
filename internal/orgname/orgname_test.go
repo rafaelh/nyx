@@ -23,8 +23,7 @@ func TestTokens(t *testing.T) {
 	}
 }
 
-// A name matches when it contains every word of the organisation, whatever
-// else it holds. An organisation with no words matches nothing.
+// Organisation matching requires all meaningful input words and rejects empty inputs.
 func TestMatches(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

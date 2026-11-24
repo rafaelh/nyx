@@ -9,8 +9,7 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// The Backend setup is given for the Threat data tab: what it reads from the threat-data directory
-// and how it reports an update, through the real editor.
+// Exercise threat-tab reads/updates through the real setup backend and editor.
 
 // threatTab sends the keys to open the Threat data tab, then keys, then q, with wait run before q.
 func threatTab(w *threatWorld, wait func(), keys ...string) int {
@@ -61,7 +60,7 @@ func TestThreatSetup_ASkippedSourceSaysWhen(t *testing.T) {
 	}
 }
 
-// A downloaded copy that cannot be read is said on the tab, as a note on each of its lists.
+// Unreadable downloads add notes to every affected list on the tab.
 func TestThreatSetup_AnUnreadableCopyIsNoted(t *testing.T) {
 	t.Parallel()
 	h := setupHarness(t)

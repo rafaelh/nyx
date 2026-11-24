@@ -1,8 +1,5 @@
-// Package subdomains has the per-source stages that list subdomains of an
-// in-scope root: crtsh, wayback, commoncrawl, virustotal, securitytrails,
-// hackertarget, urlscan, certspotter, censys and chaos. They share one check and
-// enumeration type; each source is a fetcher. OTX and Anubis are no longer
-// here: neither answers an unkeyed client.
+// Package subdomains shares root-check enumeration across independent source fetchers. Retired
+// OTX/Anubis stages no longer support unkeyed queries.
 package subdomains
 
 import (
@@ -33,8 +30,7 @@ import (
 // maxPages caps archive and API paging inside one check.
 const maxPages = 30
 
-// result is what a fetcher found. Attrs are attached to every hostname.
-// urls are the archive URLs of a source that has them.
+// result holds fetched names, shared attributes and optional archive URLs.
 type result struct {
 	names []string
 	attrs kinds.HostnameAttrs
@@ -43,13 +39,13 @@ type result struct {
 
 type fetcher func(ctx context.Context, in rootInput, c egress.Clients) (result, error)
 
-// rootInput is the Check.Input of every subdomain source. The root travels in
-// it, not in the key, because an archive stage's key also carries the URL cap.
+// rootInput carries source inputs separately from check keys, which may also encode
+// archive/page caps.
 type rootInput struct {
 	root    string
 	maxURLs int
 	pages   int  // the paging cap of a stage with pageCap
-	keyed   bool // an optionalKey stage has its key to send; the key is not part of the check
+	keyed   bool // optional credentials are attached without becoming part of check identity
 }
 
 // Stage is one subdomain source.
@@ -58,11 +54,11 @@ type Stage struct {
 	family  string // of the candidates it finds; see package candidates
 	sources []string
 	keyed   bool
-	// optionalKey is a source that works unkeyed and sends keys.<name> when set.
+	// optionalKey names sources that work without credentials but use configured keys when
+	// available.
 	optionalKey bool
 	archive     bool // also records URLs; its check key carries archive.max_urls
-	// pageCap, when set, is the paging cap that the check key carries, so
-	// raising it repeats the checks.
+	// pageCap versions paginated checks so raising the cap repeats them.
 	pageCap func(config.Settings) int
 	fetch   fetcher
 }
@@ -90,16 +86,14 @@ func (s *Stage) Name() string         { return s.name }
 func (s *Stage) Contact() run.Contact { return run.ThirdParty }
 func (s *Stage) Sources() []string    { return s.sources }
 
-// CandidateSources is the family of the stage, the source of what it finds.
+// CandidateSources declares the stage's evidence family.
 func (s *Stage) CandidateSources() map[string]string { return map[string]string{s.name: s.family} }
 
 // Configured: keyed sources need keys.<source>.
 func (s *Stage) Configured(e run.Env) (bool, string) { return httpsrc.Configured(e, s.name, s.keyed) }
 
-// Checks yields one check per in-scope root; a root that is excluded is never
-// asked about. An archive stage's key is "<root>|urls=N", so changing
-// archive.max_urls re-runs it and nothing else; a paged stage's is
-// "<root>|pages=N" likewise.
+// Checks emits in-scope, non-excluded roots. Archive and paged keys include their respective
+// caps so changing one limit reruns only affected sources.
 func (s *Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		set := v.Settings()
@@ -153,10 +147,9 @@ func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 
 type archivedURL struct{ url, host string }
 
-// pickURLs normalises archive URLs and keeps those under root that are not
-// static assets, then takes at most max of them round-robin across hosts in
-// sorted order, so early-sorting hosts cannot use the whole cap. Within a host
-// the URLs are taken in sorted order, so the selection is deterministic.
+// pickURLs normalises non-static URLs under root and selects them round-robin across sorted
+// hosts. Sorted URLs within each host make capped selection deterministic and prevent one host
+// taking every slot.
 func pickURLs(raw []string, root string, max int) []archivedURL {
 	byHost := map[string][]string{}
 	for _, r := range raw {
@@ -222,8 +215,7 @@ func crtsh(ctx context.Context, in rootInput, c egress.Clients) (result, error) 
 
 // --- Wayback Machine (CDX) ---
 
-// withScheme gives an archived URL without a scheme ("www.example.com/login")
-// the http scheme, so its host and the URL itself are both kept.
+// withScheme adds HTTP to scheme-less archive URLs so both host and URL survive parsing.
 func withScheme(raw string) string {
 	if !strings.Contains(raw, "://") {
 		return "http://" + raw
@@ -270,11 +262,8 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 
 // --- Common Crawl ---
 
-// Common Crawl's index server is often overloaded: a query can take ten seconds
-// and its gateway gives up at about eleven, answering 502, 503 or 504. Such an
-// answer is waited out and the request sent again, up to ccRetries times, so an
-// overloaded but working index still completes the check. A Retry-After of at most
-// ccMaxWait is honoured; otherwise the waits are ccBackoff, doubling each time.
+// Common Crawl gateway failures can indicate a slow working index. Retry 502/503/504 responses
+// up to ccRetries, honouring bounded Retry-After values or using exponential ccBackoff.
 const (
 	ccRetries = 3
 	ccBackoff = time.Second
@@ -284,8 +273,8 @@ const (
 // errPastLastPage is the index's answer to a page beyond the last.
 var errPastLastPage = errors.New("past the last page")
 
-// collection is the latest Common Crawl collection, fetched once per run: the
-// list is the same for every root. A failure fails every root's check for the run.
+// collection fetches the latest Common Crawl collection once per run for all roots. A fetch
+// failure fails each root's check for later retry.
 type collection struct {
 	once sync.Once
 	id   string
@@ -314,10 +303,8 @@ func latestCollection(ctx context.Context, c egress.Clients) (string, error) {
 	return col.id, col.err
 }
 
-// commoncrawl reads the root's captures from the latest collection one page at a
-// time, until the index answers that the page is past the last (which it does
-// even for a root with no captures) or maxPages are read. The page count is not
-// asked for first: it is one more slow query that can fail.
+// commoncrawl reads pages until the index rejects an out-of-range page or maxPages is reached.
+// It skips a separate page-count query because that adds another slow request that can fail.
 func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, error) {
 	root := in.root
 	id, err := latestCollection(ctx, c)
@@ -332,8 +319,8 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 		if errors.Is(err, errPastLastPage) {
 			break
 		}
-		// A page is a run of index blocks, not of matches: a page with no
-		// captures answers 404 "No Captures found".
+		// Common Crawl pages contain index blocks, so an empty match page can
+		// legitimately return a no-captures 404.
 		if errors.Is(err, httpsrc.ErrNotFound) {
 			continue
 		}
@@ -354,9 +341,8 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 	return result{names: names, urls: urls, attrs: kinds.HostnameAttrs{Index: id}}, nil
 }
 
-// ccGet GETs u from Common Crawl, sending it again after an overloaded answer
-// (see ccRetries). A 400 whose message is "Page N invalid: ..." is errPastLastPage;
-// every other answer is mapped as by httpsrc.Get.
+// ccGet retries overloaded Common Crawl responses. A specific invalid-page 400 marks
+// exhaustion; other responses follow httpsrc.Get error rules.
 func ccGet(ctx context.Context, c egress.Clients, u string) ([]byte, error) {
 	req := egress.ThirdPartyRequest{Method: "GET", URL: u}
 	wait := ccBackoff

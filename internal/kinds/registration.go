@@ -1,15 +1,13 @@
 package kinds
 
-// Registration is the registry's record of a netblock: who it is registered to.
-// It is keyed "<registry>|<handle>", by the registry and the registry's handle
-// for the range, so every address inside it shares one record.
+// Registration identifies a registry allocation by "<registry>|<handle>", allowing addresses in
+// the same allocation to share one record.
 var Registration = defineJoined(Kind{Name: "registration"},
 	func(a *RegistrationAttrs) []*string { return []*string{&a.Registry, &a.Handle} })
 
-// RegistrationAttrs: the first and last address of the registered range, the
-// registrant's name as the registry gives it (empty when it names none), the
-// registry ("arin", "ripe", "apnic", "lacnic" or "afrinic"), the registry's handle
-// for the range and the address whose lookup returned it.
+// RegistrationAttrs stores range endpoints, registrant, registry, allocation handle and the
+// address looked up. Registrant is empty when absent; registry is arin, ripe, apnic, lacnic or
+// afrinic.
 type RegistrationAttrs struct {
 	Start      string `json:"start"`
 	End        string `json:"end"`

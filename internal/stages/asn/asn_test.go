@@ -55,8 +55,8 @@ func TestRun(t *testing.T) {
 	}
 }
 
-// A non-ok body status or HTTP status is a transient failure (an error), not
-// an empty result. A 429 does not abort the stage: the source is keyless.
+// Non-ok API/status responses fail checks rather than completing empty; unkeyed rate limits do
+// not abort this stage.
 func TestRunErrors(t *testing.T) {
 	t.Parallel()
 	for name, h := range map[string]http.HandlerFunc{

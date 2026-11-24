@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// A skipped stage is shown as not-configured (skipped) before any other reason,
-// performs no checks and sends no requests.
+// Explicit skipping takes priority over other stage-gating reasons and performs no work.
 func TestSkip_StateAndNoChecks(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)

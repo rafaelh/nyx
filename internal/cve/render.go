@@ -13,23 +13,12 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Render writes the records for a person to read: each record's header, then
-// a section for each part of it the fields select, records separated by a
-// blank line. The NVD's text is cleaned of anything that would act on a
-// terminal before it is wrapped to width, and is coloured at the stream's
-// depth last.
+// Render formats selected CVE fields with a header and sections, separating records with blank
+// lines. Plain streams use wrapped text; terminals add bars, indentation and colour.
 //
-// A stream that is not a terminal gets the plain layout, wrapped at the
-// stream's width (COLUMNS, else 100, and at least 60). A terminal gets the
-// layout of termRenderer: a header bar, indented sections and wrapped values.
-//
-// red masks every configured key in the records' text. Each value is cleaned of
-// anything that would act on a terminal first and redacted second, so a key that
-// cleaning joins back together is still masked, and redacted before it is
-// wrapped, so no line break can split a key and hide it. A nil red masks nothing.
-//
-// loc is the time zone the dates are shown in, each followed by the same moment
-// in UTC.
+// Source values are cleaned, then redacted, wrapped and coloured. This order masks keys
+// reconstructed by cleaning and prevents wrapping from splitting a key before redaction. Nil
+// red disables masking. Dates show loc time followed by the same instant in UTC.
 func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor, loc *time.Location) error {
 	if len(recs) == 0 {
 		return nil
@@ -58,8 +47,8 @@ func Render(w io.Writer, recs []Projected, s layout.Stream, red *config.Redactor
 	return err
 }
 
-// redactRecord is rec with each string cleaned and then redacted. Cleaning again
-// later changes nothing, so the layout is as it is without a redactor.
+// redactRecord cleans strings before redacting them. Later cleaning is idempotent, preserving
+// layout behaviour.
 func redactRecord(rec Record, red *config.Redactor) Record {
 	str := func(s string) string { return red.Redact(sanitize.Line(s)) }
 	ptr := func(p *string) *string {
@@ -110,7 +99,7 @@ type renderer struct {
 	loc   *time.Location
 }
 
-// or is *s cleaned, or fallback when s is nil or blank.
+// or supplies cleaned nonblank text or a fallback.
 func or(s *string, fallback string) string {
 	if s == nil {
 		return fallback
@@ -164,9 +153,8 @@ func (r renderer) record(p Projected) string {
 	return strings.Join(lines, "\n")
 }
 
-// listBody is what a list's section says: its heading, the flag that lists its
-// entries when only their count is shown, a line of text in place of the entries
-// when there are none to show, and how many entries were left out.
+// listBody describes a list section: heading, entries or replacement text, a flag for hidden
+// entries and any omitted count.
 type listBody struct {
 	heading string
 	tip     string // "" when the entries are shown, or there are none to list
@@ -174,8 +162,8 @@ type listBody struct {
 	more    string // "" when none were left out
 }
 
-// lines is the section's body: the entries, or the text in their place, then the
-// line saying how many were left out, each line of text laid out by text.
+// lines formats entries or replacement text, followed by the omitted-count line, through the
+// text layout callback.
 func (b listBody) lines(entries func() []string, text func(string) []string) []string {
 	var out []string
 	if b.text != "" {
@@ -189,9 +177,8 @@ func (b listBody) lines(entries func() []string, text func(string) []string) []s
 	return out
 }
 
-// listBody is the section of the list at i in lists: its entries under a heading
-// with their number when the list is shown, else its count alone as the body. It
-// reports false when neither is selected.
+// listBody builds the selected list section, or a count-only section when the list is hidden.
+// It returns false if neither is selected.
 func (p Projected) listBody(i int) (listBody, bool) {
 	l, c := lists[i], p.counts[i]
 	listed := strconv.Itoa(c.Total)
@@ -230,7 +217,7 @@ func (p Projected) listBody(i int) (listBody, bool) {
 	return listBody{}, false
 }
 
-// badge is the severity badge: in brackets without colour, else the palette's.
+// badge uses palette styling or bracketed plain severity.
 func (r renderer) badge(severity string) string {
 	if r.d == palette.None {
 		return "[" + severity + "]"
@@ -238,7 +225,7 @@ func (r renderer) badge(severity string) string {
 	return r.d.Badge(palette.Severity, severity)
 }
 
-// fields are labelled values, each a bold label with a colon and its value.
+// fields formats bold labelled values with colons.
 func (r renderer) fields(kvs []kv) []string {
 	var lines []string
 	for _, f := range kvs {
@@ -252,7 +239,7 @@ func muted(d palette.Depth) func(string) string {
 	return func(s string) string { return d.Text(palette.Semantic, "muted", s) }
 }
 
-// cleaned is each of ss cleaned of anything that would act on a terminal.
+// cleaned sanitises all source strings before layout.
 func cleaned(ss []string) []string {
 	out := make([]string, len(ss))
 	for i, s := range ss {
@@ -261,10 +248,10 @@ func cleaned(ss []string) []string {
 	return out
 }
 
-// kv is a field of a section: a label and its cleaned value.
+// kv pairs a section label with a cleaned value.
 type kv struct{ label, value string }
 
-// dateFields are the Status & Dates section's fields that are selected.
+// dateFields selects values for Status & Dates.
 func dateFields(rec Record, has func(string) bool, loc *time.Location) []kv {
 	var kvs []kv
 	if has("status") {
@@ -279,12 +266,12 @@ func dateFields(rec Record, has func(string) bool, loc *time.Location) []kv {
 	return kvs
 }
 
-// noCVSSScore is the CVSS section's body for a record with no score.
+// noCVSSScore supplies the selected-but-unavailable score message.
 const noCVSSScore = "No CVSS score."
 
-// cvssFields are the CVSS section's fields for the selected cvss_* fields, and
-// whether any of them is selected: selected with no fields is a record with no
-// score. The severity alone selects none: the header's badge shows it.
+// cvssFields returns selected CVSS details and whether the section was requested. A selected
+// but empty section means no score. Severity alone uses the header badge and does not select
+// this section.
 func cvssFields(rec Record, has func(string) bool) (kvs []kv, selected bool) {
 	if !has("cvss_score") && !has("cvss_vector") && !has("cvss_version") && !has("cvss_source") {
 		return nil, false
@@ -311,7 +298,7 @@ func cvssFields(rec Record, has func(string) bool) (kvs []kv, selected bool) {
 	return kvs, true
 }
 
-// references is the References section's body: each URL, with the NVD's tags for it.
+// references formats URLs and their NVD tags.
 func (r renderer) references(refs []Reference) []string {
 	lines := make([]string, len(refs))
 	for i, ref := range refs {
@@ -324,7 +311,7 @@ func (r renderer) references(refs []Reference) []string {
 	return lines
 }
 
-// shortForm is how an affected product reads to a person: apache log4j (>= 2.0.1, < 2.3.1).
+// shortForm formats product identity and version bounds for people.
 func shortForm(ap AffectedProduct) string { return productLine(ap, sanitize.Line, sanitize.Line) }
 
 // shortForms are the products' short forms.
@@ -336,10 +323,9 @@ func shortForms(aps []AffectedProduct) []string {
 	return out
 }
 
-// productLine is the line of an affected product, its vendor, product and version
-// (its CPE, passed through cpe, when it has none of them) and its version bounds,
-// with each of the NVD's other values passed through tidy. Display cleans them
-// and matching leaves them as the NVD wrote them, so the two read the same line.
+// productLine combines product identity and version bounds, falling back to the CPE if identity
+// is absent. tidy lets rendering clean source text while matching uses the original text in the
+// same format.
 func productLine(ap AffectedProduct, tidy, cpe func(string) string) string {
 	var name []string
 	for _, part := range []*string{ap.Vendor, ap.Product, ap.Version} {
@@ -369,8 +355,7 @@ func productLine(ap AffectedProduct, tidy, cpe func(string) string) string {
 	return s
 }
 
-// localTime is how a date reads to a person: the day and a 12-hour time in loc,
-// then the moment in UTC as --json writes it: 2021-12-10 9:15 PM (UTC 2021-12-10T10:15:09Z).
+// localTime formats a local date and 12-hour time followed by its UTC timestamp.
 func localTime(t Timestamp, loc *time.Location) string {
 	if t.IsZero() {
 		return "Unknown"
@@ -378,8 +363,7 @@ func localTime(t Timestamp, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02 3:04 PM") + " (UTC " + t.UTC().Format(time.RFC3339) + ")"
 }
 
-// bullets are items as a list, each wrapped with its continuation lines
-// indented under its text, or fallback alone when there are none.
+// bullets wraps list items beneath their text, using fallback when empty.
 func bullets(items []string, fallback string, width int) []string {
 	if len(items) == 0 {
 		return []string{fallback}
@@ -391,7 +375,7 @@ func bullets(items []string, fallback string, width int) []string {
 	return lines
 }
 
-// wrap breaks text into lines of at most width runes, at spaces.
+// wrap breaks text at spaces within the rune-width limit.
 func wrap(text string, width int) string {
 	words := strings.Fields(text)
 	if len(words) == 0 {
@@ -410,19 +394,13 @@ func wrap(text string, width int) string {
 	return strings.Join(append(lines, current), "\n")
 }
 
-// unknownSeverity is the label of a record with no severity.
+// unknownSeverity labels absent scores.
 const unknownSeverity = "UNKNOWN"
 
-// Bar is the bar that opens a record on a terminal: the CVE ID at the left and
-// the severity label at the right, as wide as the stream's layout width. With
-// colour it is a space, the ID, padding, the label and a space, all in the badge
-// style the severity takes, then barMargin uncoloured. A missing severity (empty,
-// with hasSeverity set) reads UNKNOWN, and a value the palette does not know
-// keeps its own text; both take the DEBUG style. Without hasSeverity
-// (cvss_severity was not selected) the bar holds only the ID, padded, in the
-// DEBUG style, then barMargin. Without colour the bar is the ID and the label in
-// brackets at either end of the line, or the ID alone without hasSeverity. The ID
-// and the severity are cleaned first.
+// Bar lays out a terminal record header with ID on the left and selected severity on the right.
+// Colour mode fills the bar with the severity style and leaves barMargin plain. Unknown or
+// unrecognised severity uses DEBUG styling. Without selected severity, only the ID appears.
+// Without colour, severity uses brackets. ID and severity are cleaned before layout.
 func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
 	id = sanitize.Line(id)
 	label := orEmpty(sanitize.Line(severity), unknownSeverity)
@@ -437,31 +415,29 @@ func Bar(s layout.Stream, id, severity string, hasSeverity bool) string {
 	}
 	cols -= len(barMargin)
 	if !hasSeverity {
-		// A label the severity table does not hold gets the DEBUG style.
+		// Unknown severity labels use DEBUG styling.
 		return d.BadgeText(palette.Severity, unknownSeverity, layout.PadRight(" "+id, cols)) + barMargin
 	}
 	return d.BadgeText(palette.Severity, label, layout.PadRight(" "+id+" ", cols-1-layout.Measure(label))+label+" ") + barMargin
 }
 
-// barMargin is the uncoloured spaces that end a coloured bar.
+// barMargin leaves trailing header-bar space uncoloured.
 const barMargin = "  "
 
-// termRenderer lays records out for a terminal: a header bar, then each section
-// under a heading with no rule, its text indented two spaces and wrapped to the
-// width. Every NVD value is cleaned, then wrapped, then coloured, as in the
-// plain layout.
+// termRenderer adds a header bar and indented, wrapped sections. Values are cleaned before
+// wrapping and coloured last, as in plain output.
 type termRenderer struct {
 	s   layout.Stream // its width fixed for the whole write
 	loc *time.Location
 }
 
-// indent is the indentation of every line of a section's body.
+// indent controls section-body padding.
 const indent = 2
 
 func (r termRenderer) record(p Projected) string {
 	rec, has := p.rec, p.f.Has
 	lines := []string{Bar(r.s, rec.ID, or(rec.CVSSSeverity, ""), has("cvss_severity"))}
-	// A tip follows the heading in the muted colour, and is not broken.
+	// Keep the muted hint whole after its heading.
 	section := func(heading, tip string, body []string) {
 		if len(body) > 0 {
 			var after []layout.Span
@@ -494,12 +470,10 @@ func (r termRenderer) record(p Projected) string {
 	return strings.Join(lines, "\n")
 }
 
-// squash is text with each run of spaces as one space and none at either end,
-// so it wraps as the plain layout's words do.
+// squash normalises whitespace so terminal wrapping sees the same words as plain layout.
 func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// hang is plain text wrapped at spaces after prefix, its continuation lines
-// under its first.
+// hang wraps plain text under its prefix.
 func (r termRenderer) hang(prefix, text string) []string {
 	return layout.Hang(prefix, layout.Plain(squash(text)), r.s.Cols(), layout.Spaces)
 }
@@ -507,9 +481,8 @@ func (r termRenderer) hang(prefix, text string) []string {
 // text is a paragraph indented two spaces.
 func (r termRenderer) text(s string) []string { return r.hang(strings.Repeat(" ", indent), s) }
 
-// fields are labelled values: labels indented two spaces, bold with colour and
-// without a colon, then the values in one column two spaces after the longest
-// label, wrapping under themselves.
+// fields aligns values after the longest label, indents two spaces and wraps continuation lines
+// beneath each value. Coloured labels are bold and omit colons.
 func (r termRenderer) fields(kvs []kv) []string {
 	longest := 0
 	for _, f := range kvs {
@@ -524,8 +497,8 @@ func (r termRenderer) fields(kvs []kv) []string {
 	return out
 }
 
-// bullets are items as a list, each a dash two spaces in with its continuation
-// lines under its text, or fallback alone, indented, when there are none.
+// bullets aligns wrapped entries beneath their text, or uses an indented fallback for empty
+// lists.
 func (r termRenderer) bullets(items []string, fallback string) []string {
 	if len(items) == 0 {
 		return r.text(fallback)
@@ -538,8 +511,8 @@ func (r termRenderer) bullets(items []string, fallback string) []string {
 	return out
 }
 
-// references are each URL, whole, in the info colour, then the NVD's tags for it
-// as a list in the muted colour that wraps at spaces, under the URL's text at 4.
+// references keeps each URL whole in the info colour and wraps muted NVD tags beneath it at
+// four-space indentation.
 func (r termRenderer) references(refs []Reference) []string {
 	d := r.s.Depth
 	info := func(x string) string { return d.Text(palette.Semantic, "info", x) }

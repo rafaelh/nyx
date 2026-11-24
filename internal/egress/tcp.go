@@ -89,10 +89,8 @@ func (e *Egress) dialAndRead(ctx context.Context, addr netip.Addr, port int) (TC
 	return Open{Banner: append([]byte(nil), buf[:n]...)}, nil
 }
 
-// classifyDial turns a failed dial into a result: a refusal is Closed, no
-// answer is Filtered, and a failure of this machine is an error (transient),
-// including a routing error that route, a lookup for the same address,
-// reproduces (localRoute).
+// classifyDial maps refusals to Closed and unanswered dials to Filtered. Local failures remain
+// retryable errors, including routing errors reproduced by a local route lookup.
 func classifyDial(err error, addr netip.Addr, route func(netip.Addr) error) (TCPResult, error) {
 	err = localRoute(err, addr, route)
 	switch {
@@ -107,16 +105,12 @@ func classifyDial(err error, addr netip.Addr, route func(netip.Addr) error) (TCP
 // errLocalRoute marks a dial error that this machine's routing table produced.
 var errLocalRoute = errors.New("no route on this machine")
 
-// routeErrnos are the dial errors that this machine's routing table and a remote
-// router can both produce: ENETUNREACH (no route, or ICMP net unreachable),
-// EHOSTUNREACH (an unreachable route, or ICMP host unreachable) and EACCES (a
-// prohibit route, or ICMP administratively prohibited).
+// routeErrnos can originate locally or from a remote router: ENETUNREACH, EHOSTUNREACH and
+// EACCES. A route lookup distinguishes local route failures from ICMP responses.
 var routeErrnos = []syscall.Errno{syscall.ENETUNREACH, syscall.EHOSTUNREACH, syscall.EACCES}
 
-// localRoute marks err with errLocalRoute when it is one of routeErrnos and
-// route, a lookup for the same address, fails with the same errno: no packet
-// left this machine, so it is a local failure. Otherwise a router answered,
-// which is an answer from the network, and err is returned unchanged.
+// localRoute marks a routing error local only when a lookup for the same address reproduces its
+// errno. Otherwise it remains a network response.
 func localRoute(err error, addr netip.Addr, route func(netip.Addr) error) error {
 	for _, e := range routeErrnos {
 		if errors.Is(err, e) {
@@ -137,8 +131,7 @@ func (e *Egress) routeLookup() func(netip.Addr) error {
 	return udpRoute
 }
 
-// udpRoute asks the kernel for a route to addr by connecting a UDP socket,
-// which sends no datagram: a local routing-table query, not contact with the target.
+// udpRoute queries kernel routing through a UDP connect without sending a datagram.
 func udpRoute(addr netip.Addr) error {
 	c, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(netip.AddrPortFrom(addr, 9)))
 	if err != nil {
@@ -147,10 +140,8 @@ func udpRoute(addr netip.Addr) error {
 	return c.Close()
 }
 
-// localFailure reports whether a dial error is this machine's fault (out of
-// descriptors, buffers or ephemeral ports, no network, a local firewall
-// refusing with EPERM, or a routing error marked by localRoute) rather than an
-// answer from the target. It is a transient failure, never a result.
+// localFailure identifies host-side resource, network, firewall or routing errors. These are
+// retryable failures rather than evidence about a target port.
 func localFailure(err error) bool {
 	for _, e := range []error{syscall.EMFILE, syscall.ENFILE, syscall.ENOBUFS, syscall.ENOMEM,
 		syscall.EADDRNOTAVAIL, syscall.EADDRINUSE, syscall.ENETDOWN, syscall.EPERM, errLocalRoute} {

@@ -25,9 +25,8 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// Contact says whom a stage talks to. It is single-valued: a stage with mixed
-// behaviour is split into separate stages (egress.Clients only carries Target
-// clients to stages whose Contact is Target).
+// Contact identifies whether a stage contacts third parties or targets. Stages combining both
+// kinds of contact are split so egress can grant target clients only where needed.
 type Contact int
 
 const (
@@ -35,57 +34,49 @@ const (
 	Target
 )
 
-// Check is one unit of work. Key must encode every input and setting that
-// changes the work done (for example "203.0.113.5:8080", or
-// "https://a.example.com|depth=2|pages=100"), so changing such a setting
-// creates new checks instead of silently reusing old results.
+// Check is a resumable unit of work. Key includes the inputs and settings that affect its
+// result, such as an address and port or a URL and crawl depth. This prevents changed settings
+// from reusing stale results.
 type Check struct {
 	Key   string
 	Input any
-	// Cost is what the check spends of its stage's per-run budget (see Budgeted):
-	// the number of names it queries, requests it sends. 0 means 1.
+	// Cost counts units of the stage's per-run budget, such as names queried or requests
+	// sent. Zero counts as one.
 	Cost int
 }
 
-// Observation is a fact a check found, made with a kind's handle (for example
-// kinds.Resolution.Obs). Discovered entities are observations of kind
-// hostname, root or netblock; scope classifies them (in scope, candidate or
-// excluded), so stages never implement candidate or exclusion handling.
+// Observation is a fact found by a check, constructed with a kind handle such as
+// kinds.Resolution.Obs. Stages report discovered entities; scope classification decides whether
+// they are in scope, candidates or excluded.
 type Observation = store.Obs
 
-// ErrAbortStage, wrapped in a check's error, fails that check and every
-// remaining check of the stage for this run without sending them.
+// ErrAbortStage marks an error that fails the current check and abandons the stage's remaining
+// checks for this run.
 var ErrAbortStage = errors.New("abort stage")
 
-// ErrQuota, wrapped in a check's error, says the source's quota is spent. It
-// aborts the stage like ErrAbortStage, which it wraps: the checks not yet done
-// fail and are retried on the next run.
+// ErrQuota signals that a source's quota is exhausted. It wraps ErrAbortStage, so pending
+// checks fail and can be retried next run.
 var ErrQuota = fmt.Errorf("quota spent: %w", ErrAbortStage)
 
-// ErrKeyRejected, wrapped in a check's error, says the source refused the API key.
-// It aborts the stage like ErrAbortStage, which it wraps, and the run counts the
-// failures it causes apart: waiting does not cure a refused key.
+// ErrKeyRejected signals a refused API key and aborts the stage. These failures are counted
+// separately because retrying later cannot fix the key.
 var ErrKeyRejected = fmt.Errorf("key rejected: %w", ErrAbortStage)
 
 type runStateKey struct{}
 
-// runState is what PerRun keeps for one run.
 type runState struct {
 	mu sync.Mutex
 	m  map[any]any
 }
 
-// withRunState returns a context that PerRun keeps its values in.
 func withRunState(ctx context.Context) context.Context {
 	return context.WithValue(ctx, runStateKey{}, &runState{m: map[any]any{}})
 }
 
-// PerRun returns what init made the first time any check of this run asked for
-// key, and the same value to every later ask until the run ends, so a stage
-// fetches a file shared by all its checks once per run and not once per process.
-// init runs under the lock every PerRun of the run shares, so it must be quick
-// and must not call PerRun itself. A context that did not come from the runner
-// keeps nothing: init is called every time.
+// PerRun initialises a value once per key and shares it across checks in this run. This is
+// useful for data fetched once per run rather than once per process. init holds the shared
+// lock: keep it quick and do not call PerRun from it. Without a runner context, each call
+// invokes init again.
 func PerRun[T any](ctx context.Context, key any, init func() T) T {
 	st, ok := ctx.Value(runStateKey{}).(*runState)
 	if !ok {
@@ -103,22 +94,20 @@ func PerRun[T any](ctx context.Context, key any, init func() T) T {
 
 type warnerKey struct{}
 
-// withWarner returns a context whose Warnf calls go to warn.
 func withWarner(ctx context.Context, warn func(format string, a ...any)) context.Context {
 	return context.WithValue(ctx, warnerKey{}, warn)
 }
 
-// Warnf reports a problem that does not fail the check, such as a truncated
-// result. Like View.Warn it is a WARN line, shown by default and written once
-// per run for the same text. A context that did not come from the runner has no
-// warner, and the call does nothing, so stages stay testable without one.
+// Warnf reports a non-fatal problem, such as truncated results. Like View.Warn, it emits each
+// warning text once per run. It does nothing without a runner context, so stages can also run
+// in isolated tests.
 func Warnf(ctx context.Context, format string, a ...any) {
 	if warn, ok := ctx.Value(warnerKey{}).(func(string, ...any)); ok {
 		warn(format, a...)
 	}
 }
 
-// Env is what a stage sees when deciding whether it can run.
+// Env supplies the settings and permissions used to decide whether a stage can run.
 type Env struct {
 	Settings   config.Settings
 	Passive    bool
@@ -131,13 +120,9 @@ func (e Env) Key(source string) (config.Secret, bool) {
 	return k, ok && k.Reveal() != ""
 }
 
-// Stage is one discovery stage.
-//
-// Run reports negative results (closed port, NXDOMAIN, no HTTP service, a
-// policy refusal) as observations or as no observations: they are completed
-// checks. A returned error means a transient failure (timeout, rate limit,
-// source unavailable): the check is not recorded, is not retried in the same
-// run, is retried on every later run, and is counted as failed.
+// Stage performs discovery as resumable checks. Negative results such as closed ports, NXDOMAIN
+// or policy refusal complete a check with any observations found. Returning an error marks a
+// failure: it is counted now and retried on a later run, never in the same run.
 type Stage interface {
 	Name() string // listed in --help, accepted by --redo
 	Contact() Contact
@@ -147,40 +132,36 @@ type Stage interface {
 	Run(ctx context.Context, c Check, e egress.Clients) ([]Observation, error)
 }
 
-// WorkerCounter is implemented by a stage that needs a different number of
-// workers from Settings.Concurrency (the ports stage, whose checks are slow).
+// WorkerCounter overrides Settings.Concurrency for stages needing a different pool size, such
+// as slow port checks.
 type WorkerCounter interface {
 	Workers(config.Settings) int
 }
 
-// Budgeted is implemented by a stage that caps the work it does in one run.
+// Budgeted limits a stage's total check cost in one run.
 type Budgeted interface {
 	Budget(config.Settings) int
 }
 
-// Noter is implemented by a stage that has something to say in the run summary
-// beyond the counts: a search that was cut short, say. Each note is one line,
-// asked for once at the end of the run, from the records as they then stand.
+// Noter adds lines to the run summary, such as a warning that a search was cut short. Notes are
+// requested once at the end using the final records.
 type Noter interface {
 	Notes(v View) []string
 }
 
-// Evidencer is implemented by a stage that says what supports a candidate its
-// check found.
+// Evidencer identifies the source and supporting item a check contributes to a candidate.
 type Evidencer interface {
 	Evidence(checkKey string) (source, item string)
 }
 
-// CandidateSourcer is implemented by a stage whose checks find candidates. It
-// maps each source its evidence is given under (its name, or each source its
-// Evidence gives, up to any colon) to the source's family: one of package
-// candidates' families, or the source's own name for a family of its own. A
-// source no stage names is a family of its own.
+// CandidateSourcer groups evidence sources into candidate families. Keys are stage names or
+// Evidence source names before the first colon. Values are known family names or the source's
+// own name for an independent family. Undeclared sources each form their own family.
 type CandidateSourcer interface {
 	CandidateSources() map[string]string
 }
 
-// CandidateFamilies are the families of the sources the stages name.
+// CandidateFamilies combines the source-family mappings declared by stages.
 func CandidateFamilies(stages []Stage) candidates.Families {
 	named := map[string]string{}
 	for _, s := range stages {
@@ -191,64 +172,57 @@ func CandidateFamilies(stages []Stage) candidates.Families {
 	return candidates.NewFamilies(named)
 }
 
-// ASNExpander is implemented by a stage that expands each input ASN into the
-// netblocks it announces: a netblock it observes under the check keyed by an
-// input ASN is in scope (see BuildScope).
+// ASNExpander marks stages whose netblocks extend an input ASN's scope. BuildScope includes
+// netblocks observed under a check keyed by that ASN.
 type ASNExpander interface {
 	ExpandsInputASNs()
 }
 
-// Retiring is implemented by a stage whose check keys carry a hash of the
-// entry a check applies (a fingerprint, a sensitive-path signature, the DKIM
-// selector list). After every pass that enumerated cleanly, the runner retires
-// its completed checks that it no longer yields (Store.Retire): evidence from a
-// superseded check stops being current instead of outliving the edit.
+// Retiring marks stages whose completed checks can become obsolete, such as checks keyed by a
+// fingerprint hash. After successful enumeration, the runner retires checks no longer listed so
+// their old evidence stops being current.
 type Retiring interface {
 	RetiresUnlistedChecks()
 }
 
-// recordCache holds the records a View has read, for one stage pass.
 type recordCache struct {
 	mu    sync.Mutex
 	m     map[string][]store.Record
-	hosts map[netip.Addr][]string // address -> probe hostnames, built on first use
+	hosts map[netip.Addr][]string // probe hostnames by address, indexed lazily
 }
 
-// View gives a stage read access to the store and the current Scope. It
-// caches the records it reads for its lifetime, one stage pass, so callers must
-// not modify the returned slices.
+// View exposes the store and scope as of one stage pass. Records are cached for that pass;
+// treat returned slices as read-only.
 type View struct {
 	r     *Runner
 	sc    *scope.Scope
 	inv   *inventory.Inventory
-	vis   *kinds.Visibility // of sc and inv
+	vis   *kinds.Visibility // visibility for sc and inv
 	cache *recordCache
-	done  map[string]struct{} // the stage's completed check keys, as the store keeps them
+	done  map[string]struct{} // completed check keys in their stored, redacted form
 }
 
-// Done reports whether the stage has completed the check with this key, as of
-// the start of this pass. A key the stage carries a secret in is looked up in
-// its stored (redacted) form.
+// Done checks completion as of the start of the pass. Keys containing secrets are converted to
+// their stored, redacted form before lookup.
 func (v View) Done(key string) bool {
 	_, ok := v.done[v.r.st.CheckKey(key)]
 	return ok
 }
 
-// Scope is the Scope built at the start of the current pass.
+// Scope returns the scope snapshot for this pass.
 func (v View) Scope() *scope.Scope { return v.sc }
 
-// Warn reports a problem that does not fail a check, such as a stage running
-// with reduced capability. It is a WARN line, shown by default; the same text is
-// written once per run, however many passes call it.
+// Warn reports a non-fatal stage problem. Each distinct warning text appears once per run, even
+// across repeated passes.
 func (v View) Warn(format string, a ...any) { v.r.warn(format, a...) }
 
-// Settings are the run's settings.
 func (v View) Settings() config.Settings { return v.r.cfg.Settings }
 
-// Inputs are the engagement's stored scope inputs and exclusions.
+// Inputs returns the engagement's stored scope inputs and exclusions.
 func (v View) Inputs() input.Parsed { return v.r.inputs }
 
-// Records returns the current records of a kind; decode them with its handle.
+// Records returns cached current records for a kind. Use the kind's handle to decode
+// attributes.
 func (v View) Records(k kinds.Named) []store.Record {
 	kind := k.Name()
 	v.cache.mu.Lock()
@@ -265,9 +239,8 @@ func (v View) Records(k kinds.Named) []store.Record {
 	return out
 }
 
-// IPs returns the addresses of the current ip records that keep accepts,
-// unmapped, without duplicates, and sorted by address. keep sees the unmapped
-// address. A record whose key is not an address is skipped.
+// IPs filters current IP records after unmapping IPv4-mapped addresses. Invalid keys are
+// skipped; results are sorted. keep receives the unmapped address.
 func (v View) IPs(keep func(netip.Addr) bool) []netip.Addr {
 	var out []netip.Addr
 	for _, rec := range v.Records(kinds.IP) {
@@ -279,8 +252,8 @@ func (v View) IPs(keep func(netip.Addr) bool) []netip.Addr {
 	return slices.Compact(out)
 }
 
-// KnownAddrs returns every address the engagement knows, whether or not it may
-// be contacted: the addresses of ips.csv, in address order.
+// KnownAddrs returns the addresses listed in ips.csv, sorted, including those that cannot be
+// contacted.
 func (v View) KnownAddrs() []netip.Addr { return v.inv.KnownAddrs(v.sc) }
 
 // WebService is a current web_service record whose host is in scope.
@@ -289,8 +262,7 @@ type WebService struct {
 	Svc egress.Service
 }
 
-// WebServices returns the current web_service records whose host is in scope,
-// in key order. A record whose key is not a service URL is skipped.
+// WebServices returns current in-scope services sorted by key, skipping invalid service URLs.
 func (v View) WebServices() []WebService {
 	var out []WebService
 	for _, rec := range v.Records(kinds.WebService) {
@@ -301,8 +273,7 @@ func (v View) WebServices() []WebService {
 	return out
 }
 
-// InScopeRoots returns the in-scope input roots, sorted: the roots the user gave
-// that the scope has not excluded.
+// InScopeRoots returns sorted input roots after applying exclusions.
 func (v View) InScopeRoots() []string {
 	var out []string
 	for _, r := range v.Inputs().Roots {
@@ -310,13 +281,12 @@ func (v View) InScopeRoots() []string {
 			out = append(out, r)
 		}
 	}
-	slices.Sort(out) // input roots are canonical and unique, but not sorted
+	slices.Sort(out)
 	return out
 }
 
-// ResolvableHostnames are the names the resolve stage looks up: in-scope and
-// excluded hostnames (exclusion by resolved address needs their addresses) and
-// the input roots, never candidates. Sorted.
+// ResolvableHostnames returns sorted input roots and discovered names to resolve. Excluded
+// names are included because address-based exclusions need DNS results; candidates are omitted.
 func (v View) ResolvableHostnames() []string {
 	set := map[string]bool{}
 	add := func(h string) {
@@ -333,21 +303,20 @@ func (v View) ResolvableHostnames() []string {
 	return slices.Sorted(maps.Keys(set))
 }
 
-// ProbeHostnames are the names later stages may probe over HTTP: resolved,
-// in-scope, not excluded, not wildcard-only, plus one representative for each
-// wildcard zone. Web stages must use this, not the hostname records, so that
-// a wildcard zone is probed once.
+// ProbeHostnames returns resolved in-scope names eligible for HTTP probing, with one
+// representative per wildcard zone. Web stages use this list to avoid probing every wildcard
+// hostname.
 func (v View) ProbeHostnames() []string { return v.inv.ProbeHostnames(v.sc) }
 
-// ProviderHosts are the in-scope names on shared provider infrastructure, with
-// Resolves=false for chains that dangle. The takeover checks read it.
+// ProviderHosts returns in-scope names on shared infrastructure for takeover checks. Dangling
+// CNAME chains have Resolves=false.
 func (v View) ProviderHosts() []inventory.ProviderHost { return v.inv.ProviderHosts(v.sc) }
 
-// SaaSServed reports whether a host (a name or an IP literal) is served by a
-// third-party SaaS platform, by CNAME chain, address ASN or address range.
+// SaaSServed identifies third-party SaaS hosting from CNAME chains, ASNs or address ranges.
+// host can be a name or IP literal.
 func (v View) SaaSServed(host string) bool { return v.inv.SaaSServed(host) }
 
-// FrontedHostnames are the probe hostnames that currently resolve to a CDN or WAF, in name order.
+// FrontedHostnames returns sorted probe names resolving to a CDN or WAF.
 func (v View) FrontedHostnames() []string {
 	var out []string
 	for _, f := range origin.FrontedHosts(v.sc, v.inv) {
@@ -356,35 +325,34 @@ func (v View) FrontedHostnames() []string {
 	return out
 }
 
-// OriginPairs are the candidate origins of the fronted hostnames, at most
-// origincheck.max_candidates for each: the same pairs the findings report.
+// OriginPairs returns the same candidate origins used by findings, capped per host by
+// origincheck.max_candidates.
 func (v View) OriginPairs() []origin.Pair {
 	return origin.Pairs(v.sc, v.inv, v.vis, v.Records, v.Settings().OriginCheck.MaxCandidates)
 }
 
-// StorageRefs are the buckets and containers in-scope names and pages point at,
-// sorted. A bucket with a reference is attributed.
+// StorageRefs returns sorted bucket and container references from in-scope names and pages.
+// These references establish attribution.
 func (v View) StorageRefs() []cloudstorage.Reference {
 	return findings.References(findings.Input{Scope: v.sc, Inv: v.inv, Records: v.Records, Vis: v.vis})
 }
 
-// WildcardZone reports whether the name is a zone known to be a wildcard.
+// WildcardZone identifies known wildcard-answering zones.
 func (v View) WildcardZone(name string) bool { return v.inv.WildcardZone(name) }
 
-// Seeds are the hostnames the generator stage derives names from: never
-// names only the generator itself observed, and never one directly under a
-// wildcard zone.
+// Seeds returns hostnames for name generation. It excludes names observed only by this
+// generator and direct children of wildcard zones to avoid feeding generated names back into
+// discovery.
 func (v View) Seeds(generator string) []string { return v.inv.Seeds(v.sc, generator) }
 
-// OpenPort is a current open_port record: the port stage emits one per
-// open port, keyed by netip.AddrPort.String(), with an unprompted banner if any.
+// OpenPort holds an open address/port pair and any banner received without sending application
+// data.
 type OpenPort struct {
 	Addr   netip.AddrPort
 	Banner string
 }
 
-// OpenPorts returns the current open_port records, sorted by address and port.
-// A record whose key is not an address and port is skipped.
+// OpenPorts returns current open ports sorted by address and port, skipping invalid keys.
 func (v View) OpenPorts() []OpenPort {
 	var out []OpenPort
 	for _, rec := range v.Records(kinds.OpenPort) {
@@ -396,24 +364,23 @@ func (v View) OpenPorts() []OpenPort {
 	return out
 }
 
-// PortEligible reports whether the address may be port-checked: the decision
-// egress enforces and ips.csv reports.
+// PortEligible uses the same port-checking decision as egress and ips.csv.
 func (v View) PortEligible(a netip.Addr) bool { return v.inv.PortEligible(a, v.sc) }
 
-// SelfHosted reports whether a name server or mail host is run by the
-// organisation (see inventory.SelfHosted).
+// SelfHosted reports whether the organisation runs a mail host or name server; see
+// inventory.SelfHosted.
 func (v View) SelfHosted(host string) bool { return v.inv.SelfHosted(host, v.sc) }
 
-// Registered reports whether a current registration record's range holds the address.
+// Registered checks whether a current registration range contains the address.
 func (v View) Registered(a netip.Addr) bool {
 	_, ok := v.inv.RegistrationOf(a)
 	return ok
 }
 
-// OwnerKnown reports whether anything is known about who owns the address.
+// OwnerKnown reports whether ownership information is available for the address.
 func (v View) OwnerKnown(a netip.Addr) bool { return v.inv.OwnerKnown(a, v.sc) }
 
-// HostsFor returns the ProbeHostnames that resolve to the address, sorted.
+// HostsFor returns sorted probe hostnames resolving to the address.
 func (v View) HostsFor(a netip.Addr) []string {
 	v.cache.mu.Lock()
 	defer v.cache.mu.Unlock()
@@ -431,9 +398,8 @@ func (v View) HostsFor(a netip.Addr) []string {
 	return v.cache.hosts[a.Unmap()]
 }
 
-// Historical is implemented by a stage whose addresses come from DNS history: names an address once
-// had, which the engagement may no longer use. An ip record that only such stages observe is
-// history-only, and the abusive-network check leaves it out (see Runner.historyOnly).
+// Historical marks stages that report past DNS addresses. Addresses observed only by these
+// stages may no longer be used by the engagement, so abusive-network findings omit them.
 type Historical interface {
 	HistoricalAddresses()
 }

@@ -7,9 +7,7 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// A third party is shown while its root is in scope and, when it names a
-// domain, only while that domain is not. The rule is read-time: a root added
-// later hides the row.
+// Dependency visibility follows current root/domain scope, including roots added later.
 func TestThirdPartyShown(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -81,8 +79,7 @@ func TestThirdPartyFound(t *testing.T) {
 	}
 }
 
-// A record that is no longer current keeps no attributes, so its root,
-// mechanism and domain (and the provider that domain belongs to) come from its key.
+// Non-current third parties recover identifying fields and provider labels from keys.
 func TestThirdPartyAttrsFromKey(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {

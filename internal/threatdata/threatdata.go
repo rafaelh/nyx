@@ -1,28 +1,14 @@
-// Package threatdata holds the threat data nyx checks addresses against: Spamhaus's three DROP
-// lists and ipapi.is's two abuse lists, five lists in all. Each list has a built-in copy, embedded
-// in the binary, and may have a downloaded copy, which an update keeps in the threat-data directory
-// beside the default config file.
+// Package threatdata manages Spamhaus's DROP/DROPv6/ASN-DROP and ipapi.is's network/ASN lists.
+// Each has an embedded copy and may have a downloaded copy beside the default config. Each
+// source is replaced atomically as one bundle: spamhaus.jsonl or ipapi.json.
 //
-// # Terms
+// Load selects the newer copy per list, preferring downloaded data on equal dates. An invalid
+// downloaded bundle falls back entirely to embedded data with a warning. Validation rejects
+// malformed metadata, control characters, duplicates and counts below 90% of the stated total.
 //
-// A source is one provider of lists: Spamhaus (drop_v4, drop_v6 and asndrop) or ipapi.is
-// (networks and asns). A source's downloaded copy is replaced as a whole or not at all, so it is
-// one file: spamhaus.jsonl (a bundle, as internal/spamhaus reads it) or ipapi.json (a snapshot file,
-// as internal/abusive reads it).
-//
-// The copy in use of a list is whichever of its built-in and downloaded copies is dated later, the
-// downloaded one when both have the same date. A downloaded source that is unreadable (it fails to
-// parse, holds a control character, lists an entry twice, lacks its metadata, or holds fewer than
-// 90% of the entries it states) is not used at all: the whole source falls back to its built-in
-// copy, with a warning.
-//
-// A source is stale when more than 30 days have passed both since the oldest date among its lists
-// in use and since its last successful check: an update that found it updated or already current.
-//
-// Load reads the lists in use. Update downloads the five lists through egress's third-party client
-// (this package does file I/O but never network I/O itself), checks each against the acceptance
-// rules in accept.go, and keeps a per-source state file of when the source last answered and was
-// last checked.
+// A source is stale only when both its oldest active list and its last successful update check
+// are over 30 days old. Update fetches through egress, applies shared acceptance rules and
+// saves per-source contact/check times.
 package threatdata
 
 import (
@@ -59,8 +45,8 @@ const (
 	ListASNs     = "asns"
 )
 
-// BuiltIn is the built-in copy of each list. A nil *BuiltIn means the copies embedded in the
-// binary; a test gives its own, so that its dates don't move with each refresh of the embedded data.
+// BuiltIn supplies embedded-list replacements for tests with fixed dates. Nil uses the binary's
+// data.
 type BuiltIn struct {
 	Spamhaus spamhaus.Lists
 	Ipapi    abusive.Snapshot
@@ -75,14 +61,13 @@ type List struct {
 	Downloaded bool // the copy in use is the downloaded one, not the built-in one
 }
 
-// Notice is a warning or a stale notice about one source. Text is the whole line, sanitised,
-// without a "hint: " or "warning: " prefix.
+// Notice carries a sanitised source warning/staleness message without a display prefix.
 type Notice struct {
 	Source string
 	Text   string
 }
 
-// Set is the five lists in use, ready to match, with what a command reading them reports.
+// Set contains active matchers, list metadata and command notices.
 type Set struct {
 	Drop    spamhaus.Lists
 	Abusive *abusive.Snapshot // loaded, ready to match
@@ -90,20 +75,18 @@ type Set struct {
 	// Lists describes the five lists, in the order drop_v4, drop_v6, asndrop, networks, asns.
 	Lists []List
 
-	// Copyright and Terms are Spamhaus's credit, from the metadata of the drop_v4 list in use,
-	// sanitised, or the built-in copy's when that list has none.
+	// Copyright and Terms use sanitised active drop_v4 credit, falling back to built-in
+	// metadata.
 	Copyright, Terms string
 
 	// Warnings has one notice for each source whose downloaded copy is unreadable.
 	Warnings []Notice
-	// Stale has one notice for each stale source, as "Spamhaus DROP data is from <date>; run nyx
-	// setup --update-threat-data" or "ipapi.is abuse data is from <date>; ...".
+	// Stale contains one dated update notice per stale source.
 	Stale []Notice
 }
 
-// Dir is the threat-data directory: threat-data beside the default config file, under
-// $XDG_CONFIG_HOME/nyx or else ~/.config/nyx. It is "" when neither XDG_CONFIG_HOME nor HOME is
-// set.
+// Dir places threat-data beside the default config under XDG_CONFIG_HOME or ~/.config. It
+// returns "" when neither base directory is known.
 func Dir(env config.Env) string {
 	path := config.DefaultConfigPath(env)
 	if path == "" {
@@ -112,9 +95,8 @@ func Dir(env config.Env) string {
 	return filepath.Join(filepath.Dir(path), "threat-data")
 }
 
-// Load reads the lists in use from dir and b's built-in copies, or the embedded ones when b is nil.
-// now decides staleness. With dir "" it uses the built-in copies, with no warning and no stale
-// notice.
+// Load selects active downloaded/built-in copies and uses now for staleness. Nil b uses
+// embedded data. An empty dir uses only built-ins and suppresses warnings and stale notices.
 func (b *BuiltIn) Load(dir string, now time.Time) Set {
 	builtSH := b.spamhausLists()
 	builtIP, loadedIP := b.ipapiSnapshot()
@@ -153,8 +135,7 @@ func (b *BuiltIn) Load(dir string, now time.Time) Set {
 	return set
 }
 
-// The files in the threat-data directory. Each source's names start with its stem: the data file,
-// <stem>.state.json, <stem>.lock and the temporary files .<stem>-*.tmp.
+// Source files share a stem: data, state JSON, lock and temporary update files.
 const (
 	stemSpamhaus = "spamhaus"
 	stemIpapi    = "ipapi"
@@ -163,8 +144,7 @@ const (
 	fileIpapi    = "ipapi.json"
 )
 
-// staleAfter is how long a source's data, and its last successful check, may be old before a
-// command says so.
+// staleAfter requires both old list data and an old successful check before warning.
 const staleAfter = 30 * 24 * time.Hour
 
 // spamhausLists is the built-in Spamhaus copy: b's, or the embedded one.
@@ -175,8 +155,8 @@ func (b *BuiltIn) spamhausLists() spamhaus.Lists {
 	return *spamhaus.Default()
 }
 
-// ipapiSnapshot is the built-in ipapi.is copy: b's, or the embedded one. For the embedded copy it
-// also returns the snapshot already prepared for matching, which must not be changed.
+// ipapiSnapshot selects b's copy or the embedded one. The embedded snapshot is pre-indexed for
+// matching and must be treated as read-only.
 func (b *BuiltIn) ipapiSnapshot() (abusive.Snapshot, *abusive.Snapshot) {
 	if b != nil {
 		return b.Ipapi, nil
@@ -185,14 +165,14 @@ func (b *BuiltIn) ipapiSnapshot() (abusive.Snapshot, *abusive.Snapshot) {
 	return *d, d
 }
 
-// state is a source's state file: when it last sent a response, and when an update last found it
-// updated or already current. A nil time is null.
+// state stores last HTTP response and last successful update/check times. Unknown times encode
+// as null.
 type state struct {
 	LastResponse *time.Time `json:"last_response"`
 	LastChecked  *time.Time `json:"last_checked"`
 }
 
-// readState reads a source's state file, which is the zero state when it is absent or unreadable.
+// readState defaults missing or unreadable state to zero values.
 func readState(dir, stem string) state {
 	var st state
 	if b, err := os.ReadFile(filepath.Join(dir, stem+".state.json")); err == nil {
@@ -203,8 +183,8 @@ func readState(dir, stem string) state {
 	return st
 }
 
-// readSpamhaus reads the downloaded Spamhaus copy. It returns nil and no notice when there is none,
-// and nil and a notice when it is unreadable.
+// readSpamhaus distinguishes absent downloads from unreadable ones, returning a notice only for
+// the latter.
 func readSpamhaus(dir string) (*spamhaus.Lists, *Notice) {
 	l, err := parseSpamhausFile(filepath.Join(dir, fileSpamhaus))
 	if err != nil {
@@ -213,7 +193,7 @@ func readSpamhaus(dir string) (*spamhaus.Lists, *Notice) {
 	return l, nil
 }
 
-// parseSpamhausFile reads and checks a bundle file. A missing file gives nil and no error.
+// parseSpamhausFile validates downloaded bundles, accepting missing files as nil.
 func parseSpamhausFile(path string) (*spamhaus.Lists, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -238,8 +218,8 @@ func readIpapi(dir string) (*abusive.Snapshot, *Notice) {
 	return s, nil
 }
 
-// parseIpapiFile reads and checks a snapshot file, ignoring fields it does not know. A missing file
-// gives nil and no error.
+// parseIpapiFile validates snapshots while tolerating unknown future fields; missing files
+// return nil.
 func parseIpapiFile(path string) (*abusive.Snapshot, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -268,8 +248,8 @@ func unreadable(source, dir string, err error) *Notice {
 		source, dir, err))}
 }
 
-// spamhausInUse picks, for each of the three lists, the downloaded one when it is dated no earlier
-// than the built-in one, and says which it picked. down may be nil.
+// spamhausInUse selects downloaded lists at least as new as built-ins and reports the selection
+// per list. down may be nil.
 func spamhausInUse(built spamhaus.Lists, down *spamhaus.Lists) (spamhaus.Lists, [3]bool) {
 	use := built
 	var from [3]bool
@@ -304,14 +284,13 @@ func ipapiInUse(built abusive.Snapshot, down *abusive.Snapshot) (abusive.Snapsho
 	return use, from
 }
 
-// ipapiDate is an ipapi.is list's date as 00:00 UTC of its day, or the zero time when it has none.
+// ipapiDate converts a source day to midnight UTC or zero when missing.
 func ipapiDate(day string) time.Time {
 	t, _ := time.Parse(time.DateOnly, day)
 	return t
 }
 
-// credit is Spamhaus's copyright line and terms link from the drop_v4 list in use, sanitised, with
-// the built-in copy's for either that the list lacks.
+// credit sanitises active drop_v4 credit and fills missing fields from built-in metadata.
 func credit(use, built spamhaus.Lists) (copyright, terms string) {
 	copyright, terms = use.V4.Meta.Copyright, use.V4.Meta.Terms
 	if copyright == "" {
@@ -323,7 +302,7 @@ func credit(use, built spamhaus.Lists) (copyright, terms string) {
 	return sanitize.Line(copyright), sanitize.Line(terms)
 }
 
-// view is a list in use with what an update compares: its date, and its entries' identities.
+// view exposes active dates and entry identities for update comparisons.
 type view struct {
 	List
 	date time.Time
@@ -378,8 +357,7 @@ func ipapiViews(s abusive.Snapshot, from [2]bool) []view {
 	}
 }
 
-// staleNotice is the notice for a source whose lists in use, and last successful check, are all
-// more than 30 days old.
+// staleNotice explains when both active data and successful checks exceed 30 days.
 func staleNotice(source string, views []view, st state, now time.Time) (Notice, bool) {
 	oldest := views[0].date
 	for _, v := range views[1:] {
@@ -390,8 +368,7 @@ func staleNotice(source string, views []view, st state, now time.Time) (Notice, 
 	if now.Sub(oldest) <= staleAfter {
 		return Notice{}, false
 	}
-	// A check recorded in the future is no check: until an update rewrites it as now, it must not
-	// hide the notice.
+	// Future check times cannot suppress stale notices before an update clamps them to now.
 	if st.LastChecked != nil && !st.LastChecked.After(now) && now.Sub(*st.LastChecked) <= staleAfter {
 		return Notice{}, false
 	}

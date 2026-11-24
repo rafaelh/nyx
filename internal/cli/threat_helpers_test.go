@@ -20,13 +20,8 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// Helpers of the threat-data tests: Spamhaus's lists as a test's built-in copy, the downloaded
-// copies a test writes into the harness's threat-data directory, and counting fakes on the two
-// hosts an update contacts.
-//
-// The harness's clock is 2026-11-01, and the copies embedded in the binary are dated later and
-// move with each refresh, so no test here names their dates: each gives its own built-in copy
-// (the harness's abusive and drop) and dates its downloaded copies after it.
+// Threat tests supply fixed built-ins older than their downloads. Embedded dates move after
+// refreshes and would make fixture selection/staleness unstable.
 
 // The credit a fixed Spamhaus list carries in its metadata.
 const (
@@ -50,8 +45,8 @@ func dropASN(asn int, name, cc, domain, rir string) spamhaus.ASNEntry {
 	return spamhaus.ASNEntry{ASN: asn, ASName: name, Country: cc, Domain: domain, RIR: rir}
 }
 
-// dropListsAt is Spamhaus's three lists, all dated at, holding the entries (each network entry in
-// the list of its family) after the filler entries, as parsed from the files Spamhaus would serve.
+// dropListsAt builds parsed source-format lists with filler plus test entries at one fixed
+// date.
 func dropListsAt(tb testing.TB, at time.Time, nets []spamhaus.NetworkEntry, asns []spamhaus.ASNEntry) *spamhaus.Lists {
 	tb.Helper()
 	return dropListsOn(tb, at, at, at, nets, asns)
@@ -67,8 +62,7 @@ func dropListsOn(tb testing.TB, v4At, v6At, asnAt time.Time, nets []spamhaus.Net
 	return &l
 }
 
-// dropBundleOf is the bundle of Spamhaus's three files holding the entries (each network entry in
-// the list of its family) after the filler entries, each file dated as given.
+// dropBundleOf builds source-byte bundles with family-specific entries and requested dates.
 func dropBundleOf(v4At, v6At, asnAt time.Time, nets []spamhaus.NetworkEntry, asns []spamhaus.ASNEntry) string {
 	v4, v6 := []spamhaus.NetworkEntry{dropFillerV4}, []spamhaus.NetworkEntry{dropFillerV6}
 	for _, n := range nets {
@@ -101,8 +95,7 @@ func writeThreatFile(t *testing.T, h *harness, name, body string) {
 	}
 }
 
-// dropFileText is one Spamhaus file as Spamhaus serves it: a JSON object to a line, then the
-// metadata line, whose records count is the number of rows.
+// dropFileText writes source-style JSON lines ending in metadata with an accurate count.
 func dropFileText(at time.Time, rows []string) string {
 	var b strings.Builder
 	for _, r := range rows {
@@ -149,17 +142,15 @@ func writeDownloadedDrop(t *testing.T, h *harness, at time.Time, nets []spamhaus
 	writeThreatFile(t, h, "spamhaus.jsonl", dropBundleOf(at, at, at, nets, asns))
 }
 
-// Entries every downloaded copy of ipapi.is's lists holds besides a test's own, so that neither
-// list is empty. No test address is inside them.
+// Filler keeps downloaded lists nonempty without matching test addresses.
 var (
 	abFillerNet = abusive.NetworkEntry{Rank: 9999, Start: netip.MustParseAddr("198.18.0.0"), End: netip.MustParseAddr("198.19.255.255"),
 		ScoreTag: "High", AbuseScore: 1, Org: "Filler Org", OrgType: "isp"}
 	abFillerASN = abusive.ASNEntry{Rank: 9998, ASN: 4200000001, ScoreTag: "High", AbuseScore: 1, Org: "Filler AS", OrgType: "isp"}
 )
 
-// writeDownloadedAbusive writes a downloaded copy of ipapi.is's two lists (ipapi.json), in the
-// format of the built-in snapshot: the entries and the filler entries, sorted, each list stating the
-// number of entries it holds.
+// writeDownloadedAbusive writes sorted fixture/filler entries with accurate counts in snapshot
+// format.
 func writeDownloadedAbusive(t *testing.T, h *harness, netsDate, asnsDate string, nets []abusive.NetworkEntry, asns []abusive.ASNEntry) {
 	t.Helper()
 	nets = append(slices.Clone(nets), abFillerNet)
@@ -188,7 +179,7 @@ func writeAbusiveSnapshot(t *testing.T, h *harness, s abusive.Snapshot) {
 
 // ---- what a run says ----
 
-// unreadableLines are the lines of stderr that warn of an unreadable downloaded copy.
+// unreadableLines extracts download-fallback warnings from stderr.
 func unreadableLines(h *harness) []string {
 	var out []string
 	for l := range strings.SplitSeq(h.stderr.String(), "\n") {
@@ -199,9 +190,8 @@ func unreadableLines(h *harness) []string {
 	return out
 }
 
-// isUnreadableWarning reports whether a message is the warning of an unreadable downloaded copy of
-// the source (spamhaus or ipapi.is) in dir: "the downloaded <source> data in <dir> is unreadable
-// (<reason>), so nyx uses its built-in copy; run nyx setup --update-threat-data to replace it".
+// isUnreadableWarning recognises a source/path-specific fallback notice without depending on
+// its variable failure reason.
 func isUnreadableWarning(msg, source, dir string) bool {
 	head, rest, ok := strings.Cut(msg, " data in "+dir+" is unreadable (")
 	if !ok || !strings.HasPrefix(head, "the downloaded ") || !strings.Contains(strings.ToLower(head), strings.ToLower(source)) {

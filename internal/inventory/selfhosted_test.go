@@ -8,10 +8,8 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 )
 
-// A name server or mail host is self-hosted when it is in scope, or when one of
-// the addresses looked up for it is inside an in-scope netblock or is
-// port-eligible. A known provider's domain, a shared address and an address of
-// unknown owner are never a sign, whatever else is true of the host.
+// Self-hosting uses direct scope or eligible address evidence, never known
+// managed/shared/unknown infrastructure alone.
 func TestSelfHosted(t *testing.T) {
 	t.Parallel()
 	var d inventory.Data

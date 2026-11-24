@@ -463,9 +463,8 @@ func listenTCP(t *testing.T, banner string) *target {
 	return tg
 }
 
-// closedAddr is a loopback address and port that refuse every connection. The socket is bound but
-// never listens, for the whole test: closing a listener instead would free the port for another
-// parallel test's server, and the "closed" ports would then answer.
+// closedAddr keeps a socket bound without listening for the whole test, preventing another
+// parallel listener from reusing the refusal port.
 func closedAddr(t *testing.T) string {
 	t.Helper()
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)

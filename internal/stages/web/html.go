@@ -29,9 +29,8 @@ func attr(n *html.Node, key string) string {
 // firstText is the text of the first element match accepts (webpage.FirstText).
 func (p page) firstText(match func(*html.Node) bool) string { return webpage.FirstText(p.doc, match) }
 
-// withBase is what relative references in a page at u resolve against, as a
-// browser does: the page's first <base href> (baseHref) resolved against u, if
-// that is an http or https URL, else u.
+// withBase resolves the first base href against the page URL when it yields HTTP(S), otherwise
+// retaining the page URL.
 func withBase(u *url.URL, baseHref string) *url.URL {
 	if baseHref != "" {
 		if b, err := u.Parse(baseHref); err == nil && (b.Scheme == "http" || b.Scheme == "https") {
@@ -44,15 +43,13 @@ func withBase(u *url.URL, baseHref string) *url.URL {
 // title is the first <title>, by the rule of webpage.Title.
 func (p page) title() string { return webpage.TitleOf(p.doc) }
 
-// links are the references in a page, in document order. follow holds the ones
-// the crawl may fetch (a[href], area[href], iframe[src]); record holds the ones
-// it only records (link[href], script[src], form[action]). base is the first
-// base[href], which relative references resolve against, or "".
+// links preserves document order, separating crawlable links/frames from record-only
+// scripts/styles/forms. The first base href controls relative reference resolution.
 type links struct {
 	follow, record []string
 	base           string
-	// refs is every URL-bearing attribute of an a, area, link, script, img,
-	// iframe, source or form element, with its element, for storage references.
+	// refs collects URL-bearing attributes with their HTML elements for storage
+	// attribution.
 	refs []linkRef
 }
 

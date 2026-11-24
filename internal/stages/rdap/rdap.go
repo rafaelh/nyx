@@ -1,10 +1,6 @@
-// Package rdap asks the regional internet registries who the netblocks of an
-// engagement are registered to, and which netblocks and autonomous systems are
-// registered to an input organisation. It contacts only IANA, for the bootstrap
-// file that says which registry holds an address, and the five registries.
-//
-// Everything it finds about an organisation is a candidate: nothing enters scope
-// until the user passes the netblock, autonomous system or organisation as an input.
+// Package rdap queries IANA bootstrap and regional registries for address allocations and
+// organisation-owned netblocks/ASNs. Organisation discoveries remain candidates until supplied
+// as scope inputs.
 package rdap
 
 import (
@@ -31,20 +27,14 @@ import (
 )
 
 const (
-	// maxResults caps the netblocks and autonomous systems kept for one
-	// organisation at one registry. The value is a reasonable guess, not a registry limit.
+	// maxResults bounds organisation allocations per registry as a local starting limit,
+	// not a registry-imposed limit.
 	maxResults = 50
 )
 
-// Stage is the rdap stage. It has two kinds of check, both made once per
-// engagement and refreshed only by --redo rdap:
-//
-//	org|<organisation>|<registry>   the organisation's netblocks and autonomous systems
-//	ip|<address>                    who the address's netblock is registered to
-//
-// A lookup of an address records the whole registered range, so another
-// address inside it needs no request, in this run or a later one. The key
-// carries no scope: an address that becomes eligible later is looked up then.
+// Stage looks up organisation/registry pairs and individual addresses once unless redone.
+// Recorded allocations cover later addresses in the same range, avoiding repeat requests across
+// runs. Newly eligible addresses are picked up without putting scope into check keys.
 type Stage struct{}
 
 // New returns the rdap stage.
@@ -57,20 +47,17 @@ func (*Stage) Sources() []string { return ipsource.RDAPHosts() }
 
 func (*Stage) Configured(run.Env) (bool, string) { return true, "" }
 
-// Workers is 1: the checks run one at a time, so a second address in a range
-// waits for the lookup that finds it (one request, not two), the registries'
-// request rate stays down, and a 429 stops the stage before the next check sends.
+// Workers serialises lookups so addresses can reuse newly found allocations and a 429 stops
+// requests before the next check. This also limits registry traffic.
 func (*Stage) Workers(config.Settings) int { return 1 }
 
-// CandidateSources: what a registry holds of who registered a range is registrant evidence.
+// CandidateSources classifies registry allocation evidence as registrant evidence.
 func (*Stage) CandidateSources() map[string]string {
 	return map[string]string{"rdap": candidates.Registrant}
 }
 
-// Evidence names what a check gives a candidate. An organisation check is
-// evidence about the organisation, however many registries returned the result;
-// an address check is evidence about the address, so a registrant's count is the
-// number of ranges it was found on.
+// Evidence counts an organisation once across registries, or the looked-up address for address
+// checks, avoiding duplicate support from registry overlap.
 func (*Stage) Evidence(checkKey string) (source, item string) {
 	kind, rest, _ := strings.Cut(checkKey, "|")
 	if kind == "org" {
@@ -88,11 +75,9 @@ type orgInput struct {
 
 type ipInput struct{ addr netip.Addr }
 
-// Checks yields an organisation search for each --org input at each registry,
-// then each address no current registration holds. A redo forgets the checks
-// but keeps their registrations current until its first pass ends, when the
-// runner sweeps them and runs another pass: every address is then yielded again
-// and the lookups of a run share what they find, one request for a range.
+// Checks searches each input organisation at each registry, then uncovered addresses. During
+// redo, old allocations survive until the first sweep; the next pass then lists newly uncovered
+// addresses and shares fresh allocations to avoid duplicate range lookups.
 func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, org := range v.Inputs().Orgs {
@@ -102,9 +87,8 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 				}
 			}
 		}
-		// An address in an in-scope netblock is the target's already, so it is not
-		// asked about. One that may be port-checked is not shared provider
-		// infrastructure, which is the other half of the rule.
+		// In-scope netblocks already establish ownership. Other queried addresses need
+		// port eligibility to rule out shared infrastructure.
 		sc := v.Scope()
 		for _, a := range v.KnownAddrs() {
 			if ctx.Err() != nil {
@@ -137,8 +121,8 @@ func (s *Stage) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	return obs, nil
 }
 
-// get fetches a URL that answers 200 with a body. A 404 is httpsrc.ErrNotFound,
-// and a 429 a spent quota: the registries are unkeyed.
+// get maps 404 to ErrNotFound and unkeyed registry 429 to quota exhaustion. Successful
+// responses require a 200 body.
 func get(ctx context.Context, e egress.Clients, u string) ([]byte, error) {
 	return httpsrc.GetQuota(ctx, e, egress.ThirdPartyRequest{Method: "GET", URL: u, Accept: ipsource.RDAPAccept})
 }
@@ -154,9 +138,8 @@ type entity struct {
 	Entities []entity        `json:"entities"`
 }
 
-// has reports whether the answer carried the entity's networks or autonomous
-// systems, even if the lists are empty: encoding/json leaves a missing list nil
-// and makes an empty one for [].
+// has distinguishes present empty lists from missing fields using JSON's non-nil empty-slice
+// decoding.
 func (e entity) has() bool { return e.Networks != nil || e.Autnums != nil }
 
 type network struct {
@@ -182,9 +165,8 @@ type result struct {
 	asns     []string       // an autonomous system (one system of a range is a result of its own)
 }
 
-// searchOrg asks one registry for the organisation's netblocks and autonomous
-// systems. The registry's entities are searched by the organisation's first word
-// and kept when the word rule matches their name.
+// searchOrg searches by the organisation's first word, then applies the shared word rule to
+// registry entity names before accepting their ranges and ASNs.
 func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observation, error) {
 	words := orgname.Tokens(in.org)
 	if len(words) == 0 {
@@ -240,9 +222,8 @@ func searchEntities(ctx context.Context, e egress.Clients, in orgInput, word str
 	return found.Results, nil
 }
 
-// withNetworks returns the entity with its networks and autonomous systems:
-// ARIN's search result names the entity, and its own record has its networks.
-// ok is false when that record is not found or cannot be read.
+// withNetworks follows ARIN search entities to their full records, which hold allocations.
+// Missing or unreadable records return ok=false.
 func withNetworks(ctx context.Context, e egress.Clients, in orgInput, ent entity) (entity, bool, error) {
 	if ent.has() {
 		return ent, true, nil
@@ -321,8 +302,8 @@ func results(e entity) []result {
 			}
 			continue
 		}
-		// Each system of a range is a result of its own, so the cap counts it and
-		// a cut is warned about. One more than the cap is enough to know of a cut.
+		// Count each ASN in an expanded range against the cap. One extra item is enough
+		// to detect truncation and warn.
 		for n := uint64(start); n <= uint64(end) && len(out) <= maxResults; n++ {
 			out = append(out, result{asns: []string{fmt.Sprintf("AS%d", n)}})
 		}
@@ -332,9 +313,8 @@ func results(e entity) []result {
 
 // --- address lookups ---
 
-// runState is what the checks of one run share: the bootstrap files, fetched
-// once, and the ranges already found, so that an address inside one needs no
-// request. The stage's one worker is the only one to touch it.
+// runState shares bootstrap data and discovered allocations for this run. The stage's single
+// worker needs no additional locking here.
 type runState struct {
 	boot  ipsource.Bootstrap
 	found []inventory.Registration

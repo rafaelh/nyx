@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Every default risky port is scanned by default.
+// Default sweeps include every risky-port default.
 func TestDefaultPortsCoverRiskyPorts(t *testing.T) {
 	t.Parallel()
 	s, err := load(t, nil, "")
@@ -19,7 +19,7 @@ func TestDefaultPortsCoverRiskyPorts(t *testing.T) {
 	}
 }
 
-// --concurrency's help says it does not bound the port sweep.
+// Help distinguishes general concurrency from port-sweep workers.
 func TestConcurrencyHelpNamesPortConcurrency(t *testing.T) {
 	t.Parallel()
 	if c := newFlagSetForHelp().Lookup("concurrency"); c == nil || c.Usage != "Workers per stage (ports: --port-concurrency)" {

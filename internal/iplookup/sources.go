@@ -31,13 +31,12 @@ const (
 	hostRIPEstat   = "stat.ripe.net"
 )
 
-// SourceHosts are the third-party hosts the lookup may ask: Config.ThirdParty must be built for each.
+// SourceHosts defines the source allowlist required by Config.ThirdParty.
 func SourceHosts() []string {
 	return append([]string{hostInternetDB, hostRIPEstat, ipsource.HackerTargetHost}, ipsource.RDAPHosts()...)
 }
 
-// SourceRates is the pace, in requests a second, of each source host whose pace is not egress's
-// default.
+// SourceRates overrides default egress pacing for selected hosts.
 func SourceRates() map[string]float64 {
 	return map[string]float64{hostInternetDB: 1, ipsource.HackerTargetHost: 1, hostRIPEstat: 4}
 }
@@ -45,32 +44,31 @@ func SourceRates() map[string]float64 {
 // maxReverseIP is how many reverse-IP names a record holds.
 const maxReverseIP = 100
 
-// latchedMessage is the failure of an address a latched source was not asked for.
+// latchedMessage explains why later addresses were not sent to a refusing source.
 const latchedMessage = "not asked: rate-limited earlier in this call"
 
-// latchedError is a request the guard did not send because its host refused earlier in the call.
+// latchedError marks requests suppressed after an earlier host refusal.
 type latchedError struct{}
 
 func (e *latchedError) Error() string { return latchedMessage }
 
-// transportError is a request that got no response, as opposed to one the source answered badly.
+// transportError identifies a request with no response, distinct from an error response.
 type transportError struct{ err error }
 
 func (e *transportError) Error() string { return e.err.Error() }
 func (e *transportError) Unwrap() error { return e.err }
 
-// hostState is what the guard knows of one host.
+// hostState tracks pending requests and refusal state for one source host.
 type hostState struct {
-	gate    chan struct{} // holds one token: the request in flight to a host that goes one at a time
+	gate    chan struct{} // single-request permit for serialised source hosts
 	latched atomic.Bool
-	proven  atomic.Bool // a request has been answered; only matters to a host that is gated until then
+	proven  atomic.Bool // whether the first response released the initial source gate
 }
 
-// guard stands between the sources and egress. It latches a host that answers 429, so the
-// addresses that have not asked it yet do not, and it holds back a request until the one before
-// it to the same host has been answered (or has taken a second), where the host paces itself at a request a second anyway
-// (InternetDB, the registries) or where one answer is wanted before the rest are sent (RIPEstat).
-// The latch is checked after the wait, so an address already queued behind a refusal is not sent.
+// guard stops later requests to a host after a 429. It also serialises selected sources until
+// the previous response arrives or one second passes. This preserves pacing without letting a
+// slow address block the batch. Refusal is checked after waiting so queued requests are also
+// stopped.
 type guard struct {
 	inner egress.ThirdPartyHTTP
 	warn  func(string)
@@ -95,7 +93,7 @@ func (g *guard) state(host string) *hostState {
 
 func (g *guard) isLatched(host string) bool { return g.state(host).latched.Load() }
 
-// latch stops asking the host for the rest of the call, and warns once.
+// latch suppresses the host for this call and warns once.
 func (g *guard) latch(host string) {
 	if !g.state(host).latched.CompareAndSwap(false, true) {
 		return
@@ -112,7 +110,7 @@ func (g *guard) latch(host string) {
 	}
 }
 
-// gateHold is the longest a request holds back the ones behind it to the same host.
+// gateHold prevents one stalled request from indefinitely blocking later addresses.
 const gateHold = time.Second
 
 // serialHost reports whether requests to the host go one at a time.
@@ -140,8 +138,8 @@ func (g *guard) Do(ctx context.Context, r egress.ThirdPartyRequest) (egress.Thir
 			return egress.ThirdPartyResponse{}, &transportError{ctx.Err()}
 		}
 		defer release()
-		// A request that has not been answered by now stops holding the queue back: one address
-		// whose answer hangs must not leave every address behind it to time out.
+		// Release the queue after one second so one stalled response cannot exhaust
+		// every later address's deadline.
 		defer time.AfterFunc(gateHold, release).Stop()
 		if st.latched.Load() {
 			return egress.ThirdPartyResponse{}, &latchedError{}
@@ -170,13 +168,12 @@ type asnEntry struct {
 	name string
 }
 
-// state is what the sources of one call share: the guard, the registry bootstrap, the AS names
-// asked for already and the warnings given.
+// state shares per-call source guards, RDAP bootstrap, AS-name cache and warning deduplication.
 type state struct {
 	cfg    Config
 	guard  *guard
 	boot   ipsource.Bootstrap
-	htMu   sync.Mutex // HackerTarget is asked one address at a time, so its quota is read before the next
+	htMu   sync.Mutex // Serialise HackerTarget so quota exhaustion is seen before the next request.
 	asnMu  sync.Mutex
 	asns   map[int]*asnEntry
 	warnMu sync.Mutex
@@ -206,9 +203,9 @@ func (s *state) debugf(format string, args ...any) {
 	}
 }
 
-// timedOut reports whether err is the call's deadline or a timeout of a resolver or a request.
+// timedOut recognises call, DNS and HTTP timeouts.
 func timedOut(ctx context.Context, err error) bool {
-	// A rate limiter's wait that would pass the deadline wraps context.DeadlineExceeded too.
+	// Rate-limit waits beyond the deadline also match context.DeadlineExceeded.
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, egress.ErrLocalTimeout) {
 		return true
 	}
@@ -216,8 +213,7 @@ func timedOut(ctx context.Context, err error) bool {
 	return errors.As(err, &t) && t.Timeout()
 }
 
-// transientFailure is a failure of a source worth retrying: the deadline is TIMEOUT, anything
-// else is code.
+// transientFailure maps context deadline to TIMEOUT, otherwise the supplied retryable code.
 func transientFailure(ctx context.Context, src Source, err error, code clierr.Code) Failure {
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -228,12 +224,12 @@ func transientFailure(ctx context.Context, src Source, err error, code clierr.Co
 	return Failure{Source: src, Code: code, Message: err.Error(), Transient: true}
 }
 
-// dnsFailure is the failure of a resolver that did not answer or answered badly.
+// dnsFailure classifies DNS transport and response failures.
 func dnsFailure(ctx context.Context, src Source, err error) Failure {
 	return transientFailure(ctx, src, err, clierr.NetworkError)
 }
 
-// httpFailure maps an error of a request to a source to its failure.
+// httpFailure converts a failed source request to record failure metadata.
 func (s *state) httpFailure(ctx context.Context, src Source, err error) Failure {
 	var latched *latchedError
 	var limited *ipsource.RateLimitedError
@@ -257,8 +253,8 @@ func (s *state) httpFailure(ctx context.Context, src Source, err error) Failure 
 	return Failure{Source: src, Code: clierr.UpstreamError, Message: err.Error(), Transient: true}
 }
 
-// get asks a source for a JSON answer. A 404 is the source saying it knows nothing: body is nil
-// and there is no failure. Any other status than 200, a cut body, or no response is a failure.
+// get expects a complete JSON 200 response. A 404 means no known data and returns nil without
+// failure. Other statuses, truncated bodies and request failures produce failures.
 func (s *state) get(ctx context.Context, src Source, u string) (body []byte, f *Failure) {
 	resp, err := s.guard.Do(ctx, egress.ThirdPartyRequest{Method: "GET", URL: u, Accept: "application/json"})
 	var fail Failure
@@ -279,8 +275,8 @@ func (s *state) get(ctx context.Context, src Source, u string) (body []byte, f *
 	return nil, &fail
 }
 
-// origin asks Team Cymru for the AS that announces the address. Its failure means the owner is
-// unknown; an AS that is not found is an answer, and the owner is unknown but not failed.
+// origin looks up the announcing AS with Cymru. Failed lookups leave ownership unknown;
+// successful no-owner replies leave it unknown without a failure.
 func (s *state) origin(ctx context.Context, rec *Record, addr netip.Addr) (provider.Owner, *Failure) {
 	o, found, err := ipsource.Origin(ctx, s.cfg.DNS, addr)
 	if err != nil {
@@ -295,8 +291,8 @@ func (s *state) origin(ctx context.Context, rec *Record, addr netip.Addr) (provi
 	return provider.Owner{ASN: o.ASN, Known: true}, nil
 }
 
-// holder asks Team Cymru for the name of the owner's AS. The provider is decided from the AS
-// number alone, so nothing waits for it.
+// holder resolves the AS name independently. Provider decisions need only the AS number and do
+// not wait for it.
 func (s *state) holder(ctx context.Context, rec *Record, owner provider.Owner) *Failure {
 	if !owner.Known {
 		return nil
@@ -312,7 +308,7 @@ func (s *state) holder(ctx context.Context, rec *Record, owner provider.Owner) *
 	return nil
 }
 
-// asName is the holder of the AS, asked once per AS in the call.
+// asName caches holder lookups per ASN for this call.
 func (s *state) asName(ctx context.Context, asn int) (string, error) {
 	s.asnMu.Lock()
 	e := s.asns[asn]
@@ -382,9 +378,8 @@ func (s *state) ptr(ctx context.Context, rec *Record, addr netip.Addr) *Failure 
 	return nil
 }
 
-// cleanPTRName is a reverse name as text: a DNS presentation form (\027, \.) is decoded, and a name
-// that holds a control character after that is left out, as no host has one and it can only be
-// aimed at a terminal.
+// cleanPTRName decodes DNS escapes and rejects resulting control characters, which cannot be
+// useful hostnames and could affect terminals.
 func cleanPTRName(n string) (string, bool) {
 	var b strings.Builder
 	for i := 0; i < len(n); i++ {
@@ -450,8 +445,8 @@ func (s *state) ripestat(ctx context.Context, rec *Record, addr netip.Addr) *Fai
 	return nil
 }
 
-// parseGeolocation reads RIPEstat's answer: the location that covers most of the address's
-// resources (the first, in a tie). An unknown country ("?" or "") and an empty city are null.
+// parseGeolocation chooses RIPEstat's largest resource location, keeping the first tie. Unknown
+// countries and blank cities become null.
 func parseGeolocation(body []byte) (country, city *string, err error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, nil, nil
@@ -498,7 +493,7 @@ type internetDB struct {
 	Hostnames, Tags, CPEs, Vulns []string
 }
 
-// parseInternetDB reads InternetDB's answer. An empty body is an answer of nothing.
+// parseInternetDB accepts an empty body as successful no-data.
 func parseInternetDB(body []byte) (internetDB, error) {
 	out := internetDB{Ports: []int{}, Hostnames: []string{}, Tags: []string{}, CPEs: []string{}, Vulns: []string{}}
 	if len(bytes.TrimSpace(body)) == 0 {
@@ -542,8 +537,8 @@ func (s *state) internetdb(ctx context.Context, rec *Record, addr netip.Addr) *F
 	return nil
 }
 
-// hackerTargetApplies reports whether HackerTarget is asked about the address: its quota is small,
-// it is IPv4 only, and a shared address gives thousands of names that mean nothing.
+// hackerTargetApplies limits a small IPv4-only quota to dedicated addresses, where reverse
+// names provide useful evidence.
 func hackerTargetApplies(addr netip.Addr, shared bool) bool { return addr.Is4() && !shared }
 
 // hackerTarget asks for the names that point at the address.
@@ -564,7 +559,7 @@ func (s *state) hackerTarget(ctx context.Context, rec *Record, addr netip.Addr) 
 	return nil
 }
 
-// sourceRuns is one address's lookup: the failures by source, and what was asked.
+// sourceRuns tracks requested sources and their failures for one address.
 type sourceRuns struct {
 	failures [7]*Failure
 	asked    [7]bool
@@ -575,8 +570,7 @@ func (sr *sourceRuns) set(src Source, f *Failure) {
 	sr.asked[sourceRank(src)] = true
 }
 
-// lookupAddress asks every source the selection needs for one address, and probes it under
-// --active when it is contacted.
+// lookupAddress fills selected source data and any eligible active-probe results.
 func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 	rec := NewRecord(a)
 	addr := a.Addr.Unmap()
@@ -609,11 +603,9 @@ func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 	return AddressResult{Record: rec, Asked: asked, Answered: rec.Kind == addrkind.Public && s.cfg.Fields.Sourceless()}
 }
 
-// abusive sets the selected abusive keys of a public address from the snapshot, which needs no
-// request. The network matches are always set when selected. The ASN match follows the origin AS:
-// its entry when the AS is known, [] when Team Cymru knows no owner, and null when the origin lookup
-// failed. A failure of the AS name alone leaves the AS known, so the match is set and the failure is
-// the name's.
+// abusive fills selected public-address matches from local lists. Network matches always
+// answer. ASN matches use the known AS number, return [] for no owner/match and null for failed
+// origin lookup. An AS-name-only failure does not prevent matching.
 func (s *state) abusive(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	snap := s.cfg.Abusive
 	if snap == nil {
@@ -632,10 +624,9 @@ func (s *state) abusive(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	rec.AbusiveASN = snap.ASN(int(*rec.ASN))
 }
 
-// drop sets the selected DROP keys of a public address from Spamhaus's lists, which need no
-// request, by the rules of the abusive keys: the network entries are always set when selected, and
-// the ASN-DROP entry follows the origin AS (its entry when listed, [] when the AS is not listed or
-// Team Cymru knows no owner, and null when the origin lookup failed).
+// drop fills public-address DROP matches without requests. Network results always answer;
+// ASN-DROP follows the known AS number, with [] for no match/owner and null for a failed origin
+// lookup.
 func (s *state) drop(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	lists := s.cfg.Drop
 	if lists == nil {
@@ -654,9 +645,9 @@ func (s *state) drop(rec *Record, addr netip.Addr, ownerFailed *Failure) {
 	rec.DropASN = lists.ASN(int(*rec.ASN))
 }
 
-// publicSources asks the sources of a public address concurrently. The provider and HackerTarget
-// wait for the owner. It returns what the provider data says of the address, and the failure of
-// the owner lookup when the owner is unknown for that reason.
+// publicSources runs independent public-address lookups concurrently. Provider classification
+// and HackerTarget wait for ownership. It returns provider data and any failure preventing
+// ownership classification.
 func (s *state) publicSources(ctx context.Context, rec *Record, addr netip.Addr, runs *sourceRuns) (prov provider.Result, ownerFailed *Failure) {
 	f := s.cfg.Fields
 	var wg sync.WaitGroup
@@ -680,7 +671,7 @@ func (s *state) publicSources(ctx context.Context, rec *Record, addr netip.Addr,
 			if failed != nil {
 				record(SourceCymru, failed)
 				ownerFailed = failed
-				return // the shared check cannot be made: nothing that depends on it is asked
+				return // unknown ownership prevents dependent lookups
 			}
 			prov = provider.Default().Classify(addr, owner, nil)
 			if prov.Provider != "" {
@@ -689,7 +680,8 @@ func (s *state) publicSources(ctx context.Context, rec *Record, addr netip.Addr,
 			if prov.Class != "" {
 				rec.ProviderClass = &prov.Class
 			}
-			// HackerTarget needs only the shared check, so it does not wait for the AS name.
+			// HackerTarget can proceed once hosting is classified; the holder's
+			// name is irrelevant.
 			var after sync.WaitGroup
 			if f.Needs(SourceHackerTarget) && hackerTargetApplies(addr, prov.SharedInfrastructure()) {
 				after.Go(func() { record(SourceHackerTarget, s.hackerTarget(ctx, rec, addr)) })
@@ -702,9 +694,8 @@ func (s *state) publicSources(ctx context.Context, rec *Record, addr netip.Addr,
 	return prov, ownerFailed
 }
 
-// nonPublicSources is the sources of a non-public address: no third party and no public resolver
-// are asked. Its list keys are empty and its single values null; under --active its PTR is asked
-// of this machine's resolver.
+// nonPublicSources avoids third parties and public DNS. Lists start empty and scalars unknown;
+// Active mode may ask the local resolver for PTR data.
 func (s *state) nonPublicSources(ctx context.Context, rec *Record, addr netip.Addr, runs *sourceRuns) {
 	rec.PTR, rec.InternetDBPorts, rec.InternetDBHostnames = []string{}, []int{}, []string{}
 	rec.InternetDBTags, rec.InternetDBCPEs, rec.InternetDBVulns, rec.ReverseIP = []string{}, []string{}, []string{}, []string{}

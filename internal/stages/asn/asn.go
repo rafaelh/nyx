@@ -15,8 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
-// Stage is the asn stage. A netblock it observes under a check for an input
-// ASN is in scope.
+// Stage expands input ASNs; observed blocks enter scope through that relationship.
 type Stage struct{}
 
 // New returns the asn stage.
@@ -27,8 +26,7 @@ func (*Stage) Contact() run.Contact              { return run.ThirdParty }
 func (*Stage) Sources() []string                 { return []string{"stat.ripe.net"} }
 func (*Stage) Configured(run.Env) (bool, string) { return true, "" }
 
-// ExpandsInputASNs marks the stage as the one whose netblocks bring an input
-// ASN's announced netblocks into scope.
+// ExpandsInputASNs declares netblock observations as input-ASN scope expansion.
 func (*Stage) ExpandsInputASNs() {}
 
 // Checks yields one check per input ASN, keyed "AS<n>".
@@ -42,8 +40,7 @@ func (*Stage) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 	}
 }
 
-// Announced returns the prefixes RIPEstat says asn announces. Anything but a
-// well-formed "ok" answer is an error.
+// Announced requires a well-formed successful RIPEstat response before returning prefixes.
 func Announced(ctx context.Context, e egress.Clients, asn string) ([]string, error) {
 	q := url.Values{"resource": {asn}, "sourceapp": {"nyx"}}
 	raw, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{

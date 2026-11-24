@@ -141,8 +141,7 @@ func TestParsers_AWSAndGCPUnchanged(t *testing.T) {
 	}
 }
 
-// A body with no usable range is an error, not an empty success: an empty check
-// would be recorded as done and the list would never be fetched again.
+// Reject empty parsed lists so a failed download is not permanently saved as completed.
 func TestParsers_EmptyAndMalformedBodiesFail(t *testing.T) {
 	t.Parallel()
 	bodies := map[string][]string{
@@ -199,8 +198,7 @@ func TestStage_OneCheckPerList(t *testing.T) {
 	}
 }
 
-// The URLs are the published ones, each an https URL on a host the stage declares,
-// and nothing is fetched for Azure, whose published list moves.
+// Published range URLs must use declared HTTPS sources; Azure has no fixed download here.
 func TestSources_NamesEveryPublisherAndNoAzure(t *testing.T) {
 	t.Parallel()
 	declared := New().Sources()

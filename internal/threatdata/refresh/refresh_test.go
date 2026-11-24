@@ -15,14 +15,12 @@ import (
 	"github.com/rafaelh/nyx/internal/abusive"
 )
 
-// The clock of every test: 2026-11-21 12:00 UTC. The test pages (in internal/abusive/testdata)
-// are dated that day, and every other date is set against it, so no test depends on the day it
-// runs or on the dates of the copies built into nyx.
+// Fix time at 2026-11-21 noon UTC to match HTML fixtures and keep tests independent of real
+// time or embedded refreshes.
 var now = time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 
 var (
-	// oldTS is the date of the built-in Spamhaus lists before a refresh, and newTS that of a newer
-	// download.
+	// oldTS/newTS anchor original and newer-download timestamps.
 	oldTS = time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
 	newTS = time.Date(2026, 11, 20, 9, 56, 44, 0, time.UTC)
 	// endOfTomorrow is 00:00 UTC two days from now: a Spamhaus list dated at it or later is in the
@@ -48,7 +46,7 @@ func metaLine(ts time.Time, records, size int, extra string) string {
 		ts.Unix(), size, records, extra)
 }
 
-// spamhausFile is a list as Spamhaus serves it: one row to a line, then the metadata line.
+// spamhausFile writes one source row per line followed by metadata.
 func spamhausFile(rows []string, ts time.Time, records int) []byte {
 	return spamhausFileMeta(rows, func(size int) string { return metaLine(ts, records, size, "") })
 }
@@ -95,8 +93,7 @@ func asnRows(n, base int) []string {
 	return out
 }
 
-// bundle is the three files as internal/spamhaus/builtin.jsonl holds them: each after its marker
-// line, in the order drop_v4, drop_v6, asndrop.
+// bundle preserves fixed marker order and source bytes.
 func bundle(v4, v6, asn []byte) []byte {
 	var b bytes.Buffer
 	for _, l := range []struct {
@@ -140,7 +137,7 @@ func replaceOnce(t *testing.T, s []byte, old, repl string) []byte {
 	return bytes.Replace(s, []byte(old), []byte(repl), 1)
 }
 
-// headerOrg is the organisation column's header as ipapi.is spells it.
+// headerOrg selects the source's organisation-column spelling.
 const headerOrg = "Organization" //nolint:misspell // the page's own spelling
 
 // generated is a networks page that states stated entries and lists rows of them.
@@ -200,8 +197,7 @@ type world struct {
 	t         *testing.T
 	dir, repo string
 	fetched   map[string][]byte // by file name; a name that is not here is not written
-	// spamhaus and ipapi are the built-in copies before the next run, nil for no file. After a run
-	// they are what the files then hold.
+	// spamhaus/ipapi retain current file bytes across runs; nil represents an absent file.
 	spamhaus, ipapi []byte
 	allowShrink     bool
 
@@ -209,10 +205,8 @@ type world struct {
 	inUseV4, inUseV6, inUseASN []byte
 }
 
-// newWorld is a built-in copy of every list, and a download of each that is newer: Spamhaus's
-// three lists (40, 20 and 30 entries) dated oldTS, downloaded with other entries and dated newTS,
-// and an ipapi.is snapshot (16 networks and 4 ASNs) dated 2026-11-19, with the testdata pages
-// (10 and 4 entries) dated 2026-11-21.
+// newWorld supplies older built-ins and newer shifted downloads for all lists, including
+// source-page fixtures for ipapi.is.
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	w := &world{t: t, dir: t.TempDir(), repo: t.TempDir()}
@@ -299,8 +293,7 @@ func (w *world) read(path string) []byte {
 	return b
 }
 
-// noTemporaryFiles fails the test when the repository directory holds anything but the two
-// built-in copies: each is replaced by a rename, and a temporary file is never left behind.
+// noTemporaryFiles allows only the two completed source files in the fixture repository.
 func (w *world) noTemporaryFiles() {
 	w.t.Helper()
 	es, err := os.ReadDir(w.repo)
@@ -340,8 +333,7 @@ func (w *world) parsedIpapi() abusive.Snapshot {
 	return s
 }
 
-// wantPagesWritten checks that the snapshot is the one the unmodified testdata pages give: both
-// lists dated 2026-11-21, with 10 and 4 entries and those stated counts.
+// wantPagesWritten checks unchanged source-page dates and actual/stated counts.
 func (w *world) wantPagesWritten() {
 	w.t.Helper()
 	s := w.parsedIpapi()
@@ -366,8 +358,7 @@ func (w *world) wantSpamhausWritten(want []byte) {
 
 // ---- the tests ----
 
-// A refresh with a newer download of every list replaces both built-in copies: the bundle holds
-// the three files exactly as fetched, and the snapshot the two pages.
+// Newer downloads replace both source copies while preserving Spamhaus source bytes exactly.
 func TestRefresh_WritesBothSources(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -498,9 +489,8 @@ func refusals() []refusal {
 	}
 }
 
-// Each download the update would refuse is refused by the refresh too: the source fails, exit 1
-// names it, its built-in copy keeps its bytes and mode, and the other source is still written.
-// -allow-shrink lets through a list refused only for shrinking, and nothing else.
+// Refresh shares runtime rejection rules and preserves failed sources while updating others.
+// allow-shrink bypasses only size rejection.
 func TestRefresh_Refusals(t *testing.T) { // mutation target
 	t.Parallel()
 	for _, tc := range refusals() {
@@ -574,9 +564,8 @@ func checkRefusal(t *testing.T, tc refusal, allow bool) {
 	}
 }
 
-// What the rules let through, the refresh writes: an unknown field, one CIDR under two SBL IDs,
-// 90% of the records, exactly half the built-in copy's entries, a null RIR, a Spamhaus list dated
-// just before the end of tomorrow and a page dated tomorrow.
+// Exercise valid boundaries and tolerated variations: unknown fields, distinct SBL IDs, 90%
+// completeness, half-size lists, missing RIR and tomorrow's dates.
 func TestRefresh_Accepts(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -627,9 +616,8 @@ func TestRefresh_Accepts(t *testing.T) {
 	}
 }
 
-// A list dated no later than the built-in copy is left as it is: a source none of whose lists is
-// newer keeps its file byte for byte, and a source with one newer list keeps the others as they
-// were. The shrink rule applies only to a newer list.
+// Leave older/equal lists unchanged, including within partially updated bundles. Shrink
+// comparisons apply only to replacements.
 func TestRefresh_LeavesAListThatIsNotNewer(t *testing.T) {
 	t.Parallel()
 	t.Run("no Spamhaus list is newer", func(t *testing.T) {
@@ -722,9 +710,7 @@ func TestRefresh_Idempotent(t *testing.T) {
 	}
 }
 
-// kindOf is the word, "added", "removed" or "changed", that the output gives the entry id: the
-// last of them before id on its line, or else on the lines before it. It is "" when id is not in
-// the output, and it fails the test when id is in it more than once.
+// kindOf finds one entry's added/removed/changed category and rejects duplicate appearances.
 func kindOf(t *testing.T, out, id string) (kind, line string) {
 	t.Helper()
 	lines := strings.Split(out, "\n")
@@ -761,9 +747,8 @@ func kindOf(t *testing.T, out, id string) (kind, line string) {
 	return "", l
 }
 
-// The output lists what was added, removed and changed in each list. For DROP an entry is its
-// CIDR and SBL ID, and a change is its RIR; for ASN-DROP an entry is its ASN, and a change is any
-// field. An unchanged entry, and the entries of a list that is not newer, are not listed.
+// Change reports compare DROP by CIDR/SBL and RIR, ASN-DROP by ASN and metadata, omitting
+// unchanged/older lists.
 func TestRefresh_SpamhausSummary(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -853,8 +838,7 @@ func TestRefresh_SpamhausSummary(t *testing.T) {
 	}
 }
 
-// For ipapi.is the output lists additions, removals and a change of each of the four fields, not
-// a rank that moved alone, as it always has.
+// ipapi reports substantive entry changes while ignoring rank-only movement.
 func TestRefresh_IpapiSummary(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -870,8 +854,8 @@ func TestRefresh_IpapiSummary(t *testing.T) {
 	if s := w.parsedIpapi(); s.Nets.Updated != "2026-11-20" {
 		t.Fatalf("the first refresh wrote networks dated %q, want 2026-11-20", s.Nets.Updated)
 	}
-	// Networks: add one, remove one, change the tag of one, the score of another, an organisation
-	// and a type; move a rank alone. ASNs: an organisation changes.
+	// Mix additions/removals and each changed field, plus rank-only movement that should
+	// not be reported.
 	n := pages[fileNetworks]
 	i := bytes.LastIndex(n, []byte("</tbody>"))
 	n = append(append(slices.Clone(n[:i]),

@@ -46,8 +46,8 @@ func viaJSON(t reflect.Type, attrs map[string]any) any {
 	return p.Elem().Interface()
 }
 
-// unknownPointers is a JSON-decoded value with its pointer fields nil: given a
-// value of the wrong type, decode leaves a pointer unknown, JSON sets it to zero.
+// unknownPointers corrects JSON's wrong-type zero pointers to decode's intended nil unknown
+// values.
 func unknownPointers(a any) any {
 	v := reflect.New(reflect.TypeOf(a)).Elem()
 	v.Set(reflect.ValueOf(a))
@@ -100,7 +100,7 @@ func TestDecodeMatchesJSON(t *testing.T) {
 	}
 }
 
-// Encoding stores what was set and leaves out what omitempty says is unset.
+// Encoding preserves explicit values and omits only unset omitempty fields.
 func TestEncodeRoundTrip(t *testing.T) {
 	t.Parallel()
 	for _, a := range attrTypes {

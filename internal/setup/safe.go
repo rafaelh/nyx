@@ -9,16 +9,15 @@ import (
 	"github.com/rafaelh/nyx/internal/clierr"
 )
 
-// panicMsg is a panic a Cmd recovered, as text with the stack where it happened. The text is
-// already a string, so the message never carries a value that could print a key some other way.
+// panicMsg carries recovered panic text and a stack. Keeping text rather than the original
+// value prevents later formatting from exposing a key differently.
 type panicMsg struct {
 	text  string
 	stack []byte
 }
 
-// safe wraps cmd so that a panic in it, which nothing in Bubble Tea would recover once its own
-// catcher is off, becomes a message. root.Update panics again on that message, inside the code that
-// kills the Program and restores the terminal.
+// safe converts Cmd panics into messages. root.Update re-panics inside the wrapper that stops
+// the Program and restores the terminal, since Bubble Tea's own catcher is disabled.
 func safe(cmd tea.Cmd) tea.Cmd {
 	if cmd == nil {
 		return nil
@@ -33,7 +32,7 @@ func safe(cmd tea.Cmd) tea.Cmd {
 	}
 }
 
-// guard holds what the root model needs to end the Program when the model panics.
+// guard lets model panic handling stop the Program.
 type guard struct {
 	// kill ends the Program and restores the terminal; nil until the Program exists.
 	kill func()
@@ -41,14 +40,14 @@ type guard struct {
 	panicErr *clierr.PanicError
 }
 
-// root is the tea.Model the Program runs. It wraps the model so that a panic in Init, Update or
-// View, or in a Cmd, kills the Program (which restores the terminal) and is returned by Run.
+// root wraps all model and Cmd entry points so a panic stops the Program, restores the terminal
+// and returns through Run.
 type root struct {
 	m *model
 	g *guard
 }
 
-// fail records a panic, with every key the model knows removed from its text, and kills the Program.
+// fail redacts panic details and stops the Program.
 func (r *root) fail(text string, stack []byte) {
 	if r.g.panicErr == nil {
 		r.g.panicErr = scrubbedPanic(r.m, text, stack)
@@ -58,8 +57,8 @@ func (r *root) fail(text string, stack []byte) {
 	}
 }
 
-// scrubbedPanic is a panic's text and stack as an error, with every key m knows removed (m may be
-// nil, before the model exists).
+// scrubbedPanic converts panic text/stack to an error with all known keys removed, including
+// before model creation.
 func scrubbedPanic(m *model, text string, stack []byte) *clierr.PanicError {
 	if m != nil {
 		text, stack = m.scrub(text), []byte(m.scrub(string(stack)))
@@ -67,7 +66,7 @@ func scrubbedPanic(m *model, text string, stack []byte) *clierr.PanicError {
 	return &clierr.PanicError{Value: text, Stack: stack}
 }
 
-// caught is called from a deferred function with what recover returned.
+// caught handles a recovered panic from a deferred wrapper.
 func (r *root) caught(v any) {
 	if pm, ok := v.(panicMsg); ok {
 		r.fail(pm.text, pm.stack)
@@ -76,7 +75,7 @@ func (r *root) caught(v any) {
 	r.fail(fmt.Sprint(v), debug.Stack())
 }
 
-// Init implements tea.Model. It does nothing, so it cannot panic.
+// Init starts no work; model initialisation happens before Program startup.
 func (r *root) Init() tea.Cmd { return nil }
 
 // Update implements tea.Model.

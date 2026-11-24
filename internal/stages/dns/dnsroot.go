@@ -17,16 +17,10 @@ import (
 	"github.com/rafaelh/nyx/internal/stages/serveraddr"
 )
 
-// DNSRoot records the NS, SOA, TXT and CAA records of each in-scope input
-// root, so later pivots can use them, and from them the third parties the root
-// depends on: its name servers' operators, and the SaaS platforms its TXT
-// records show domain ownership was verified with. It also asks for a fixed
-// list of SRV names under the root (mail, identity, voice, collaboration and
-// game services), as one more check per root. It asks the same public
-// resolvers as resolve and never attempts a zone transfer.
-//
-// The NS check also looks up its name servers' addresses (serveraddr), for
-// inventory.SelfHosted only; its key ends serveraddr.KeyToken.
+// DNSRoot collects each in-scope input root's NS, SOA, TXT and CAA records for later pivots,
+// plus external DNS/TXT-verification dependencies. A separate check queries a fixed SRV service
+// list. All queries use public resolvers without zone transfers. NS checks also collect server
+// addresses solely for SelfHosted decisions; serveraddr.KeyToken versions that work.
 type DNSRoot struct{ base }
 
 // NewDNSRoot returns the dnsroot stage.
@@ -60,14 +54,11 @@ var srvServices = []string{
 // srvKeyToken identifies the service list, so a changed list creates a new check.
 var srvKeyToken = config.ListHash(srvServices)
 
-// srvType is the type of a root's SRV check, which asks every name of
-// srvServices rather than the root itself.
+// srvType selects the multi-name SRV check rather than a root-level query.
 var srvType = rootType{"SRV", egress.TypeSRV}
 
-// Checks yields one check per input root that is in scope and per record type,
-// keyed "<root>|<TYPE>", and the root's SRV check, keyed "<root>|SRV|<hash of
-// the service list>". SRV is not a row of rootTypes: its check makes one query
-// per service name.
+// Checks emits root/type checks and one root/SRV check. SRV keys include the service-list hash
+// because that check queries several names rather than one record type at the root.
 func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error] {
 	return func(yield func(run.Check, error) bool) {
 		for _, root := range v.InScopeRoots() {
@@ -88,8 +79,7 @@ func (*DNSRoot) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, err
 	}
 }
 
-// Run queries one type of one root. NODATA and NXDOMAIN complete the check with
-// no observations; SERVFAIL is a transient failure of this type only.
+// Run completes empty for NXDOMAIN/NODATA. SERVFAIL retries only this root/type check.
 func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(rootInput)
 	if in.t == srvType {
@@ -108,8 +98,8 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 		if a.Type != in.t.name || a.Value == "" {
 			continue
 		}
-		// A root that is an alias has no name servers or SOA of its own: an
-		// answer for its alias target's zone says nothing about the root.
+		// An aliased root has no NS/SOA of its own; its target zone's records cannot
+		// establish the root's dependencies.
 		if (in.t.name == "NS" || in.t.name == "SOA") && a.Name != in.root {
 			continue
 		}
@@ -139,10 +129,9 @@ func (*DNSRoot) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.O
 	return obs, nil
 }
 
-// dependency is what a host a root's records name (an NS or SRV target, or an
-// SOA primary) adds: an in-scope name is a hostname, resolved and probed like
-// any other. Any other is a third party seen through mechanism, recorded by its
-// registrable domain and never as a candidate; with no mechanism it adds nothing.
+// dependency records internal NS/SRV/SOA targets as hostnames for normal resolution. External
+// targets become registrable-domain third parties when a mechanism is supplied; they never
+// become candidates here.
 func dependency(in rootInput, mechanism, host string) []run.Observation {
 	if host == "" {
 		return nil
@@ -156,9 +145,8 @@ func dependency(in rootInput, mechanism, host string) []run.Observation {
 	return []run.Observation{kinds.ThirdPartyObs(in.root, mechanism, dnsname.Registrable(host), 0)}
 }
 
-// runSRV asks each listed service name under the root. NXDOMAIN and NODATA are
-// results; a SERVFAIL or a timeout on any name fails the whole check, so the
-// next run asks them all again.
+// runSRV treats NXDOMAIN/NODATA as results. A transient failure on any service name fails the
+// whole check so all names are retried next run.
 func runSRV(ctx context.Context, in rootInput, e egress.Clients) ([]run.Observation, error) {
 	var obs []run.Observation
 	for _, service := range srvServices {
@@ -178,8 +166,8 @@ func runSRV(ctx context.Context, in rootInput, e egress.Clients) ([]run.Observat
 			if !ok { // "." is a service that is not offered
 				continue
 			}
-			// The name is a service name, not a hostname: only A, AAAA and CNAME
-			// rows reach the inventory, so it is never resolved or tested as a wildcard zone.
+			// SRV service names are not hostnames. Only A/AAAA/CNAME answers feed
+			// resolution and wildcard-zone discovery.
 			obs = append(obs, kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: name, Type: "SRV", Value: a.Value}))
 			obs = append(obs, dependency(in, kinds.MechanismSRV, target)...)
 		}

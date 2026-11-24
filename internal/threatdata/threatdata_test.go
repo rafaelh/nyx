@@ -123,8 +123,8 @@ func TestLoad_TheEmbeddedCopies(t *testing.T) {
 	}
 }
 
-// For each list, the copy dated later is used, and the downloaded one when the dates are the same.
-// A source's lists are decided one by one, so its copy in use can mix the two.
+// Select copies per list, preferring downloaded data on equal dates, so a source can mix
+// versions.
 func TestLoad_Precedence(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
@@ -151,7 +151,7 @@ func TestLoad_Precedence(t *testing.T) {
 	if len(s.Warnings) != 0 {
 		t.Errorf("warnings %v, want none", s.Warnings)
 	}
-	// What matches is what is in use.
+	// Matching must use the selected active data.
 	for _, c := range []struct {
 		what  string
 		got   int
@@ -237,9 +237,7 @@ func TestLoad_Credit(t *testing.T) {
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
-// checkWarning fails the test unless the set has exactly one warning, for the source, in the shape
-// "the downloaded <source> data in <dir> is unreadable (<reason>), so nyx uses its built-in copy;
-// run nyx setup --update-threat-data to replace it".
+// checkWarning verifies exactly one source/path-specific unreadable-download notice.
 func checkWarning(t *testing.T, name string, s threatdata.Set, source, dir string) {
 	t.Helper()
 	if len(s.Warnings) != 1 || s.Warnings[0].Source != source {
@@ -257,8 +255,8 @@ func checkWarning(t *testing.T, name string, s threatdata.Set, source, dir strin
 	}
 }
 
-// A downloaded Spamhaus copy is used only when every list in it is readable. Otherwise the whole
-// source is the built-in copy, newer downloaded lists included, and one warning says why.
+// One corrupt Spamhaus list rejects the whole downloaded bundle, including otherwise newer
+// lists.
 func TestLoad_UnreadableSpamhausCopy(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
@@ -315,8 +313,8 @@ func TestLoad_UnreadableSpamhausCopy(t *testing.T) {
 	}
 }
 
-// A downloaded ipapi.is copy is used only when both its lists are readable, with their dates and
-// stated counts. Otherwise both lists are the built-in copy, and one warning says why.
+// Both ipapi lists need valid data/dates/counts or the entire source falls back with one
+// warning.
 func TestLoad_UnreadableIpapiCopy(t *testing.T) {
 	t.Parallel()
 	b := builtIn(t, stdSpamhaus(), stdIpapi())
@@ -406,8 +404,7 @@ func aged(t *testing.T, v4, v6, asn time.Time, nets, asns string) *threatdata.Bu
 		snapshot(nets, 0, 80, asns, 0, 20))
 }
 
-// A source is stale when more than 30 days have passed since both the oldest date among its lists
-// in use and its last successful check. The notice gives that oldest date, as its UTC day.
+// Staleness requires both oldest active data and last successful check to exceed 30 days.
 func TestLoad_Staleness(t *testing.T) {
 	t.Parallel()
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
@@ -472,8 +469,7 @@ func TestLoad_Staleness(t *testing.T) {
 	}
 }
 
-// An update that finds a source updated or already current is a successful check, and keeps it
-// from being stale for 30 days. One that fails, or is skipped, is not.
+// Updated/current results refresh the successful-check clock; failed/skipped results do not.
 func TestLoad_StalenessAfterAnUpdate(t *testing.T) {
 	t.Parallel()
 	old := now.AddDate(0, 0, -60)

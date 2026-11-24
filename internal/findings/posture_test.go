@@ -7,13 +7,12 @@ import (
 	"github.com/rafaelh/nyx/internal/findings"
 )
 
-// posture adds a web_posture record, as the probe stores it, for a service.
+// posture seeds probe-style evidence for one service.
 func (f *fixture) posture(service, host string, kv ...any) {
 	f.add(rec("web_posture", service, append([]any{"host", host, "directory_listing", false}, kv...)...))
 }
 
-// The four conditions are each one low finding per service, and a service with
-// none of them has none.
+// Each applicable condition yields one low finding per service.
 func TestWebPostureFindings(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -52,8 +51,7 @@ func TestWebPostureFindings(t *testing.T) {
 	}
 }
 
-// One row per service and condition: several conditions of one service are
-// separate findings, and an insecure-cookie row carries every cookie.
+// Separate conditions stay separate; a cookie condition aggregates every affected name.
 func TestWebPostureOneFindingPerServiceAndCondition(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -67,7 +65,7 @@ func TestWebPostureOneFindingPerServiceAndCondition(t *testing.T) {
 		"web-posture/version-disclosure=low")
 }
 
-// HSTS means nothing over HTTP, and Secure is judged only over HTTPS.
+// HTTP cannot establish HSTS/Secure findings.
 func TestWebPostureHTTPServiceHasNoHSTSOrSecureFinding(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -75,20 +73,21 @@ func TestWebPostureHTTPServiceHasNoHSTSOrSecureFinding(t *testing.T) {
 	f.posture("http://www.example.com", "www.example.com") // hsts unset
 	wantSet(t, f.derive(t))
 
-	// A cookie name lacking Secure on an http service (it came from a hop) is not a finding.
+	// Secure evidence from an HTTPS redirect does not turn the original HTTP service into a
+	// cookie finding.
 	f = newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.posture("http://www.example.com", "www.example.com", "cookies_no_secure", "sid")
 	wantSet(t, f.derive(t))
 
-	// A https service whose HSTS is unknown (no value) is not reported.
+	// Unknown HSTS is not evidence of a missing header.
 	f = newFixture()
 	f.host("www.example.com", "203.0.113.5")
 	f.posture("https://www.example.com", "www.example.com")
 	wantSet(t, f.derive(t))
 }
 
-// A cookie without HttpOnly is evidence only.
+// Missing HttpOnly remains stored evidence without a finding.
 func TestWebPostureHTTPOnlyAloneMakesNoFinding(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -98,7 +97,7 @@ func TestWebPostureHTTPOnlyAloneMakesNoFinding(t *testing.T) {
 	wantSet(t, f.derive(t))
 }
 
-// No posture finding for a service addressed by IP literal or served by a SaaS platform.
+// IP-literal/SaaS services produce no posture findings.
 func TestWebPostureSkipsIPLiteralAndSaaSServices(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -111,14 +110,14 @@ func TestWebPostureSkipsIPLiteralAndSaaSServices(t *testing.T) {
 	f.posture("https://help.example.com", "help.example.com", bad...)
 	wantSet(t, f.derive(t))
 
-	// The same conditions on an ordinary name are reported.
+	// Ordinary target hostnames retain those findings.
 	f.posture("https://www.example.com", "www.example.com", bad...)
 	if n := len(f.derive(t)); n != 4 {
 		t.Errorf("the ordinary service has %d findings, want 4", n)
 	}
 }
 
-// A posture record is shown only while its host is in scope and it is current.
+// Posture evidence follows current-host visibility.
 func TestWebPostureFollowsScopeAndCurrency(t *testing.T) {
 	t.Parallel()
 	f := newFixture()

@@ -13,10 +13,9 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// SensitivePath is one entry of the sensitive-path list: a path to request and
-// what a response must look like for it to be an exposure. A catch-all site
-// that answers 200 to everything matches nothing, because every entry needs a
-// Signature (an RE2 over the body, at most 1 MiB) or Magic (a body prefix).
+// SensitivePath pairs a requested path with response evidence of exposure. Every entry requires
+// a body regex or byte prefix, preventing generic 200 responses from matching by status alone.
+// Body regexes inspect at most 1 MiB.
 type SensitivePath struct {
 	Path      string
 	Signature string // RE2; empty if Magic is used alone
@@ -25,16 +24,14 @@ type SensitivePath struct {
 	Severity  string // high, medium or low; default medium
 }
 
-// Hash is a short stable identifier of what the entry checks for. A hit
-// records it, so a changed signature, magic or status is a different check.
+// Hash versions response matchers so signature, magic or status changes create new checks.
 func (p SensitivePath) Hash() string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%x\x00%d", p.Signature, p.Magic, p.Status)))
 	return hex.EncodeToString(sum[:4])
 }
 
-// SeverityRank orders entries for requesting: 0 for high, 1 for medium, 2 for
-// low. Severities are validated when a list is read, so the last case is only a
-// guard: an entry with any other severity is requested last, never dropped.
+// SeverityRank requests high, medium and low entries in that order. Unknown severities sort
+// last as a fallback; normal list validation rejects them.
 func (p SensitivePath) SeverityRank() int {
 	switch p.Severity {
 	case "high":
@@ -73,8 +70,7 @@ func signatureRE(sig string) *regexp.Regexp {
 	return re
 }
 
-// Match reports whether a response is this entry's exposure and, if so, the
-// signature to record. Every condition the entry gives must hold.
+// Match requires every configured condition and returns the matched evidence signature.
 func (p SensitivePath) Match(status int, body []byte) (string, bool) {
 	if status != p.Status {
 		return "", false
@@ -96,10 +92,9 @@ func (p SensitivePath) Match(status int, body []byte) (string, bool) {
 
 var sensitiveFields = map[string]bool{"path": true, "signature": true, "magic": true, "status": true, "severity": true}
 
-// parseSensitivePaths reads a YAML list of {path, signature and/or magic,
-// status, severity}. A plain string, an entry with neither signature nor magic
-// and an unknown field are errors. Each path is appended to a service's origin,
-// so it must be an absolute path.
+// parseSensitivePaths reads structured YAML entries. String-only entries, unknown fields and
+// missing signatures/magic are invalid. Paths must be absolute because they are appended to
+// service origins.
 func parseSensitivePaths(b []byte) ([]SensitivePath, error) {
 	var nodes []yaml.Node
 	if err := yaml.Unmarshal(b, &nodes); err != nil {
@@ -116,7 +111,7 @@ func parseSensitivePaths(b []byte) ([]SensitivePath, error) {
 	return out, nil
 }
 
-// rawSensitivePath is one entry of a sensitive-path list as written.
+// rawSensitivePath holds the unvalidated YAML form.
 type rawSensitivePath struct {
 	Path      string `yaml:"path"`
 	Signature string `yaml:"signature"`
@@ -125,8 +120,7 @@ type rawSensitivePath struct {
 	Severity  string `yaml:"severity"`
 }
 
-// decodeSensitivePath decodes entry number num of a sensitive-path list, which must be a mapping
-// of known fields, and checks it.
+// decodeSensitivePath requires a known-field mapping and reports validation by entry number.
 func decodeSensitivePath(num int, n yaml.Node) (SensitivePath, error) {
 	if n.Kind != yaml.MappingNode {
 		return SensitivePath{}, fmt.Errorf("entry %d (%q) is not a mapping: each entry needs a path and a signature or magic", num, strings.TrimSpace(n.Value))
@@ -143,8 +137,8 @@ func decodeSensitivePath(num int, n yaml.Node) (SensitivePath, error) {
 	return raw.check()
 }
 
-// check validates an entry and fills in its defaults: status 200 and severity medium. The path
-// must be absolute, the signature a valid RE2 and the magic hex, and one of the two is needed.
+// check validates absolute paths, RE2 signatures and hexadecimal magic, requiring at least one
+// matcher. It defaults status to 200 and severity to medium.
 func (raw rawSensitivePath) check() (SensitivePath, error) {
 	p := SensitivePath{Path: raw.Path, Signature: raw.Signature, Status: raw.Status, Severity: raw.Severity}
 	if _, err := url.ParseRequestURI(p.Path); err != nil || !strings.HasPrefix(p.Path, "/") {

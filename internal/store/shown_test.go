@@ -8,8 +8,7 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// A database nothing has been saved to has no baseline, which is not the same as
-// a baseline of nothing shown.
+// A never-saved baseline differs from a saved baseline containing no rows.
 func TestShown_NeverSavedIsNotEmpty(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
@@ -25,8 +24,7 @@ func TestShown_NeverSavedIsNotEmpty(t *testing.T) {
 	}
 }
 
-// Each save replaces the table, and what comes back is what was saved, with the
-// scope, severity and stages a gone row needs.
+// Baseline round-trips preserve placement/severity/stages needed to describe gone rows.
 func TestShown_SaveReplaces(t *testing.T) {
 	t.Parallel()
 	s, _ := open(t, newClock(), nil)
@@ -117,8 +115,8 @@ func TestHasRecords(t *testing.T) {
 	}
 }
 
-// Saves that follow a read or a save write only what differs, and the table ends up holding
-// exactly the last rows saved: changed rows are replaced, new ones added and missing ones removed.
+// Baseline updates replace/add/delete only changed rows while reproducing the complete latest
+// baseline.
 func TestShown_SuccessiveSavesLeaveTheLastRows(t *testing.T) {
 	t.Parallel()
 	c := newClock()

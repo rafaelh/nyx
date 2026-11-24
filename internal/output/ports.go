@@ -12,24 +12,17 @@ import (
 
 var openPortColumns = []string{"ip", "port", "banner", "hostnames", "source", "confirmed", "shodan_last_seen", "product", "version"}
 
-// portSources is what is known of one address and port: nyx's own handshake and
-// the third party's report, either of which may be missing.
+// portSources pairs nyx handshake evidence with a third-party report; either may be absent.
 type portSources struct {
 	open, reports *store.Record
 }
 
-// openPortRows lists the ports nyx found open and the ports a third party
-// reports, one row for each address and port. source says who knows it (nyx,
-// shodan, or nyx;shodan) and confirmed whether nyx completed a handshake. The
-// banner is nyx's when it has one, else the third party's. product and version are read from
-// that banner, and are empty when it is not a recognised SSH, FTP or SMTP banner (they are
-// derived on read, so an engagement made without them gains them with no new contact). The
-// record keys are authoritative for the address and port.
+// openPortRows merges nyx and third-party reports by canonical address/port key. It records
+// sources and confirmation, prefers nyx's banner, and derives recognised SSH/FTP/SMTP product
+// versions on read.
 //
-// A reported port nyx found closed is still listed, as a row that is not
-// current: the showing rule hides it from the counts and findings, and the file
-// keeps what was once reported. A row for an address that may not be port-checked
-// is not listed at all.
+// Confirmed-closed reports remain as non-current history, while addresses ineligible for port
+// checks are omitted entirely. Counts and findings use visibility to suppress closed reports.
 func openPortRows(s Snapshot) []Row {
 	vis := s.vis()
 	byKey := portsByKey(s, vis)
@@ -44,8 +37,7 @@ func openPortRows(s Snapshot) []Row {
 	return rows
 }
 
-// portsByKey gathers, by address and port, the open ports that are shown and the reported ports
-// whose address may be port-checked.
+// portsByKey groups visible open ports and eligible reported ports by address/port.
 func portsByKey(s Snapshot, vis *kinds.Visibility) map[netip.AddrPort]*portSources {
 	byKey := map[netip.AddrPort]*portSources{}
 	entry := func(ap netip.AddrPort) *portSources {
@@ -62,8 +54,8 @@ func portsByKey(s Snapshot, vis *kinds.Visibility) map[netip.AddrPort]*portSourc
 		}
 	}
 	for _, r := range s.of(kinds.ReportedPort) {
-		// Eligibility alone: the showing rule also drops a closed port, which this
-		// file keeps as a row that is not current.
+		// Use eligibility rather than full visibility so confirmed-closed reports
+		// remain as historical rows.
 		if ap, ok := kinds.ParsePortKey(r.Key); ok && s.Inv.PortEligible(ap.Addr(), s.Scope) {
 			entry(ap).reports = &r
 		}
@@ -71,7 +63,7 @@ func portsByKey(s Snapshot, vis *kinds.Visibility) map[netip.AddrPort]*portSourc
 	return byKey
 }
 
-// row is the open-ports.csv row for ap, whose known hostnames are hostnames.
+// row formats one address/port with its known hostnames.
 func (e *portSources) row(ap netip.AddrPort, vis *kinds.Visibility, hostnames []string) Row {
 	var banner, seen string
 	var sources []string

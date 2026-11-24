@@ -13,16 +13,11 @@ import (
 	"github.com/rafaelh/nyx/internal/sanitize"
 )
 
-// Render writes the records for a person to read: each record's header (its address, the
-// hostnames that gave it and its kind), then a labelled section for each part of it the fields
-// select, records separated by a blank line. A section none of whose keys is selected is left
-// out. A selected value that is empty reads none, and one whose source failed reads unknown (the
-// failure is under Failures). Every string from a source or a target is cleaned of anything that
-// would act on a terminal before it is wrapped, and coloured at the stream's depth last.
-//
-// A stream that is not a terminal gets the plain layout, wrapped at the stream's width (COLUMNS,
-// else 100, and at least 60). A terminal gets headings, indented sections and aligned labels. The
-// CLI writes the error: lines and the warnings; Render writes records only.
+// Render writes selected record sections, separating addresses with blank lines. Empty values
+// display as none; failed-source values display as unknown with details under Failures. Source
+// and target text is cleaned before wrapping, then coloured. Terminal output adds aligned
+// labels and headings; plain output uses the stream width. The CLI writes errors and warnings
+// separately.
 func Render(w io.Writer, recs []Projected, s layout.Stream) error {
 	if len(recs) == 0 {
 		return nil
@@ -43,7 +38,7 @@ func Render(w io.Writer, recs []Projected, s layout.Stream) error {
 	return err
 }
 
-// squash is text with each run of spaces as one space and none at either end.
+// squash trims and collapses whitespace.
 func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // What a row of a section is.
@@ -65,21 +60,21 @@ type section struct {
 	rows  []row
 }
 
-// none and unknown are what an empty value and a value whose source failed read.
+// none and unknown distinguish empty successful values from failed sources.
 const (
 	none    = "none"
 	unknown = "unknown"
 )
 
-// body is a record cut to its selection, as the sections a person reads.
+// body builds human sections from selected record fields.
 type body struct {
 	rec *Record
 	has func(string) bool
 }
 
-// empty is the word for a selected key that has no value: unknown when a source the key needs
-// failed, else none. A Team Cymru failure leaves only the AS name unknown once the AS number is
-// known, since the provider and what waits on it are decided from the number.
+// empty distinguishes no result from a failed source: none versus unknown. If only Cymru's
+// AS-name lookup failed, an already known AS number still supports provider and dependent
+// fields.
 func (b body) empty(key string) string {
 	i := fieldIndex(key)
 	if i < 0 {
@@ -97,7 +92,7 @@ func (b body) empty(key string) string {
 	return none
 }
 
-// str is a value as text, or the word for a missing one.
+// str formats a scalar or its missing-value placeholder.
 func (b body) str(key string, p *string) string {
 	if p == nil {
 		return b.empty(key)
@@ -108,7 +103,7 @@ func (b body) str(key string, p *string) string {
 	return none
 }
 
-// list is a list as comma separated text, or the word for a missing or empty one.
+// list joins entries with commas or displays the empty/unknown placeholder.
 func (b body) list(key string, items []string) string {
 	var cleaned []string
 	for _, it := range items {
@@ -232,8 +227,8 @@ func (b body) sections() []section {
 	return out
 }
 
-// items are the n entries of a list as item rows, or the word for an empty list as a text row. The
-// list of a source that failed is nil, so a nil list reads unknown when that source did.
+// items formats list entries or an empty/unknown placeholder. A failed source's nil list
+// displays as unknown.
 func (b body) items(key string, n int, nilList bool, line func(int) string) []row {
 	if n == 0 {
 		word := none
@@ -249,7 +244,7 @@ func (b body) items(key string, n int, nilList bool, line func(int) string) []ro
 	return rows
 }
 
-// text is a pointer to a string as cleaned text, or "" when it is nil.
+// text cleans a string pointer, returning "" for nil.
 func text(p *string) string {
 	if p == nil {
 		return ""
@@ -257,7 +252,7 @@ func text(p *string) string {
 	return clean(*p)
 }
 
-// clean is third-party text as a line shows it: sanitised, with its whitespace squashed.
+// clean sanitises source text and normalises whitespace for display.
 func clean(s string) string { return squash(sanitize.Line(s)) }
 
 // join is the non-empty parts, separated by "; ".
@@ -328,8 +323,8 @@ func failureLine(f Failure) string {
 	return fmt.Sprintf("%s: %s (%s)", sanitize.Line(string(f.Source)), squash(sanitize.Line(f.Message)), strings.Join(flags, ", "))
 }
 
-// header is the first line of a record: the address, the hostnames that gave it and its kind,
-// as the address (bold when styled) and the rest of the line.
+// header separates the address from its contributing hostnames and kind so the address can be
+// styled independently.
 func header(rec *Record) (address, rest string) {
 	rest = ""
 	if len(rec.Hostnames) > 0 {
@@ -369,9 +364,8 @@ func (r plainRenderer) record(p Projected) string {
 	return strings.Join(lines, "\n")
 }
 
-// hang is text wrapped at spaces after prefix, which is first cells wide; later lines are
-// indented by two spaces for a prefix, none without one. A word is never broken, so a long one
-// runs past the width.
+// hang wraps at spaces after prefix, indenting continuation lines by two spaces when a prefix
+// exists. first is the prefix's cell width. Words are never split.
 func (r plainRenderer) hang(prefix string, first int, text string) []string {
 	rest := 0
 	if first > 0 {
@@ -395,8 +389,8 @@ func (r plainRenderer) hang(prefix string, first int, text string) []string {
 	return lines
 }
 
-// termRenderer lays records out for a terminal: each section under a heading with no rule, its text
-// indented two spaces and wrapped to the width, its labels in a column.
+// termRenderer lays out headed sections with two-space indentation, aligned labels and wrapped
+// text.
 type termRenderer struct {
 	s layout.Stream // its width fixed for the whole write
 }
@@ -441,16 +435,15 @@ func (r termRenderer) rows(rows []row) []string {
 	return out
 }
 
-// matchLine is an abusive list's match as one line: the entry, its score tag, abuse score,
-// organisation and type, and the date of its list. Its text came from a snapshot and is cleaned
-// like any third party's.
+// matchLine formats an abuse-list match and its date. Snapshot text is cleaned like any
+// external source text.
 func matchLine(entry, tag string, score float64, org, typ, updated string) string {
 	return fmt.Sprintf("%s: %s, %s%%, %s (%s), updated %s", clean(entry), clean(tag),
 		abusive.ScoreText(score), clean(org), clean(typ), clean(updated))
 }
 
-// dropLine is a Spamhaus list's match as one line: the entry, then its non-empty details, then the
-// date of its list. Its text came from a list and is cleaned like any third party's.
+// dropLine formats a Spamhaus entry, available details and list date, cleaning all external
+// text.
 func dropLine(entry, updated string, details ...string) string {
 	parts := []string{}
 	for _, d := range details {

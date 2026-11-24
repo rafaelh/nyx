@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// docs/web.md lists the favicon hashes that are never pivoted, so adding one to
-// the built-in list without documenting it fails here.
+// Keep default favicon exclusions documented whenever hashes are added.
 func TestDocsListEveryDefaultFavicon(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile("../../../docs/web.md")

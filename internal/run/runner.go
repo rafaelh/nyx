@@ -1,6 +1,5 @@
-// Package run executes stages over an engagement: repeated passes in registry
-// order, a worker pool per stage, gating, the netblock guard, redo and the
-// stage states shown on the console.
+// Package run executes discovery stages until no new work remains. It manages worker pools,
+// stage eligibility, netblock limits, redo and console progress.
 package run
 
 import (
@@ -36,21 +35,21 @@ import (
 	"github.com/rafaelh/nyx/internal/store"
 )
 
-// NetblockLimitError is returned when in-scope IPv4 netblocks exceed the limit.
-// The caller says how to proceed (--allow-large-netblocks).
+// NetblockLimitError reports that the in-scope IPv4 address count exceeds the limit. The caller
+// can suggest --allow-large-netblocks.
 type NetblockLimitError struct{ Count, Limit uint64 }
 
 func (e *NetblockLimitError) Error() string {
 	return fmt.Sprintf("in-scope IPv4 netblocks cover %d addresses, over the limit of %d; nothing in them was contacted", e.Count, e.Limit)
 }
 
-// interrupted is the error of a run its context ended. It wraps the context's
-// cause, so a caller can tell a cancel from a deadline.
+// interrupted wraps the context's cause so callers can distinguish cancellation from a
+// deadline.
 func interrupted(ctx context.Context) error {
 	return fmt.Errorf("run interrupted: %w", context.Cause(ctx))
 }
 
-// Config is everything a Runner needs.
+// Config supplies the runner's dependencies and settings.
 type Config struct {
 	Engagement          *engagement.Engagement
 	Settings            config.Settings
@@ -62,44 +61,44 @@ type Config struct {
 	Passive             bool
 	AllowLargeNetblocks bool
 	Redo                string
-	NoFsync             bool // write output files without syncing them to disk (see output.Render); for tests
-	// Abusive is the snapshot of abusive networks and ASNs the findings check addresses against;
-	// nil means the one built into the binary.
+	NoFsync             bool // skip disk syncs in tests; see output.Render
+	// Abusive supplies the network and ASN snapshot used by findings. Nil selects the
+	// embedded snapshot.
 	Abusive *abusive.Snapshot
-	// Drop is Spamhaus's DROP, DROPv6 and ASN-DROP lists the findings check addresses against;
-	// nil means the ones built into the binary.
+	// Drop supplies Spamhaus DROP, DROPv6 and ASN-DROP data for findings. Nil selects the
+	// embedded lists.
 	Drop *spamhaus.Lists
 }
 
-// Runner runs the stages.
+// Runner coordinates stage execution, stored state and output for an engagement.
 type Runner struct {
 	cfg   Config
 	st    *store.Store
 	order []string
 
 	inputs input.Parsed
-	acked  bool // the engagement holds the authorisation; read once, as Run fixes it for the run
+	acked  bool // engagement authorisation, fixed at the start of Run
 	sc     atomic.Pointer[scope.Scope]
 	inv    atomic.Pointer[inventory.Inventory]
-	vis    atomic.Pointer[kinds.Visibility] // of sc and inv, for the found lines
+	vis    atomic.Pointer[kinds.Visibility] // visibility for sc and inv, used by found events
 
-	// ranges caches the indexed provider_range records (thousands of rows) as
-	// of store KindVersion rangesVer; buildScope runs after every stage.
+	// ranges caches the provider-range index at rangesVer. Rebuilding it after every stage
+	// would repeatedly index thousands of rows.
 	ranges    *provider.Ranges
 	rangesVer uint64
-	scopeSig  string // what the Scope was last built from (see buildScope)
-	// baseBuilt is the build loadBaseline made, from the records baseSig says,
-	// for the first buildScope to reuse when nothing has changed since.
+	scopeSig  string // signature of the inputs used to build sc
+	// baseBuilt lets the first buildScope reuse loadBaseline's scope if the records still
+	// match baseSig.
 	baseBuilt *Built
 	baseSig   string
-	// policy is the egress Policy last set, and scriptsVer the script KindVersion
-	// its Scripts were read at: new scripts only replace Policy.Scripts.
+	// policy is the last installed egress policy. scriptsVer tracks its script records so
+	// script-only changes can update Policy.Scripts without rebuilding scope.
 	policy     *egress.Policy
 	scriptsVer uint64
 
 	recMu     sync.Mutex
-	recs      map[string]recordsCache   // the records of each kind read so far (see records)
-	observing map[string]observersCache // the observers of each kind read so far (see observers)
+	recs      map[string]recordsCache   // cached records by kind; see records
+	observing map[string]observersCache // cached record observers by kind; see observers
 
 	mu      sync.Mutex
 	failed  map[string]map[string]bool // stage -> check key, failed this run
@@ -109,50 +108,45 @@ type Runner struct {
 	lastTot map[string]int    // category counts computed by the last emitCounts
 	aborted map[string]error  // stage -> the error that aborted it this run
 
-	guarded sync.Map // value+"\x00"+reason already sent to the guard pseudo-stage
+	guarded sync.Map // deduplicates guard records by value and reason
 	warned  sync.Map // warning texts already emitted this run (see warn)
 
-	derivers    []*deriver                      // the derived records, findings first (see derive)
-	attribution map[string]findings.StorageAttr // the storage attribution of the last findings derived
-	evidencers  map[string]Evidencer            // the stages that account for their own candidate evidence
+	derivers    []*deriver                      // derivations in execution order, starting with findings
+	attribution map[string]findings.StorageAttr // storage attribution from the last findings calculation
+	evidencers  map[string]Evidencer            // stages that describe their candidate evidence
 	historical  map[string]bool                 // the stages whose addresses come from DNS history
-	families    candidates.Families             // the family of each source the stages name
+	families    candidates.Families             // candidate source families supplied by stages
 
-	base       *baseline        // the state the run started from, nil on a first run (see loadBaseline)
-	changes    []output.Change  // what the last render found changed since then
+	base       *baseline        // starting baseline; nil for a first run
+	changes    []output.Change  // changes from the starting baseline at the last render
 	target     map[string]bool  // the stages that make contact with the target
-	lastShown  []store.ShownRow // the baseline last saved, and whether one was (see saveShown)
+	lastShown  []store.ShownRow // last saved baseline and whether a baseline exists
 	shownSaved bool
-	out        *output.Writer // writes the files, each only when it changed since the last render
-	// renderSig is what the last render was made from, and rendered its snapshot (see render).
+	out        *output.Writer // renderer that skips unchanged files
+	// renderSig identifies the inputs used for the cached rendered snapshot.
 	renderSig string
 	rendered  output.Snapshot
 }
 
-// recordsCache holds the records of a kind, and the current ones among them,
-// as of store KindVersion ver.
+// recordsCache holds all records and the current subset for one kind at store version ver.
 type recordsCache struct {
 	ver       uint64
 	all, curr []store.Record
 }
 
-// observersCache holds the observers of the records of a kind as of store
-// KindVersion ver. Completing, redoing or retiring a check bumps the version of
-// every kind it observes, so the version also tracks the checks that count.
+// observersCache holds a kind's supporting checks at version ver. Completing, redoing or
+// retiring a check updates every affected kind's version, so record versions also invalidate
+// this cache.
 type observersCache struct {
 	ver uint64
 	m   map[string][]store.Observer
 }
 
-// stageStats are a stage's counters. spent is the budget the checks sent this
-// run have used (see Budgeted) and deferred the cost of the checks its last
-// pass deferred.
-//
-// completed, succeeded, cancelled and rejected feed the Result: the checks Stage.Run returned from
-// (succeeded when without error), the ones the context ended, and the failures a refused key caused.
+// stageStats tracks work and outcomes for one stage. spent accumulates the cost sent this run;
+// deferred records the cost left pending in the last pass. Completed, succeeded, cancelled and
+// rejected counters feed Result.
 type stageStats struct{ attempted, failed, spent, deferred, completed, succeeded, cancelled, rejected int }
 
-// New creates a Runner.
 func New(cfg Config) *Runner {
 	r := &Runner{
 		cfg: cfg, st: cfg.Engagement.Store(),
@@ -191,10 +185,8 @@ func (r *Runner) emit(typ string, fields map[string]any) {
 	r.cfg.Emitter.Emit(report.Event{Type: typ, Fields: fields})
 }
 
-// warn emits a warning event, a WARN line on the console. A text already
-// emitted in this run is not emitted again: View.Warn is called from Checks,
-// which runs on every pass, so the same warning would otherwise repeat. A
-// message whose text differs is a different warning.
+// warn emits each distinct warning text once per run. Checks can report the same warning on
+// successive passes without repeating console output.
 func (r *Runner) warn(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 	if _, seen := r.warned.LoadOrStore(msg, struct{}{}); seen {
@@ -205,11 +197,10 @@ func (r *Runner) warn(format string, a ...any) {
 
 func (r *Runner) today() string { return r.cfg.Clock().UTC().Format(time.DateOnly) }
 
-// Run executes the engagement. It returns a nil error when every pass has finished; the Result
-// then holds the summary. When the context ends the run the error wraps context.Cause(ctx), and
-// the Result is still filled in from what was done: the work is flushed, the scope rebuilt and
-// the files rendered first. A *NetblockLimitError, or any other error, leaves the Result zero;
-// the files are still rendered first. An error from that render or flush replaces them.
+// Run executes all passes and returns the rendered summary. On cancellation or deadline, it
+// flushes work, rebuilds scope and renders files before returning a populated Result and an
+// error wrapping context.Cause(ctx). Other errors return a zero Result after attempting to
+// render. Flush or render failures take precedence over the original error.
 func (r *Runner) Run(ctx context.Context) (Result, error) {
 	eng := r.cfg.Engagement
 	if r.cfg.Redo != "" {
@@ -222,7 +213,7 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 	}
 	r.st.OnNew(r.onNewRecord)
 
-	// The inputs are merged before the run starts and are fixed for its life.
+	// Inputs have already been merged and stay fixed throughout this run.
 	var err error
 	if r.inputs, err = eng.Inputs(); err != nil {
 		return Result{}, err
@@ -237,23 +228,21 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 	r.warnUnauthorised()
 	r.warnStaleEOLData()
 
-	// The baseline is read before anything is derived, from what the last render
-	// saved, so that a run that is resumed compares against where the run it
-	// resumes stopped.
+	// Read the last saved output before derivation so a resumed run compares against where
+	// the previous run stopped.
 	if r.base, err = r.loadBaseline(); err != nil {
 		return Result{}, err
 	}
 	if err = r.passes(ctx); err == nil {
-		// The final pass has just rendered and counted; nothing has changed since.
+		// The final pass already rendered and counted this state.
 		return r.result(), nil
 	}
 	return r.wrapUp(ctx, err)
 }
 
-// wrapUp renders what a run that ended in err has done. When the context ended the run, the
-// work of the stage it cut short is flushed, the scope is rebuilt (which can meet the netblock
-// limit, and then that is the error), the files are rendered and the counts emitted, so the
-// summary and the findings include that work.
+// wrapUp saves and renders work after an error. For cancellation, it also rebuilds scope and
+// emits counts so partial results include the interrupted stage's work. A netblock-limit error
+// found during that rebuild takes precedence.
 func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	cut := ctx.Err() != nil && errors.Is(err, context.Cause(ctx))
 	if cut {
@@ -274,8 +263,7 @@ func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 	return r.result(), err
 }
 
-// passes runs passes over every stage until one does no work, rendering the
-// files and emitting the counts after each.
+// passes repeats the stage registry until no stage does work, rendering output after each pass.
 func (r *Runner) passes(ctx context.Context) error {
 	ctx = withRunState(ctx)
 	for pass := 1; ; pass++ {
@@ -288,8 +276,8 @@ func (r *Runner) passes(ctx context.Context) error {
 			return err
 		}
 		r.emitCounts(rendered)
-		// A pass that did no work has nothing left to cut short, so a deadline or a
-		// signal that lands during its render changes nothing.
+		// Once a pass finds no work, a signal or deadline during rendering does not
+		// interrupt any pending checks.
 		if !worked {
 			return nil
 		}
@@ -299,8 +287,6 @@ func (r *Runner) passes(ctx context.Context) error {
 	}
 }
 
-// pass runs every stage once, in registry order, and reports whether any of
-// them did work.
 func (r *Runner) pass(ctx context.Context, first bool) (bool, error) {
 	if err := r.buildScope(); err != nil {
 		return false, err
@@ -327,9 +313,8 @@ func (r *Runner) pass(ctx context.Context, first bool) (bool, error) {
 	return worked, nil
 }
 
-// afterWork follows a stage that did work: it flushes the store, rebuilds the
-// scope and derives again. Findings follow every stage that did work, so a
-// finding's found line is printed as soon as its evidence is stored.
+// afterWork flushes observations, rebuilds scope and recalculates derived records. This lets
+// findings appear as soon as their evidence is stored.
 func (r *Runner) afterWork() error {
 	if err := r.st.Flush(); err != nil {
 		return err
@@ -340,14 +325,12 @@ func (r *Runner) afterWork() error {
 	return r.derive()
 }
 
-// buildScope builds the Scope and the egress Policy from stored inputs and
-// observations (see BuildScope), then applies the netblock guard. It does
-// nothing when none of them has changed since the last build, and only renews
-// Policy.Scripts when just the script records have.
+// buildScope updates scope, egress policy and the netblock guard from stored state. It reuses
+// unchanged builds and updates only Policy.Scripts when scripts are the only changed input.
 func (r *Runner) buildScope() error {
 	eng := r.cfg.Engagement
-	// The inputs and the authorisation are fixed for the run (see Run), so
-	// only the records the scope is built from can change it.
+	// Inputs and authorisation are fixed, so only changes to the scope's source records can
+	// invalidate this build.
 	sig := r.kindSig(scopeKinds)
 	if sig == r.scopeSig {
 		if r.st.KindVersion(kinds.Script.Name()) == r.scriptsVer {
@@ -374,7 +357,7 @@ func (r *Runner) buildScope() error {
 	r.inv.Store(inv)
 	r.vis.Store(built.Vis)
 
-	var sensitivePaths []string // egress addresses an entry by its index
+	var sensitivePaths []string // egress refers to exclusions by index
 	for _, e := range r.cfg.Settings.SensitivePathEntries {
 		sensitivePaths = append(sensitivePaths, e.Path)
 	}
@@ -409,8 +392,7 @@ func (r *Runner) buildScope() error {
 	return nil
 }
 
-// setScripts sets p.Scripts to the URLs of the current script records: the only
-// ones egress lets the jsparse stage request.
+// setScripts installs the current script URLs that egress allows jsparse to request.
 func (r *Runner) setScripts(p *egress.Policy) error {
 	ver := r.st.KindVersion(kinds.Script.Name())
 	recs, err := r.currentRecords(kinds.Script)
@@ -425,8 +407,7 @@ func (r *Runner) setScripts(p *egress.Policy) error {
 	return nil
 }
 
-// guard records an address that triggered an exclusion at dial time, once per
-// distinct value and reason per run.
+// guard records each address and exclusion reason once per run when egress blocks a dial.
 func (r *Runner) guard(value, reason string) {
 	if _, seen := r.guarded.LoadOrStore(value+"\x00"+reason, struct{}{}); seen {
 		return
@@ -434,7 +415,6 @@ func (r *Runner) guard(value, reason string) {
 	r.st.Complete("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
 }
 
-// hasFailed reports whether the stage's check failed earlier in this run.
 func (r *Runner) hasFailed(stage, key string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -448,15 +428,11 @@ func (r *Runner) stat(stage string) *stageStats {
 	return r.stats[stage]
 }
 
-// reasonNoAuthorisation is the reason a Target stage is left out until the
-// operator confirms authorisation.
 const reasonNoAuthorisation = "no authorisation"
 
-// gateByRun is the part of gate that depends only on the operator's choices:
-// --skip, --passive and the authorisation. It never asks the stage.
+// gateByRun checks --skip, --passive and authorisation without calling stage code.
 func (r *Runner) gateByRun(s Stage) (bool, string) {
-	// Skipped comes before every other reason: it is the operator's choice, and
-	// it must not depend on a key, --passive or the authorisation.
+	// An explicit --skip takes precedence over configuration and authorisation checks.
 	if slices.Contains(r.cfg.Settings.Skip, s.Name()) {
 		return false, "skipped"
 	}
@@ -478,9 +454,8 @@ func (r *Runner) gate(s Stage) (bool, string) {
 	return s.Configured(Env{Settings: r.cfg.Settings, Passive: r.cfg.Passive, Authorised: r.acked})
 }
 
-// warnStaleEOLData warns, once per run and with no flag, when the run date is more than twelve
-// months after the day the embedded end-of-life data was taken: past that, findings of
-// end-of-life software may be missing or out of date. Findings are still derived from it.
+// warnStaleEOLData warns once when embedded end-of-life data is over twelve months old.
+// Findings still use that data, but may miss recent support changes.
 func (r *Runner) warnStaleEOLData() {
 	taken, err := time.Parse(time.DateOnly, eol.DataDate())
 	if err != nil || r.today() <= taken.AddDate(1, 0, 0).Format(time.DateOnly) {
@@ -489,11 +464,9 @@ func (r *Runner) warnStaleEOLData() {
 	r.warn("the end-of-life software data in this build was taken on %s, over twelve months ago, so end-of-life findings may be missing or out of date; use a newer build", eol.DataDate())
 }
 
-// warnUnauthorised warns, once, that stages are left out for lack of
-// authorisation. It names exactly the stages whose stage line reads
-// not-configured (no authorisation), in registry order, and asks no stage
-// whether it is configured. It is written right after the run header so that an
-// interrupted run still shows it.
+// warnUnauthorised lists stages blocked by missing authorisation in registry order. It runs
+// just after the header so even an interrupted run shows the warning, without calling stage
+// configuration checks.
 func (r *Runner) warnUnauthorised() {
 	var names []string
 	for _, s := range r.cfg.Stages {
@@ -525,12 +498,9 @@ func (r *Runner) setState(name, state, reason string, checks, failed int) {
 	r.emit("stage", f)
 }
 
-// runStage performs one pass of one stage and reports whether it did work: it
-// attempted a check, or the sweep that finishes a redo or a retire changed a
-// record. A sweep's change is work because the stage's own checks, or those of
-// another stage, may read the records it changed: after --redo rdap the
-// registrations the redo forgot stop being current only at the sweep, and the
-// addresses they held are looked up on the next pass.
+// runStage reports work when a check was attempted or a redo/retirement sweep changed records.
+// Sweep changes can create work for later passes: removing an old RDAP registration, for
+// example, makes its addresses eligible for another lookup.
 func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error) {
 	name := s.Name()
 	if ok, reason := r.gate(s); !ok {
@@ -561,9 +531,8 @@ func (r *Runner) runStage(ctx context.Context, s Stage, first bool) (bool, error
 	return n > 0 || swept, nil
 }
 
-// showOutcome adds a pass's n attempted checks and its budget to the stage's
-// counters and shows the stage's state. A first pass that attempted nothing
-// shows whether an earlier run did the work (doneBefore).
+// showOutcome updates attempt and budget counters, then displays the stage state. If the first
+// pass attempts nothing, doneBefore distinguishes previously completed work.
 func (r *Runner) showOutcome(name string, n, spent, deferred int, first, doneBefore bool) {
 	r.mu.Lock()
 	ss := r.stat(name)
@@ -583,24 +552,21 @@ func (r *Runner) showOutcome(name string, n, spent, deferred int, first, doneBef
 	}
 }
 
-// abortErr is the error that aborted the stage in this run, or nil.
 func (r *Runner) abortErr(stage string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.aborted[stage]
 }
 
-// count updates a stage's counters under the lock.
 func (r *Runner) count(stage string, f func(*stageStats)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	f(r.stat(stage))
 }
 
-// failCheck records a transient failure and reports it as a debug event: a
-// failed check is retried on the next run, so it is not a warning. The stage
-// line and the summary count it. A panic's stack follows as debug events, one
-// per line.
+// failCheck counts a failure and logs details at debug level. Failed checks are retried next
+// run; the stage summary reports their count. Panics also log their stack, one line per debug
+// event.
 func (r *Runner) failCheck(stage, key string, err error) {
 	r.recordFailure(stage, key, false)
 	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s check %s failed: %s", stage, key, err)})
@@ -611,8 +577,7 @@ func (r *Runner) failCheck(stage, key string, err error) {
 	}
 }
 
-// checkPanic is a panic inside a stage's own code: the failure of the check
-// (or the enumeration) it happened in, retried on the next run like any other.
+// checkPanic carries a stage panic and stack as a retryable check or enumeration failure.
 type checkPanic struct {
 	value any
 	stack []byte
@@ -620,25 +585,22 @@ type checkPanic struct {
 
 func (p *checkPanic) Error() string { return fmt.Sprintf("panic: %v", p.value) }
 
-// RecoverInto, deferred, turns a panic into *err, with the stack --debug
-// shows. A stage that starts goroutines of its own defers it in each, so a
-// panic there fails the check and not the process.
+// RecoverInto converts a panic to an error with a stack for --debug. Defer it in each
+// stage-owned goroutine to keep that goroutine's panic from terminating the process.
 func RecoverInto(err *error) {
 	if v := recover(); v != nil {
 		*err = &checkPanic{value: v, stack: debug.Stack()}
 	}
 }
 
-// runCheck runs one check, turning a panic in it into its failure.
+// runCheck turns a stage panic into a check failure.
 func runCheck(ctx context.Context, s Stage, c Check, clients egress.Clients) (_ []Observation, err error) {
 	defer RecoverInto(&err)
 	return s.Run(ctx, c, clients)
 }
 
-// recordFailure records a transient failure: not a completion, not retried
-// this run, and retried on the next because it is not completed.
-//
-// rejected says a refused key caused it (see Result.KeyRejected).
+// recordFailure counts a check as failed for this run without marking it complete, allowing
+// retry next run. rejected identifies failures caused by an API-key rejection.
 func (r *Runner) recordFailure(stage, key string, rejected bool) {
 	r.mu.Lock()
 	if r.failed[stage] == nil {
@@ -652,9 +614,8 @@ func (r *Runner) recordFailure(stage, key string, rejected bool) {
 	r.mu.Unlock()
 }
 
-// emitCounts emits the category counts that changed. They are counted from the
-// snapshot render wrote the files from, with its Visibility, so the totals match
-// the files' rows.
+// emitCounts uses the rendered snapshot's visibility rules so emitted totals match the output
+// rows. Only changed counts produce events.
 func (r *Runner) emitCounts(snap output.Snapshot) {
 	totals := snap.Vis.Totals(snap.Records)
 	r.lastTot = totals
@@ -666,8 +627,7 @@ func (r *Runner) emitCounts(snap output.Snapshot) {
 	}
 }
 
-// notes are the lines the stages that run (see Noter) add to the summary, in
-// registry order. A stage that is skipped or not configured says nothing.
+// notes collects summary notes in registry order from stages eligible to run.
 func (r *Runner) notes() []string {
 	notes := []string{}
 	sc, inv := r.sc.Load(), r.inv.Load()
@@ -685,7 +645,7 @@ func (r *Runner) notes() []string {
 	return notes
 }
 
-// onNewRecord prints records of Printed kinds the first time the engagement sees them.
+// onNewRecord announces newly discovered records whose kinds allow console output.
 func (r *Runner) onNewRecord(kind, key string, attrs map[string]any) {
 	if !r.vis.Load().Printed(kind, store.Record{Key: key, Attrs: attrs}) {
 		return
@@ -693,7 +653,6 @@ func (r *Runner) onNewRecord(kind, key string, attrs map[string]any) {
 	r.emit("found", foundFields(kind, key, attrs))
 }
 
-// foundFields are the fields of the found event for a record of the kind.
 func foundFields(kind, key string, attrs map[string]any) map[string]any {
 	k, _ := kinds.Get(kind)
 	f := map[string]any{"category": k.Singular, "value": key}
@@ -703,20 +662,19 @@ func foundFields(kind, key string, attrs map[string]any) map[string]any {
 	return f
 }
 
-// render writes the output files from the store and returns the snapshot it
-// wrote them from: the records of every kind, which it reads so a new kind's
-// file can never render empty, and the scope they were filtered by.
+// render writes output and returns the snapshot used to produce it. It reads every registered
+// kind so newly added kinds are included automatically.
 func (r *Runner) render() (output.Snapshot, error) {
 	if err := r.st.Flush(); err != nil {
 		return output.Snapshot{}, err
 	}
-	// Findings are derived before the files are written on every path that renders,
-	// including an interrupt, so the files and the totals never lag the evidence.
+	// Recalculate findings even on interruption so files and totals include all stored
+	// evidence.
 	if err := r.derive(); err != nil {
 		return output.Snapshot{}, err
 	}
-	// The files are made from the records, the scope they are shown under and the day; the
-	// inputs and the baseline are fixed for the run. A render from the same is the last one.
+	// Inputs and baseline are fixed for the run. If records, visibility and date are
+	// unchanged, reuse the previous render.
 	sig := r.renderInputs()
 	if sig == r.renderSig {
 		return r.rendered, nil
@@ -739,8 +697,7 @@ func (r *Runner) render() (output.Snapshot, error) {
 	return snap, nil
 }
 
-// renderInputs changes whenever what render makes the files from might: a record of any kind,
-// the scope or the day.
+// renderInputs fingerprints records, scope and date to detect when output may change.
 func (r *Runner) renderInputs() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s|%p|%p|%p|", r.today(), r.sc.Load(), r.inv.Load(), r.vis.Load())
@@ -750,9 +707,8 @@ func (r *Runner) renderInputs() string {
 	return b.String()
 }
 
-// snapshot reads the records of every kind, which it does so that a new kind's
-// file can never render empty, with the scope they are shown under (empty ones if
-// none has been built yet) and its Visibility vis (built when nil).
+// snapshot reads every registered kind for output. Before the first scope build it supplies
+// empty scope and inventory values. A nil vis is rebuilt from those values.
 func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility) (output.Snapshot, error) {
 	inputs, err := r.st.Inputs()
 	if err != nil {
@@ -781,9 +737,8 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.
 	return snap, nil
 }
 
-// storeDerived stores obs as the records of the pseudo-stage name, its single
-// check key "derived", and reports whether it did: storing the same records
-// again on the same day as last (*last) changes nothing, so it is skipped.
+// storeDerived writes observations under the synthetic stage name and check "derived". It skips
+// writes when both the date and records match *last, and reports whether it wrote anything.
 func (r *Runner) storeDerived(name string, obs []store.Obs, last *[sha256.Size]byte) (bool, error) {
 	sum := sha256.Sum256(fmt.Append(nil, r.today(), obs))
 	if sum == *last {
@@ -797,8 +752,8 @@ func (r *Runner) storeDerived(name string, obs []store.Obs, last *[sha256.Size]b
 	return true, nil
 }
 
-// keepFirstErr adapts a read by kind name to a derivation's reader, which has
-// no error: the first error it meets is kept in *err for the caller to return.
+// keepFirstErr adapts an error-returning reader for derivations. It saves the first read error
+// for the caller because the derivation's reader signature cannot return errors.
 func keepFirstErr[T any](err *error, read func(string) (T, error)) func(kinds.Named) T {
 	return func(k kinds.Named) T {
 		v, e := read(k.Name())
@@ -809,10 +764,9 @@ func keepFirstErr[T any](err *error, read func(string) (T, error)) func(kinds.Na
 	}
 }
 
-// records returns every record of a kind, current or not, read again only
-// when the kind has changed since the last read. The version is read first, so
-// a commit racing the read is re-read next time. Callers must not modify the
-// returned slice.
+// records caches all records, including non-current ones, until the kind's version changes.
+// Reading the version first ensures a concurrent commit triggers another read next time. Treat
+// the returned slice as read-only.
 func (r *Runner) records(kind string) ([]store.Record, error) {
 	c, err := r.cached(kind)
 	return c.all, err
@@ -842,9 +796,8 @@ func (r *Runner) cached(kind string) (recordsCache, error) {
 	return c, nil
 }
 
-// observers returns, per record key, the completed checks that observe a
-// record of the kind (see Store.Observers), read again only when the kind has
-// changed since the last read. Callers must not modify the returned map.
+// observers caches completed checks supporting each record until the kind's version changes.
+// Treat the returned map as read-only.
 func (r *Runner) observers(kind string) (map[string][]store.Observer, error) {
 	ver := r.st.KindVersion(kind)
 	r.recMu.Lock()
@@ -863,7 +816,7 @@ func (r *Runner) observers(kind string) (map[string][]store.Observer, error) {
 	return m, nil
 }
 
-// kindSig changes whenever a record of one of the kinds ks does.
+// kindSig fingerprints the versions of the supplied record kinds.
 func (r *Runner) kindSig(ks []kinds.Named) string {
 	var b strings.Builder
 	for _, k := range ks {
@@ -872,8 +825,7 @@ func (r *Runner) kindSig(ks []kinds.Named) string {
 	return b.String()
 }
 
-// currentRecords returns the current records of a kind. Callers must not
-// modify the returned slice.
+// currentRecords returns cached current records. Treat the returned slice as read-only.
 func (r *Runner) currentRecords(k kinds.Named) ([]store.Record, error) {
 	c, err := r.cached(k.Name())
 	return c.curr, err

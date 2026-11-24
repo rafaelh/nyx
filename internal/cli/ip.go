@@ -19,14 +19,14 @@ import (
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
 
-// ipOptions are the flags of nyx ip. Its text flags are kept as given, so that a bad value is
-// reported with the other problems and the retry command repeats them as typed.
+// ipOptions preserves flag text so validation can report problems together and retry hints can
+// reproduce the original values.
 type ipOptions struct {
 	active          bool
 	fields, timeout string
 }
 
-// ipStdin is what nyx ip reads from stdin.
+// ipStdin supplies IP-specific stdin/error wording.
 var ipStdin = stdinWords{none: "no inputs given: pass one or more addresses, hostnames or CIDRs", key: "input",
 	plural: "inputs", perLine: "one address, hostname or CIDR per line", asArgs: "inputs"}
 
@@ -39,16 +39,14 @@ const (
 	ipRatePerHost    = 10
 )
 
-// ipFieldLines is the line that names the keys --fields accepts, those that only --active has
-// marked as such.
+// ipFieldLines lists --fields choices and marks active-only keys.
 func ipFieldLines() string {
 	return "Fields accepted by --fields: " + strings.Join(iplookup.ChoosableFieldNames(false), ", ") + ", " +
 		strings.Join(iplookup.ActiveFieldNames(), ", ") +
 		" (these four only with --active), all"
 }
 
-// newIPCommand builds the ip command: who runs an address, where it is, what it is called and what
-// is exposed on it, for each address, hostname or CIDR given.
+// newIPCommand builds the address, hostname and CIDR lookup command.
 func newIPCommand(inv *invocation) *cobra.Command {
 	o := &ipOptions{}
 	fieldsLines := ipFieldLines()
@@ -86,13 +84,10 @@ func newIPCommand(inv *invocation) *cobra.Command {
 	return cmd
 }
 
-// runIP checks every flag and input, reporting all problems in one usage error before any request
-// is made, then resolves the hostnames, looks every address up and writes the records, unless a
-// signal arrived while it did.
-//
-// The deadline counts from the start of the call. It is the one-address value while stdin is
-// read, then the value for the number of inputs while the hostnames resolve, then the value for
-// the number of distinct addresses; --timeout replaces all three.
+// runIP validates inputs before network requests, then resolves names, looks up addresses and
+// writes results unless interrupted. The timeout starts at invocation: it scales from one input
+// while reading stdin, to the input count during resolution, then the distinct address count.
+// An explicit --timeout overrides all three.
 func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []string, o *ipOptions) error {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d
@@ -183,9 +178,8 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 	return endLookup(outErr, func() error { return writeIP(inv, records, metaErrs, fields, warnings, red) })
 }
 
-// ipReadsThreatSource reports whether a selected key reads the threat-data source: the abusive_
-// keys read ipapi.is's lists, and the drop_ keys Spamhaus's. A source no key reads gives no warning
-// and no hint.
+// ipReadsThreatSource maps selected fields to their threat-data source: abusive_ uses ipapi.is
+// and drop_ uses Spamhaus. Unused sources produce no stale-data notice.
 func ipReadsThreatSource(fields iplookup.Fields, source string) bool {
 	prefix := "drop_"
 	if source == threatdata.Ipapi {
@@ -194,9 +188,9 @@ func ipReadsThreatSource(fields iplookup.Fields, source string) bool {
 	return slices.ContainsFunc(fields.Names(), func(n string) bool { return strings.HasPrefix(n, prefix) })
 }
 
-// ipConfig is what the lookup needs: one egress for the resolvers and the third parties, with no
-// policy, since a policy would refuse source hosts that sit under an input hostname, built from
-// base so that tests can redirect it. Its own timeouts and paces fill only what base leaves unset.
+// ipConfig builds DNS and third-party egress from base, preserving test routing and explicit
+// timeout/rate settings. It uses no target scope policy, which could incorrectly reject source
+// hosts beneath an input hostname.
 func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor, em report.Emitter, threat threatdata.Set) iplookup.Config {
 	o := ipEgressOptions(base, red)
 	e := egress.New(o)
@@ -207,8 +201,8 @@ func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor,
 	return cfg
 }
 
-// ipEgressOptions is base with nyx ip's timeouts, rates and paces where base has none, and without keys:
-// no source nyx ip asks takes one.
+// ipEgressOptions fills unset timeouts/rates from IP defaults and removes keys because these
+// sources are unkeyed.
 func ipEgressOptions(base egress.Options, red *config.Redactor) egress.Options {
 	o := base
 	o.Keys, o.Redactor = nil, red
@@ -232,8 +226,8 @@ func ipEgressOptions(base egress.Options, red *config.Redactor) egress.Options {
 	return o
 }
 
-// writeIP writes the records cut by fields: the envelope under --json, else the readable layout,
-// which writes nothing when there is no record.
+// writeIP applies field selection and writes an envelope or human records. Empty human results
+// write nothing.
 func writeIP(inv *invocation, records []iplookup.Record, metaErrs []*clierr.Error, fields iplookup.Fields, warnings *report.Warnings, red *config.Redactor) error {
 	d := inv.d
 	projected := make([]iplookup.Projected, len(records))

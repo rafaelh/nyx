@@ -53,10 +53,8 @@ func murmur3(data []byte, seed uint32) uint32 {
 	return h
 }
 
-// FaviconHash is the hash Shodan's http.favicon.hash searches for: MurmurHash3
-// of the base64 text of the file, with a newline after every 76 characters and
-// at the end (as Python's base64.encodebytes writes it), as a signed 32-bit
-// integer. An empty file has the hash 0.
+// FaviconHash matches Shodan's signed 32-bit MurmurHash3 of base64.encodebytes-style text:
+// 76-character lines plus a final newline. Empty files hash to zero.
 func FaviconHash(body []byte) int32 {
 	enc := base64.StdEncoding.EncodeToString(body)
 	var b strings.Builder
@@ -69,8 +67,7 @@ func FaviconHash(body []byte) int32 {
 	return int32(murmur3([]byte(b.String()), 0))
 }
 
-// iconHref is the href of the first link element whose rel includes "icon"
-// ("icon" or "shortcut icon", not "apple-touch-icon"), or "".
+// iconHref selects icon/shortcut-icon links, excluding apple-touch-icon.
 func (p page) iconHref() string {
 	for n := range p.doc.Descendants() {
 		if n.Type == html.ElementNode && n.Data == "link" && slices.Contains(strings.Fields(strings.ToLower(attr(n, "rel"))), "icon") {
@@ -82,16 +79,14 @@ func (p page) iconHref() string {
 	return ""
 }
 
-// lastOnHost is the last response of the chain served by the host the chain
-// began at, whatever scheme or port.
+// lastOnHost ignores scheme/port while selecting the final response on the initial host.
 func lastOnHost(chain []*hop) *hop {
 	host := HostOfURL(chain[0].origin)
 	return lastWhere(chain, func(h *hop) bool { return HostOfURL(h.origin) == host })
 }
 
-// iconRequest is the request for a service's favicon: the icon link of the last
-// page on the service's host, if it has one on that host, else /favicon.ico of the
-// service's first response. egress.Link refuses another host.
+// iconRequest prefers a same-host icon link on the final same-host page, otherwise the first
+// response's /favicon.ico. egress.Link rejects other hosts.
 func iconRequest(chain []*hop) (egress.Request, bool) {
 	last := lastOnHost(chain)
 	if pg, ok := last.page(); ok {
@@ -111,15 +106,9 @@ func iconRequest(chain []*hop) (egress.Request, bool) {
 	return req, err == nil
 }
 
-// fetchFavicon makes the one favicon request of a service and returns the hash of
-// what it answers, if that is an icon, or "". A redirect is followed once, and only
-// on the same host. Anything but a 2xx answer, a body cut by the cap, a type that
-// is not an image (a missing type is accepted) or a body that is markup (a page,
-// not an icon) has no hash.
-//
-// A failed icon request is no icon, not a failed service: the record of the
-// service must not be lost to an icon that cuts the connection. Only a run that
-// was cancelled is an error.
+// fetchFavicon follows at most one same-host redirect and hashes complete 2xx image responses.
+// Missing content type is accepted; markup is rejected. Icon failures do not discard an
+// otherwise valid service. Only run cancellation returns an error.
 func fetchFavicon(ctx context.Context, chain []*hop, e egress.Clients) (string, error) {
 	req, ok := iconRequest(chain)
 	if !ok {

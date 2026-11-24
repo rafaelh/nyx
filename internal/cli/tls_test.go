@@ -10,8 +10,7 @@ import (
 	"testing"
 )
 
-// TLS detail: the version, cipher and trust of each HTTPS service from the probe's
-// handshake, and the findings for legacy versions and a certificate for another name.
+// TLS tests cover negotiated metadata, legacy versions and hostname mismatch findings.
 
 // cbcSuite is the one suite the legacy fake servers offer; it works at every version from 1.0.
 const cbcSuite = "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
@@ -33,9 +32,8 @@ func selfFor(t *testing.T, host string) tls.Certificate {
 	return selfSigned(t, leafSpec{cn: host, dns: []string{host}})
 }
 
-// A service whose best version is 1.0 or 1.1 is recorded with that version, crawled and
-// checked for sensitive paths like any other, and is a low finding. A service with TLS 1.2
-// or later is recorded with its version and is not.
+// Legacy-only services remain probeable/crawlable and yield low findings; modern versions do
+// not.
 func TestTLS_LegacyServicesAreRecordedCrawledAndChecked(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "sensitive-paths")
@@ -82,8 +80,7 @@ func TestTLS_LegacyServicesAreRecordedCrawledAndChecked(t *testing.T) {
 	}
 }
 
-// web-services.csv has tls_version, tls_cipher and tls_trust (the header is checked with the
-// other web columns), and each trust value is the first that applies.
+// TLS columns use the first applicable trust classification.
 func TestTLS_ColumnsAndTrustValues(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t)
@@ -188,8 +185,7 @@ func TestTLS_FailedHandshakeIsNotRecorded(t *testing.T) {
 	}
 }
 
-// A record from before these columns shows a trust worked out from its old attributes and no
-// version or cipher, and a plain re-run sends nothing, until --redo httpprobe.
+// Older records infer trust but need redo before negotiated version/cipher can be collected.
 func TestTLS_ExistingRecordsHaveDerivedTrustAndNoVersionUntilRedo(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t)
@@ -225,8 +221,7 @@ func TestTLS_ExistingRecordsHaveDerivedTrustAndNoVersionUntilRedo(t *testing.T) 
 	}
 }
 
-// Findings of a service that now negotiates a modern version and a matching certificate go not
-// current after --redo httpprobe, and stay on record.
+// Modern TLS and renewed matching certificates retire prior findings on redo.
 func TestTLS_FindingsGoNotCurrentAfterRedoAgainstFixedService(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t)
