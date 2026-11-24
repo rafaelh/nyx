@@ -4,8 +4,8 @@
 #
 # Requests follow severity, then file order, so earlier entries get budget first.
 #
-# The first 23 entries have stored check hashes pinned by tests. Editing their matchers
-# creates new checks and leaves earlier hits under old keys. New entries are appended
+# The first 23 entries have stored job hashes pinned by tests. Editing their matchers
+# creates new jobs and leaves earlier hits under old keys. New entries are appended
 # within their severity group.
 - path: '/.git/config'
   signature: '\[core\]'

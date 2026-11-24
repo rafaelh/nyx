@@ -16,21 +16,21 @@
 - **The NVD key:** `nyx cve` reads its key from `keys.nvd` in the file (see [CVE lookup](cve.md)).
   `keys.nvd` is a valid key for every command.
 - **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos` and
-  `github`. A stage whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
+  `github`. A procedure whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
   `shodan-dns`, which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
   one Shodan query credit per result page, for each root. `keys.censys` is a Censys personal access
   token and searches certificates for names under each root. `keys.chaos` is a ProjectDiscovery
-  Chaos key. A 401, 403 or 429 stops that stage for the run (`shodan-host` too). Each of these three follows result pages
+  Chaos key. A 401, 403 or 429 stops that procedure for the run (`shodan-host` too). Each of these three follows result pages
   up to `shodan_dns.max_pages`, `censys.max_pages` or `chaos.max_pages` (default 10; raising one
-  repeats the stage's checks, and reaching one is a warning). Chaos answers with the
+  repeats the procedure's jobs, and reaching one is a warning). Chaos answers with the
   whole list in one page, so its cap is not reached. `certspotter` takes an
   optional key: it runs without one, and sends `keys.certspotter` when it is set. `keys.github` is a
-  GitHub personal access token for the `github` stage (see [GitHub code search](sources.md#github-code-search)),
+  GitHub personal access token for the `github` procedure (see [GitHub code search](sources.md#github-code-search)),
   which reads up to `github.max_results` results per root (`--github-max-results`, default 500, from
-  1 to 1000; changing it repeats the stage's checks). A 401, or a 403 or 429 whose rate limit does not
-  lift within 60 seconds, stops that stage for the run. The other sources need no key.
-- **Reverse IP.** `keys.securitytrails` also adds SecurityTrails to the `reverseip` stage (see
-  [Reverse IP](sources.md#reverse-ip)). A rejected key (401 or 403) stops the whole stage, its HackerTarget
+  1 to 1000; changing it repeats the procedure's jobs). A 401, or a 403 or 429 whose rate limit does not
+  lift within 60 seconds, stops that procedure for the run. The other sources need no key.
+- **Reverse IP.** `keys.securitytrails` also adds SecurityTrails to the `reverseip` procedure (see
+  [Reverse IP](sources.md#reverse-ip)). A rejected key (401 or 403) stops the whole procedure, its HackerTarget
   lookups included, until the key is fixed or removed; a 429 stops it for the run. `reverseip.max_domains`
   (`--reverseip-max-domains`, default 100, at least 1) is how many registrable domains one address may
   return before it is treated as shared hosting.
@@ -94,9 +94,9 @@ the bottom of the screen lists the keys each tab offers.
   already in the file, is shown as resolving against the directory nyx is later run from. When
   `SHELL` is bash or zsh, the tab ends with the line to add to `~/.bashrc` or `~/.zshrc` for tab
   completion (see [Commands](commands.md#commands)); `nyx setup --help` gives both.
-- **Skip tab.** Lists the stages that can be skipped, each with its one-line description (as in
-  `nyx help stages`). A stage that runs is marked `[x]`; toggling it off adds it to the `skip`
-  setting and shows it muted. Stages that cannot be skipped are not offered. An entry in the file that
+- **Skip tab.** Lists the procedures that can be skipped, each with its one-line description (as in
+  `nyx help procedures`). A procedure that runs is marked `[x]`; toggling it off adds it to the `skip`
+  setting and shows it muted. Procedures that cannot be skipped are not offered. An entry in the file that
   is unknown or cannot be skipped is listed with its message and can be removed on its own.
 - **Threat data tab.** Lists the five lists the abusive-network check reads (Spamhaus's DROP,
   DROPv6 and ASN-DROP, and ipapi.is's most-abusive networks and ASNs), each with its source, its date,

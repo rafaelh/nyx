@@ -489,7 +489,7 @@ func TestEmailMTASTS_ServfailFailsTheJob(t *testing.T) {
 	}
 }
 
-// Version old checks once for MTA-STS DNS support without fetching HTTPS policy files.
+// An existing engagement performs the email jobs once more for MTA-STS DNS support, without fetching HTTPS policy files.
 func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)

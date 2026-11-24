@@ -7,11 +7,11 @@ Each row says how well supported it is, so you can tell which are worth promotin
 |---|---|
 | `type` | `root`, `hostname`, `netblock`, `asn` or `organisation` |
 | `value` | The candidate |
-| `sources` | The distinct stages or mechanisms that found it, joined with `;` (listed below) |
+| `sources` | The distinct procedures or mechanisms that found it, joined with `;` (listed below) |
 | `evidence_count` | The number of distinct pairs of a source and the item that linked the candidate: the address, root, name server, netblock, service or organisation the source was asked about |
 | `confidence` | `low`, `medium` or `high` |
 
-The `sources` values are the stages and mechanisms that can find a candidate. Each belongs to one
+The `sources` values are the procedures and mechanisms that can find a candidate. Each belongs to one
 family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), web archive
 (`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`, `shodan-host`,
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
@@ -39,8 +39,8 @@ a registrant source counts as one family like any other. A candidate root also c
 the candidate hostnames under it, so a root found by reverse WHOIS and a hostname under it found by
 a redirect support each other. A hostname keeps its own rank.
 
-Confidence is worked out again on every run from the checks that currently support the candidate.
-After `--redo` of a stage whose results no longer support a candidate, it drops. Rows are sorted by
+Confidence is worked out again on every run from the jobs that currently support the candidate.
+After `--redo` of a procedure whose results no longer support a candidate, it drops. Rows are sorted by
 confidence (high first), then by evidence count (most first), then by value. A row that is not
 current sorts last and shows the confidence it last had.
 

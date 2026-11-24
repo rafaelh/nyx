@@ -68,8 +68,8 @@ marked not current.
 
 ## JavaScript endpoints
 
-The `crawl` stage notes every `<script src>` on the pages it fetches, whatever host the script is
-on. The `jsparse` stage (it contacts the target, so it is skipped under `--passive` and until you
+The `crawl` procedure notes every `<script src>` on the pages it fetches, whatever host the script is
+on. The `jsparse` procedure (it contacts the target, so it is skipped under `--passive` and until you
 confirm authorisation) then reads each of those scripts that is on an in-scope host, with one GET
 each, and records what the script names:
 
@@ -85,11 +85,11 @@ each, and records what the script names:
   ignored, as the crawl does.
 
 Nothing found in a script is ever requested: the crawl follows only links from pages it fetched, and
-the only script URLs the stage can request are those the crawl recorded. A script on a CDN or any
+the only script URLs the procedure can request are those the crawl recorded. A script on a CDN or any
 other host that is not in scope, on an excluded host, on a wildcard-only name or served by a SaaS
 platform is not fetched. A redirect is followed only to the same host, and any answer other than
 2xx, or one that is HTML (a `text/html` type, or a body that starts with `<`), records nothing. A
-timeout is a failed check, retried on the next run.
+timeout is a failed job, retried on the next run.
 
 `jsparse.max_scripts` caps the scripts fetched per origin, in URL order, with a warning that says how
 many were left. A script already read keeps its place when new ones appear, so a re-crawl does not
@@ -100,7 +100,7 @@ and nothing is executed or searched for secrets.
 
 When a re-crawl no longer references a script, the URLs found only in it are marked not current.
 An engagement crawled by an earlier version has no script records until you run `--redo crawl`.
-The check for a script is keyed by its URL and the parser, not by the scope, so a root you add later
+The job for a script is keyed by its URL and the parser, not by the scope, so a root you add later
 is applied to the scripts already read only after `--redo jsparse`.
 
 ## Web identifiers
@@ -130,7 +130,7 @@ not run.
 
 ### Pivoting on them
 
-With `keys.shodan`, the `identifier-pivot` stage (it runs under `--passive`, over the identifiers
+With `keys.shodan`, the `identifier-pivot` procedure (it runs under `--passive`, over the identifiers
 earlier runs recorded, and is `not-configured (no key)` without the key) searches Shodan once for
 each distinct analytics ID, pixel ID or favicon hash on an in-scope web service: `http.html:"<id>"`
 or `http.favicon.hash:<hash>`. It reads the first page of results only.
@@ -145,22 +145,22 @@ or `http.favicon.hash:<hash>`. It reads the first page of results only.
   empty file (`0`), Spring Boot (`116323821`), Jenkins (`81586312`) and Apache Tomcat
   (`-297069493`). A search that returns more than 200 hosts records nothing and prints a warning.
 - **Cap.** At most `identifier_pivot.max_queries` searches (default 50) are sent per run, in the
-  order of their check keys (`favicon|…`, then `html|…`). The rest wait for later runs, which is not a
+  order of their job keys (`favicon|…`, then `html|…`). The rest wait for later runs, which is not a
   failure; the number deferred is under `Deferred to the next run` (the unit of that number is
   searches). A search that fails still counts.
-- **Keys and credits.** A key without search access (a 401 or 403) fails the stage with one
-  warning, and so does a 429. No query credits (a 402) stop the stage for the run; the search that
+- **Keys and credits.** A key without search access (a 401 or 403) fails the procedure with one
+  warning, and so does a 429. No query credits (a 402) stop the procedure for the run; the search that
   was refused and the ones not yet sent run next time.
-- **Refresh.** A search is made once per identifier; `--redo identifier-pivot` repeats it. The check is
+- **Refresh.** A search is made once per identifier; `--redo identifier-pivot` repeats it. The job is
   keyed by the identifier and not by the scope, so a hostname under a root you promote later was
   recorded only as a candidate root, and becomes a hostname after `--redo identifier-pivot`.
 
 ## Origin exposure
 
 A site behind a CDN or WAF is only as protected as its origin server is hidden. nyx looks for
-origin servers that can be reached directly, in two stages.
+origin servers that can be reached directly, in two procedures.
 
-The `dnshistory` stage runs under `--passive` and needs `keys.securitytrails`; without it the stage
+The `dnshistory` procedure runs under `--passive` and needs `keys.securitytrails`; without it the procedure
 is `not-configured (no key)`. For each in-scope hostname that currently resolves to a known CDN or
 WAF (a CNAME on its chain, or an address, that belongs to CloudFront, Azure Front Door and CDN,
 Cloudflare, Fastly, Akamai, Imperva or Sucuri, or an address of Vercel's or Yandex's network), it asks SecurityTrails for the hostname's
@@ -172,7 +172,7 @@ probed or port-checked, and takes no part in wildcard detection, because of that
 - **Cap.** At most `dnshistory.max_hosts` hostnames (default 200) are asked in a run, in name order.
   The rest are deferred, which is not a failure: the number under `Deferred to the next run` counts
   hostnames. Each hostname is asked once per engagement, and again only after `--redo dnshistory`.
-- **Quota.** A 401, 403 or 429 from SecurityTrails stops the stage for the run, as it does for the
+- **Quota.** A 401, 403 or 429 from SecurityTrails stops the procedure for the run, as it does for the
   other keyed sources. Each hostname is two requests, one per record type, and each further page
   of a long history is another, up to five pages per type.
 - **Not verified against the live API.** The request and response shapes were taken from
@@ -187,22 +187,22 @@ CDN or WAF, and whose certificate names the hostname or whose page title equals 
 address in a CDN's published range, or whose origin AS is a CDN's, is the CDN's own and never a
 candidate. Without a SecurityTrails key only siblings are candidates.
 
-The `origincheck` stage contacts the target, so it is skipped under `--passive` and until you
-confirm authorisation. It makes one check for each pair of a hostname and a candidate, but only if
+The `origincheck` procedure contacts the target, so it is skipped under `--passive` and until you
+confirm authorisation. It makes one job for each pair of a hostname and a candidate, but only if
 the candidate may be contacted (it is inside an in-scope netblock, or is the current address of an
 in-scope hostname with a known, dedicated owner, and is not excluded) and the probe has a 2xx
 result for the hostname's HTTPS service. Every other candidate is reported as a possible origin and
-is never contacted. The check is one `GET /` over HTTPS on port 443 with the hostname as both the TLS
+is never contacted. The job is one `GET /` over HTTPS on port 443 with the hostname as both the TLS
 server name and the Host header, and, only if nothing answers on 443 (not if it fails the TLS
 handshake), one over HTTP on port 80. Redirects are not followed, and a 3xx confirms nothing. If
-the title or certificate the probe saw changes, the pair is checked again.
+the title or certificate the probe saw changes, the pair is probed again.
 
 The exposure is **confirmed** when the response's non-empty title equals the probe's title for the
 hostname and is not a CDN, WAF or default-server title, or when the response has the same status as
 the probe, a body length within 10% of it, and a certificate that names the hostname. A certificate
 alone is not enough. The finding is a medium `origin-exposure`, with the console line `+ medium origin
 exposure <hostname> -> <address> (behind <provider>)`; a candidate that is not confirmed is a low
-possible origin in the same row, which becomes the medium finding if a later check confirms it.
+possible origin in the same row, which becomes the medium finding if a later probe confirms it.
 The finding is no longer current when the hostname is no longer behind a CDN or WAF, the address
 becomes provider infrastructure, or the sibling no longer matches; after `--redo origincheck`, an
 answer that no longer confirms leaves the row current as a possible origin.

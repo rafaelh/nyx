@@ -1,6 +1,6 @@
 # Built-in lists and per-run limits
 
-Two stages work from lists built into the binary. `--wordlist` and `--sensitive-paths` each replace
+Two procedures work from lists built into the binary. `--wordlist` and `--sensitive-paths` each replace
 the list they name; neither adds to it.
 
 **Permutation wordlist.** The built-in list has 4860 lower-case labels, most common first. It is
@@ -10,7 +10,7 @@ licence); the licence text is in the header of `internal/config/builtin/wordlist
 stay on under `--passive`, because they send only DNS lookups to public resolvers.
 
 - **Volume.** The list costs 4860 lookups per root (one `A` query per word). Each seed (a
-  name another stage found) costs at most `permutations.max_per_seed` lookups (default 200, taken
+  name another procedure found) costs at most `permutations.max_per_seed` lookups (default 200, taken
   from the front of the list). At the default `--rate-dns` of 50 queries a second, a root takes
   about 97 seconds.
 - **Per-run cap.** `permutations.max_names` (`--permutations-max-names`, default 200000) caps the
@@ -20,11 +20,11 @@ stay on under `--passive`, because they send only DNS lookups to public resolver
   over the cap. A zone already known to be a wildcard is not permuted.
 - **Well-known labels.** Each root also tries `autodiscover`, `lyncdiscover`,
   `enterpriseenrollment`, `enterpriseregistration` and `mta-sts`, even when the wordlist lacks them
-  and only when permutations are on, so a root check is the list plus up to five names (the built-in
+  and only when permutations are on, so a root's job covers the list plus up to five names (the built-in
   list already holds all five, so it stays at 4860). Seeds do not use them, and neither does a root
   already known to be a wildcard zone.
-- **After an upgrade.** A changed list repeats every permutation check once, on the first run
-  that uses it. Adding the well-known labels repeats each root's check once and no seed check, and
+- **After an upgrade.** A changed list repeats every permutation job once, on the first run
+  that uses it. Adding the well-known labels repeats each root's job once and no seed job, and
   that repeat spends the per-run cap: at the default cap about 40 roots' repeats fit in one run, and
   the rest are deferred to the next.
 
@@ -44,7 +44,7 @@ new entries are requested on the first run after an upgrade.
   highest-severity paths first. The rest wait for later runs, and a hit from an earlier run stays
   current while its neighbours wait.
 
-A cap that defers work is not a failure: the stage shows `done`, and the summary gives the amount
-deferred for each stage (names for permutations, requests for sensitive paths, addresses for `shodan-host`, searches for `identifier-pivot`, hostnames for `dnshistory`) under `Deferred to
+A cap that defers work is not a failure: the procedure shows `done`, and the summary gives the amount
+deferred for each procedure (names for permutations, requests for sensitive paths, addresses for `shodan-host`, searches for `identifier-pivot`, hostnames for `dnshistory`) under `Deferred to
 the next run`, and as the envelope's `deferred` list under `--json`. A run that only deferred work
 exits 0. Run the same command again to do the rest.

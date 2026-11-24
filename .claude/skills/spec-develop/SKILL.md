@@ -92,7 +92,7 @@ and `spec-develop-worker` writes the code.
 
 6. **Watch them fail, then freeze them.** Run the new tests yourself and show the user that they
    fail on their assertions, not on a build error or a panic. The tests the agent said pin existing
-   behaviour may pass. Then stage the test files with `git add` (stage only, never commit), so that
+   behaviour may pass. Then add the test files to the index with `git add` (never commit), so that
    `git diff -- <test files>` shows any later change to them. List the frozen files in
    `## Develop`.
 
@@ -111,7 +111,7 @@ and `spec-develop-worker` writes the code.
      first candidate for a mutation check in step 12.
    - **A commit of its own.** If `# Design` asks for part of the change to be committed separately,
      such as a refactor that lands first, commit that part once its tests pass, before you write
-     the rest. Use `git commit -- <its files>`, so the frozen tests stay staged and out of it, with
+     the rest. Use `git commit -- <its files>`, so the frozen tests stay in the index and out of it, with
      the message the design gives or a conventional prefix.
 
 8. **Confirm the tests pass and the frozen ones held.** Confirm all the tests pass. Then run

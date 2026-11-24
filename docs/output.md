@@ -13,14 +13,14 @@ Everything is in `<output-dir>/<engagement>/`:
 | `resolutions.csv` | DNS records for in-scope names (A, AAAA and CNAME, the NS, SOA, TXT and CAA records of each root, and the SRV records of the listed service names, see below), with a `source` column: `resolve` (nyx's own lookup), `shodan` (reported by Shodan only) or `resolve;shodan`, then `self_hosted`: `yes` or `no` on an NS row of nyx's own lookup and blank otherwise (see [Shared name servers and mail hosts](dns.md#shared-name-servers-and-mail-hosts)). Records only Shodan reports decide nothing: they never make a name resolved or an address contacted, port-checked or probed. Historical addresses of a hostname behind a CDN or WAF are rows of type `A-historical` or `AAAA-historical`, source `dnshistory`, with the `historical_first_seen` and `historical_last_seen` columns (the last two before `current`; blank on every other row). A historical address is never a current one: it is not probed, port-checked or used to detect wildcards (see [Origin exposure](web.md#origin-exposure)). |
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
-| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` stage found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, except that an address whose origin AS is a CDN's (Linode's list holds some of Akamai's edge space) stays shared, so an in-scope hostname that resolves to one of the others is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
+| `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` procedure found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, except that an address whose origin AS is a CDN's (Linode's list holds some of Akamai's edge space) stays shared, so an in-scope hostname that resolves to one of the others is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
 | `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details (see [TLS detail](web.md#tls-detail)), web posture evidence (see [Web posture](web.md#web-posture)) and web identifiers (see [Web identifiers](web.md#web-identifiers)) |
 | `urls.csv` | URLs from crawling, the scripts of crawled pages (see [JavaScript endpoints](web.md#javascript-endpoints)) and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](sources.md#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake), `shodan_last_seen` (empty on a row only nyx saw), and `product` and `version` where the banner is a recognised SSH, FTP or SMTP banner (see [End-of-life software](end-of-life.md)) |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host, then `mx_self_hosted`, the mail hosts the organisation runs itself, joined with `;` (see [Shared name servers and mail hosts](dns.md#shared-name-servers-and-mail-hosts)) |
 | `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx`, `cname` or `srv`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns`, `mx` and `srv`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept) |
-| `code-mentions.csv` | Files in public GitHub repositories that mention an in-scope root, from the `github` stage: `repository`, `path`, `url`, the in-scope `hostnames` the match names (`;`-joined) and the `root` searched for. A match that is no longer current keeps only its `url` (see [GitHub code search](sources.md#github-code-search)) |
+| `code-mentions.csv` | Files in public GitHub repositories that mention an in-scope root, from the `github` procedure: `repository`, `path`, `url`, the in-scope `hostnames` the match names (`;`-joined) and the `root` searched for. A match that is no longer current keeps only its `url` (see [GitHub code search](sources.md#github-code-search)) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |
 | `risk-takeover.csv` | Subdomain takeover findings |
 | `risk-storage.csv` | Cloud-storage findings: buckets that exist, are public or are listable |
@@ -78,8 +78,8 @@ listed.
   exits 130. A run that the deadline ended does the same, and its `changes` count what it completed.
 - **With no contact.** Findings can become new or gone when nothing was contacted: a certificate
   passes its expiry date, a setting such as `--cert-expiry-days` changes, or the binary does. A
-  `--passive` run never reports a record gone when every stage that observed it made contact with
-  the target, because those stages did not run; findings are the exception, since they are worked
+  `--passive` run never reports a record gone when every procedure that observed it made contact with
+  the target, because those procedures did not run; findings are the exception, since they are worked
   out again on every run.
 
 Only the last two states are compared: nyx keeps no history across more than one run, and does not
@@ -99,8 +99,21 @@ nyx recon export -e acme --current --kind hostname --kind web_service --output h
 - **Lines.** There is one line for each input (`kind` `input`, with `type` of `root`, `org`, `asn` or
   `cidr`, `value` and `added`) and each exclusion (`kind` `exclusion`, with `value` and `added`),
   then one line for each record of the engagement, current or not, in kind order and then key order.
-  A record line has `kind`, `key`, `attrs`, `current`, `first_seen`, `last_seen` and `stages`, the
-  stages that observe it now (none when it is not current), and then either `scope` or `shown`.
+  A record line has `kind`, `key`, `attrs`, `current`, `first_seen`, `last_seen`, `procedures`, `analysis` and
+  then either `scope` or `shown`, in that order. `procedures` is the sorted list of the procedures that
+  observe the record now. It is always present, and is `[]` when no procedure observes the record now
+  (so for every record that is not current). `analysis` is written only when an analysis produces the
+  record now. An *analysis* is a record nyx produces itself rather than one a procedure observes. It
+  is a string, one of these:
+  - `findings`: the `finding` records, derived from the evidence that is shown.
+  - `candidate-rank`: the `candidate_rank` record of each candidate.
+  - `thirdparty-cname`: the third parties derived from CNAMEs.
+  - `guard`: the addresses egress refused to dial, which are excluded.
+
+  A record both observed and produced by an analysis has both: a third party a procedure saw and a
+  CNAME implies has `procedures` and `analysis` `thirdparty-cname`. A `finding` has `procedures` of
+  `[]` and `analysis` `findings`. A record that is not current has neither filled: `procedures` is
+  `[]` and it has no `analysis`.
   `scope` is `in-scope`, `candidate` or `excluded`, for hostnames, roots, netblocks, autonomous
   systems, organisations and excluded items, and is `candidate` exactly when `candidates.csv` lists
   the record. An organisation that matches no `--org` input and is not an organisation candidate
@@ -109,12 +122,13 @@ nyx recon export -e acme --current --kind hostname --kind web_service --output h
   scope. Both are worked out when you export,
   from the engagement's inputs and your current configuration, the same way a run does, so an
   exclusion added since a record was found is reflected.
-- **Attributes.** `attrs` are the record's attributes merged from the stages that observe it, later
-  stages in the registry winning a field, as in the CSV files. The store keeps attributes only
-  from current observations, so a record that is not current has `attrs` of `{}`. `finding` and
-  `candidate_rank` records are derived from the others: they are exported like any other record,
-  but their `stages` name the pseudo-stage that derived them (`findings`, `candidate-rank`), which
-  is not a stage you can `--redo`.
+- **Attributes.** `attrs` are the record's attributes merged from the procedures that observe it,
+  later procedures in the registry winning a field, as in the CSV files. The attributes of an
+  analysis merge first (a producer that is not in the registry list sorts first), so a procedure wins
+  a field it also sets. The store keeps attributes only from current observations, so a record that
+  is not current has `attrs` of `{}`. `finding` and `candidate_rank` records are produced by an
+  analysis from the others: they are exported like any other record, with `analysis` naming it
+  (`findings`, `candidate-rank`). An analysis is not a procedure, so you cannot `--redo` it.
 - **`--current`** keeps only current records. **`--kind`** (repeatable) keeps only the kinds
   named; `nyx recon export --help` lists them, including `input` and `exclusion`. The two combine.
   A missing `-e`, an unknown kind and an `--output` whose directory does not exist exit 2, all

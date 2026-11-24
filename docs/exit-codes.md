@@ -6,11 +6,11 @@ Every command uses the same exit codes:
 
 | Code | Meaning | Error codes |
 |---|---|---|
-| 0 | Success: the run did all its work and no check failed. A `not-configured` stage, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
+| 0 | Success: the run did all its work and no job failed. A `not-configured` procedure, work a per-run cap deferred and a result a page cap truncated do not stop it being a success | none |
 | 1 | System error: the arguments were fine and something else went wrong, including an engagement locked by another run | `NETWORK_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `AUTH_FAILED`, `LOCKED`, `UNEXPECTED_ERROR` (for `nyx setup --update-threat-data`, when both sources failed: their shared code, or `UPSTREAM_ERROR`) |
 | 2 | Usage error: a bad flag, setting, config file, input or file named on the command line, an output directory that is not a nyx engagement, or the netblock limit; for `nyx setup`, an argument, no `--config` and no default config path (and, for `--update-threat-data`, neither `XDG_CONFIG_HOME` nor `HOME`, so nowhere to keep threat data), no terminal on stdin or stdout (it names the file and says to edit it by hand), or a config file that cannot be read or parsed or holds an unknown key; for `nyx cve`, no IDs, or only malformed ones; for `nyx ip`, no inputs, only invalid ones, or more than 256 addresses (when hostnames gave them, only their DNS lookups were sent). Nothing was created or contacted, except that the netblock limit is found once a run has started | `INVALID_INPUT` |
 | 3 | Not found: an engagement that does not exist, no CVE ID the NVD holds, or for `nyx ip` only names that do not resolve | `NOT_FOUND` |
-| 7 | Partial result: a recon run the deadline ended, or in which any check failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes; the same for a `nyx ip` call and its inputs (a quota failure never counts, see [IP lookup](ip.md)); a threat-data update in which one source failed | `PARTIAL` |
+| 7 | Partial result: a recon run the deadline ended, or in which any job failed; a `nyx cve` batch in which some IDs failed, or every ID failed with different error codes; the same for a `nyx ip` call and its inputs (a quota failure never counts, see [IP lookup](ip.md)); a threat-data update in which one source failed | `PARTIAL` |
 | 130, 143, 129 | Interrupted by SIGINT, SIGTERM or SIGHUP | `INTERRUPTED` |
 
 **Exit codes of the threat-data update.** `nyx setup --update-threat-data` exits 0 when every source
@@ -25,26 +25,26 @@ when any failure was a network failure, a timeout or a 429 (see
 [Abusive networks](abusive-networks.md#updating-the-threat-data)).
 
 **Exit 7 for recon.** A recon run exits 7 when the deadline ended it (see [Deadline](commands.md#deadline)) or
-when any check failed in it. Exit 0 no longer covers failed checks. The summary or envelope has been
+when any job failed in it. Exit 0 no longer covers failed jobs. The summary or envelope has been
 written to stdout, and the files are current, before the error that follows it on stderr. A failed
-check is one that returned a transient error, one a stage abandoned when it stopped for the run on
-a 401, 403, 429 or spent quota, and one that panicked (a panic inside one check is that check's
-failure: the run carries on, and the check is retried on the next run).
+job is one that returned a transient error, one a procedure abandoned when it stopped for the run on
+a 401, 403, 429 or spent quota, and one that panicked (a panic inside one job is that job's
+failure: the run carries on, and the job is retried on the next run).
 
-- **The error** names each stage with failed checks and how many (`16 checks failed: crtsh 2,
+- **The error** names each procedure with failed jobs and how many (`16 jobs failed: crtsh 2,
   shodan 14`). Its hint is your own invocation, shell-quoted, with `--redo` and its value left out
-  and every other argument kept: run it to retry the failed checks. The error is marked
+  and every other argument kept: run it to retry the failed jobs. The error is marked
   transient unless every failure was a key the source refused (a 401 or 403 from a keyed source, and
   a 401 from GitHub, which answers 403 for a rate limit): waiting does not cure those, so fix or
   remove the key.
-- **Not partial.** These do not make a run partial: a `not-configured` stage, work a per-run cap
-  deferred, a result truncated by a page cap, and failures recorded by earlier runs for stages that
+- **Not partial.** These do not make a run partial: a `not-configured` procedure, work a per-run cap
+  deferred, a result truncated by a page cap, and failures recorded by earlier runs for procedures that
   did not run this time.
 - **The deadline's error** is the `PARTIAL` of the [Deadline](commands.md#deadline) section, with the failed
-  checks of the run named in it as well.
+  jobs of the run named in it as well.
 
 **Several outcomes.** One is reported, the first of these that applies: a signal (130, 143 or 129),
-a fatal error (exit 1), the netblock limit (exit 2), the deadline (exit 7), failed checks (exit 7).
+a fatal error (exit 1), the netblock limit (exit 2), the deadline (exit 7), failed jobs (exit 7).
 A signal that arrives while a deadline run is writing its files leaves `INTERRUPTED` and an empty
 stdout; one that arrives after the result is written leaves exit 7 standing.
 
@@ -107,6 +107,11 @@ new one may be added, but renaming, removing or retyping one is a breaking chang
 messages and hints may change. The one exception so far is that the default `nyx cve` record no
 longer has the lists `affected_products` and `references`, only their counts: that was a deliberate
 break, made once when `--limit` and `--match` were added, and `--fields all` still returns them.
+The other is the vocabulary rename made before the first release: the recon envelope's
+`failed_checks` became `failed_jobs`, `meta.checks_completed` and `meta.checks_cancelled` became
+`meta.jobs_completed` and `meta.jobs_cancelled`, the `stage` key of the rows of `failed_jobs`,
+`deferred` and `not_configured` became `procedure`, and export's `stages` became `procedures` (with
+the new `analysis` beside it).
 
 ## Departures from `docs/agent-tools`
 
@@ -115,7 +120,7 @@ The guidance in `docs/agent-tools` is followed, except in these eleven ways:
 1. recon has no default `--timeout`: a run takes as long as it needs unless you give a deadline.
 2. `nyx recon export` writes JSON lines with no envelope, cap or paging.
 3. API keys come only from the config file (`keys.<source>`), never from the environment.
-4. A stage whose key is missing is `not-configured`, not a usage error.
+4. A procedure whose key is missing is `not-configured`, not a usage error.
 5. `--authorized` is accepted as an alias of `--authorised`.
 6. `--quiet` with `--debug` is rejected (exit 2).
 7. SIGHUP exits 129.
@@ -123,7 +128,7 @@ The guidance in `docs/agent-tools` is followed, except in these eleven ways:
    reserve (see [Deadline](commands.md#deadline)).
 9. recon's requests are paced by token buckets, not a sliding window (`nyx cve` uses a sliding
    window).
-10. A failed recon request is not retried within the run: its check is retried on the next run.
+10. A failed recon request is not retried within the run: its job is retried on the next run.
     The exceptions are GitHub's rate limit (see [GitHub code search](sources.md#github-code-search)) and an
     overloaded Common Crawl index (see [Passive boundary](passive-boundary.md#passive-boundary)). `nyx cve` retries
     within the call.

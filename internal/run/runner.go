@@ -1,5 +1,16 @@
 // Package run executes discovery procedures until no new work remains. It manages worker pools,
 // procedure eligibility, netblock limits, redo and console progress.
+//
+// A procedure is one concrete way of carrying out a technique, such as asking a certificate
+// transparency log for names or handshaking with a port. It performs jobs: each job is a resumable
+// unit of work with a key that encodes every input and setting that changes it, and its completion
+// is stored, so a re-run performs only the jobs that have not completed.
+//
+// An analysis is a record nyx produces itself rather than one a procedure observes: findings,
+// candidate ranks, third parties derived from CNAMEs, and the addresses egress refused to dial
+// (the guard). It runs no jobs and stores no completion, only the observations it produces.
+// AnalysisNames lists them; each writes a kind of its own, apart from third_party, which a
+// procedure may also observe.
 package run
 
 import (

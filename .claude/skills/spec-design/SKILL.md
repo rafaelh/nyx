@@ -92,7 +92,7 @@ file yourself when you already know which one you need and want its detail.
      - an error or unexpected response from each external dependency it uses;
      - one item failing in a batch: the rest are still processed and the failure is reported;
      - a crash or interrupt part-way: no secret leaks and cleanup still runs;
-     - a re-run after success or after a partial failure: the result is the same, and checks run
+     - a re-run after success or after a partial failure: the result is the same, and the steps run
        in the right order.
 
      Mark the behaviours where a bug would do the most harm, such as security, data loss or writes

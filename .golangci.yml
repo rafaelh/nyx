@@ -20,7 +20,7 @@ linters:
     - nolintlint
     # Explicit JSON tags prevent Go field renames from silently changing stored/API keys.
     - musttag
-    # Explain nil returns after errors, including negative results that intentionally complete checks.
+    # Explain nil returns after errors, including negative results that intentionally complete jobs.
     - nilerr
     # Catch local mistakes and unnecessary code.
     - copyloopvar

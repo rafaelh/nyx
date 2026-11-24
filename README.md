@@ -26,7 +26,7 @@ For tab completion, add `source <(nyx completion zsh)` to `~/.zshrc` (or
 ```sh
 nyx setup                              # store API keys and settings in the config file
 nyx recon example.com --passive        # third-party sources only; nothing at the target is contacted
-nyx recon example.com --authorised     # all stages; confirms you are authorised to test the scope
+nyx recon example.com --authorised     # all procedures; confirms you are authorised to test the scope
 nyx recon -e example-com               # re-run or resume an existing engagement by name
 nyx cve CVE-2021-44228                 # look a CVE up in the NVD
 nyx ip 1.1.1.1                         # who runs an address, and what is known about it

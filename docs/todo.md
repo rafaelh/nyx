@@ -8,7 +8,7 @@
 
 - Evaluate the difference in approach that  https://github.com/blacklanternsecurity/bbot uses for scanning.
 
-- Add check for known bulletproof hosting providers - https://github.com/crimsonvector/BPH_Research and compare with the following free threat feeds:
+- Add a lookup of known bulletproof hosting providers - https://github.com/crimsonvector/BPH_Research and compare with the following free threat feeds:
 
   - ThreatFox, a project between abuse.ch and SpamHaus, provides threat reports for ASNs. See ThreatFox. To search for an ASN, enter the ASN number in the URL: https://threatfox.abuse.ch/asn/[ASN #].
 
@@ -19,7 +19,7 @@
   network. The target publishes an in-scope name such as `lo.target.com` with an address such as
   127.0.0.1, 169.254.169.254 or 10.x. It can then redirect from one of its own pages to that name,
   choosing the port (80, 443 or any configured port), path and query.
-  - Cause: the resolve stage (`internal/stages/dns/resolve.go`) records every A/AAAA answer, and the
+  - Cause: the resolve procedure (`internal/procedures/dns/resolve.go`) records every A/AAAA answer, and the
     inventory passes them all into `Policy.Resolutions`. `Policy.vetted`
     (`internal/egress/http.go`), called from `dialAddrs`, drops only addresses the user excluded.
     `dialFirst` tries addresses in order, so a name that answers with `[attacker IP, 127.0.0.1]`
@@ -46,6 +46,18 @@
   - `go test ./internal/cli/ -run 'TestSetup_FailedSaveKeepsTheEdits$' -count=5`: 5/5 fail. The
     100-column test window cuts the long `/var/folders/...` temporary path short with `…`, so the
     asserted reason and path never appear whole. A wider `h.winW` in the test would fix it.
+- **`TestAbusiveDocs_GiveTheSnapshotDates` fails every time** (20/20 on the base commit a79fd35, so
+  not a regression): after `make threat-data`, the docs don't give the date of the built-in Spamhaus
+  asndrop list, 2026-11-24. The fix is to update the five dates in `docs/abusive-networks.md`.
+
+# Documentation gaps
+
+- **`docs/console-and-json.md` doesn't exist.** `README.md`, `docs/exit-codes.md`, `docs/cve.md`,
+  `docs/ip.md`, `docs/release-preparation.md` and `CLAUDE.md` link to it for the log, the summary,
+  terminal layout and the `--json` envelope. So no page documents the envelope's keys, including the
+  ones renamed after procedures and jobs (`failed_jobs`, `meta.jobs_completed`,
+  `meta.jobs_cancelled` and the `procedure` key of its rows). The links to its
+  `#terminal-layout` and `#the---json-envelope` anchors go nowhere either.
 
 # Refactoring opportunities
 
@@ -73,21 +85,21 @@ Confirm each with `/code-review` before fixing.
 - **Scope build.** Separate the egress Policy from the scope build, and derive `scopeKinds` from a
   table.
 
-- **Stage-owned behaviour.** Move the stage-specific `View` queries out to the stages that use
-  them, and make stage descriptions and the unskippable rule stage interfaces.
+- **Procedure-owned behaviour.** Move the procedure-specific `View` queries out to the procedures
+  that use them, and make procedure descriptions and the unskippable rule procedure interfaces.
 
 - **Config settings table.** One table driving every setting in `config`: the biggest maintenance
   win, since each integer setting is listed in five places. It's a redesign of `Load`, and because
   flag help order is fixed the table must cover every flag, not just the integers.
 
-- **Egress HTTP.** Give each request kind its own check in `targetHTTP.do`, place API keys once per
+- **Egress HTTP.** Give each request kind its own case in `targetHTTP.do`, place API keys once per
   source instead of at every call site, and export `ErrHTTPTimeout`.
 
 - **Crawler script allowlist.** Reconcile the script allowlist with the crawler's anchor
   workaround.
 
 - **Cloud storage in one place.** Bucket URLs are worked out in both `cloudstorage` and the storage
-  stage, and the storage stage reads CNAMEs the inventory already indexes (needs a new seam in
+  procedure, and the storage procedure reads CNAMEs the inventory already indexes (needs a new seam in
   `inventory`).
 
 - **Shared redaction.** One redaction walker shared by `config` and `cli/export`, possibly

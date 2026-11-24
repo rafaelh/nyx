@@ -16,7 +16,7 @@ nyx limits what target-owned systems can receive. It sends only:
   [Web identifiers](web.md#web-identifiers)).
 
 - **One GET of `/` to an address it is already allowed to contact, with an in-scope hostname as
-  the server name and the Host header.** The `origincheck` stage sends it to see whether a
+  the server name and the Host header.** The `origincheck` procedure sends it to see whether a
   hostname behind a CDN or WAF is also served directly by its origin server (see
   [Origin exposure](web.md#origin-exposure)). The address is one that may be port-checked: inside an
   in-scope netblock, or dedicated to the organisation, known, not excluded, and the current address
@@ -32,29 +32,29 @@ as that third party; an excluded host never is. Everything else comes from third
 (crt.sh and Cert Spotter), web archives, passive DNS and search (HackerTarget and urlscan.io),
 GitHub's code search, public DNS resolvers, RDAP/WHOIS, BGP data, keyed APIs and cloud-storage
 provider endpoints. Only hostnames are recorded from Cert Spotter, HackerTarget and urlscan.io. When one of these three
-reports that its free quota is spent, its stage alone stops, the checks it did not do are failed (the
+reports that its free quota is spent, its procedure alone stops, the jobs it did not do are failed (the
 run exits 7, see [Exit codes](exit-codes.md#exit-codes)), and they are retried on the next run. HackerTarget (and SecurityTrails, with its key) also receives the engagement's dedicated
 addresses, for its reverse IP lookup (see [Reverse IP](sources.md#reverse-ip)); SecurityTrails also receives
 the hostnames behind a CDN or WAF, for their DNS history (see [Origin exposure](web.md#origin-exposure)); the
 target never does. The
-`otx` and `anubis` stages no longer exist, because neither service answers an unkeyed client any
+`otx` and `anubis` procedures no longer exist, because neither service answers an unkeyed client any
 more. An engagement that already holds their results keeps them, and a `skip` setting
-that names either is rejected as an unknown stage.
+that names either is rejected as an unknown procedure.
 
 Common Crawl's index is often overloaded, and its gateway gives up on a slow query with a 502, 503
-or 504. The `commoncrawl` stage sends such a request again, up to three times, after the wait a
+or 504. The `commoncrawl` procedure sends such a request again, up to three times, after the wait a
 `Retry-After` of at most 60 seconds asks for, or else after 1, 2 and then 4 seconds; an interrupt
-during a wait ends the run promptly. A fourth such answer fails the root's check, which is retried
+during a wait ends the run promptly. A fourth such answer fails the root's job, which is retried
 on the next run. Pages of the index are read in turn until it answers that a page is past the last,
 up to 30 pages per root.
 
-The `rdap` stage contacts only IANA (`data.iana.org`, for the bootstrap file) and the five regional
+The `rdap` procedure contacts only IANA (`data.iana.org`, for the bootstrap file) and the five regional
 registries' RDAP servers; see [RDAP](sources.md#rdap-netblocks-and-registrants).
 
-The `providerranges` stage fetches the address ranges that seven providers publish: AWS, GCP,
+The `providerranges` procedure fetches the address ranges that seven providers publish: AWS, GCP,
 Cloudflare (IPv4 and IPv6), Fastly, DigitalOcean, Oracle Cloud and Linode. Each list is its own
-check, fetched once per engagement and refreshed only by `--redo providerranges`. A list that fails
-to download, or has no ranges in it, is a failed check (named by `--debug`): the ranges fetched
+job, fetched once per engagement and refreshed only by `--redo providerranges`. A list that fails
+to download, or has no ranges in it, is a failed job (named by `--debug`): the ranges fetched
 before keep applying. Azure is classified by ASN only, because Microsoft publishes its ranges at a
 changing URL.
 
@@ -135,23 +135,23 @@ than signals and file locking, and if any package imports `os/exec`.
 
 ## Passive-only mode
 
-`--passive` restricts a run to third-party sources. The stages that contact target-owned systems
+`--passive` restricts a run to third-party sources. The procedures that contact target-owned systems
 (`httpprobe`, `crawl`, `jsparse`, `sensitive-paths`, `origincheck`, `ports` and `takeover`'s HTTP fingerprinting) are
 shown as `not-configured (passive-only)`. Takeover findings that DNS evidence alone supports are
 still reported. The restriction applies to that run only; a later run without `--passive` performs
-the skipped checks.
+the skipped jobs.
 
 ## Authorisation acknowledgement
 
-Before any stage that contacts target-owned systems, nyx requires you to confirm you are
+Before any procedure that contacts target-owned systems, nyx requires you to confirm you are
 authorised to test the engagement's scope, with `--authorised` (`--authorized` also works). There
 is no prompt, on a terminal or anywhere else.
 
 - The confirmation is remembered per engagement, so later runs need not repeat it.
-- Without it, those stages are shown as `not-configured (no authorisation)`, and the run writes one
+- Without it, those procedures are shown as `not-configured (no authorisation)`, and the run writes one
   warning right after its header that names them and says that `--authorised` confirms
-  authorisation. It names exactly the stages shown that way, so a stage left out by `--skip` is not
-  named, and there is no warning under `--passive` or when no stage is left out. It appears on every
+  authorisation. It names exactly the procedures shown that way, so a procedure left out by `--skip` is not
+  named, and there is no warning under `--passive` or when no procedure is left out. It appears on every
   run until authorisation is confirmed. Under `--json` it is in the envelope's `meta.warnings` and not
   on stderr.
 - The acknowledgement applies to recon only. `nyx ip` has no engagement to remember it in, and no

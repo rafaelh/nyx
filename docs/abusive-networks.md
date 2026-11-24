@@ -72,8 +72,8 @@ It sends no request, so it is derived under `--passive` too, and it appears wher
 its severity do: the summary (high and medium), the `--json` findings and `changes.csv`. `nyx help
 findings` lists the four types with the other finding severities.
 
-The AS of an address outside the in-scope netblocks is the one the `ipowner` stage found. For an
-address inside one, the `netblockowner` stage asks Team Cymru's origin service, through the public
+The AS of an address outside the in-scope netblocks is the one the `ipowner` procedure found. For an
+address inside one, the `netblockowner` procedure asks Team Cymru's origin service, through the public
 resolvers, once for each covering /24 (IPv4) or /48 (IPv6) of the netblock addresses nyx knows, or
 once for an in-scope netblock that is smaller: prefixes longer than those are filtered from the global
 routing table, so the answer applies to every address in the unit. Team Cymru is a third party, so
@@ -148,7 +148,7 @@ An update sends at most one request per list, with no retry, and nothing to any 
 
 Each request gives up after 30 seconds. A redirect is not followed, even to the same host: it fails
 the source. Once one request of a source fails, the source's remaining requests are not sent. No
-recon stage, `nyx ip`, `nyx cve` or key test sends anything to either host as a threat-data source.
+recon procedure, `nyx ip`, `nyx cve` or key test sends anything to either host as a threat-data source.
 
 - **A download is refused** when a row does not parse or lacks a required field (an unknown field is
   otherwise ignored), when any text holds a control character (an unknown field's too), when an entry is listed twice, when a Spamhaus
