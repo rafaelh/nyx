@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 // IP-literal HTTP needs an in-scope netblock and no exclusion, sends no SNI and brackets IPv6

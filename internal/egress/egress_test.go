@@ -21,7 +21,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 func addr(s string) netip.Addr { return netip.MustParseAddr(s) }

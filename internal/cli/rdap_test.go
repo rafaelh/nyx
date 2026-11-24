@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 )
 
 // RDAP tests use real procedures with loopback IANA/registry responses matching each registry's

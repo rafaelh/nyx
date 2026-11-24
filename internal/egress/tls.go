@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 // Certificate trust values are stored as tls_trust. kinds mirrors them to avoid importing

@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/recon/analysis/findings"
 	"github.com/rafaelh/nyx/internal/term/layout"
 	"github.com/rafaelh/nyx/internal/term/palette"
 )

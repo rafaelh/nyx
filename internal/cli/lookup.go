@@ -16,7 +16,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/report"
+	"github.com/rafaelh/nyx/internal/recon/report"
 	"github.com/rafaelh/nyx/internal/term/shellquote"
 )
 

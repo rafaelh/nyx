@@ -10,8 +10,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/report"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/report"
+	"github.com/rafaelh/nyx/internal/recon/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 

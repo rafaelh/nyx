@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 var certExpiry = time.Date(2027, 3, 4, 5, 6, 7, 0, time.UTC)

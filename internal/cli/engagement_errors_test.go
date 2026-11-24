@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/recon/engagement"
 )
 
 const (

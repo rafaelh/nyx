@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/engagement"
+	"github.com/rafaelh/nyx/internal/recon/engagement"
 )
 
 // maxListedEngagements is how many existing engagements a NOT_FOUND hint names.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/findings"
+	"github.com/rafaelh/nyx/internal/recon/analysis/findings"
 	"github.com/rafaelh/nyx/internal/term/layout"
 	"github.com/rafaelh/nyx/internal/term/palette"
 )

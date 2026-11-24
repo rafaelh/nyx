@@ -17,7 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 	"github.com/rafaelh/nyx/internal/term/layout"
 	"github.com/rafaelh/nyx/internal/term/palette"
 )

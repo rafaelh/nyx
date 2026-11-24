@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/procedures/asn"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/procedures/asn"
+	"github.com/rafaelh/nyx/internal/recon/run"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 

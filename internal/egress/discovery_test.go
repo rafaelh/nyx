@@ -18,7 +18,7 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/egress/egresstest"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 // CNAME links keep their owner names, in answer order, and survive

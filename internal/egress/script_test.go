@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 func scriptURL(host string, port int, path string) string {

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/clierr"
-	"github.com/rafaelh/nyx/internal/report"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/report"
+	"github.com/rafaelh/nyx/internal/recon/run"
 )
 
 // procedureCounts writes counts as "procedure n, procedure n".

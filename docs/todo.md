@@ -19,7 +19,7 @@
   network. The target publishes an in-scope name such as `lo.target.com` with an address such as
   127.0.0.1, 169.254.169.254 or 10.x. It can then redirect from one of its own pages to that name,
   choosing the port (80, 443 or any configured port), path and query.
-  - Cause: the resolve procedure (`internal/procedures/dns/resolve.go`) records every A/AAAA answer, and the
+  - Cause: the resolve procedure (`internal/recon/procedures/dns/resolve.go`) records every A/AAAA answer, and the
     inventory passes them all into `Policy.Resolutions`. `Policy.vetted`
     (`internal/egress/http.go`), called from `dialAddrs`, drops only addresses the user excluded.
     `dialFirst` tries addresses in order, so a name that answers with `[attacker IP, 127.0.0.1]`

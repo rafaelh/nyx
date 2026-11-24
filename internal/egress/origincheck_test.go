@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 // originFixture routes logical candidate addresses to loopback HTTP/HTTPS without changing

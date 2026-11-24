@@ -17,7 +17,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 // Policy contains contact rules rebuilt by the runner when scope changes. Egress does not read

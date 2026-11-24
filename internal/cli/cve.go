@@ -16,7 +16,7 @@ import (
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/lookup/batch"
 	"github.com/rafaelh/nyx/internal/lookup/cve"
-	"github.com/rafaelh/nyx/internal/report"
+	"github.com/rafaelh/nyx/internal/recon/report"
 )
 
 // cveOptions are the flags of nyx cve.

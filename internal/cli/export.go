@@ -19,11 +19,11 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/engagement"
 	"github.com/rafaelh/nyx/internal/input"
-	"github.com/rafaelh/nyx/internal/kinds"
-	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/store"
+	"github.com/rafaelh/nyx/internal/recon/engagement"
+	"github.com/rafaelh/nyx/internal/recon/kinds"
+	"github.com/rafaelh/nyx/internal/recon/run"
+	"github.com/rafaelh/nyx/internal/recon/store"
 	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
@@ -285,7 +285,7 @@ func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility
 }
 
 // splitProducers divides a record's producers into the registry's procedures and the analysis
-// that produces it (a record has at most one: see the internal/run package doc). A producer that
+// that produces it (a record has at most one: see the internal/recon/run package doc). A producer that
 // is neither, such as a procedure since removed from the registry, is dropped.
 func (x *exporter) splitProducers(producers []string) (procedures []string, analysis string) {
 	procedures = []string{}

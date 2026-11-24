@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rafaelh/nyx/internal/kinds"
+	"github.com/rafaelh/nyx/internal/recon/kinds"
 )
 
 // exitCodesLine is the last line of every help text.

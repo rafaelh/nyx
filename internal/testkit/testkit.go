@@ -9,7 +9,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 )
 
 // Procedure implements run.Procedure while recording jobs and concurrency.

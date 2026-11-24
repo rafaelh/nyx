@@ -21,7 +21,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
-	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/recon/scope"
 )
 
 // DefaultUserAgent is the User-Agent of a build with no version.

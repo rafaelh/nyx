@@ -8,7 +8,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	"github.com/rafaelh/nyx/internal/procedures/providerranges"
+	"github.com/rafaelh/nyx/internal/recon/procedures/providerranges"
 )
 
 // Use distinct fixture ranges for each publisher to avoid accidental provider evidence from

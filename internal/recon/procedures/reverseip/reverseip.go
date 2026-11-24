@@ -1,0 +1,176 @@
+// Package reverseip is the reverseip procedure: the other hostnames that point at
+// each dedicated address nyx has recorded.
+package reverseip
+
+import (
+	"context"
+	"fmt"
+	"iter"
+	"net/netip"
+	"net/url"
+	"strings"
+
+	"github.com/rafaelh/nyx/internal/egress"
+	scopeinput "github.com/rafaelh/nyx/internal/input"
+	"github.com/rafaelh/nyx/internal/ipsource"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
+	"github.com/rafaelh/nyx/internal/recon/analysis/candidates"
+	"github.com/rafaelh/nyx/internal/recon/kinds"
+	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
+	"github.com/rafaelh/nyx/internal/recon/run"
+	"github.com/rafaelh/nyx/internal/recon/scope"
+)
+
+// maxSecurityTrailsPages bounds credits per reverse-IP lookup; larger result sets already imply
+// shared hosting beyond useful domain caps.
+const maxSecurityTrailsPages = 10
+
+// Procedure looks up recorded port-eligible addresses using HackerTarget for IPv4 and optionally
+// SecurityTrails for A/AAAA data. It does not expand netblocks.
+//
+// Results exceeding reverseip.max_domains are discarded as shared hosting. The cap is part of
+// job keys; scope is not, so names beneath newly promoted roots need --redo reverseip for
+// reclassification. Shodan is queried separately.
+type Procedure struct{}
+
+// New returns the reverseip procedure.
+func New() *Procedure { return &Procedure{} }
+
+func (*Procedure) Name() string         { return "reverseip" }
+func (*Procedure) Contact() run.Contact { return run.ThirdParty }
+func (*Procedure) Sources() []string {
+	return []string{"api.hackertarget.com", "api.securitytrails.com"}
+}
+
+// Configured: HackerTarget needs no key, so the procedure always runs; a SecurityTrails
+// key adds a source.
+func (*Procedure) Configured(run.Env) (bool, string) { return true, "" }
+
+// input carries scope so Run can distinguish in-scope hostnames from external candidate roots.
+type input struct {
+	addr  netip.Addr
+	sc    *scope.Scope
+	max   int
+	keyed bool // keys.securitytrails was set when the job was made
+}
+
+// Jobs lists eligible recorded addresses in order. IPv6 requires a SecurityTrails key and
+// becomes eligible for a job when one is added.
+func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] {
+	return func(yield func(run.Job, error) bool) {
+		set := v.Settings()
+		_, keyed := run.Env{Settings: set}.Key("securitytrails")
+		sc := v.Scope()
+		for _, a := range v.IPs(func(a netip.Addr) bool { return (a.Is4() || keyed) && v.PortEligible(a) }) {
+			key := fmt.Sprintf("%s|max=%d", a, set.ReverseIP.MaxDomains)
+			if !yield(run.Job{Key: key, Input: input{a, sc, set.ReverseIP.MaxDomains, keyed}}, nil) {
+				return
+			}
+		}
+	}
+}
+
+// CandidateSources: the procedure is the reverse IP family.
+func (*Procedure) CandidateSources() map[string]string {
+	return map[string]string{"reverseip": candidates.ReverseIP}
+}
+
+// Evidence uses the address without the cap so cap changes cannot duplicate support, while two
+// addresses still count as two items.
+func (*Procedure) Evidence(jobKey string) (source, item string) {
+	addr, _, _ := strings.Cut(jobKey, "|")
+	return "reverseip", addr
+}
+
+// Run merges source names. In-scope/excluded names remain hostname records; other names
+// contribute only their registrable domain as a candidate root. Empty results complete
+// normally.
+func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+	in := c.Input.(input)
+	f := found{seen: map[string]bool{}, domains: map[string]bool{}}
+	if err := gather(ctx, e, in, &f); err != nil {
+		return nil, fmt.Errorf("reverseip %s: %w", in.addr, err)
+	}
+	if f.over(in.max) {
+		run.Warnf(ctx, "reverseip %s: %d registrable domains, more than reverseip.max_domains (%d): treated as shared hosting, nothing recorded",
+			in.addr, len(f.domains), in.max)
+		return nil, nil
+	}
+	var obs []run.Observation
+	roots := map[string]bool{}
+	for _, n := range f.names {
+		if class := in.sc.ClassifyHost(n.name).Class; class == scope.InScope || class == scope.Excluded {
+			obs = append(obs, kinds.Hostname.Obs(n.name, kinds.HostnameAttrs{}))
+		} else if n.root != "" && !roots[n.root] {
+			roots[n.root] = true
+			obs = append(obs, kinds.Root.Obs(n.root))
+		}
+	}
+	return obs, nil
+}
+
+// found deduplicates cleaned names and tracks their registrable domains for shared-hosting
+// limits.
+type found struct {
+	names   []struct{ name, root string }
+	seen    map[string]bool
+	domains map[string]bool
+}
+
+func (f *found) add(names []string) {
+	for _, n := range names {
+		if n = scopeinput.CleanName(n); n == "" || f.seen[n] {
+			continue
+		}
+		f.seen[n] = true
+		root, _ := dnsname.ETLDPlusOne(n)
+		if root != "" {
+			f.domains[root] = true
+		}
+		f.names = append(f.names, struct{ name, root string }{n, root})
+	}
+}
+
+// over detects shared hosting from too many distinct registrable domains.
+func (f *found) over(limit int) bool { return len(f.domains) > limit }
+
+// gather asks HackerTarget first for IPv4, then keyed SecurityTrails. Results already proving
+// shared hosting skip the credit-consuming second source.
+func gather(ctx context.Context, e egress.Clients, in input, f *found) error {
+	if in.addr.Is4() {
+		names, err := httpsrc.GetNames(ctx, e, "https://api.hackertarget.com/reverseiplookup/?"+url.Values{"q": {in.addr.String()}}.Encode(), reverseLines)
+		if err != nil {
+			return err
+		}
+		f.add(names)
+	}
+	if !in.keyed || f.over(in.max) {
+		return nil
+	}
+	return securityTrails(ctx, e, in, f)
+}
+
+// reverseLines validates HackerTarget's name list. Quota replies map to run.ErrQuota even with
+// status 200. Invalid name lines fail the job rather than completing an empty result.
+func reverseLines(body []byte) ([]string, error) {
+	lines, quota, err := ipsource.ReverseLines(body)
+	if quota {
+		return nil, fmt.Errorf("HackerTarget API count exceeded: %w", run.ErrQuota)
+	}
+	return lines, err
+}
+
+// securityTrails reads until exhaustion, the domain cap or maxSecurityTrailsPages. Passing the
+// cap stops credit use. Keyed 401/403/429 aborts the whole procedure, including later HackerTarget
+// jobs.
+func securityTrails(ctx context.Context, e egress.Clients, in input, f *found) error {
+	field := "ipv4"
+	if in.addr.Is6() {
+		field = "ipv6"
+	}
+	return httpsrc.SecurityTrailsDomains(ctx, e, field, in.addr.String(), maxSecurityTrailsPages, "reverseip "+in.addr.String(),
+		func(_ int, names []string) bool {
+			f.add(names)
+			return f.over(in.max)
+		})
+}

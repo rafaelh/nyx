@@ -5,7 +5,7 @@ nyx is a passive-first reconnaissance CLI: a single static Go binary for macOS, 
 passive boundary) is the user guide in `docs/*.md` (all but `docs/todo.md` and `docs/release-preparation.md`, which are for maintainers; `README.md` is a short
 introduction that links to each page). The domain vocabulary (engagement, scope input, procedure, job,
 analysis, observation, record, record kind, shown, evidence, finding) is defined in the doc comments
-of the packages that own each term: `internal/run`'s package doc defines procedure, job and analysis.
+of the packages that own each term: `internal/recon/run`'s package doc defines procedure, job and analysis.
 
 ## Commands
 
@@ -37,7 +37,7 @@ make release VERSION=vX.Y.Z     # tag, dist, verify the version stamp, push the 
 - **Only `internal/egress` does network I/O.** `internal/egress/boundary_test.go` checks the
   non-test files of every package, for all four targets, and fails if any of them imports `net`,
   `net/http`, `crypto/tls`, `syscall` or `github.com/miekg/dns`. Uses of `golang.org/x/sys/unix`
-  are limited to an allowlist: signals in `internal/cli`, flock in `internal/engagement` and `internal/threatdata`. No
+  are limited to an allowlist: signals in `internal/cli`, flock in `internal/recon/engagement` and `internal/threatdata`. No
   first-party package may import `os/exec`. Procedures get `egress.Clients` and egress's own result
   types, never `net/*` types. Test files may use `net` (fake servers);
   `internal/egress/egresstest` is the fake DNS server.
@@ -60,11 +60,27 @@ make release VERSION=vX.Y.Z     # tag, dist, verify the version stamp, push the 
 
 ## Architecture
 
+Package layout under `internal/`, grouped by who uses a package (Go package names are the last
+path element, so code says `run.Runner`, not `recon/run.Runner`):
+
+- `cli`, `clierr`, `config`, `input`, `egress`, `ipsource`, `fault`, `testkit`: the composition root
+  and packages every group uses. `ipsource` is shared by recon procedures and `nyx ip`.
+- `recon/`: the engine behind `nyx recon` (`run`, `store`, `engagement`, `kinds`, `scope`,
+  `inventory`, `origin`, `output`, `report`), its analyses in `recon/analysis/` (`findings`,
+  `candidates`, `thirdparty`) and its procedures in `recon/procedures/`, with their shared helpers
+  `httpsrc` and `serveraddr`.
+- `lookup/`: `nyx cve` and `nyx ip` (`cve`, `iplookup`, and `batch`, which they share).
+- `setup/`: the `nyx setup` model, with `configedit` and `keycheck` beneath it.
+- `threatdata/`: the threat-data update, with the `spamhaus` and `abusive` lists and the `refresh`
+  tool beneath it.
+- `knowledge/`: pure knowledge packages with no I/O.
+- `term/`: terminal presentation and display safety.
+
 Flow: `cmd/nyx` → `internal/cli` (the command tree `nyx` → `recon` → `export`, plus `cve`, `ip`, `help`
 and the help topics; cobra/viper flags, a pre-scan of the arguments, validation, help, signals, and
-the one place that picks the exit code and writes the error) → `internal/run.Runner` → procedures →
-`internal/store` (SQLite via `modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/output`
-(CSV/TXT files) and `internal/report` (the console log, the summary and the `--json` envelope).
+the one place that picks the exit code and writes the error) → `internal/recon/run.Runner` → procedures →
+`internal/recon/store` (SQLite via `modernc.org/sqlite`, under `<engagement>/.nyx/`) → `internal/recon/output`
+(CSV/TXT files) and `internal/recon/report` (the console log, the summary and the `--json` envelope).
 `invocation` builds one `layout.Stream` (terminal, colour depth, width) for stdout and one for stderr,
 and the human renderers take a stream where they once took a depth.
 `nyx cve` skips the runner: `internal/cli/cve.go` (flags, stdin, the worker pool, the writing) →
@@ -103,7 +119,7 @@ compatible, renaming, removing or retyping one is a breaking change.
 The default `nyx cve` selection leaves out the `affected_products` and `references` lists and has
 their counts (`affected_products_count`, `references_count`); `--fields all` has both.
 
-**Procedures** (`internal/run/procedure.go`) implement `Name/Contact/Sources/Configured/Jobs/Run`.
+**Procedures** (`internal/recon/run/procedure.go`) implement `Name/Contact/Sources/Configured/Jobs/Run`.
 A procedure is one concrete way of carrying out a technique, and a job is one resumable unit of work
 it performs and records.
 - `Contact` is either `ThirdParty` or `Target`, never both. A procedure that would do both is split
@@ -141,7 +157,7 @@ it performs and records.
   procedures and records a job as done; `Put` is for analyses and the guard, which write
   observations and no `jobs` row.
 
-**Record kinds** (`internal/kinds/table.go`) are typed handles. Procedures write with
+**Record kinds** (`internal/recon/kinds/table.go`) are typed handles. Procedures write with
 `kinds.X.Obs(key, attrs)`, and readers decode with `kinds.X.Attrs(rec)`. A kind whose key is
 made from its attributes (`resolution`, `third_party`, the port kinds and others) is a `Keyed`
 handle: it writes with `kinds.X.Obs(attrs)` and makes the key itself (`kinds.X.Key(attrs)`), and
@@ -155,11 +171,11 @@ or excluded).
 **Derived on read, never stored by procedures.** `scope` (classifies hosts and addresses as
 in-scope, candidate or excluded), `inventory` (wildcards, provider hosts, port eligibility) and
 `findings` are pure functions of the current records, scope, settings and date. Risk procedures
-(`internal/procedures/risk`) store only *evidence* kinds. `internal/findings` derives findings from
+(`internal/recon/procedures/risk`) store only *evidence* kinds. `internal/recon/analysis/findings` derives findings from
 the evidence that is shown. A finding that is no longer derived stays on record but is marked not
 current. Records keep `first_seen`/`last_seen`/`current` and are never deleted. The findings and
-the other derived records (the `candidate_rank` of each candidate, ranked by `internal/candidates`)
-come from the runner's list of analyses in `internal/run/derive.go`, each stored under its own
+the other derived records (the `candidate_rank` of each candidate, ranked by `internal/recon/analysis/candidates`)
+come from the runner's list of analyses in `internal/recon/run/derive.go`, each stored under its own
 name with `Store.Put` and re-derived only when the kinds it reads, the inputs or the date change. An
 analysis can return a hook that runs once its records are stored (the findings use one to announce a risen
 severity and to keep the storage attribution for the render).
@@ -167,20 +183,24 @@ severity and to keep the storage attribution for the render).
 `nyx recon export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
 takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives one snapshot, and
 `run.BuildScope` classifies records with the same rules as a run. A kind a new procedure's scope depends on goes in `scopeKinds`
-(`internal/run/scopebuild.go`), which the candidate-rank analysis also reads.
+(`internal/recon/run/scopebuild.go`), which the candidate-rank analysis also reads.
 
-**Pure knowledge packages** with no I/O: `cloudstorage` (bucket naming, S3/GCS/Azure),
-`provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data in the
-embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.date data and
-`products.yaml`), `abusive` (ipapi.is's most-abusive network and ASN lists: the embedded snapshot, refreshed by `make threat-data`, and the parser of its pages; the matches are information only), `spamhaus` (Spamhaus's DROP, DROPv6 and ASN-DROP lists: parsing, validation, matching and the embedded `builtin.jsonl`, also refreshed by `make threat-data`), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
-belong to an organisation input), `origin` (origin-behind-CDN decisions, which the `origincheck`
-procedure and the findings both call so they can't disagree), `thirdparty`, `palette`, `shellquote`,
-`dnsname`, `sanitize` (strips terminal-acting characters from
-target-supplied text), `weburl` (canonical URLs, service origins and static assets, shared by the
-web and archive procedures), `input`, `layout` (cell width, wrapping, tables, headings and rules for a
-terminal; the renderers take a `layout.Stream` and return their plain output unchanged when it is
-not a terminal). The built-in wordlist and sensitive-path list are embedded in
-`internal/config/builtin/`.
+**Pure knowledge packages** with no I/O. In `internal/knowledge/`: `cloudstorage` (bucket naming,
+S3/GCS/Azure), `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data
+in the embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.date data and
+`products.yaml`), `banner` (product/version from SSH/FTP/SMTP banners), `orgname` (does a name
+belong to an organisation input), `addrkind`, `dnsname`, `webpage` and `weburl` (canonical URLs,
+service origins and static assets, shared by the web and archive procedures). In
+`internal/threatdata/`: `abusive` (ipapi.is's most-abusive network and ASN lists: the embedded
+snapshot, refreshed by `make threat-data`, and the parser of its pages; the matches are information
+only) and `spamhaus` (Spamhaus's DROP, DROPv6 and ASN-DROP lists: parsing, validation, matching and
+the embedded `builtin.jsonl`, also refreshed by `make threat-data`). In `internal/term/`: `palette`,
+`shellquote`, `sanitize` (strips terminal-acting characters from target-supplied text) and `layout`
+(cell width, wrapping, tables, headings and rules for a terminal; the renderers take a
+`layout.Stream` and return their plain output unchanged when it is not a terminal). Also `input`,
+and in `internal/recon/`, `origin` (origin-behind-CDN decisions, which the `origincheck` procedure
+and the findings both call so they can't disagree) and `analysis/thirdparty`. The built-in wordlist
+and sensitive-path list are embedded in `internal/config/builtin/`.
 
 **Config** (`internal/config`): the config file is the only source of settings and keys; flags
 override it, and unknown keys are rejected. No setting or key is read from the environment (no
@@ -232,7 +252,7 @@ when it has rows, and is removed once it has none.
   `## Behaviours`, then a `# Design` section once planned.
 - CSV columns are read by people, not parsed by tools: change them freely, keeping `docs/output.md`
   accurate. Only the attribute JSON names in the state database must stay stable (renaming one
-  breaks resume; see `internal/kinds/kinds.go`).
+  breaks resume; see `internal/recon/kinds/kinds.go`).
 - Commit messages use conventional prefixes (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`,
   `style:`).
 - `docs/todo.md` lists known deferred work, such as store statement batching, HTTP connection

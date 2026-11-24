@@ -7,7 +7,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 	"github.com/rafaelh/nyx/internal/setup"
 	"github.com/rafaelh/nyx/internal/setup/keycheck"
 	"github.com/rafaelh/nyx/internal/threatdata"

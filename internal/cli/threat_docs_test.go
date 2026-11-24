@@ -205,8 +205,8 @@ func TestThreatDocs_ContributorNotes(t *testing.T) {
 			t.Errorf("CLAUDE.md does not name %q", want)
 		}
 	}
-	if docUnit(notes, "flock", "internal/engagement", "internal/threatdata") == "" {
-		t.Error("CLAUDE.md's unix allowlist does not give flock to both internal/engagement and internal/threatdata")
+	if docUnit(notes, "flock", "internal/recon/engagement", "internal/threatdata") == "" {
+		t.Error("CLAUDE.md's unix allowlist does not give flock to both internal/recon/engagement and internal/threatdata")
 	}
 	for name, text := range map[string]string{"CLAUDE.md": notes, "the user guide": docsText(t)} {
 		if strings.Contains(text, "abusive-data") {

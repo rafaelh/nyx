@@ -49,9 +49,9 @@ func TestPassiveBoundaryImports(t *testing.T) {
 const unixPkg = "golang.org/x/sys/unix"
 
 var unixAllowed = map[string]map[string]bool{
-	"/internal/cli":        {"SIGTERM": true, "SIGHUP": true},
-	"/internal/engagement": {"Flock": true, "LOCK_EX": true, "LOCK_NB": true, "EWOULDBLOCK": true},
-	"/internal/threatdata": {"Flock": true, "LOCK_EX": true, "LOCK_NB": true, "EWOULDBLOCK": true},
+	"/internal/cli":              {"SIGTERM": true, "SIGHUP": true},
+	"/internal/recon/engagement": {"Flock": true, "LOCK_EX": true, "LOCK_NB": true, "EWOULDBLOCK": true},
+	"/internal/threatdata":       {"Flock": true, "LOCK_EX": true, "LOCK_NB": true, "EWOULDBLOCK": true},
 }
 
 func checkBoundary(t *testing.T, root, goos, goarch string) {

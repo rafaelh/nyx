@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/cli"
-	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/recon/run"
 )
 
 // No analysis shares a name with a procedure of the registry, so export can tell a record's
@@ -35,7 +35,7 @@ func TestAnalysisNames_NoneIsAProcedure(t *testing.T) {
 func TestAnalysisNames_NoProcedureWritesAnAnalysesKind(t *testing.T) {
 	t.Parallel()
 	own := regexp.MustCompile(`\bkinds\.(Finding|CandidateRank|ExcludedKind)\b`)
-	err := filepath.WalkDir("../procedures", func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir("../recon/procedures", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return err
 		}
