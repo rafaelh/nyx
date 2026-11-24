@@ -103,11 +103,11 @@ The built-in copies are dated as follows. They are updated when a build is made 
 
 | List | Source | Built-in copy dated |
 |---|---|---|
-| DROP (`drop_v4`) | Spamhaus | 2026-11-21T17:56:44Z |
-| DROPv6 (`drop_v6`) | Spamhaus | 2026-11-20T09:56:44Z |
-| ASN-DROP (`asndrop`) | Spamhaus | 2026-11-23T08:56:44Z |
-| Most Abusive Networks (`networks`) | ipapi.is | 2026-11-22 |
-| Most Abusive ASNs (`asns`) | ipapi.is | 2026-11-22 |
+| DROP (`drop_v4`) | Spamhaus | 2026-11-23T11:26:44Z |
+| DROPv6 (`drop_v6`) | Spamhaus | 2026-11-23T11:26:44Z |
+| ASN-DROP (`asndrop`) | Spamhaus | 2026-11-24T00:56:44Z |
+| Most Abusive Networks (`networks`) | ipapi.is | 2026-11-23 |
+| Most Abusive ASNs (`asns`) | ipapi.is | 2026-11-23 |
 
 For each list nyx uses whichever copy, built-in or downloaded, is dated later, and the downloaded one
 when both have the same date. The lists of one source are used together: a downloaded copy is used
