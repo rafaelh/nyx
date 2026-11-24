@@ -49,16 +49,16 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 	out := encode(t, fixedEnvelope())
 	want := `{"data":{"engagement":"acme","directory":"/tmp/acme",` +
 		`"counts":[{"category":"hosts","n":3},{"category":"urls","n":2}],` +
-		`"failed_checks":[{"stage":"dns","n":1}],` +
-		`"deferred":[{"stage":"shodan","n":4}],` +
-		`"not_configured":[{"stage":"ports","reason":"passive-only"}],` +
+		`"failed_jobs":[{"procedure":"dns","n":1}],` +
+		`"deferred":[{"procedure":"shodan","n":4}],` +
+		`"not_configured":[{"procedure":"ports","reason":"passive-only"}],` +
 		`"findings":[{"severity":"high","category":"exposed-admin","target":"https://a.example.com/admin","detail":"login <page> & more"},` +
 		`{"severity":"medium","category":"banner","target":"10.0.0.1:21","detail":null}],` +
 		`"candidates":[{"kind":"root","value":"x.org","sources":["crtsh","whoisxml"],"evidence_count":2,"confidence":"high","promote":"-d x.org"}],` +
 		`"candidates_total":23,"unconfirmed_risky_ports":3,"notes":["n1"],` +
 		`"changes":{"counts":[{"kind":"hostname","change":"new","n":2}],` +
 		`"findings":[{"severity":"high","category":"exposed-admin","target":"https://a.example.com/admin","detail":"login <page> & more"}]}},` +
-		`"meta":{"count":1,"deadline_exceeded":true,"checks_completed":5,"checks_cancelled":2,"warnings":["w"]}}` + "\n"
+		`"meta":{"count":1,"deadline_exceeded":true,"jobs_completed":5,"jobs_cancelled":2,"warnings":["w"]}}` + "\n"
 	if got := out; got != want {
 		t.Errorf("envelope\n got %s\nwant %s", got, want)
 	}
@@ -68,9 +68,9 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 func TestEnvelope_ZeroValueShape(t *testing.T) {
 	t.Parallel()
 	out := encode(t, report.Envelope{})
-	want := `{"data":{"engagement":"","directory":"","counts":[],"failed_checks":[],"deferred":[],"not_configured":[],` +
+	want := `{"data":{"engagement":"","directory":"","counts":[],"failed_jobs":[],"deferred":[],"not_configured":[],` +
 		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"notes":[],"changes":null},` +
-		`"meta":{"count":0,"deadline_exceeded":false,"checks_completed":0,"checks_cancelled":0,"warnings":[]}}` + "\n"
+		`"meta":{"count":0,"deadline_exceeded":false,"jobs_completed":0,"jobs_cancelled":0,"warnings":[]}}` + "\n"
 	if got := out; got != want {
 		t.Errorf("zero envelope\n got %s\nwant %s", got, want)
 	}

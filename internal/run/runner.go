@@ -412,7 +412,7 @@ func (r *Runner) guard(value, reason string) {
 	if _, seen := r.guarded.LoadOrStore(value+"\x00"+reason, struct{}{}); seen {
 		return
 	}
-	r.st.Put("guard", value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
+	r.st.Put(AnalysisGuard, value, []store.Obs{kinds.ExcludedKind.Obs(value, kinds.ExcludedAttrs{Reason: reason})})
 }
 
 func (r *Runner) hasFailed(procedure, key string) bool {

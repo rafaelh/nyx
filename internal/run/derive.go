@@ -49,8 +49,8 @@ type analysis struct {
 // records cannot trigger another findings calculation.
 func (r *Runner) newAnalyses() []*analysis {
 	others := []*analysis{
-		{name: "candidate-rank", reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: plain(r.rankCandidates)},
-		{name: "thirdparty-cname", reads: []kinds.Named{kinds.Hostname, kinds.Resolution, kinds.Wildcard}, writes: kinds.ThirdParty, derive: plain(thirdPartyCNAME)},
+		{name: AnalysisCandidateRank, reads: append(slices.Clone(scopeKinds), kinds.CandidateKinds...), writes: kinds.CandidateRank, derive: plain(r.rankCandidates)},
+		{name: AnalysisThirdPartyCNAME, reads: []kinds.Named{kinds.Hostname, kinds.Resolution, kinds.Wildcard}, writes: kinds.ThirdParty, derive: plain(thirdPartyCNAME)},
 	}
 	derived := map[string]bool{kinds.Finding.Name(): true}
 	for _, d := range others {
@@ -63,7 +63,7 @@ func (r *Runner) newAnalyses() []*analysis {
 			evidence = append(evidence, named)
 		}
 	}
-	return append([]*analysis{{name: "findings", reads: evidence, writes: kinds.Finding, derive: r.deriveFindings}}, others...)
+	return append([]*analysis{{name: AnalysisFindings, reads: evidence, writes: kinds.Finding, derive: r.deriveFindings}}, others...)
 }
 
 func plain(f func(analysisInput) []store.Obs) func(analysisInput) ([]store.Obs, func(bool)) {

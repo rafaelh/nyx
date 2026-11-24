@@ -90,7 +90,9 @@ func exportKinds() []string {
 	return append(names, exportInput, exportExclusion)
 }
 
-// exportLine defines ordered export fields. Entities carry Scope; other kinds carry Shown.
+// exportLine defines ordered export fields. Procedures lists the procedures observing the record
+// now, and Analysis names the analysis that produces it now, if any. Entities carry Scope; other
+// kinds carry Shown.
 type exportLine struct {
 	Kind       string         `json:"kind"`
 	Key        string         `json:"key"`
@@ -98,7 +100,8 @@ type exportLine struct {
 	Current    bool           `json:"current"`
 	FirstSeen  string         `json:"first_seen"`
 	LastSeen   string         `json:"last_seen"`
-	Procedures []string       `json:"stages"`
+	Procedures []string       `json:"procedures"`
+	Analysis   string         `json:"analysis,omitempty"`
 	Scope      string         `json:"scope,omitempty"`
 	Shown      *bool          `json:"shown,omitempty"`
 }
@@ -261,11 +264,9 @@ func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility
 		}
 		l := exportLine{
 			Kind: k.Name, Key: cleanText(rec.Key, x.red), Attrs: cleanAttrs(rec.Attrs, x.red),
-			Current: rec.Current, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen, Procedures: rec.Producers,
+			Current: rec.Current, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen,
 		}
-		if l.Procedures == nil {
-			l.Procedures = []string{}
-		}
+		l.Procedures, l.Analysis = x.splitProducers(rec.Producers)
 		if class, placed := vis.Placement(h, rec); placed {
 			l.Scope = class.String()
 		} else {
@@ -278,6 +279,25 @@ func (x *exporter) kind(k kinds.Kind, recs []store.Record, vis *kinds.Visibility
 		}
 	}
 	return nil
+}
+
+// splitProducers divides a record's producers into the registry's procedures and the analysis
+// that produces it. A record has at most one analysis, since each analysis writes a kind of its own
+// (a third_party record also has procedures). A producer that is neither, such as a procedure
+// since removed from the registry, is dropped.
+func (x *exporter) splitProducers(producers []string) (procedures []string, analysis string) {
+	procedures = []string{}
+	registry := procedureNames(x.procedures)
+	analyses := run.AnalysisNames()
+	for _, p := range producers {
+		switch {
+		case slices.Contains(registry, p):
+			procedures = append(procedures, p)
+		case slices.Contains(analyses, p):
+			analysis = p
+		}
+	}
+	return procedures, analysis
 }
 
 // lineEncoder encodes one JSON value per line to w.

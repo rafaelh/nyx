@@ -127,7 +127,7 @@ func exportedLines(t *testing.T, h *harness, eng, kind string) map[string]exLine
 			continue
 		}
 		l = maps.Clone(l)
-		for _, k := range []string{"last_seen", "stages", "procedures", "analysis"} {
+		for _, k := range []string{"last_seen", "procedures", "analysis"} {
 			delete(l, k)
 		}
 		out[l.str("key")] = l

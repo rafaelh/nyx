@@ -3,15 +3,19 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -98,12 +102,23 @@ func (l exLine) attrs() map[string]any {
 	m, _ := l["attrs"].(map[string]any)
 	return m
 }
+
+// procedures is the line's procedures list, nil when the line has none or it is not a list of
+// names.
 func (l exLine) procedures() []string {
+	list, _ := l["procedures"].([]any)
 	var out []string
-	for _, s := range l["stages"].([]any) {
-		out = append(out, s.(string))
+	for _, s := range list {
+		name, _ := s.(string)
+		out = append(out, name)
 	}
 	return out
+}
+
+// hasProcedures reports whether the line has a procedures key holding a list, empty or not.
+func (l exLine) hasProcedures() bool {
+	_, ok := l["procedures"].([]any)
+	return ok
 }
 
 func (e exported) lines(t *testing.T) []exLine {
@@ -241,23 +256,23 @@ func checkExportRecordFields(t *testing.T, lines []exLine) {
 	// Non-current records have no current observations, attributes or observing procedures.
 	for _, k := range []struct{ kind, key string }{{"hostname", "old.a.com"}, {"web_service", "https://old.a.com"}} {
 		old := exportLine(t, lines, k.kind, k.key)
-		if old["current"] != false || len(old.procedures()) != 0 || old["attrs"] == nil || len(old.attrs()) != 0 {
-			t.Errorf("%s %s should be not current with no stages or attributes: %v", k.kind, k.key, old)
+		if old["current"] != false || !old.hasProcedures() || len(old.procedures()) != 0 || old["attrs"] == nil || len(old.attrs()) != 0 {
+			t.Errorf("%s %s should be not current with no procedures or attributes: %v", k.kind, k.key, old)
 		}
 	}
 	nb := exportLine(t, lines, "netblock", "198.51.100.0/24")
 	if !slices.Equal(nb.procedures(), []string{"asn", "disc"}) || nb.attrs()["asn"] != "AS64500" || nb.attrs()["org"] != "Acme" {
-		t.Errorf("netblock attributes and stages are the merge of asn and disc: %v", nb)
+		t.Errorf("netblock attributes and procedures are the merge of asn and disc: %v", nb)
 	}
 	ws := exportLine(t, lines, "web_service", "https://www.a.com")
 	if ws.attrs()["port"] != float64(443) || ws.attrs()["title"] != "Welcome" {
 		t.Errorf("web service attrs = %v", ws.attrs())
 	}
 
-	// Derived records are exported like the rest, from their pseudo-procedure.
+	// A record an analysis produces is exported like the rest, naming the analysis.
 	rank := exportLine(t, lines, "candidate_rank", kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: "hostname", Value: "evil.example"}))
-	if !slices.Equal(rank.procedures(), []string{"candidate-rank"}) {
-		t.Errorf("candidate rank stages = %v", rank.procedures())
+	if !rank.hasProcedures() || len(rank.procedures()) != 0 || rank.str("analysis") != "candidate-rank" {
+		t.Errorf("candidate rank procedures = %v, analysis = %v, want none and candidate-rank", rank["procedures"], rank["analysis"])
 	}
 }
 
@@ -311,8 +326,18 @@ func checkExportNothingElse(t *testing.T, stdout string, lines []exLine) {
 		if isInputLine(l) {
 			continue
 		}
-		if keys := slices.Sorted(maps.Keys(l)); len(keys) != 8 {
-			t.Errorf("%s %s has fields %v", l.str("kind"), l.str("key"), keys)
+		want := []string{"attrs", "current", "first_seen", "key", "kind", "last_seen", "procedures"}
+		if _, ok := l["analysis"]; ok {
+			want = append(want, "analysis")
+		}
+		if _, ok := l["scope"]; ok {
+			want = append(want, "scope")
+		} else {
+			want = append(want, "shown")
+		}
+		slices.Sort(want)
+		if keys := slices.Sorted(maps.Keys(l)); !slices.Equal(keys, want) {
+			t.Errorf("%s %s has fields %v, want %v", l.str("kind"), l.str("key"), keys, want)
 		}
 	}
 }
@@ -327,7 +352,7 @@ func TestExport_FieldOrder(t *testing.T) {
 	}
 	for raw := range strings.SplitSeq(strings.TrimSpace(e.stdout), "\n") {
 		if strings.HasPrefix(raw, `{"kind":"hostname","key":`) {
-			for _, f := range []string{`,"attrs":`, `,"current":`, `,"first_seen":`, `,"last_seen":`, `,"stages":`, `,"scope":`} {
+			for _, f := range []string{`,"attrs":`, `,"current":`, `,"first_seen":`, `,"last_seen":`, `,"procedures":`, `,"scope":`} {
 				i := strings.Index(raw, f)
 				if i < 0 {
 					t.Fatalf("%q lacks %s", raw, f)
@@ -351,7 +376,7 @@ func TestExport_MergeFollowsRegistryOrder(t *testing.T) {
 		t.Errorf("attrs = %v: the later stage in the registry wins a field, and an earlier one's other fields stay", l.attrs())
 	}
 	if !slices.Equal(l.procedures(), []string{"alpha", "zeta"}) {
-		t.Errorf("stages = %v", l.procedures())
+		t.Errorf("procedures = %v", l.procedures())
 	}
 	// The same attributes as the run's own CSV.
 	rows := csvRows(t, w.h.readOut("a.com", "web-services.csv"))
@@ -770,5 +795,269 @@ func TestExport_FindsEngagementUnderConfiguredOutputDir(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"key":"b.org"`) {
 		t.Errorf("export = %q", stdout.String())
+	}
+}
+
+// producersWorld is an engagement "a.com" whose records come from a real procedure (asn), fake
+// procedures and every analysis:
+//   - seed observes www.a.com, old.a.com (until dropOld), a CNAME from site.a.com to a SaaS
+//     platform and the third party that CNAME implies, an open RDP port (a finding) and a
+//     candidate hostname (a candidate rank);
+//   - dialler, a target procedure, dials an excluded address, so egress refuses and the guard
+//     records it as excluded;
+//   - gone observes gone.a.com.
+type producersWorld struct {
+	h       *harness
+	dropOld *atomic.Bool
+	gone    run.Procedure
+}
+
+// The keys of the records producersWorld names.
+const (
+	producersRefused    = "198.51.100.9"
+	producersThirdParty = "a.com|cname|github.io"
+)
+
+func newProducersWorld(t *testing.T) *producersWorld {
+	t.Helper()
+	w := &producersWorld{dropOld: &atomic.Bool{}}
+	seed := &testkit.Procedure{ProcedureName: "seed", Kind: run.ThirdParty,
+		JobsFn: func(run.View) []run.Job { return testkit.Keys("c", 1) },
+		RunFn: func(context.Context, run.Job, egress.Clients) ([]run.Observation, error) {
+			out := []run.Observation{
+				obs("hostname", "www.a.com"), obs("hostname", "site.a.com"), obs("hostname", "evil.example"),
+				resolutionObs("site.a.com", "CNAME", "acme.github.io"),
+				kinds.ThirdPartyObs("a.com", kinds.MechanismCNAME, "github.io", 0),
+				obs("ip", "198.51.100.5"),
+				obs("open_port", "198.51.100.5:3389", "ip", "198.51.100.5", "port", 3389, "banner", ""),
+			}
+			if !w.dropOld.Load() {
+				out = append(out, obs("hostname", "old.a.com"))
+			}
+			return out, nil
+		}}
+	dialler := &testkit.Procedure{ProcedureName: "dialler", Kind: run.Target,
+		JobsFn: func(run.View) []run.Job { return []run.Job{{Key: producersRefused + ":22"}} },
+		RunFn: func(ctx context.Context, _ run.Job, e egress.Clients) ([]run.Observation, error) {
+			if e.TCP == nil {
+				return nil, errors.New("no TCP client")
+			}
+			_, err := e.TCP.Connect(ctx, netip.MustParseAddr(producersRefused), 22)
+			return nil, err
+		}}
+	w.gone = finder("gone", obs("hostname", "gone.a.com"))
+	h := newHarness(t, newASN(), seed, dialler, w.gone)
+	prefix := "198.51.100.0/24"
+	asnServer(t, h, &prefix)
+	w.h = h
+	if code := h.exec("a.com", "--asn", "64500", "-x", producersRefused+"/32", "--authorised"); code != 0 {
+		t.Fatalf("run exit %d: %s", code, h.stderr.String())
+	}
+	db := h.openDB("a.com")
+	for _, c := range []struct{ what, q string }{
+		{"no finding", "SELECT key FROM records WHERE kind='finding' AND current=1"},
+		{"no candidate rank", "SELECT key FROM records WHERE kind='candidate_rank' AND current=1"},
+		{"egress did not refuse the dial", "SELECT key FROM records WHERE kind='excluded' AND current=1 AND key='" + producersRefused + "'"},
+		{"no third party from both seed and a CNAME", "SELECT producer FROM observations WHERE kind='third_party' AND key='" + producersThirdParty + "' AND producer='seed'"},
+		{"no third party from a CNAME", "SELECT producer FROM observations WHERE kind='third_party' AND key='" + producersThirdParty + "' AND producer<>'seed'"},
+	} {
+		if got := queryStrings(t, db, c.q); len(got) == 0 {
+			t.Fatalf("precondition: %s", c.what)
+		}
+	}
+	return w
+}
+
+// secondRun runs the engagement again a day later, without old.a.com and with gone taken out of
+// the registry.
+func (w *producersWorld) secondRun(t *testing.T) {
+	t.Helper()
+	w.dropOld.Store(true)
+	w.h.procedures = slices.DeleteFunc(slices.Clone(w.h.procedures), func(p run.Procedure) bool { return p == w.gone })
+	w.h.now = w.h.now.Add(24 * time.Hour)
+	if code := w.h.exec("-e", "a.com", "--redo", "seed"); code != 0 {
+		t.Fatalf("second run exit %d: %s", code, w.h.stderr.String())
+	}
+	if got := queryStrings(t, w.h.openDB("a.com"), "SELECT key FROM records WHERE kind='hostname' AND key='old.a.com' AND current=0"); len(got) != 1 {
+		t.Fatal("precondition: old.a.com is still current after the second run")
+	}
+}
+
+// analysisOf is the line's analysis, and whether it has the key at all.
+func analysisOf(l exLine) (string, bool) {
+	v, ok := l["analysis"]
+	s, _ := v.(string)
+	return s, ok
+}
+
+// checkProducers checks that a line names these procedures (an empty list for none) and this
+// analysis ("" for no analysis key).
+func checkProducers(t *testing.T, l exLine, procedures []string, analysis string) {
+	t.Helper()
+	if !l.hasProcedures() || !slices.Equal(l.procedures(), procedures) {
+		t.Errorf("%s %s: procedures = %v, want %q", l.str("kind"), l.str("key"), l["procedures"], procedures)
+	}
+	got, has := analysisOf(l)
+	switch {
+	case analysis == "" && has:
+		t.Errorf("%s %s has an analysis key %v, want none", l.str("kind"), l.str("key"), l["analysis"])
+	case analysis != "" && got != analysis:
+		t.Errorf("%s %s: analysis = %v, want %q", l.str("kind"), l.str("key"), l["analysis"], analysis)
+	}
+}
+
+// Each record line names the registry's procedures that observe it now and, apart from them, the
+// analysis that produces it now.
+func TestExport_ProceduresAndAnalysis(t *testing.T) {
+	t.Parallel()
+	w := newProducersWorld(t)
+	w.secondRun(t)
+	if got := queryStrings(t, w.h.openDB("a.com"), "SELECT key FROM observations WHERE kind='hostname' AND producer='gone'"); len(got) == 0 {
+		t.Fatal("precondition: the procedure taken out of the registry has no observation left")
+	}
+	e := export(w.h, "-e", "a.com")
+	if e.code != 0 {
+		t.Fatalf("exit %d: %s", e.code, e.stderr)
+	}
+	lines := e.lines(t)
+
+	checkProducers(t, exportLine(t, lines, "hostname", "www.a.com"), []string{"seed"}, "")
+	checkProducers(t, exportLine(t, lines, "third_party", producersThirdParty), []string{"seed"}, run.AnalysisThirdPartyCNAME)
+	checkProducers(t, exportLine(t, lines, "excluded", producersRefused), []string{}, run.AnalysisGuard)
+	checkProducers(t, exportLine(t, lines, "hostname", "old.a.com"), []string{}, "")
+	// A producer that is neither in the registry nor an analysis is left out.
+	checkProducers(t, exportLine(t, lines, "hostname", "gone.a.com"), []string{}, "")
+
+	var findings, ranks int
+	registry := procedureNameSet(w.h.procedures)
+	for _, l := range lines {
+		if isInputLine(l) {
+			continue
+		}
+		if _, has := l["stages"]; has {
+			t.Errorf("%s %s has a stages key", l.str("kind"), l.str("key"))
+		}
+		if !l.hasProcedures() {
+			t.Errorf("%s %s has no procedures list: %v", l.str("kind"), l.str("key"), l)
+		}
+		for _, p := range l.procedures() {
+			if !registry[p] {
+				t.Errorf("%s %s lists %q, which is not a procedure of the registry", l.str("kind"), l.str("key"), p)
+			}
+		}
+		if l["current"] != true {
+			if _, has := l["analysis"]; has || len(l.procedures()) != 0 {
+				t.Errorf("not current %s %s has procedures %v and analysis %v", l.str("kind"), l.str("key"), l["procedures"], l["analysis"])
+			}
+			continue
+		}
+		switch l.str("kind") {
+		case "finding":
+			findings++
+			checkProducers(t, l, []string{}, run.AnalysisFindings)
+		case "candidate_rank":
+			ranks++
+			checkProducers(t, l, []string{}, run.AnalysisCandidateRank)
+		}
+	}
+	if findings == 0 || ranks == 0 {
+		t.Errorf("exported %d current findings and %d current candidate ranks, want some of each", findings, ranks)
+	}
+}
+
+// procedureNameSet is the set of the procedures' names.
+func procedureNameSet(procedures []run.Procedure) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range procedures {
+		out[p.Name()] = true
+	}
+	return out
+}
+
+// The procedures come before the analysis, and both before scope or shown.
+func TestExport_ProducerFieldOrder(t *testing.T) {
+	t.Parallel()
+	w := newProducersWorld(t)
+	e := export(w.h, "-e", "a.com", "--kind", "third_party", "--kind", "excluded", "--kind", "hostname")
+	if e.code != 0 {
+		t.Fatalf("exit %d: %s", e.code, e.stderr)
+	}
+	prefix := []string{`,"attrs":`, `,"current":`, `,"first_seen":`, `,"last_seen":`, `,"procedures":`}
+	want := map[string][]string{
+		`{"kind":"third_party","key":"` + producersThirdParty + `",`: append(slices.Clone(prefix), `,"analysis":"thirdparty-cname"`, `,"shown":`),
+		`{"kind":"excluded","key":"` + producersRefused + `",`:       append(slices.Clone(prefix), `,"analysis":"guard"`, `,"scope":`),
+		`{"kind":"hostname","key":"www.a.com",`:                      append(slices.Clone(prefix), `,"scope":`),
+	}
+	seen := map[string]bool{}
+	for raw := range strings.SplitSeq(strings.TrimSpace(e.stdout), "\n") {
+		for start, fields := range want {
+			if !strings.HasPrefix(raw, start) {
+				continue
+			}
+			seen[start] = true
+			rest := raw
+			for _, f := range fields {
+				i := strings.Index(rest, f)
+				if i < 0 {
+					t.Errorf("%q lacks %s after the fields before it", raw, f)
+					break
+				}
+				rest = rest[i+1:]
+			}
+			if !strings.Contains(start, "third_party") && !strings.Contains(start, "excluded") && strings.Contains(raw, `"analysis"`) {
+				t.Errorf("%q has an analysis key", raw)
+			}
+		}
+	}
+	for start := range want {
+		if !seen[start] {
+			t.Errorf("no line starts %s", start)
+		}
+	}
+}
+
+// A second run of the same engagement leaves each line's procedures and analysis as they were.
+func TestExport_ProducersUnchangedByASecondRun(t *testing.T) {
+	t.Parallel()
+	w := newProducersWorld(t)
+	lines := func() map[string]exLine {
+		t.Helper()
+		e := export(w.h, "-e", "a.com")
+		if e.code != 0 {
+			t.Fatalf("exit %d: %s", e.code, e.stderr)
+		}
+		out := map[string]exLine{}
+		for _, l := range e.lines(t) {
+			if isInputLine(l) {
+				continue
+			}
+			if !l.hasProcedures() {
+				t.Errorf("%s %s has no procedures list", l.str("kind"), l.str("key"))
+			}
+			l = maps.Clone(l)
+			delete(l, "last_seen")
+			out[l.str("kind")+"|"+l.str("key")] = l
+		}
+		return out
+	}
+	before := lines()
+	if _, has := analysisOf(before["third_party|"+producersThirdParty]); !has {
+		t.Errorf("before the second run, the third party has no analysis: %v", before["third_party|"+producersThirdParty])
+	}
+
+	w.h.now = w.h.now.Add(48 * time.Hour)
+	if code := w.h.exec("-e", "a.com"); code != 0 {
+		t.Fatalf("second run exit %d: %s", code, w.h.stderr.String())
+	}
+	after := lines()
+	for k, b := range before {
+		if a, ok := after[k]; !ok || !reflect.DeepEqual(a, b) {
+			t.Errorf("%s changed with the second run:\nbefore %v\nafter  %v", k, b, a)
+		}
+	}
+	for k := range after {
+		if _, ok := before[k]; !ok {
+			t.Errorf("%s is new after the second run", k)
+		}
 	}
 }

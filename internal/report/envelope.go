@@ -16,8 +16,8 @@ type Envelope struct {
 type Meta struct {
 	Count            int      `json:"count"`
 	DeadlineExceeded bool     `json:"deadline_exceeded"`
-	JobsCompleted    int      `json:"checks_completed"`
-	JobsCancelled    int      `json:"checks_cancelled"`
+	JobsCompleted    int      `json:"jobs_completed"`
+	JobsCancelled    int      `json:"jobs_cancelled"`
 	Warnings         []string `json:"warnings"`
 }
 

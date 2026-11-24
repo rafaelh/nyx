@@ -21,9 +21,9 @@ import (
 
 var (
 	envelopeKeys = []string{"data", "meta"}
-	dataKeys     = []string{"engagement", "directory", "counts", "failed_checks", "deferred", "not_configured", "findings",
+	dataKeys     = []string{"engagement", "directory", "counts", "failed_jobs", "deferred", "not_configured", "findings",
 		"candidates", "candidates_total", "unconfirmed_risky_ports", "notes", "changes"}
-	metaKeys = []string{"count", "deadline_exceeded", "checks_completed", "checks_cancelled", "warnings"}
+	metaKeys = []string{"count", "deadline_exceeded", "jobs_completed", "jobs_cancelled", "warnings"}
 )
 
 // keysOf are the keys of the JSON object at raw, in the order they are written.
@@ -87,9 +87,9 @@ func TestEnvelope_EveryKeyOnEveryRun(t *testing.T) {
 	line := strings.TrimSuffix(h.stdout.String(), "\n")
 	h.envelope() // checks the keys and their order
 	for _, want := range []string{
-		`"failed_checks":[]`, `"deferred":[]`, `"not_configured":[]`, `"findings":[]`, `"candidates":[]`,
+		`"failed_jobs":[]`, `"deferred":[]`, `"not_configured":[]`, `"findings":[]`, `"candidates":[]`,
 		`"candidates_total":0`, `"unconfirmed_risky_ports":0`, `"notes":[]`, `"changes":null`,
-		`"meta":{"count":1,"deadline_exceeded":false,"checks_completed":0,"checks_cancelled":0,"warnings":[]}}`,
+		`"meta":{"count":1,"deadline_exceeded":false,"jobs_completed":0,"jobs_cancelled":0,"warnings":[]}}`,
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("envelope lacks %s:\n%s", want, line)
@@ -113,9 +113,9 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 	want := `{"data":{"engagement":"a.com","directory":` + fmt.Sprintf("%q", h.eng("a.com")) +
 		`,"counts":[{"category":"code mentions","n":0},{"category":"findings","n":0},{"category":"hosts","n":1},{"category":"ips","n":0},` +
 		`{"category":"open ports (confirmed)","n":0},{"category":"open ports (third-party reported)","n":0},{"category":"third parties","n":0},` +
-		`{"category":"unresolved names","n":0},{"category":"urls","n":0},{"category":"web services","n":0}],"failed_checks":[{"stage":"flaky","n":1}],"deferred":[],"not_configured":[],` +
+		`{"category":"unresolved names","n":0},{"category":"urls","n":0},{"category":"web services","n":0}],"failed_jobs":[{"procedure":"flaky","n":1}],"deferred":[],"not_configured":[],` +
 		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"notes":[],"changes":null},` +
-		`"meta":{"count":1,"deadline_exceeded":false,"checks_completed":2,"checks_cancelled":0,"warnings":[]}}` + "\n"
+		`"meta":{"count":1,"deadline_exceeded":false,"jobs_completed":2,"jobs_cancelled":0,"warnings":[]}}` + "\n"
 	if got := h.stdout.String(); got != want {
 		t.Errorf("envelope:\n got %s\nwant %s", got, want)
 	}
@@ -371,4 +371,35 @@ func TestEnvelope_NotesAreStrippedAndMasked(t *testing.T) {
 	if strings.Contains(h.stdout.String(), key) {
 		t.Error("the key is in stdout")
 	}
+}
+
+// The rows and counts named after the unit of work use the words procedure and job, and the old
+// keys are not written at all.
+func TestEnvelope_ProcedureAndJobKeys(t *testing.T) {
+	t.Parallel()
+	nokey := &testkit.Procedure{ProcedureName: "keyed", Kind: run.ThirdParty,
+		ConfiguredFn: func(run.Env) (bool, string) { return false, "no key" }}
+	h := newHarness(t, erring("flaky", 1, errors.New("boom")), budgeted(1, func(run.View) []run.Job { return costed(1, 1, 1) }), nokey)
+	h.partial(h.exec("a.com", "--json"), true)
+	line := h.stdout.String()
+	env, ok := tryEnvelope(line)
+	if !ok || len(env.Data.FailedJobs) != 1 || len(env.Data.Deferred) != 1 || len(env.Data.NotConfigured) != 1 {
+		t.Fatalf("precondition: failed %v, deferred %v, not configured %v", env.Data.FailedJobs, env.Data.Deferred, env.Data.NotConfigured)
+	}
+	for _, want := range []string{
+		`"failed_jobs":[{"procedure":"flaky","n":1}]`,
+		`"deferred":[{"procedure":"budgeted","n":`,
+		`"not_configured":[{"procedure":"keyed","reason":"no key"}]`,
+		`"jobs_completed":`, `"jobs_cancelled":0`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Errorf("envelope lacks %s:\n%s", want, line)
+		}
+	}
+	for _, old := range []string{"failed_checks", "checks_completed", "checks_cancelled", `"stage"`} {
+		if strings.Contains(line, old) {
+			t.Errorf("envelope has the old key %s:\n%s", old, line)
+		}
+	}
+	h.envelope() // the data and meta keys, in order
 }

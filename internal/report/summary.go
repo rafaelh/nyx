@@ -22,7 +22,7 @@ type Summary struct {
 	Engagement            string            `json:"engagement"`
 	Directory             string            `json:"directory"`
 	Counts                []CountRow        `json:"counts"`
-	FailedJobs            []ProcedureCount  `json:"failed_checks"`
+	FailedJobs            []ProcedureCount  `json:"failed_jobs"`
 	Deferred              []ProcedureCount  `json:"deferred"`
 	NotConfigured         []ProcedureReason `json:"not_configured"`
 	Findings              []FindingRow      `json:"findings"`
@@ -41,13 +41,13 @@ type CountRow struct {
 
 // ProcedureCount is a number of jobs of one procedure.
 type ProcedureCount struct {
-	Procedure string `json:"stage"`
+	Procedure string `json:"procedure"`
 	N         int    `json:"n"`
 }
 
 // ProcedureReason is a procedure that did not run, and why.
 type ProcedureReason struct {
-	Procedure string `json:"stage"`
+	Procedure string `json:"procedure"`
 	Reason    string `json:"reason"`
 }
 
