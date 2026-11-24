@@ -72,9 +72,9 @@ and the human renderers take a stream where they once took a depth.
 layout and the batch outcome), which reaches the NVD through `egress`'s third-party client.
 `nyx setup` skips it too: `internal/cli/setup.go` (the checks that exit 2, then the wiring) →
 `internal/setup` (the Bubble Tea model: tabs, text field, dialogs, change tracking; it does no I/O and
-gets a `setup.Backend`, defined in `backend.go`) → `internal/configedit` (the YAML document that keeps
+gets a `setup.Backend`, defined in `backend.go`) → `internal/setup/configedit` (the YAML document that keeps
 comments and order, `Save`, and the `Store` that implements the Backend's file side) and
-`internal/keycheck` (one authenticated request to one source's host, through egress's third-party
+`internal/setup/keycheck` (one authenticated request to one source's host, through egress's third-party
 client with no `Policy`; the NVD's status rules are shared with `nyx cve` through `cve.Meaning`).
 `config.Check` parses and checks a file's bytes, which `Load` calls too.
 `nyx setup --update-threat-data` skips the editor and the config: `internal/cli/threat.go` (the

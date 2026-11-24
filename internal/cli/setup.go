@@ -14,8 +14,8 @@ import (
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/configedit"
 	"github.com/rafaelh/nyx/internal/setup"
+	"github.com/rafaelh/nyx/internal/setup/configedit"
 )
 
 // setupOptions are the flags of nyx setup.

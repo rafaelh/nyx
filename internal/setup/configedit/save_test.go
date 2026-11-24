@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rafaelh/nyx/internal/configedit"
+	"github.com/rafaelh/nyx/internal/setup/configedit"
 )
 
 // TestMain lets the test binary re-execute itself ("save-child <path> <data>") to call Save and be

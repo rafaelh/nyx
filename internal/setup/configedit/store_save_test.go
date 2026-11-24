@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/rafaelh/nyx/internal/config"
-	"github.com/rafaelh/nyx/internal/configedit"
 	"github.com/rafaelh/nyx/internal/setup"
+	"github.com/rafaelh/nyx/internal/setup/configedit"
 )
 
 func (w *world) save(snap setup.Snapshot, e setup.Edits) setup.Snapshot {

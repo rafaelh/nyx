@@ -6,7 +6,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/rafaelh/nyx/internal/configedit"
+	"github.com/rafaelh/nyx/internal/setup/configedit"
 )
 
 // edit parses src, applies f and returns the encoded document.

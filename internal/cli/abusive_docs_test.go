@@ -9,9 +9,9 @@ import (
 
 	"github.com/rafaelh/nyx/internal/abusive"
 	"github.com/rafaelh/nyx/internal/cli"
-	"github.com/rafaelh/nyx/internal/keycheck"
 	"github.com/rafaelh/nyx/internal/lookup/cve"
 	"github.com/rafaelh/nyx/internal/lookup/iplookup"
+	"github.com/rafaelh/nyx/internal/setup/keycheck"
 	"github.com/rafaelh/nyx/internal/spamhaus"
 	"github.com/rafaelh/nyx/internal/threatdata"
 )
@@ -190,7 +190,7 @@ func TestAbusiveDocs_NoCommandContactsTheThreatDataHosts(t *testing.T) { // muta
 			t.Errorf("%s %s", a[0], a[1])
 		}
 	}
-	for _, dir := range []string{"egress", "keycheck"} {
+	for _, dir := range []string{"egress", "setup/keycheck"} {
 		for name, text := range sourceFiles(t, "../"+dir) {
 			for _, word := range []string{"spamhaus", "ipapi"} {
 				if strings.Contains(strings.ToLower(text), word) {
