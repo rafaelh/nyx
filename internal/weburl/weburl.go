@@ -1,6 +1,6 @@
-// Package web implements service probing, crawling and script/endpoint discovery. All network
-// requests go through egress.
-package web
+// Package weburl holds the pure rules for HTTP(S) URLs that the web and archive stages share:
+// canonical form, service origin, host and static-asset detection. It does no I/O.
+package weburl
 
 import (
 	"net/url"

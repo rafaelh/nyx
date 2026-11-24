@@ -7,8 +7,8 @@ import (
 	"net/url"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // Keyed sources abort on 401/403/429, return empty for 404 and reject unexpected body shapes as

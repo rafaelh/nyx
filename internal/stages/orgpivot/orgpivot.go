@@ -13,11 +13,10 @@ import (
 	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/orgname"
 	"github.com/rafaelh/nyx/internal/run"
-	asnstage "github.com/rafaelh/nyx/internal/stages/asn"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // maxASNsPerOrg caps the autonomous systems taken for one organisation. The
@@ -185,7 +184,7 @@ func (*OrgASN) Run(ctx context.Context, c run.Check, e egress.Clients) ([]run.Ob
 	}
 	var obs []run.Observation
 	for _, asn := range asns {
-		prefixes, err := asnstage.Announced(ctx, e, asn)
+		prefixes, err := httpsrc.Announced(ctx, e, asn)
 		if err != nil {
 			return nil, fmt.Errorf("org-asn %s %s: %w", c.Key, asn, err)
 		}

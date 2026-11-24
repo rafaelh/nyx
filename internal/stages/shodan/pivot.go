@@ -13,11 +13,11 @@ import (
 	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // maxPivotHosts rejects widely shared identifiers as likely template, plugin or framework

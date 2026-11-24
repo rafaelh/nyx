@@ -17,6 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 const (
@@ -96,7 +97,7 @@ func scriptsByOrigin(v run.View) map[string][]string {
 	}
 	byOrigin := map[string][]string{}
 	for _, rec := range v.Records(kinds.Script) {
-		host := HostOfURL(rec.Key)
+		host := weburl.HostOfURL(rec.Key)
 		if !fetchableHost(v, probe, host) || v.SaaSServed(host) {
 			continue
 		}
@@ -147,7 +148,7 @@ func fetchableHost(v run.View, probe map[string]bool, host string) bool {
 func (*JSParse) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.Observation, error) {
 	in := chk.Input.(scriptInput)
 	obs := []run.Observation{kinds.ScriptParsed.Obs(in.url)}
-	scriptHost := HostOfURL(in.url)
+	scriptHost := weburl.HostOfURL(in.url)
 	resp, ok, err := fetchScript(ctx, e, in.url, scriptHost)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", chk.Key, err)
@@ -162,7 +163,7 @@ func (*JSParse) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run
 	hosts := map[string]bool{}
 	recorded, more := 0, false
 	for _, u := range found {
-		host := HostOfURL(u)
+		host := weburl.HostOfURL(u)
 		if !in.sc.WebHostInScope(host) {
 			continue
 		}
@@ -208,7 +209,7 @@ func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string) 
 				return r, r.Status >= 200 && r.Status < 300, nil
 			}
 			target, _ := redirectTarget(r) // "", which has no host, when it cannot be resolved
-			if r.Location == "" || HostOfURL(target) != host || visited[target] || hop >= maxHops {
+			if r.Location == "" || weburl.HostOfURL(target) != host || visited[target] || hop >= maxHops {
 				return egress.Response{}, false, nil
 			}
 			visited[target] = true

@@ -17,7 +17,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
-	"github.com/rafaelh/nyx/internal/stages/serveraddr"
+	"github.com/rafaelh/nyx/internal/serveraddr"
 )
 
 // Email collects root mail posture and SPF/DMARC/MX dependencies through public DNS, including

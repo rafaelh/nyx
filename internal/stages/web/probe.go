@@ -1,3 +1,5 @@
+// Package web implements service probing, crawling and script/endpoint discovery. All network
+// requests go through egress.
 package web
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // maxHops is how many redirects a probe, the crawl or jsparse follows.
@@ -221,12 +224,12 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 	last := chain[len(chain)-1].resp
 
 	attrs := kinds.WebServiceAttrs{
-		URL: Origin(scheme, in.host, in.port), Host: in.host, Port: in.port, Scheme: scheme,
+		URL: weburl.Origin(scheme, in.host, in.port), Host: in.host, Port: in.port, Scheme: scheme,
 		Status: first.Status, Server: last.HeaderValue("Server"),
 		Technologies: technologies(last.Header, last.Body),
 		Redirect:     first.Location,
 	}
-	if u, ok := NormaliseURL(last.URL()); ok {
+	if u, ok := weburl.NormaliseURL(last.URL()); ok {
 		attrs.FinalURL = u
 	}
 	if pg, ok := chain[len(chain)-1].page(); ok {
@@ -253,7 +256,7 @@ func followRedirects(ctx context.Context, in probeInput, first egress.Response, 
 	last := first
 	chain := []*hop{newHop(first)}
 	visited := map[string]bool{}
-	if u, ok := NormaliseURL(first.URL()); ok {
+	if u, ok := weburl.NormaliseURL(first.URL()); ok {
 		visited[u] = true
 	}
 	for n := 0; n < maxHops && isRedirect(last.Status) && last.Location != ""; n++ {
@@ -261,7 +264,7 @@ func followRedirects(ctx context.Context, in probeInput, first egress.Response, 
 		if !ok {
 			break
 		}
-		hopURL := kinds.URLAttrs{URL: target, Host: HostOfURL(target)}
+		hopURL := kinds.URLAttrs{URL: target, Host: weburl.HostOfURL(target)}
 		hopIdx := recordHop(obs, in.host, last, hopURL)
 		if visited[target] {
 			break
@@ -299,7 +302,7 @@ func recordHop(obs *obsSet, self string, last egress.Response, hopURL kinds.URLA
 	}
 	// A redirect to a storage URL is a reference, and a browser follows it.
 	if ref, ok := cloudstorage.ParseRef(target); ok {
-		if page, ok := NormaliseURL(last.URL()); ok {
+		if page, ok := weburl.NormaliseURL(last.URL()); ok {
 			obs.add(storageObservation(storageRef{ref: ref, url: target, page: page, via: "asset"}))
 		}
 	}

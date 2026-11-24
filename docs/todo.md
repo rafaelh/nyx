@@ -67,13 +67,6 @@ Confirm each with `/code-review` before fixing.
   built-in list has a `stated` now, so it happens only if an old snapshot is restored; a guard in
   `refresh.go` would close it.
 
-## Missing tests
-
-- **Threat-data TIMEOUT through the command.** `nyx setup --update-threat-data` giving `TIMEOUT` is
-  tested only through `threatdata.Update`: the 30 s request timeout can't be shortened through
-  `Deps`.
-- **Threat data fixed for a whole run.** That every recon pass, not only the final findings, uses
-  the threat data loaded when the run started.
 
 ## Design changes
 
@@ -113,4 +106,8 @@ Confirm each with `/code-review` before fixing.
 - **Numeric port order.** Sort `OpenPorts` with `AddrPort.Compare`. Changes the order users see
   from text to numeric.
 
+
+## Architecture
+
+internal/cli has about 4.2k lines of code and about 40k lines of tests across 93 files. That's intentional (behaviour tests drive cli.Execute), but it means one package does most of the test work and Go can't split it across packages in parallel. If make test gets slow, the option is to move the harness into an exported internal/clitest and split the tests by command (ip, cve, setup, recon). It's not worth doing until the time hurts.
 

@@ -14,6 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // urlsPerPage bounds recorded URLs relative to page budget, preventing calendars/faceted search
@@ -65,7 +66,7 @@ func (*Crawl) Checks(ctx context.Context, v run.View) iter.Seq2[run.Check, error
 		for _, ws := range v.WebServices() { // in key order
 			svc := ws.Svc
 			in := crawlInput{sc: v.Scope(), host: svc.Host, scheme: svc.Scheme, port: svc.Port, depth: set.MaxDepth, pages: set.MaxPages, origin: ws.Key}
-			in.start, _ = NormaliseURL(ws.Key + "/")
+			in.start, _ = weburl.NormaliseURL(ws.Key + "/")
 			key := fmt.Sprintf("%s|depth=%d|pages=%d", ws.Key, set.MaxDepth, set.MaxPages)
 			if !yield(run.Check{Key: key, Input: in}, nil) {
 				return
@@ -127,8 +128,8 @@ func (*Crawl) Run(ctx context.Context, chk run.Check, e egress.Clients) ([]run.O
 	// egress.Link only needs where the root came from, not its body.
 	c.anchor = root
 	c.anchor.Body, c.anchor.Header, c.anchor.PeerCerts = nil, nil, nil
-	robots, _ := NormaliseURL(in.origin + "/robots.txt")
-	sitemap, _ := NormaliseURL(in.origin + "/sitemap.xml")
+	robots, _ := weburl.NormaliseURL(in.origin + "/robots.txt")
+	sitemap, _ := weburl.NormaliseURL(in.origin + "/sitemap.xml")
 	c.visited[robots], c.visited[sitemap] = true, true // read as lists below, not crawled as pages
 	c.scan(root, 0)
 	c.readLists(robots, sitemap)
@@ -218,7 +219,7 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 		if err != nil {
 			return "", false
 		}
-		return NormaliseURL(t.String())
+		return weburl.NormaliseURL(t.String())
 	}
 	handle := func(href string, follow bool) {
 		abs, ok := absolute(href)
@@ -236,7 +237,7 @@ func (c *crawler) scan(resp egress.Response, depth int) {
 	for _, h := range l.record {
 		handle(h, false)
 	}
-	pageURL, _ := NormaliseURL(resp.URL())
+	pageURL, _ := weburl.NormaliseURL(resp.URL())
 	for _, r := range l.refs {
 		abs, ok := absolute(r.url)
 		if !ok {
@@ -262,7 +263,7 @@ func (c *crawler) enqueue(abs string, depth int) {
 	if depth > c.in.depth || originOf(abs) != c.in.origin || c.visited[abs] || len(c.queue)+c.gets >= c.in.pages {
 		return
 	}
-	if u, err := url.Parse(abs); err != nil || IsStaticAsset(u.Path) {
+	if u, err := url.Parse(abs); err != nil || weburl.IsStaticAsset(u.Path) {
 		return
 	}
 	c.visited[abs] = true
@@ -300,7 +301,7 @@ func (c *crawler) record(abs string) {
 	if _, seen := c.recorded[abs]; seen { // its host was handled when it was first recorded
 		return
 	}
-	host := HostOfURL(abs)
+	host := weburl.HostOfURL(abs)
 	if !c.in.sc.WebHostInScope(host) {
 		return
 	}
@@ -331,7 +332,7 @@ func (c *crawler) observations() []run.Observation {
 		out = append(out, storageObservation(*c.storage[k]))
 	}
 	for _, u := range slices.Sorted(maps.Keys(c.scripts)) {
-		out = append(out, kinds.Script.Obs(u, kinds.ScriptAttrs{URL: u, Host: HostOfURL(u), Service: c.in.origin}))
+		out = append(out, kinds.Script.Obs(u, kinds.ScriptAttrs{URL: u, Host: weburl.HostOfURL(u), Service: c.in.origin}))
 	}
 	return append(out, c.ids.obs.list...)
 }
@@ -349,6 +350,6 @@ func originOf(abs string) string {
 func storageObservation(r storageRef) run.Observation {
 	return kinds.StorageRef.Obs(r.page+"|"+r.url, kinds.StorageRefAttrs{
 		Provider: r.ref.Provider, Name: r.ref.Name, Container: r.ref.Container, Object: r.ref.Object,
-		URL: r.url, Page: r.page, PageHost: HostOfURL(r.page), Via: r.via,
+		URL: r.url, Page: r.page, PageHost: weburl.HostOfURL(r.page), Via: r.via,
 	})
 }

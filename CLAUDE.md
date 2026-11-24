@@ -168,7 +168,8 @@ embedded `providers.yaml`), `eol` (end of security support; embedded endoflife.d
 belong to an organisation input), `origin` (origin-behind-CDN decisions, which the `origincheck`
 stage and the findings both call so they can't disagree), `thirdparty`, `palette`, `shellquote`,
 `dnsname`, `sanitize` (strips terminal-acting characters from
-target-supplied text), `input`, `layout` (cell width, wrapping, tables, headings and rules for a
+target-supplied text), `weburl` (canonical URLs, service origins and static assets, shared by the
+web and archive stages), `input`, `layout` (cell width, wrapping, tables, headings and rules for a
 terminal; the renderers take a `layout.Stream` and return their plain output unchanged when it is
 not a terminal). The built-in wordlist and sensitive-path list are embedded in
 `internal/config/builtin/`.

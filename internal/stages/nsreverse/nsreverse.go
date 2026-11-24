@@ -12,10 +12,10 @@ import (
 	"github.com/rafaelh/nyx/internal/candidates"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // maxPages bounds per-server credits; results beyond it already exceed useful shared-hosting

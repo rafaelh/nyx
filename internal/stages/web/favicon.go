@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // murmur3 is MurmurHash3 (x86, 32 bit).
@@ -81,8 +82,8 @@ func (p page) iconHref() string {
 
 // lastOnHost ignores scheme/port while selecting the final response on the initial host.
 func lastOnHost(chain []*hop) *hop {
-	host := HostOfURL(chain[0].origin)
-	return lastWhere(chain, func(h *hop) bool { return HostOfURL(h.origin) == host })
+	host := weburl.HostOfURL(chain[0].origin)
+	return lastWhere(chain, func(h *hop) bool { return weburl.HostOfURL(h.origin) == host })
 }
 
 // iconRequest prefers a same-host icon link on the final same-host page, otherwise the first

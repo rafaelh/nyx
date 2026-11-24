@@ -3,6 +3,8 @@ package web
 import (
 	"regexp"
 	"strings"
+
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // endpointPattern finds absolute HTTP(S) URLs anywhere and complete quoted slash-prefixed
@@ -36,7 +38,7 @@ func ExtractEndpoints(body []byte, origin string) []string {
 		default:
 			abs, ok = absoluteURL(lit)
 		}
-		if !ok || !namesService(HostOfURL(abs)) || seen[abs] {
+		if !ok || !namesService(weburl.HostOfURL(abs)) || seen[abs] {
 			continue
 		}
 		seen[abs] = true
@@ -64,7 +66,7 @@ func absoluteURL(lit string) (string, bool) {
 		}
 		lit = lit[:cut]
 	}
-	return NormaliseURL(strings.TrimRight(lit, ".,;:!"))
+	return weburl.NormaliseURL(strings.TrimRight(lit, ".,;:!"))
 }
 
 // quotedURL resolves slash-prefixed literals against origin, inheriting the scheme for //

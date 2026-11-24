@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // readLists queues same-origin robots/sitemap URLs at depth one, using the page budget left
@@ -47,7 +48,7 @@ func (c *crawler) readLists(robots, sitemap string) {
 		}
 		locs, index := parseSitemap(body)
 		for _, l := range locs {
-			abs, ok := NormaliseURL(l)
+			abs, ok := weburl.NormaliseURL(l)
 			if !ok {
 				continue
 			}
@@ -75,7 +76,7 @@ func (c *crawler) fetchList(abs string) ([]byte, bool) {
 	if err != nil || !live || resp.Status/100 != 2 {
 		return nil, false
 	}
-	if u, ok := NormaliseURL(resp.URL()); ok {
+	if u, ok := weburl.NormaliseURL(resp.URL()); ok {
 		c.record(u)
 		c.setStatus(u, resp.Status)
 	}
@@ -92,7 +93,7 @@ func resolve(base, ref string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return NormaliseURL(t.String())
+	return weburl.NormaliseURL(t.String())
 }
 
 // parseRobots reads Sitemap URLs and Allow/Disallow paths, stopping paths before

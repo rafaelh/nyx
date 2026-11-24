@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 // Unkeyed sources contribute hostnames only; parsers discard other data and Run filters

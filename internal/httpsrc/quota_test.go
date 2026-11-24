@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/ipsource"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 )
 
 func TestQuotaError_WrapsRunQuotaAndKeepsTheText(t *testing.T) {

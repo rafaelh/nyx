@@ -20,11 +20,11 @@ import (
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/dnsname"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
-	"github.com/rafaelh/nyx/internal/stages/web"
+	"github.com/rafaelh/nyx/internal/weburl"
 )
 
 // maxPages caps archive and API paging inside one check.
@@ -153,12 +153,12 @@ type archivedURL struct{ url, host string }
 func pickURLs(raw []string, root string, max int) []archivedURL {
 	byHost := map[string][]string{}
 	for _, r := range raw {
-		u, ok := web.NormaliseURL(r)
+		u, ok := weburl.NormaliseURL(r)
 		if !ok {
 			continue
 		}
 		pu, err := url.Parse(u)
-		if err != nil || !dnsname.Under(pu.Hostname(), root) || web.IsStaticAsset(pu.Path) {
+		if err != nil || !dnsname.Under(pu.Hostname(), root) || weburl.IsStaticAsset(pu.Path) {
 			continue
 		}
 		byHost[pu.Hostname()] = append(byHost[pu.Hostname()], u)
@@ -253,7 +253,7 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 				continue
 			}
 			u := withScheme(r[0])
-			names = append(names, web.HostOfURL(u))
+			names = append(names, weburl.HostOfURL(u))
 			urls = append(urls, u)
 		}
 	}
@@ -333,7 +333,7 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients) (result, e
 			}
 			if line = strings.TrimSpace(line); line != "" && json.Unmarshal([]byte(line), &row) == nil {
 				u := withScheme(row.URL)
-				names = append(names, web.HostOfURL(u))
+				names = append(names, weburl.HostOfURL(u))
 				urls = append(urls, u)
 			}
 		}

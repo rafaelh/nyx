@@ -14,7 +14,7 @@ import (
 	"github.com/rafaelh/nyx/internal/provider"
 	"github.com/rafaelh/nyx/internal/run"
 	"github.com/rafaelh/nyx/internal/scope"
-	"github.com/rafaelh/nyx/internal/stages/serveraddr"
+	"github.com/rafaelh/nyx/internal/serveraddr"
 )
 
 // DNSRoot collects each in-scope input root's NS, SOA, TXT and CAA records for later pivots,

@@ -15,10 +15,10 @@ import (
 
 	"github.com/rafaelh/nyx/internal/cli"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/httpsrc"
 	"github.com/rafaelh/nyx/internal/kinds"
 	"github.com/rafaelh/nyx/internal/output"
 	"github.com/rafaelh/nyx/internal/run"
-	"github.com/rafaelh/nyx/internal/stages/httpsrc"
 	"github.com/rafaelh/nyx/internal/testkit"
 )
 
