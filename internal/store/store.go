@@ -33,12 +33,12 @@ const (
 const schema = `
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE inputs(kind TEXT NOT NULL, value TEXT NOT NULL, added_at TEXT NOT NULL, PRIMARY KEY(kind, value));
-CREATE TABLE checks(stage TEXT NOT NULL, key TEXT NOT NULL, completed_at TEXT NOT NULL, PRIMARY KEY(stage, key));
+CREATE TABLE jobs(procedure TEXT NOT NULL, key TEXT NOT NULL, completed_at TEXT NOT NULL, PRIMARY KEY(procedure, key));
 CREATE TABLE records(kind TEXT NOT NULL, key TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
                      current INTEGER NOT NULL, PRIMARY KEY(kind, key));
-CREATE TABLE observations(kind TEXT NOT NULL, key TEXT NOT NULL, stage TEXT NOT NULL, check_key TEXT NOT NULL,
-                          attrs TEXT NOT NULL, seen TEXT NOT NULL, PRIMARY KEY(kind, key, stage, check_key));
-CREATE INDEX observations_check ON observations(stage, check_key);
+CREATE TABLE observations(kind TEXT NOT NULL, key TEXT NOT NULL, producer TEXT NOT NULL, job_key TEXT NOT NULL,
+                          attrs TEXT NOT NULL, seen TEXT NOT NULL, PRIMARY KEY(kind, key, producer, job_key));
+CREATE INDEX observations_job ON observations(producer, job_key);
 `
 
 // Options configure a Store.
@@ -116,12 +116,12 @@ var writeSQL = []string{
 	// The insert identifies first sightings; any newly observed record becomes current.
 	"INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1) ON CONFLICT(kind,key) DO NOTHING",
 	"UPDATE records SET last_seen=?, current=1 WHERE kind=? AND key=?",
-	`INSERT INTO observations(kind,key,stage,check_key,attrs,seen) VALUES(?,?,?,?,?,?)
-		ON CONFLICT(kind,key,stage,check_key) DO UPDATE SET attrs=excluded.attrs, seen=excluded.seen`,
-	"SELECT kind,key FROM observations WHERE stage=? AND check_key=?",
-	"DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?",
+	`INSERT INTO observations(kind,key,producer,job_key,attrs,seen) VALUES(?,?,?,?,?,?)
+		ON CONFLICT(kind,key,producer,job_key) DO UPDATE SET attrs=excluded.attrs, seen=excluded.seen`,
+	"SELECT kind,key FROM observations WHERE producer=? AND job_key=?",
+	"DELETE FROM observations WHERE kind=? AND key=? AND producer=? AND job_key=?",
 	refreshSQL,
-	"INSERT OR REPLACE INTO checks(stage,key,completed_at) VALUES(?,?,?)",
+	"INSERT OR REPLACE INTO jobs(procedure,key,completed_at) VALUES(?,?,?)",
 }
 
 func (w *writeStmts) prepare(db *sql.DB) error {
@@ -599,7 +599,7 @@ func refreshCurrent(tx *sql.Tx, kind, key string) error {
 
 // Completed returns a procedure's completed keys in their stored JobKey form.
 func (s *Store) Completed(procedure string) (map[string]struct{}, error) {
-	keys, err := queryAll(s.db, scanString, "SELECT key FROM checks WHERE stage=?", procedure)
+	keys, err := queryAll(s.db, scanString, "SELECT key FROM jobs WHERE procedure=?", procedure)
 	out := make(map[string]struct{}, len(keys))
 	for _, k := range keys {
 		out[k] = struct{}{}
@@ -680,7 +680,7 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 			_ = json.Unmarshal([]byte(blob), &o.attrs)
 		}
 		return o, err
-	}, "SELECT key,stage,check_key,attrs FROM observations WHERE kind=?", kind)
+	}, "SELECT key,producer,job_key,attrs FROM observations WHERE kind=?", kind)
 	if err != nil {
 		return nil, err
 	}
@@ -713,7 +713,7 @@ func (rd Reader) Observations(kind, procedure string) ([]ObsRow, error) {
 	return queryAll(rd.q, func(rows *sql.Rows) (r ObsRow, err error) {
 		err = rows.Scan(&r.Key, &r.JobKey)
 		return r, err
-	}, "SELECT key,check_key FROM observations WHERE kind=? AND stage=? ORDER BY key,check_key", kind, procedure)
+	}, "SELECT key,job_key FROM observations WHERE kind=? AND producer=? ORDER BY key,job_key", kind, procedure)
 }
 
 // Observer is a completed job that observes a record.
@@ -730,9 +730,9 @@ func (s *Store) Observers(kind string) (map[string][]Observer, error) {
 	rows, err := queryAll(s.db, func(r *sql.Rows) (w row, err error) {
 		err = r.Scan(&w.key, &w.o.Procedure, &w.o.JobKey)
 		return w, err
-	}, `SELECT o.key, o.stage, o.check_key FROM observations o
-		JOIN checks c ON c.stage = o.stage AND c.key = o.check_key
-		WHERE o.kind = ? ORDER BY o.key, o.stage, o.check_key`, kind)
+	}, `SELECT o.key, o.producer, o.job_key FROM observations o
+		JOIN jobs j ON j.procedure = o.producer AND j.key = o.job_key
+		WHERE o.kind = ? ORDER BY o.key, o.producer, o.job_key`, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -782,10 +782,10 @@ func (rd Reader) Inputs() ([]Input, error) {
 // invalidate support caches.
 func (s *Store) Redo(procedure string) error {
 	return s.update(func(tx *sql.Tx) (map[string]bool, error) {
-		if _, err := tx.Exec("DELETE FROM checks WHERE stage=?", procedure); err != nil {
+		if _, err := tx.Exec("DELETE FROM jobs WHERE procedure=?", procedure); err != nil {
 			return nil, err
 		}
-		names, err := queryAll(tx, scanString, "SELECT DISTINCT kind FROM observations WHERE stage=?", procedure)
+		names, err := queryAll(tx, scanString, "SELECT DISTINCT kind FROM observations WHERE producer=?", procedure)
 		if err != nil {
 			return nil, err
 		}
@@ -864,7 +864,7 @@ func (s *Store) Retire(procedure string, valid map[string]struct{}) (changed boo
 }
 
 func retireJobs(tx *sql.Tx, procedure string, valid map[string]struct{}) error {
-	keys, err := queryAll(tx, scanString, "SELECT key FROM checks WHERE stage=?", procedure)
+	keys, err := queryAll(tx, scanString, "SELECT key FROM jobs WHERE procedure=?", procedure)
 	if err != nil {
 		return err
 	}
@@ -872,7 +872,7 @@ func retireJobs(tx *sql.Tx, procedure string, valid map[string]struct{}) error {
 		if _, ok := valid[k]; ok {
 			continue
 		}
-		if _, err := tx.Exec("DELETE FROM checks WHERE stage=? AND key=?", procedure, k); err != nil {
+		if _, err := tx.Exec("DELETE FROM jobs WHERE procedure=? AND key=?", procedure, k); err != nil {
 			return err
 		}
 	}
@@ -886,7 +886,7 @@ func sweepObservations(tx *sql.Tx, procedure string, valid map[string]struct{}) 
 	all, err := queryAll(tx, func(r *sql.Rows) (o obsKey, err error) {
 		err = r.Scan(&o.kind, &o.key, &o.job)
 		return o, err
-	}, "SELECT kind,key,check_key FROM observations WHERE stage=?", procedure)
+	}, "SELECT kind,key,job_key FROM observations WHERE producer=?", procedure)
 	if err != nil {
 		return nil, err
 	}
@@ -895,7 +895,7 @@ func sweepObservations(tx *sql.Tx, procedure string, valid map[string]struct{}) 
 		if _, ok := valid[o.job]; ok {
 			continue
 		}
-		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND stage=? AND check_key=?", o.kind, o.key, procedure, o.job); err != nil {
+		if _, err := tx.Exec("DELETE FROM observations WHERE kind=? AND key=? AND producer=? AND job_key=?", o.kind, o.key, procedure, o.job); err != nil {
 			return nil, err
 		}
 		if err := refreshCurrent(tx, o.kind, o.key); err != nil {
@@ -908,7 +908,7 @@ func sweepObservations(tx *sql.Tx, procedure string, valid map[string]struct{}) 
 
 // shownSchema stores the output baseline. Opening an older engagement creates this table if
 // needed.
-const shownSchema = `CREATE TABLE IF NOT EXISTS shown(kind TEXT NOT NULL, key TEXT NOT NULL, stages TEXT NOT NULL,
+const shownSchema = `CREATE TABLE IF NOT EXISTS shown(kind TEXT NOT NULL, key TEXT NOT NULL, producers TEXT NOT NULL,
                   scope TEXT NOT NULL, severity TEXT NOT NULL, PRIMARY KEY(kind, key))`
 
 // shownMeta records the date a baseline was saved, distinguishing an empty baseline from no
@@ -960,7 +960,7 @@ type shownKey struct{ kind, key string }
 
 // writeShown inserts or updates changed rows and removes rows absent from the new baseline.
 func writeShown(tx *sql.Tx, old map[shownKey]ShownRow, rows []ShownRow) error {
-	ins, err := tx.Prepare("INSERT OR REPLACE INTO shown(kind,key,stages,scope,severity) VALUES(?,?,?,?,?)")
+	ins, err := tx.Prepare("INSERT OR REPLACE INTO shown(kind,key,producers,scope,severity) VALUES(?,?,?,?,?)")
 	if err != nil {
 		return err
 	}
@@ -1010,7 +1010,7 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 			r.Producers = strings.Split(procedures, ",")
 		}
 		return r, err
-	}, "SELECT kind,key,stages,scope,severity FROM shown ORDER BY kind,key")
+	}, "SELECT kind,key,producers,scope,severity FROM shown ORDER BY kind,key")
 	if err != nil {
 		return nil, false, err
 	}

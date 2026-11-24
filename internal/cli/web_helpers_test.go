@@ -530,7 +530,7 @@ func (x *web) urlSet() []string { return col(current(x.urls()), "url") }
 // observedBy returns the keys of kind observed by procedure.
 func (x *web) observedBy(kind, procedure string) []string {
 	x.t.Helper()
-	return queryStrings(x.t, x.h.openDB(eng), "SELECT DISTINCT key FROM observations WHERE kind=? AND stage=?", kind, procedure)
+	return queryStrings(x.t, x.h.openDB(eng), "SELECT DISTINCT key FROM observations WHERE kind=? AND producer=?", kind, procedure)
 }
 
 func page(body string) http.HandlerFunc {

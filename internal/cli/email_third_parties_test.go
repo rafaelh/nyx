@@ -506,7 +506,7 @@ func TestEmailMTASTS_ExistingEngagementRerunsOnce(t *testing.T) {
 
 	// Make the jobs look like the ones an earlier build stored.
 	db := w.h.openDB(eng)
-	if _, err := db.Exec("UPDATE checks SET key = replace(key, '|mta-sts', '') WHERE stage = 'email'"); err != nil {
+	if _, err := db.Exec("UPDATE jobs SET key = replace(key, '|mta-sts', '') WHERE procedure = 'email'"); err != nil {
 		t.Fatal(err)
 	}
 	runRoot(t, w, "-e", eng, "--no-permutations")

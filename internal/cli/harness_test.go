@@ -733,7 +733,7 @@ func (h *harness) inputs(name, kind string) []string {
 }
 
 func (h *harness) completed(name, procedure string) []string {
-	return queryStrings(h.t, h.openDB(name), "SELECT key FROM checks WHERE stage=?", procedure)
+	return queryStrings(h.t, h.openDB(name), "SELECT key FROM jobs WHERE procedure=?", procedure)
 }
 
 func (h *harness) meta(name, key string) (string, bool) {

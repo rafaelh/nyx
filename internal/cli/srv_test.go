@@ -181,7 +181,7 @@ func TestSRV_ExistingEngagementRunsOnlyTheNewJob(t *testing.T) {
 	w.dns.NS("example.com", "ns1.dns-host.test")
 	runRoot(t, w)
 	// The engagement as an older release left it: no SRV job.
-	if _, err := w.h.openDB(eng).Exec(`DELETE FROM checks WHERE stage = 'dnsroot' AND key LIKE '%|SRV|%'`); err != nil {
+	if _, err := w.h.openDB(eng).Exec(`DELETE FROM jobs WHERE procedure = 'dnsroot' AND key LIKE '%|SRV|%'`); err != nil {
 		t.Fatal(err)
 	}
 	if k := srvJobs(w); len(k) != 0 {
@@ -432,7 +432,7 @@ func TestSRV_WellKnownLabelsRepeatRootJobsOnce(t *testing.T) {
 	if len(jobs) != 3 || !ok {
 		t.Fatalf("setup: the root key does not carry the labels: %v", jobs)
 	}
-	if _, err := w.h.openDB(eng).Exec(`UPDATE checks SET key = ? WHERE stage = 'permutations' AND key = ?`, legacy, rootKey); err != nil {
+	if _, err := w.h.openDB(eng).Exec(`UPDATE jobs SET key = ? WHERE procedure = 'permutations' AND key = ?`, legacy, rootKey); err != nil {
 		t.Fatal(err)
 	}
 	seedName := derived(w, "api")[0]

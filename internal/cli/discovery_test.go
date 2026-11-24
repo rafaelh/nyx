@@ -59,7 +59,7 @@ func TestSources_KeylessSources(t *testing.T) {
 	}
 	// Look at Common Crawl's own observation, not whichever procedure's attributes a
 	// name-keyed map happens to keep.
-	ccAttrs := queryStrings(t, w.h.openDB(eng), "SELECT attrs FROM observations WHERE kind='hostname' AND key='d.example.com' AND stage='commoncrawl'")
+	ccAttrs := queryStrings(t, w.h.openDB(eng), "SELECT attrs FROM observations WHERE kind='hostname' AND key='d.example.com' AND producer='commoncrawl'")
 	if len(ccAttrs) != 1 || !strings.Contains(ccAttrs[0], "CC-MAIN-2026-01") {
 		t.Errorf("Common Crawl index id missing from d.example.com attrs %v", ccAttrs)
 	}

@@ -194,7 +194,7 @@ func committed(t *testing.T, out string) map[string]bool {
 	t.Helper()
 	db := openDB(t, filepath.Join(engDirOf(out), ".nyx", "state.db"))
 	m := map[string]bool{}
-	for _, k := range queryStrings(t, db, "SELECT key FROM checks WHERE stage='fake'") {
+	for _, k := range queryStrings(t, db, "SELECT key FROM jobs WHERE procedure='fake'") {
 		m[k] = true
 	}
 	return m

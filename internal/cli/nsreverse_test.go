@@ -440,7 +440,7 @@ func TestNSReverse_ExistingEngagementLooksUpAddressesOnce(t *testing.T) {
 	}
 
 	// Make the jobs look like the ones an earlier build stored.
-	if _, err := x.h.openDB(eng).Exec("UPDATE checks SET key = replace(key, '|addrs', '') WHERE stage IN ('dnsroot', 'email')"); err != nil {
+	if _, err := x.h.openDB(eng).Exec("UPDATE jobs SET key = replace(key, '|addrs', '') WHERE procedure IN ('dnsroot', 'email')"); err != nil {
 		t.Fatal(err)
 	}
 	rerun()
