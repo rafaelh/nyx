@@ -88,10 +88,8 @@ type Runner struct {
 	order []string
 
 	inputs input.Parsed
-	acked  bool // engagement authorisation, fixed at the start of Run
-	sc     atomic.Pointer[scope.Scope]
-	inv    atomic.Pointer[inventory.Inventory]
-	vis    atomic.Pointer[kinds.Visibility] // visibility for sc and inv, used by found events
+	acked  bool                  // engagement authorisation, fixed at the start of Run
+	built  atomic.Pointer[Built] // the current scope, inventory and visibility; nil before the first build
 
 	// ranges caches the provider-range index at rangesVer. Rebuilding it after every procedure
 	// would repeatedly index thousands of rows.
@@ -365,9 +363,7 @@ func (r *Runner) buildScope() error {
 		}
 	}
 	sc, inv := built.Scope, built.Inv
-	r.sc.Store(sc)
-	r.inv.Store(inv)
-	r.vis.Store(built.Vis)
+	r.built.Store(built)
 
 	var sensitivePaths []string // egress refers to exclusions by index
 	for _, e := range r.cfg.Settings.SensitivePathEntries {
@@ -643,11 +639,11 @@ func (r *Runner) emitCounts(snap output.Snapshot) {
 // notes collects summary notes in registry order from procedures eligible to run.
 func (r *Runner) notes() []string {
 	notes := []string{}
-	sc, inv := r.sc.Load(), r.inv.Load()
-	if sc == nil || inv == nil {
+	b := r.built.Load()
+	if b == nil {
 		return notes
 	}
-	view := View{r: r, sc: sc, inv: inv, vis: r.vis.Load(), cache: &recordCache{m: map[string][]store.Record{}}}
+	view := b.view(r)
 	for _, s := range r.cfg.Procedures {
 		if n, ok := s.(Noter); ok {
 			if ok, _ := r.gate(s); ok {
@@ -658,9 +654,27 @@ func (r *Runner) notes() []string {
 	return notes
 }
 
+// view gives procedures and notes the build's scope, inventory and visibility, all nil before
+// the first build.
+func (b *Built) view(r *Runner) View {
+	v := View{r: r, cache: &recordCache{m: map[string][]store.Record{}}}
+	if b != nil {
+		v.sc, v.inv, v.vis = b.Scope, b.Inv, b.Vis
+	}
+	return v
+}
+
+// vis returns the current visibility, nil before the first scope build.
+func (r *Runner) vis() *kinds.Visibility {
+	if b := r.built.Load(); b != nil {
+		return b.Vis
+	}
+	return nil
+}
+
 // onNewRecord announces newly discovered records whose kinds allow console output.
 func (r *Runner) onNewRecord(kind, key string, attrs map[string]any) {
-	if !r.vis.Load().Printed(kind, store.Record{Key: key, Attrs: attrs}) {
+	if !r.vis().Printed(kind, store.Record{Key: key, Attrs: attrs}) {
 		return
 	}
 	r.emit("found", foundFields(kind, key, attrs))
@@ -692,7 +706,7 @@ func (r *Runner) render() (output.Snapshot, error) {
 	if sig == r.renderSig {
 		return r.rendered, nil
 	}
-	snap, err := r.snapshot(r.sc.Load(), r.inv.Load(), r.vis.Load())
+	snap, err := r.snapshot(r.built.Load())
 	if err != nil {
 		return output.Snapshot{}, err
 	}
@@ -713,21 +727,26 @@ func (r *Runner) render() (output.Snapshot, error) {
 // renderInputs fingerprints records, scope and date to detect when output may change.
 func (r *Runner) renderInputs() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s|%p|%p|%p|", r.today(), r.sc.Load(), r.inv.Load(), r.vis.Load())
+	fmt.Fprintf(&b, "%s|%p|", r.today(), r.built.Load())
 	for _, k := range kinds.All() {
 		fmt.Fprintf(&b, "%s=%d;", k.Name, r.st.KindVersion(k.Name))
 	}
 	return b.String()
 }
 
-// snapshot reads every registered kind for output. Before the first scope build it supplies
-// empty scope and inventory values. A nil vis is rebuilt from those values.
-func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility) (output.Snapshot, error) {
+// snapshot reads every registered kind for output. Before the first scope build (a nil b) it
+// supplies empty scope, inventory and visibility values.
+func (r *Runner) snapshot(b *Built) (output.Snapshot, error) {
 	inputs, err := r.st.Inputs()
 	if err != nil {
 		return output.Snapshot{}, err
 	}
-	snap := output.Snapshot{Today: r.today(), Inputs: inputs, Records: map[string][]store.Record{}, Scope: sc, Inv: inv}
+	if b == nil {
+		sc, inv := scope.New(scope.Config{}), inventory.New(inventory.Data{}, provider.Default())
+		b = &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv)}
+	}
+	snap := output.Snapshot{Today: r.today(), Inputs: inputs, Records: map[string][]store.Record{},
+		Scope: b.Scope, Inv: b.Inv, Vis: b.Vis, ASNNetblocks: b.ASNNetblocks}
 	for _, k := range kinds.All() {
 		recs, err := r.records(k.Name)
 		if err != nil {
@@ -736,17 +755,6 @@ func (r *Runner) snapshot(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.
 		snap.Records[k.Name] = recs
 	}
 	snap.Storage = r.attribution // computed with the findings, from the same evidence
-	if snap.Scope == nil || snap.Inv == nil {
-		snap.Scope = scope.New(scope.Config{})
-		snap.Inv = inventory.New(inventory.Data{}, provider.Default())
-		vis = nil
-	}
-	if snap.Vis = vis; vis == nil {
-		snap.Vis = kinds.NewVisibility(snap.Scope, snap.Inv)
-	}
-	if snap.ASNNetblocks, err = asnNetblocks(runnerSource{r}, r.cfg.Procedures, r.inputs); err != nil {
-		return output.Snapshot{}, err
-	}
 	return snap, nil
 }
 

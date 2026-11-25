@@ -109,10 +109,11 @@ func thirdPartyCNAME(in analysisInput) []store.Obs {
 
 // derive is the shared entry point for recalculating derived records whose inputs changed.
 func (r *Runner) derive() error {
-	sc, inv, vis := r.sc.Load(), r.inv.Load(), r.vis.Load()
-	if sc == nil || inv == nil {
+	b := r.built.Load()
+	if b == nil {
 		return nil
 	}
+	sc, inv, vis := b.Scope, b.Inv, b.Vis
 	today := r.today()
 	for _, d := range r.analyses {
 		sig := r.kindSig(d.reads) + today

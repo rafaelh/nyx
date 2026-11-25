@@ -125,8 +125,8 @@ func plainProceduresTable(rows []procedureRow) []string {
 // proceduresTable colours procedure names as information, third-party contact as success, target
 // contact as warning and key names as muted.
 func proceduresTable(s layout.Stream, rows []procedureRow) layout.Table {
-	text := func(g palette.Group, entry string) func(string) string {
-		return func(x string) string { return s.Depth.Text(g, entry, x) }
+	text := func(entry string) func(string) string {
+		return func(x string) string { return s.Depth.Text(palette.Semantic, entry, x) }
 	}
 	t := layout.Table{
 		Indent:   2,
@@ -135,14 +135,14 @@ func proceduresTable(s layout.Stream, rows []procedureRow) layout.Table {
 			{Header: "WHAT IT DOES", Wrap: layout.Spaces, Shrink: 1}},
 	}
 	for _, r := range rows {
-		contact := text(palette.Semantic, "success")
+		contact := text("success")
 		if r.contact == "target" {
-			contact = text(palette.Semantic, "warning")
+			contact = text("warning")
 		}
 		t.Rows = append(t.Rows, []layout.Cell{
-			{{Text: r.name, Style: text(palette.Semantic, "info")}},
+			{{Text: r.name, Style: text("info")}},
 			{{Text: r.contact, Style: contact}},
-			{{Text: r.key, Style: text(palette.Semantic, "muted")}},
+			{{Text: r.key, Style: text("muted")}},
 			layout.Plain(r.does),
 		})
 	}

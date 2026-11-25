@@ -173,7 +173,7 @@ func (r *Runner) loadBaseline() (*baseline, error) {
 		return nil, err
 	}
 	r.baseBuilt, r.baseSig = built, sig
-	snap, err := r.snapshot(built.Scope, built.Inv, built.Vis)
+	snap, err := r.snapshot(built)
 	if err != nil {
 		return nil, err
 	}

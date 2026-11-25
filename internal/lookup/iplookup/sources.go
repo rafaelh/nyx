@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/rafaelh/nyx/internal/clierr"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -398,10 +399,8 @@ func cleanPTRName(n string) (string, bool) {
 		b.WriteByte(c)
 	}
 	out := b.String()
-	for _, r := range out {
-		if r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f {
-			return "", false
-		}
+	if strings.ContainsFunc(out, unicode.IsControl) {
+		return "", false
 	}
 	return out, out != ""
 }
@@ -557,22 +556,16 @@ func (s *state) hackerTarget(ctx context.Context, rec *Record, addr netip.Addr) 
 	return nil
 }
 
-// sourceRuns tracks requested sources and their failures for one address.
-type sourceRuns struct {
-	failures [7]*Failure
-	asked    [7]bool
-}
+// sourceRuns maps each source asked for one address to its failure, nil when it answered.
+type sourceRuns map[Source]*Failure
 
-func (sr *sourceRuns) set(src Source, f *Failure) {
-	sr.failures[sourceRank(src)] = f
-	sr.asked[sourceRank(src)] = true
-}
+func (sr sourceRuns) set(src Source, f *Failure) { sr[src] = f }
 
 // lookupAddress fills selected source data and any eligible active-probe results.
 func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 	rec := NewRecord(a)
 	addr := a.Addr.Unmap()
-	var runs sourceRuns
+	runs := sourceRuns{}
 	var prov provider.Result
 	var ownerFailed *Failure
 	if rec.Kind == addrkind.Public {
@@ -591,10 +584,11 @@ func (s *state) lookupAddress(ctx context.Context, a Address) AddressResult {
 	}
 	var asked []Source
 	for _, src := range s.cfg.Fields.Sources() {
-		if runs.asked[sourceRank(src)] {
+		f, ok := runs[src]
+		if ok {
 			asked = append(asked, src)
 		}
-		if f := runs.failures[sourceRank(src)]; f != nil {
+		if f != nil {
 			rec.AddFailure(*f)
 		}
 	}

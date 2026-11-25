@@ -7,7 +7,6 @@ import (
 	"embed"
 	"encoding/json"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -39,10 +38,9 @@ type product struct {
 	cycles []cycleRecord
 }
 
-// products maps a lower-cased name to its product, and names lists the names as written.
+// products maps a lower-cased name to its product.
 type products struct {
 	byName map[string]*product
-	names  []string
 }
 
 // entry is one entry of products.yaml.
@@ -71,10 +69,8 @@ var load = sync.OnceValue(func() products {
 		}
 		for _, n := range e.Names {
 			out.byName[strings.ToLower(n)] = p
-			out.names = append(out.names, n)
 		}
 	}
-	slices.Sort(out.names)
 	return out
 })
 
@@ -120,9 +116,6 @@ func Lookup(name, version string) (cycle, end string, ok bool) {
 	}
 	return find(p.parts, p.cycles, version)
 }
-
-// Names lists every name the table can look up, sorted.
-func Names() []string { return slices.Clone(load().names) }
 
 // DataDate is the day (YYYY-MM-DD) the embedded data was taken.
 func DataDate() string { return strings.TrimSpace(dateFile) }

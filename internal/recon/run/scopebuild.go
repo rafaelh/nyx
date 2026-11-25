@@ -41,6 +41,8 @@ type Built struct {
 	// Vis applies consistent visibility rules to counts, files, found events, findings and
 	// exports.
 	Vis *kinds.Visibility
+	// ASNNetblocks maps each in-scope netblock an ASNExpander observed to its input ASN.
+	ASNNetblocks map[string]string
 }
 
 // BuildScope classifies stored inputs and current records for runs and exports. ASNExpander
@@ -75,7 +77,7 @@ func BuildScope(in input.Parsed, procedures []Procedure, src ScopeSource) (*Buil
 	inv := inventory.New(data, provider.Default())
 	sc := scope.New(scope.Config{Roots: in.Roots, Netblocks: blocks, Exclusions: excl, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
 		ASNs: in.ASNs, Orgs: in.Orgs})
-	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv)}, nil
+	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv), ASNNetblocks: asnBlocks}, nil
 }
 
 // asnNetblocks maps netblocks observed by ASNExpander procedures to their input ASN. It uses job

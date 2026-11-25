@@ -4,8 +4,8 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/rafaelh/nyx/internal/knowledge/webpage"
 	"github.com/rafaelh/nyx/internal/recon/store"
 )
 
@@ -75,10 +75,7 @@ func ShodanBanner(b string) string {
 	if i := strings.IndexAny(b, "\r\n"); i >= 0 {
 		b = b[:i]
 	}
-	if utf8.RuneCountInString(b) > maxReportedBanner {
-		b = string([]rune(b)[:maxReportedBanner])
-	}
-	return EncodeBanner(b)
+	return EncodeBanner(webpage.CutRunes(b, maxReportedBanner))
 }
 
 // maxReportedBanner is how many characters of a third party's banner are kept.

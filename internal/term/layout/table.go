@@ -67,7 +67,7 @@ func (t Table) Render(s Stream) string {
 		line(ch.border(widths, 0))
 	}
 	for i, r := range rows {
-		for _, l := range t.rowLines(s, r, widths, ch) {
+		for _, l := range t.rowLines(r, widths, ch) {
 			line(l)
 		}
 		if t.Bordered && i == 0 {
@@ -128,7 +128,7 @@ func sum(xs []int) int {
 }
 
 // rowLines wraps and pads each cell before joining aligned columns.
-func (t Table) rowLines(s Stream, row []Cell, widths []int, ch chrome) []string {
+func (t Table) rowLines(row []Cell, widths []int, ch chrome) []string {
 	cells := make([][]string, len(row))
 	height := 1
 	for i, c := range row {

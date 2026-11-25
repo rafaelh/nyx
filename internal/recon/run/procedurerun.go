@@ -9,7 +9,6 @@ import (
 
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/fault"
-	"github.com/rafaelh/nyx/internal/recon/store"
 )
 
 // procedureRun manages one procedure pass. The calling goroutine enumerates jobs and sends them to
@@ -59,7 +58,8 @@ func (r *Runner) newProcedureRun(ctx context.Context, s Procedure) (*procedureRu
 	sr := &procedureRun{r: r, ctx: withWarner(ctx, r.warn), s: s, name: name, done: done,
 		redoPending: slices.Contains(pend, name)}
 	sr.clients = r.cfg.Egress.Clients(s.Contact() == Target, s.Sources())
-	sr.view = View{r: r, sc: r.sc.Load(), inv: r.inv.Load(), vis: r.vis.Load(), cache: &recordCache{m: map[string][]store.Record{}}, done: done}
+	sr.view = r.built.Load().view(r)
+	sr.view.done = done
 
 	sr.workers = r.cfg.Settings.Concurrency
 	if wc, ok := s.(WorkerCounter); ok {

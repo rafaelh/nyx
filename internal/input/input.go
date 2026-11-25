@@ -215,14 +215,14 @@ func RangeCIDRs(start, end netip.Addr) []netip.Prefix {
 		bits := start.BitLen()
 		for bits > 0 {
 			p := netip.PrefixFrom(start, bits-1)
-			if p.Masked().Addr() != start || last(p).Compare(end) > 0 {
+			if p.Masked().Addr() != start || LastAddr(p).Compare(end) > 0 {
 				break
 			}
 			bits--
 		}
 		p := netip.PrefixFrom(start, bits)
 		out = append(out, p)
-		l := last(p)
+		l := LastAddr(p)
 		if l == end || !l.Next().IsValid() {
 			return out
 		}
@@ -230,7 +230,8 @@ func RangeCIDRs(start, end netip.Addr) []netip.Prefix {
 	}
 }
 
-func last(p netip.Prefix) netip.Addr {
+// LastAddr is the last address of a prefix.
+func LastAddr(p netip.Prefix) netip.Addr {
 	b := p.Masked().Addr().AsSlice()
 	for i := p.Bits(); i < len(b)*8; i++ {
 		b[i/8] |= 0x80 >> (i % 8)

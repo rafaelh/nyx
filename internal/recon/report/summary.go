@@ -87,31 +87,43 @@ type ChangeCount struct {
 // final newline. Plain streams use lines; terminals use aligned counts, tables and wrapped text
 // with ruled headings. Width is captured once for consistent alignment.
 func WriteSummary(w io.Writer, st layout.Stream, env Envelope) {
+	env = env.Map(sanitize.Text)
+	var b strings.Builder
 	if !st.Terminal {
-		writePlainSummary(w, st.Depth, env)
+		writeSummaryBlocks(&plainSummary{b: &b, d: st.Depth}, env)
+		fmt.Fprintln(w, b.String())
 		return
 	}
-	writeTerminalSummary(w, st, env)
+	writeSummaryBlocks(&terminalSummary{b: &b, st: st.Fixed()}, env) // Fixed: the whole summary has one width
+	_, _ = io.WriteString(w, b.String())                             // a failed write of the summary has nowhere to be reported
 }
 
-// writePlainSummary preserves non-terminal summary formatting.
-func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
-	var b strings.Builder
-	s := env.Map(sanitize.Text).Data
-	b.WriteString(d.Bold("Summary"))
+// summaryWriter lays out the summary's blocks for one kind of stream.
+type summaryWriter interface {
+	heading(text string)
+	text(msg string)
+	counts(rows []labelled)
+	findings(title string, rows []FindingRow) // writes nothing when there are no rows
+	candidates(rows []CandidateRow)
+}
+
+// writeSummaryBlocks walks the summary's blocks in order, so both layouts show the same ones.
+func writeSummaryBlocks(o summaryWriter, env Envelope) {
+	s := env.Data
+	o.heading("Summary")
 	rows := make([]labelled, 0, len(s.Counts))
 	for _, c := range s.Counts {
 		rows = append(rows, labelled{c.Category, c.N})
 	}
-	writeLabelled(&b, rows)
+	o.counts(rows)
 	if s.UnconfirmedRiskyPorts > 0 {
-		fmt.Fprintf(&b, "\n  %d risky ports reported by Shodan, unconfirmed", s.UnconfirmedRiskyPorts)
+		o.text(fmt.Sprintf("%d risky ports reported by Shodan, unconfirmed", s.UnconfirmedRiskyPorts))
 	}
 	for _, n := range s.Notes {
-		b.WriteString("\n  " + n)
+		o.text(n)
 	}
 	if env.Meta.DeadlineExceeded {
-		fmt.Fprintf(&b, "\n  Stopped by the deadline: %d jobs completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled)
+		o.text(fmt.Sprintf("Stopped by the deadline: %d jobs completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled))
 	}
 	for _, blk := range []struct {
 		heading string
@@ -123,28 +135,27 @@ func writePlainSummary(w io.Writer, d palette.Depth, env Envelope) {
 		if len(blk.rows) == 0 {
 			continue
 		}
-		b.WriteString("\n" + d.Bold(blk.heading))
+		o.heading(blk.heading)
 		rows = rows[:0]
 		for _, r := range blk.rows {
 			rows = append(rows, labelled{r.Procedure, r.N})
 		}
-		writeLabelled(&b, rows)
+		o.counts(rows)
 	}
-	writeFindingRows(&b, d, "Findings (high and medium)", s.Findings)
+	o.findings("Findings (high and medium)", s.Findings)
 	if len(s.Candidates) > 0 {
-		b.WriteString("\n" + d.Bold("Candidates worth promoting (high confidence)"))
-		for _, c := range s.Candidates {
-			fmt.Fprintf(&b, "\n  %s  %d evidence (%s)  promote: %s",
-				c.Value, c.EvidenceCount, strings.Join(c.Sources, ";"), c.Promote)
-		}
+		o.heading("Candidates worth promoting (high confidence)")
+		o.candidates(s.Candidates)
 		if more := s.CandidatesTotal - len(s.Candidates); more > 0 {
-			fmt.Fprintf(&b, "\n  and %d more in candidates.csv", more)
+			o.text(fmt.Sprintf("and %d more in candidates.csv", more))
 		}
 	}
 	if s.Changes != nil {
-		writeSinceLastRun(&b, d, *s.Changes)
+		// New/returned entries and gone findings; missing kinds or change types count as zero.
+		o.heading("Since last run")
+		o.counts(changeCounts(*s.Changes))
+		o.findings("New findings (high and medium)", s.Changes.Findings)
 	}
-	fmt.Fprintln(w, b.String())
 }
 
 // labelled pairs a count label with its value.
@@ -153,106 +164,85 @@ type labelled struct {
 	n     int
 }
 
-// writeLabelled aligns values after labels with a minimum label width of 16 cells.
-func writeLabelled(b *strings.Builder, rows []labelled) {
+// plainSummary writes one line per item, each starting with a newline; the caller ends the
+// summary with one.
+type plainSummary struct {
+	b *strings.Builder
+	d palette.Depth
+}
+
+func (p *plainSummary) heading(text string) {
+	if p.b.Len() > 0 {
+		p.b.WriteString("\n")
+	}
+	p.b.WriteString(p.d.Bold(text))
+}
+
+func (p *plainSummary) text(msg string) { p.b.WriteString("\n  " + msg) }
+
+// counts aligns values after labels with a minimum label width of 16 cells.
+func (p *plainSummary) counts(rows []labelled) {
 	width := 16
 	for _, r := range rows {
 		width = max(width, utf8.RuneCountInString(r.label))
 	}
 	for _, r := range rows {
-		fmt.Fprintf(b, "\n  %-*s %d", width, r.label, r.n)
+		fmt.Fprintf(p.b, "\n  %-*s %d", width, r.label, r.n)
 	}
 }
 
-// writeSinceLastRun reports new/returned entries, gone findings and new high/medium findings.
-// Missing kinds or change types count as zero.
-func writeSinceLastRun(b *strings.Builder, d palette.Depth, ch Changes) {
-	b.WriteString("\n" + d.Bold("Since last run"))
-	writeLabelled(b, changeCounts(ch))
-	writeFindingRows(b, d, "New findings (high and medium)", ch.Findings)
-}
-
-// writeFindingRows writes a heading and one line per finding, or nothing when there are
-// none.
-func writeFindingRows(b *strings.Builder, d palette.Depth, heading string, rows []FindingRow) {
+func (p *plainSummary) findings(title string, rows []FindingRow) {
 	if len(rows) == 0 {
 		return
 	}
-	b.WriteString("\n" + d.Bold(heading))
+	p.heading(title)
 	for _, r := range rows {
-		fmt.Fprintf(b, "\n  %s %s %s", d.Value(palette.Severity, r.Severity), r.Category, r.Target)
+		fmt.Fprintf(p.b, "\n  %s %s %s", p.d.Value(palette.Severity, r.Severity), r.Category, r.Target)
 		if r.Detail != nil && *r.Detail != "" {
-			b.WriteString(" - " + *r.Detail)
+			p.b.WriteString(" - " + *r.Detail)
 		}
 	}
 }
 
-// writeTerminalSummary writes the summary laid out for a terminal.
-func writeTerminalSummary(w io.Writer, st layout.Stream, env Envelope) {
-	st = st.Fixed() // so the whole summary has one width
-	sum := env.Map(sanitize.Text).Data
-	var b strings.Builder
-	heading := func(text string) {
-		for _, l := range layout.Heading(st, text, true) {
-			b.WriteString(l + "\n")
-		}
+func (p *plainSummary) candidates(rows []CandidateRow) {
+	for _, c := range rows {
+		fmt.Fprintf(p.b, "\n  %s  %d evidence (%s)  promote: %s",
+			c.Value, c.EvidenceCount, strings.Join(c.Sources, ";"), c.Promote)
 	}
-	text := func(msg string) {
-		for _, l := range layout.Hang("  ", layout.Plain(msg), st.Cols(), layout.Spaces) {
-			b.WriteString(l + "\n")
-		}
+}
+
+// terminalSummary lays the summary out for a terminal: ruled headings, wrapped text, aligned
+// counts and tables.
+type terminalSummary struct {
+	b  *strings.Builder
+	st layout.Stream
+}
+
+func (t *terminalSummary) lines(ls []string) {
+	for _, l := range ls {
+		t.b.WriteString(l + "\n")
 	}
-	counts := func(rows []labelled) {
-		for _, l := range countLines(rows) {
-			b.WriteString(l + "\n")
-		}
+}
+
+func (t *terminalSummary) heading(text string) { t.lines(layout.Heading(t.st, text, true)) }
+
+func (t *terminalSummary) text(msg string) {
+	t.lines(layout.Hang("  ", layout.Plain(msg), t.st.Cols(), layout.Spaces))
+}
+
+func (t *terminalSummary) counts(rows []labelled) { t.lines(countLines(rows)) }
+
+// findings omits empty tables.
+func (t *terminalSummary) findings(title string, rows []FindingRow) {
+	if len(rows) == 0 {
+		return
 	}
-	heading("Summary")
-	rows := make([]labelled, 0, len(sum.Counts))
-	for _, c := range sum.Counts {
-		rows = append(rows, labelled{c.Category, c.N})
-	}
-	counts(rows)
-	if sum.UnconfirmedRiskyPorts > 0 {
-		text(fmt.Sprintf("%d risky ports reported by Shodan, unconfirmed", sum.UnconfirmedRiskyPorts))
-	}
-	for _, n := range sum.Notes {
-		text(n)
-	}
-	if env.Meta.DeadlineExceeded {
-		text(fmt.Sprintf("Stopped by the deadline: %d jobs completed, %d cancelled", env.Meta.JobsCompleted, env.Meta.JobsCancelled))
-	}
-	for _, blk := range []struct {
-		heading string
-		rows    []ProcedureCount
-	}{
-		{"Failed jobs (retried on the next run; --debug shows each failure)", sum.FailedJobs},
-		{"Deferred to the next run", sum.Deferred},
-	} {
-		if len(blk.rows) == 0 {
-			continue
-		}
-		heading(blk.heading)
-		rows = rows[:0]
-		for _, r := range blk.rows {
-			rows = append(rows, labelled{r.Procedure, r.N})
-		}
-		counts(rows)
-	}
-	findingsTable(&b, st, heading, "Findings (high and medium)", sum.Findings)
-	if len(sum.Candidates) > 0 {
-		heading("Candidates worth promoting (high confidence)")
-		b.WriteString(candidatesTable(st, sum.Candidates))
-		if more := sum.CandidatesTotal - len(sum.Candidates); more > 0 {
-			text(fmt.Sprintf("and %d more in candidates.csv", more))
-		}
-	}
-	if sum.Changes != nil {
-		heading("Since last run")
-		counts(changeCounts(*sum.Changes))
-		findingsTable(&b, st, heading, "New findings (high and medium)", sum.Changes.Findings)
-	}
-	_, _ = io.WriteString(w, b.String()) // a failed write of the summary has nowhere to be reported
+	t.heading(title)
+	t.b.WriteString(findingsTableText(t.st, rows))
+}
+
+func (t *terminalSummary) candidates(rows []CandidateRow) {
+	t.b.WriteString(candidatesTable(t.st, rows))
 }
 
 // countLines aligns labels in at least 16 cells and right-aligns counts to the widest number.
@@ -269,15 +259,6 @@ func countLines(rows []labelled) []string {
 		out[i] = "  " + layout.PadRight(r.label, label) + " " + layout.PadLeft(nums[i], num)
 	}
 	return out
-}
-
-// findingsTable omits empty tables and adds DETAIL only when at least one row has details.
-func findingsTable(b *strings.Builder, st layout.Stream, heading func(string), title string, rows []FindingRow) {
-	if len(rows) == 0 {
-		return
-	}
-	heading(title)
-	b.WriteString(findingsTableText(st, rows))
 }
 
 // findingsTableText includes DETAIL only when a row needs it.

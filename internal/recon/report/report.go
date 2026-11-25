@@ -189,11 +189,11 @@ func eventLevel(ev Event) (level Level, ok bool) {
 }
 
 // textStyle resolves a palette role for message text only on coloured terminals.
-func textStyle(s layout.Stream, g palette.Group, name string) func(string) string {
+func textStyle(s layout.Stream, name string) func(string) string {
 	if !s.Terminal || !s.Coloured() {
 		return nil
 	}
-	return func(x string) string { return s.Depth.Text(g, name, x) }
+	return func(x string) string { return s.Depth.Text(palette.Semantic, name, x) }
 }
 
 // stateStyle maps running to info, completion to success, failure to error and unconfigured to
@@ -201,13 +201,13 @@ func textStyle(s layout.Stream, g palette.Group, name string) func(string) strin
 func stateStyle(s layout.Stream, state string) func(string) string {
 	switch state {
 	case "running":
-		return textStyle(s, palette.Semantic, "info")
+		return textStyle(s, "info")
 	case "done", "done-previously":
-		return textStyle(s, palette.Semantic, "success")
+		return textStyle(s, "success")
 	case "failed":
-		return textStyle(s, palette.Semantic, "error")
+		return textStyle(s, "error")
 	case "not-configured":
-		return textStyle(s, palette.Semantic, "muted")
+		return textStyle(s, "muted")
 	}
 	return nil
 }
@@ -242,14 +242,14 @@ func procedureSpans(s layout.Stream, name, state, reason, jobs, failed string) [
 // foundSpans combines the success "+", optional severity badge and custom text or
 // category/value pair. Categories use the info colour.
 func foundSpans(s layout.Stream, category, value, text, severity string) []layout.Span {
-	spans := []layout.Span{{Text: "+", Style: textStyle(s, palette.Semantic, "success")}, {Text: " "}}
+	spans := []layout.Span{{Text: "+", Style: textStyle(s, "success")}, {Text: " "}}
 	if severity != "" {
 		spans = append(spans, badgeSpan(s, palette.Severity, severity), layout.Span{Text: " "})
 	}
 	if text != "" {
 		return append(spans, layout.Span{Text: text})
 	}
-	return append(spans, layout.Span{Text: category, Style: textStyle(s, palette.Semantic, "info")}, layout.Span{Text: ": " + value})
+	return append(spans, layout.Span{Text: category, Style: textStyle(s, "info")}, layout.Span{Text: ": " + value})
 }
 
 // message extracts display text for an event recognised by eventLevel.

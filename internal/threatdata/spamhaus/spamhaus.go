@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/term/sanitize"
 )
 
@@ -90,39 +91,12 @@ func (l NetworkList) index() *netIndex {
 		return l.Entries[x].CIDR.Masked().Addr().Compare(l.Entries[y].CIDR.Masked().Addr())
 	})
 	for i, e := range ix.order {
-		ix.maxEnd[i] = lastAddr(l.Entries[e].CIDR)
+		ix.maxEnd[i] = input.LastAddr(l.Entries[e].CIDR)
 		if i > 0 && ix.maxEnd[i-1].Compare(ix.maxEnd[i]) > 0 {
 			ix.maxEnd[i] = ix.maxEnd[i-1]
 		}
 	}
 	return ix
-}
-
-// lastAddr is the last address of a prefix.
-func lastAddr(p netip.Prefix) netip.Addr {
-	p = p.Masked()
-	setHost := func(b []byte) {
-		bits := p.Bits()
-		for i := range b {
-			switch {
-			case bits >= 8:
-				bits -= 8
-			case bits > 0:
-				b[i] |= 0xff >> bits
-				bits = 0
-			default:
-				b[i] = 0xff
-			}
-		}
-	}
-	if p.Addr().Is4() {
-		b := p.Addr().As4()
-		setHost(b[:])
-		return netip.AddrFrom4(b)
-	}
-	b := p.Addr().As16()
-	setHost(b[:])
-	return netip.AddrFrom16(b)
 }
 
 // containing returns the indices in Entries of the entries containing a, in no particular order.
