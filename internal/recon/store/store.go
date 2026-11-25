@@ -117,9 +117,12 @@ type writeStmts struct {
 var writeSQL = []string{
 	// The insert identifies first sightings; any newly observed record becomes current.
 	"INSERT INTO records(kind,key,first_seen,last_seen,current) VALUES(?,?,?,?,1) ON CONFLICT(kind,key) DO NOTHING",
-	"UPDATE records SET last_seen=?, current=1 WHERE kind=? AND key=?",
+	// The touch and the upsert change no row when nothing differs, so apply can tell an
+	// unchanged observation by the rows they affect.
+	"UPDATE records SET last_seen=?1, current=1 WHERE kind=?2 AND key=?3 AND (last_seen<>?1 OR current<>1)",
 	`INSERT INTO observations(kind,key,producer,job_key,attrs,seen) VALUES(?,?,?,?,?,?)
-		ON CONFLICT(kind,key,producer,job_key) DO UPDATE SET attrs=excluded.attrs, seen=excluded.seen`,
+		ON CONFLICT(kind,key,producer,job_key) DO UPDATE SET attrs=excluded.attrs, seen=excluded.seen
+		WHERE attrs<>excluded.attrs OR seen<>excluded.seen`,
 	"SELECT kind,key FROM observations WHERE producer=? AND job_key=?",
 	"DELETE FROM observations WHERE kind=? AND key=? AND producer=? AND job_key=?",
 	refreshSQL,
@@ -529,7 +532,9 @@ func (s *Store) commitOps(batch []op) []Obs {
 }
 
 // apply writes one op's observations (and its job, unless noJob), recording the kinds touched
-// for version updates.
+// for version updates. A job's kinds are always touched, as completing it changes who observes
+// its records. A Put (an analysis or the guard) touches only kinds whose records it changed, so
+// re-deriving the same records on the same day invalidates no cache.
 func (s *Store) apply(st txStmts, o op, today string, kinds map[string]bool) ([]Obs, error) {
 	// For duplicate observations within a job, the last value wins.
 	type rk struct{ kind, key string }
@@ -555,21 +560,23 @@ func (s *Store) apply(st txStmts, o op, today string, kinds map[string]bool) ([]
 		if err != nil {
 			return nil, fmt.Errorf("observation %s/%s attrs: %w", k.kind, k.key, err)
 		}
-		res, err := st.insertRecord.Exec(k.kind, k.key, today, today)
+		added, err := affected(st.insertRecord.Exec(k.kind, k.key, today, today))
 		if err != nil {
 			return nil, err
 		}
-		if n, err := res.RowsAffected(); err != nil {
-			return nil, err
-		} else if n == 1 {
+		changed := added
+		if added {
 			news = append(news, Obs{k.kind, k.key, attrs})
-		} else if _, err := st.touchRecord.Exec(today, k.kind, k.key); err != nil {
+		} else if changed, err = affected(st.touchRecord.Exec(today, k.kind, k.key)); err != nil {
 			return nil, err
 		}
-		if _, err := st.upsertObs.Exec(k.kind, k.key, o.producer, o.job, string(blob), today); err != nil {
+		upserted, err := affected(st.upsertObs.Exec(k.kind, k.key, o.producer, o.job, string(blob), today))
+		if err != nil {
 			return nil, err
 		}
-		kinds[k.kind] = true
+		if changed || upserted || !o.noJob {
+			kinds[k.kind] = true
+		}
 	}
 	// Remove observations this job no longer produces. Refresh affected records because
 	// other jobs may still support them.
@@ -598,6 +605,15 @@ func (s *Store) apply(st txStmts, o op, today string, kinds map[string]bool) ([]
 	}
 	_, err = st.complete.Exec(o.producer, o.job, today)
 	return news, err
+}
+
+// affected reports whether a statement changed any row.
+func affected(res sql.Result, err error) (bool, error) {
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // refreshSQL marks a record current while it has any stored observation.
@@ -672,7 +688,7 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 	recs, err := queryAll(rd.q, func(rows *sql.Rows) (r Record, err error) {
 		var cur int
 		err = rows.Scan(&r.Key, &r.FirstSeen, &r.LastSeen, &cur)
-		r.Kind, r.Attrs, r.Current = kind, map[string]any{}, cur == 1
+		r.Kind, r.Current = kind, cur == 1
 		return r, err
 	}, "SELECT key,first_seen,last_seen,current FROM records WHERE kind=? ORDER BY key", kind)
 	if err != nil {
@@ -705,12 +721,21 @@ func (rd Reader) Records(kind string, order []string) ([]Record, error) {
 		if !ok {
 			continue
 		}
-		maps.Copy(recs[i].Attrs, o.attrs)
+		// Each row decodes into a map of its own, so the first one becomes the record's
+		// attributes and later ones are merged into it, without copying the usual single one.
+		if recs[i].Attrs == nil {
+			recs[i].Attrs = o.attrs
+		} else {
+			maps.Copy(recs[i].Attrs, o.attrs)
+		}
 		if !slices.Contains(recs[i].Producers, o.producer) {
 			recs[i].Producers = append(recs[i].Producers, o.producer)
 		}
 	}
 	for i := range recs {
+		if recs[i].Attrs == nil { // no current observation, or attributes that failed to decode
+			recs[i].Attrs = map[string]any{}
+		}
 		slices.Sort(recs[i].Producers)
 	}
 	return recs, nil

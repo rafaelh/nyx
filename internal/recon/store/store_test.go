@@ -943,6 +943,61 @@ func TestPut_ObserversNeverReturnAnAnalysisOrTheGuard(t *testing.T) {
 	}
 }
 
+// A Put that changes no record leaves its kind's version alone, so re-deriving the same records
+// on the same day invalidates no cache. A changed attribute, a record that returns, and a new day
+// (which moves last_seen) each move it.
+func TestPut_UnchangedRecordsKeepTheVersion(t *testing.T) {
+	t.Parallel()
+	c := newClock()
+	s, _ := open(t, c, nil)
+	put := func(obs ...store.Obs) uint64 {
+		t.Helper()
+		s.Put("findings", "", obs)
+		mustFlush(t, s)
+		return s.KindVersion("finding")
+	}
+	f1 := store.Obs{Kind: "finding", Key: "f1", Attrs: map[string]any{"severity": "low"}}
+	v := put(f1)
+	if got := put(f1); got != v {
+		t.Errorf("the same records on the same day moved the version from %d to %d", v, got)
+	}
+	v = put(store.Obs{Kind: "finding", Key: "f1", Attrs: map[string]any{"severity": "high"}})
+	if r := rec(t, s, "finding", "f1"); r.Str("severity") != "high" {
+		t.Fatalf("changed attrs not stored: %v", r.Attrs)
+	}
+	if got := put(f1); got == v {
+		t.Error("a changed attribute must move the version")
+	}
+	v = put() // f1 is no longer derived
+	if got := put(f1); got == v || !rec(t, s, "finding", "f1").Current {
+		t.Error("a record derived again must be current and move the version")
+	}
+	v = s.KindVersion("finding")
+	c.advance(24 * time.Hour)
+	if got := put(f1); got == v {
+		t.Error("a new day must move the version")
+	}
+	if r := rec(t, s, "finding", "f1"); r.LastSeen != "2026-11-02" || r.FirstSeen != "2026-11-01" {
+		t.Errorf("seen = %s..%s, want 2026-11-01..2026-11-02", r.FirstSeen, r.LastSeen)
+	}
+}
+
+// Completing a job always moves the versions of its kinds, even with unchanged observations,
+// because the job's completion changes who observes its records.
+func TestComplete_AlwaysMovesTheVersion(t *testing.T) {
+	t.Parallel()
+	s, _ := open(t, newClock(), nil)
+	a := store.Obs{Kind: "x", Key: "a", Attrs: map[string]any{"n": 1}}
+	s.Complete("st", "c1", []store.Obs{a})
+	mustFlush(t, s)
+	v := s.KindVersion("x")
+	s.Complete("st", "c1", []store.Obs{a})
+	mustFlush(t, s)
+	if s.KindVersion("x") == v {
+		t.Error("a completed job must move its kinds' versions")
+	}
+}
+
 // Put bumps the versions of the kinds it writes, and adds nothing to any completed list.
 func TestPut_BumpsKindVersionAndCompletesNothing(t *testing.T) {
 	t.Parallel()
