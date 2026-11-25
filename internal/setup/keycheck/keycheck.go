@@ -65,27 +65,29 @@ type source struct {
 
 func unauthorised(status int, _ []byte) bool { return status == 401 }
 
-// sources are the tested sources, in the order they are listed.
+// sources are the tested sources, in the order the Keys tab lists them: from the most a free
+// account allows to the least, as the trailing comments note (checked 2026-11). Re-rank them when
+// a source changes its free plan.
 var sources = []source{
-	{name: "securitytrails", host: "api.securitytrails.com", method: "GET", path: "/v1/ping",
-		keyHeader: "APIKEY", rejects: unauthorised},
-	{name: "shodan", host: "api.shodan.io", method: "GET", path: "/api-info",
-		keyParam: "key", rejects: unauthorised},
+	{name: "nvd", host: cve.Host, method: "GET", path: "/rest/json/cves/2.0?cveId=CVE-2021-44228",
+		keyHeader: "apiKey"}, // free: 50 requests per 30 seconds; classified by the rules nyx cve uses
+	{name: "github", host: "api.github.com", method: "GET", path: "/rate_limit",
+		keyHeader: "Authorization", keyPrefix: "Bearer ", rejects: unauthorised}, // free: code search a few times a minute
+	{name: "chaos", host: "dns.projectdiscovery.io", method: "GET", path: "/dns/example.com",
+		keyHeader: "Authorization", rejects: chaosRejects}, // free with an account
 	{name: "virustotal", host: "www.virustotal.com", method: "GET", path: "/api/v3/domains/example.com",
-		keyHeader: "x-apikey", rejects: unauthorised},
+		keyHeader: "x-apikey", rejects: unauthorised}, // free: 4 a minute, 500 a day
+	{name: "certspotter", host: "api.certspotter.com", method: "GET", path: "/v1/issuances?domain=example.com",
+		keyHeader: "Authorization", keyPrefix: "Bearer ", rejects: unauthorised}, // free: 10 subdomain queries an hour
+	{name: "securitytrails", host: "api.securitytrails.com", method: "GET", path: "/v1/ping",
+		keyHeader: "APIKEY", rejects: unauthorised}, // free: about 50 queries a month
+	{name: "shodan", host: "api.shodan.io", method: "GET", path: "/api-info",
+		keyParam: "key", rejects: unauthorised}, // free: host lookups; net: searches need paid credits
 	{name: "whoisxml", host: "user.whoisxmlapi.com", method: "GET", path: "/user-service/account-balance",
-		keyParam: "apiKey", ambiguous: true},
+		keyParam: "apiKey", ambiguous: true}, // free: a one-off allowance of credits
 	{name: "censys", host: "api.platform.censys.io", method: "POST", path: "/v3/global/search/query",
 		body:      `{"query":"cert.names: \"example.com\"","page_size":1}`,
-		keyHeader: "Authorization", keyPrefix: "Bearer ", rejects: unauthorised},
-	{name: "chaos", host: "dns.projectdiscovery.io", method: "GET", path: "/dns/example.com",
-		keyHeader: "Authorization", rejects: chaosRejects},
-	{name: "github", host: "api.github.com", method: "GET", path: "/rate_limit",
-		keyHeader: "Authorization", keyPrefix: "Bearer ", rejects: unauthorised},
-	{name: "certspotter", host: "api.certspotter.com", method: "GET", path: "/v1/issuances?domain=example.com",
-		keyHeader: "Authorization", keyPrefix: "Bearer ", rejects: unauthorised},
-	{name: "nvd", host: cve.Host, method: "GET", path: "/rest/json/cves/2.0?cveId=CVE-2021-44228",
-		keyHeader: "apiKey"}, // classified by the rules nyx cve uses
+		keyHeader: "Authorization", keyPrefix: "Bearer ", rejects: unauthorised}, // search needs a paid plan
 }
 
 // chaosRejects recognises both 401 and Chaos's invalid-key 400 body.

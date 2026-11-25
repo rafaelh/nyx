@@ -48,6 +48,9 @@ func NewPivot() *Pivot { return &Pivot{} }
 
 func (*Pivot) Name() string { return "identifier-pivot" }
 
+// Paid: Shodan searches spend query credits, which a free account lacks.
+func (*Pivot) Paid() {}
+
 // CandidateSources groups all identifier-pivot:<id> sources into one evidence family.
 func (*Pivot) CandidateSources() map[string]string {
 	return map[string]string{"identifier-pivot": candidates.WebIdentifier}

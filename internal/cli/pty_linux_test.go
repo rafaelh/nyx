@@ -168,8 +168,8 @@ func (s *setupOnPTY) after() string {
 	return out[strings.LastIndex(out, leaveAltScreen):]
 }
 
-// ptyEdit is the key presses that enter a key on the second row of the Keys tab.
-var ptyEdit = []string{keyDown, keyEnter, "pty-key-0123456789", keyEnter}
+// ptyEdit is the key presses that enter Shodan's key on the Keys tab.
+var ptyEdit = typedKey("shodan", "pty-key-0123456789")
 
 // Real-terminal tests cover save/discard/quit, signals and panics, ensuring terminal
 // restoration precedes error output.

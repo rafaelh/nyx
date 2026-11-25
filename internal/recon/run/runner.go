@@ -515,7 +515,9 @@ func (r *Runner) setState(name, state, reason string, jobs, failed int) {
 func (r *Runner) runProcedure(ctx context.Context, s Procedure, first bool) (bool, error) {
 	name := s.Name()
 	if ok, reason := r.gate(s); !ok {
-		r.setState(name, "not-configured", reason, 0, 0)
+		if !unlisted(s, ok, reason) {
+			r.setState(name, "not-configured", reason, 0, 0)
+		}
 		return false, nil
 	}
 	if r.abortErr(name) != nil {

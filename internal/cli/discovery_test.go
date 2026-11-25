@@ -24,6 +24,20 @@ func stateOf(w *world, procedure string) (string, string) {
 	return s.str("state"), s.str("reason")
 }
 
+// assertUnlisted checks that a paid procedure without its key is left out of the run's output: it
+// has no procedure state and no not_configured entry in the envelope.
+func assertUnlisted(t *testing.T, w *world, procedure string) {
+	t.Helper()
+	if se := procedureEvents(w.h.events(), procedure); len(se) != 0 {
+		t.Errorf("%s has procedure states %v, want none without its key", procedure, se)
+	}
+	for _, nc := range w.h.envelope().Data.NotConfigured {
+		if nc.Procedure == procedure {
+			t.Errorf("%s is listed as not configured (%s), want it left out", procedure, nc.Reason)
+		}
+	}
+}
+
 // --- Sources ---
 
 func TestSources_KeylessSources(t *testing.T) {
@@ -68,10 +82,14 @@ func TestSources_KeylessSources(t *testing.T) {
 			t.Errorf("%s state = %s", s, st)
 		}
 	}
-	for _, s := range []string{"virustotal", "securitytrails", "shodan", "whoisxml"} {
+	// A source with a free plan says it needs a key; a paid-only one is left out.
+	for _, s := range []string{"virustotal", "securitytrails", "shodan-host"} {
 		if st, reason := stateOf(w, s); st != "not-configured" || reason != "no key" {
 			t.Errorf("%s = %s (%s), want not-configured (no key)", s, st, reason)
 		}
+	}
+	for _, s := range []string{"shodan", "whoisxml"} {
+		assertUnlisted(t, w, s)
 	}
 }
 

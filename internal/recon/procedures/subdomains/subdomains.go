@@ -76,12 +76,18 @@ func New() []run.Procedure {
 		&Procedure{name: "urlscan", family: candidates.PassiveDNS, sources: []string{"urlscan.io"}, fetch: urlscan},
 		&Procedure{name: "certspotter", family: candidates.CertTransparency, sources: []string{"api.certspotter.com"}, optionalKey: true,
 			pageCap: func(c config.Settings) int { return c.Certspotter.MaxPages }, fetch: certspotter},
-		&Procedure{name: "censys", family: candidates.CertTransparency, sources: []string{"api.platform.censys.io"}, keyed: true,
-			pageCap: func(c config.Settings) int { return c.Censys.MaxPages }, fetch: censys},
+		paid{&Procedure{name: "censys", family: candidates.CertTransparency, sources: []string{"api.platform.censys.io"}, keyed: true,
+			pageCap: func(c config.Settings) int { return c.Censys.MaxPages }, fetch: censys}},
 		&Procedure{name: "chaos", family: candidates.PassiveDNS, sources: []string{"dns.projectdiscovery.io"}, keyed: true,
 			pageCap: func(c config.Settings) int { return c.Chaos.MaxPages }, fetch: chaos},
 	}
 }
+
+// paid is a subdomain source with no free plan that searches (Censys's search needs a paid plan),
+// so it is left out of the run's output without its key; see run.Paid.
+type paid struct{ *Procedure }
+
+func (paid) Paid() {}
 
 // NewCommonCrawl returns the commoncrawl procedure, which waits backoff before its first retry of
 // an overloaded index response without Retry-After, doubling the wait for each later retry. New

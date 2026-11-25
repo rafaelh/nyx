@@ -60,6 +60,10 @@ func New() *Procedure { return &Procedure{} }
 
 func (*Procedure) Name() string { return "shodan" }
 
+// Paid: a net: search needs a paid Shodan plan. shodan-host is not Paid: host lookups work on a
+// free key.
+func (*Procedure) Paid() {}
+
 // CandidateSources classifies Shodan evidence as passive DNS.
 func (*Procedure) CandidateSources() map[string]string {
 	return map[string]string{"shodan": candidates.PassiveDNS}

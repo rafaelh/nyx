@@ -31,11 +31,12 @@ type keyedSource struct {
 	// ok holds the names in names plus noise that must not be recorded.
 	ok    string
 	names []string
+	paid  bool // no free plan, so left out of the output without the key
 }
 
 var keyedSources = []keyedSource{
 	{
-		procedure: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey,
+		procedure: "shodan-dns", host: "api.shodan.io", source: "shodan", key: shodanKey, paid: true,
 		auth: func(r *http.Request) bool { return r.URL.Query().Get("key") == shodanKey && r.Method == http.MethodGet },
 		ok: `{"domain":"example.com","tags":[],"subdomains":["sd","only"],"more":false,"data":[
 			{"subdomain":"sd","type":"A","value":"198.51.100.7","last_seen":"2026-01-01T00:00:00"},
@@ -43,7 +44,7 @@ var keyedSources = []keyedSource{
 		names: []string{"sd.example.com", "only.example.com"},
 	},
 	{
-		procedure: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey,
+		procedure: "censys", host: "api.platform.censys.io", source: "censys", key: censysKey, paid: true,
 		auth: func(r *http.Request) bool {
 			return r.Header.Get("Authorization") == "Bearer "+censysKey && r.Method == http.MethodPost
 		},
@@ -104,7 +105,9 @@ func TestKeyed_NotConfiguredWithoutKey(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	for _, s := range keyedSources {
-		if st, reason := stateOf(w, s.procedure); st != "not-configured" || reason != "no key" {
+		if s.paid {
+			assertUnlisted(t, w, s.procedure)
+		} else if st, reason := stateOf(w, s.procedure); st != "not-configured" || reason != "no key" {
 			t.Errorf("%s = %s (%s), want not-configured (no key)", s.procedure, st, reason)
 		}
 		if n := len(w.requests(s.host)); n != 0 {

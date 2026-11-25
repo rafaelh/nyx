@@ -108,6 +108,9 @@ func NewWhoisXML() *WhoisXML {
 	return &WhoisXML{orgProcedure{name: "whoisxml", family: candidates.Registrant, sources: []string{"reverse-whois.whoisxmlapi.com"}, keyed: true}}
 }
 
+// Paid: reverse WHOIS is bought per search, and a free account gets only a one-off allowance.
+func (*WhoisXML) Paid() {}
+
 // Run buys the reverse WHOIS result for the organisation. The client puts the key in the body.
 func (*WhoisXML) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 	body, _ := json.Marshal(map[string]any{

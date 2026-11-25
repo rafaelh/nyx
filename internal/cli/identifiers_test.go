@@ -538,15 +538,14 @@ func TestIdentifierPivot_OneSearchPerDistinctIdentifier(t *testing.T) {
 	}
 }
 
-// Identifiers are recorded even where nothing can be searched, and the procedure says why.
-func TestIdentifierPivot_NotConfiguredWithoutKey(t *testing.T) {
+// Identifiers are recorded even where nothing can be searched. Shodan searches need paid credits,
+// so the procedure is left out of the output without the key.
+func TestIdentifierPivot_UnlistedWithoutKey(t *testing.T) {
 	t.Parallel()
 	x, _, _, _ := pivotWorld(t)
 	x.h.setKey("shodan", "")
 	x.mustRun()
-	if st, reason := x.procedureState("identifier-pivot"); st != "not-configured" || reason != "no key" {
-		t.Errorf("identifier-pivot = %s (%s), want not-configured (no key)", st, reason)
-	}
+	assertUnlisted(t, x.world, "identifier-pivot")
 	if n := len(x.queries()); n != 0 {
 		t.Errorf("%d searches without a key", n)
 	}

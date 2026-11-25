@@ -18,7 +18,7 @@ import (
 func Configured(e run.Env, name string, keyed bool) (bool, string) {
 	if keyed {
 		if _, ok := e.Key(name); !ok {
-			return false, "no key"
+			return false, run.ReasonNoKey
 		}
 	}
 	return true, ""

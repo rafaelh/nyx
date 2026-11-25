@@ -29,6 +29,9 @@ func NewDNS() *DNS { return &DNS{} }
 
 func (*DNS) Name() string { return "shodan-dns" }
 
+// Paid: each result page spends a Shodan query credit, which a free account lacks.
+func (*DNS) Paid() {}
+
 // CandidateSources classifies Shodan evidence as passive DNS.
 func (*DNS) CandidateSources() map[string]string {
 	return map[string]string{"shodan-dns": candidates.PassiveDNS}

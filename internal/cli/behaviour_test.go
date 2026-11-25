@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -822,6 +823,48 @@ func TestProcedureStatesAndFound(t *testing.T) {
 	}
 	if s := lastState(evs, "prev"); s.str("state") != "done-previously" {
 		t.Errorf("prev = %v", s)
+	}
+}
+
+// paidFake is a fake procedure whose source has no free plan.
+type paidFake struct{ *testkit.Procedure }
+
+func (paidFake) Paid() {}
+
+// A paid procedure without its key is left out of the console, the events and the envelope's
+// not_configured. Any other reason it cannot run is still shown, as is a keyless free source.
+func TestPaidProcedure_UnlistedWithoutKey(t *testing.T) {
+	t.Parallel()
+	keyless := func(run.Env) (bool, string) { return false, run.ReasonNoKey }
+	paid := paidFake{&testkit.Procedure{ProcedureName: "paid", Kind: run.ThirdParty, ConfiguredFn: keyless}}
+	skipped := paidFake{&testkit.Procedure{ProcedureName: "paid-skipped", Kind: run.ThirdParty, ConfiguredFn: keyless}}
+	off := paidFake{&testkit.Procedure{ProcedureName: "paid-off", Kind: run.ThirdParty,
+		ConfiguredFn: func(run.Env) (bool, string) { return false, "disabled" }}}
+	free := &testkit.Procedure{ProcedureName: "free", Kind: run.ThirdParty, ConfiguredFn: keyless}
+	h := newHarness(t, paid, skipped, off, free)
+	if code := h.exec("a.com", "--json", "--skip", "paid-skipped"); code != 0 {
+		t.Fatalf("exit %d: %s", code, h.stderr.String())
+	}
+	if se := procedureEvents(h.events(), "paid"); len(se) != 0 {
+		t.Errorf("paid has procedure states %v, want none", se)
+	}
+	want := map[string]string{"paid-skipped": "skipped", "paid-off": "disabled", "free": run.ReasonNoKey}
+	for name, reason := range want {
+		if s := lastState(h.events(), name); s.str("state") != "not-configured" || s.str("reason") != reason {
+			t.Errorf("%s: %v, want not-configured (%s)", name, s, reason)
+		}
+	}
+	got := map[string]string{}
+	for _, nc := range h.envelope().Data.NotConfigured {
+		got[nc.Procedure] = nc.Reason
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("not_configured = %v, want %v", got, want)
+	}
+	// The human console leaves it out too.
+	h.exec("-e", "a.com")
+	if out := h.stderr.String() + h.stdout.String(); strings.Contains(out, "paid ") || !strings.Contains(out, "free") {
+		t.Errorf("console lists the keyless paid procedure, or not the free one:\n%s", out)
 	}
 }
 

@@ -16,7 +16,11 @@
 - **The NVD key:** `nyx cve` reads its key from `keys.nvd` in the file.
   `keys.nvd` is a valid key for every command.
 - **Keyed sources:** `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos` and
-  `github`. A procedure whose key is missing is shown as `not-configured`. `keys.shodan` also turns on
+  `github`. A procedure whose key is missing is shown as `not-configured (no key)`, unless its source
+  has no free plan that does its work: `whoisxml`, `censys`, and the Shodan searches (`shodan`,
+  `shodan-dns` and `identifier-pivot`) are then left out of the run's output, the console and the
+  `--json` envelope's `not_configured` alike. `shodan-host` works on a free Shodan key, so it is
+  still shown. `keys.shodan` also turns on
   `shodan-dns`, which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
   one Shodan query credit per result page, for each root. `keys.censys` is a Censys personal access
   token and searches certificates for names under each root. `keys.chaos` is a ProjectDiscovery
@@ -75,8 +79,9 @@ saved. The editor takes no arguments. `nyx setup --update-threat-data` is setup'
 editor (see below). ↑ and ↓ move between rows, ← and → (or Tab) between the tabs, and
 the bottom of the screen lists the keys each tab offers.
 
-- **Keys tab.** Lists `securitytrails`, `shodan`, `virustotal`, `whoisxml`, `censys`, `chaos`,
-  `github`, `certspotter` and `nvd`, with what each turns on (Cert Spotter also works without one). A
+- **Keys tab.** Lists `nvd`, `github`, `chaos`, `virustotal`, `certspotter`, `securitytrails`,
+  `shodan`, `whoisxml` and `censys`, from the most a free account allows to the least, with what each
+  turns on (Cert Spotter also works without one). A
   key of 12 or more characters is shown as `••••` and its last 4 characters; a shorter one shows only
   `set`; an unset one shows `not set`. A key is never shown in full, in an error or after setup exits.
   Enter types or pastes a key (one `•` per character), `x` or Delete clears it, and an entry that is

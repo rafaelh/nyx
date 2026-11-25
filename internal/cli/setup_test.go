@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/config"
+	"github.com/rafaelh/nyx/internal/setup/keycheck"
 )
 
 // Script key chunks use real terminal key sequences.
@@ -75,8 +76,13 @@ func readFileOrEmpty(t *testing.T, path string) string {
 	return string(b)
 }
 
-// typed is the keys that edit the key on row n (counting from 0) of the Keys tab to value.
-func typedKey(row int, value string) []string {
+// typedKey is the keys that edit source's key on the Keys tab to value. The row is looked up, as
+// the tab's order follows each source's free plan and can change.
+func typedKey(source, value string) []string {
+	row := slices.Index(keycheck.Sources(), source)
+	if row < 0 {
+		panic("typedKey: unknown source " + source)
+	}
 	keys := slices.Repeat([]string{keyDown}, row)
 	return append(keys, keyEnter, value, keyEnter)
 }
@@ -290,7 +296,7 @@ func TestSetup_EditSaveAndQuit(t *testing.T) {
 			if debug {
 				args = append(args, "--debug")
 			}
-			keys := append(typedKey(1, "  "+key+"  "), keyCtrlS, "q")
+			keys := append(typedKey("shodan", "  "+key+"  "), keyCtrlS, "q")
 			if code := h.setup(args, keys...); code != 0 {
 				t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 			}
@@ -318,7 +324,7 @@ func TestSetup_EnteredKeyIsRecordedAsNotTested(t *testing.T) {
 	h := setupHarness(t)
 	path := filepath.Join(t.TempDir(), "nyx.yaml")
 	const key = "sh0dan-KEY-abcdefghijklmnop-WXYZ"
-	if code := h.setup([]string{"--config", path}, append(typedKey(1, key), keyCtrlS, "q")...); code != 0 {
+	if code := h.setup([]string{"--config", path}, append(typedKey("shodan", key), keyCtrlS, "q")...); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
 	got := readFileOrEmpty(t, path)
@@ -339,7 +345,7 @@ func TestSetup_DiscardLeavesTheFile(t *testing.T) {
 	h := setupHarness(t)
 	dir := t.TempDir()
 	path := writeFile(t, dir, "nyx.yaml", "# mine\nconcurrency: 7\n")
-	keys := append(typedKey(0, "a-key-that-is-not-kept"), "q", "d")
+	keys := append(typedKey("securitytrails", "a-key-that-is-not-kept"), "q", "d")
 	if code := h.setup([]string{"--config", path}, keys...); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
@@ -358,7 +364,7 @@ func TestSetup_SavedNVDKeyIsUsedByCVE(t *testing.T) {
 	dir := filepath.Join(h.env["XDG_CONFIG_HOME"], "nyx")
 	writeFile(t, dir, "config.yaml", "# my config\nconcurrency: 7 # workers\n")
 	const key = `nvd: "key" #1 -0x10 yes é` // characters that are special in YAML
-	if code := h.setup(nil, append(typedKey(8, key), keyCtrlS, "q")...); code != 0 {
+	if code := h.setup(nil, append(typedKey("nvd", key), keyCtrlS, "q")...); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
 	got := readFileOrEmpty(t, filepath.Join(dir, "config.yaml"))
@@ -390,7 +396,7 @@ func TestSetup_SignalLeavesTheFile(t *testing.T) {
 			path := writeFile(t, t.TempDir(), "nyx.yaml", "concurrency: 7\n")
 			h.signals = make(chan os.Signal, 2)
 			h.signals <- c.sig
-			keys := append(typedKey(0, "a-key-never-saved"), keyCtrlS)
+			keys := append(typedKey("securitytrails", "a-key-never-saved"), keyCtrlS)
 			code := h.setup([]string{"--config", path}, keys...)
 			if code != c.want {
 				t.Fatalf("exit %d, want %d (stderr %q)", code, c.want, h.stderr.String())
@@ -450,7 +456,7 @@ func TestSetup_ChangedFileAsksBeforeWriting(t *testing.T) {
 			dir := t.TempDir()
 			path := writeFile(t, dir, "nyx.yaml", "concurrency: 7\n")
 			external := "concurrency: 7\nrate:\n  dns: 12\n"
-			chunks := append(typedKey(1, key), keyCtrlS, c.choice, keyCtrlC, "d")
+			chunks := append(typedKey("shodan", key), keyCtrlS, c.choice, keyCtrlC, "d")
 			h.stdin = &sequence{chunks: chunks, before: map[int]func(){
 				len(chunks) - 4: func() { writeFile(t, dir, "nyx.yaml", external) }, // before ctrl+s
 			}}
@@ -483,7 +489,7 @@ func TestSetup_FailedSaveKeepsTheEdits(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	const key = "unsaved-key-0123456789-ABCD"
-	keys := append(typedKey(1, key), keyCtrlS, "q", "d")
+	keys := append(typedKey("shodan", key), keyCtrlS, "q", "d")
 	if code := h.setup([]string{"--config", path}, keys...); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
@@ -506,7 +512,7 @@ func TestSetup_InvalidValueBlocksSaving(t *testing.T) {
 	h := setupHarness(t)
 	dir := t.TempDir()
 	path := writeFile(t, dir, "nyx.yaml", "concurrency: abc\nskip: [crtsh, nosuchstage, resolve]\n")
-	keys := append(typedKey(1, "a-key-that-cannot-be-saved"), keyCtrlS, keyTab, keyCtrlS, "q", "d")
+	keys := append(typedKey("shodan", "a-key-that-cannot-be-saved"), keyCtrlS, keyTab, keyCtrlS, "q", "d")
 	if code := h.setup([]string{"--config", path}, keys...); code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, h.stderr.String())
 	}
@@ -541,7 +547,7 @@ func TestSetup_PanicLeaksNoKey(t *testing.T) {
 			if debug {
 				args = append(args, "--debug")
 			}
-			keys := append(typedKey(1, typedKey1), keyTab, keyEnter, "relative/dir", keyEnter)
+			keys := append(typedKey("shodan", typedKey1), keyTab, keyEnter, "relative/dir", keyEnter)
 			code := h.setup(args, keys...)
 			if code != 1 {
 				t.Fatalf("exit %d, want 1\nstderr %q", code, h.stderr.String())

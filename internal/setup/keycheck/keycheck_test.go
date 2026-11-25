@@ -134,7 +134,7 @@ func bg() context.Context { return context.Background() }
 
 func TestSources_AreTheNineInOrder(t *testing.T) {
 	t.Parallel()
-	want := []string{"securitytrails", "shodan", "virustotal", "whoisxml", "censys", "chaos", "github", "certspotter", "nvd"}
+	want := []string{"nvd", "github", "chaos", "virustotal", "certspotter", "securitytrails", "shodan", "whoisxml", "censys"}
 	if got := Sources(); !slices.Equal(got, want) {
 		t.Errorf("Sources() = %v, want %v", got, want)
 	}

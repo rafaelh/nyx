@@ -63,7 +63,8 @@ const proceduresHeading = "Procedures, in the order each pass runs them:"
 // proceduresFooter explains procedure controls after the table.
 const proceduresFooter = `Third-party procedures ask public sources and resolvers, and run under --passive. Target procedures
 contact the target's own systems: they are skipped under --passive, and unless --authorised
-has confirmed, on this run or an earlier one, that you are authorised. A procedure with a KEY needs keys.<KEY> and is not-configured without it; a key in
+has confirmed, on this run or an earlier one, that you are authorised. A procedure with a KEY needs keys.<KEY>: without it
+the procedure is not-configured, or left out of the run's output when its source has no free plan. A key in
 brackets is optional. --redo <procedure> performs every job of one procedure again, and --skip <procedure>
 turns one off, except the procedures marked *, which other procedures' safety depends on.`
 

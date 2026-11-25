@@ -181,6 +181,24 @@ type Required interface {
 	Required()
 }
 
+// ReasonNoKey is the Configured reason of a procedure whose source needs a key that is not set.
+const ReasonNoKey = "no key"
+
+// Paid marks procedures whose source offers no free plan that does their work, such as a reverse
+// WHOIS bought per search. Without the key (Configured's reason is ReasonNoKey) such a procedure
+// is left out of the run's output, with no procedure state and no not_configured entry, rather
+// than shown as not-configured: there is no free key to sign up for.
+type Paid interface {
+	Paid()
+}
+
+// unlisted reports whether a gate result is left out of the output: a Paid procedure without
+// its key.
+func unlisted(s Procedure, ok bool, reason string) bool {
+	_, paid := s.(Paid)
+	return !ok && paid && reason == ReasonNoKey
+}
+
 // Retiring marks procedures whose completed jobs can become obsolete, such as jobs keyed by a
 // fingerprint hash. After successful enumeration, the runner retires jobs no longer listed so
 // their old evidence stops being current.

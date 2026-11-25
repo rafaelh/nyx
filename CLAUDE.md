@@ -142,7 +142,9 @@ it performs and records.
   own), `ASNExpander` (its netblocks under an input ASN's job are in scope; the asn procedure), and
   `Budgeted` (a per-run cap on the summed `Job.Cost` of the jobs sent; the runner defers the
   first job that would pass it and all after it, without failing or retiring them, and the
-  summary reports the deferred cost). `Required` marks a procedure others depend on, which
+  summary reports the deferred cost). `Paid` marks a procedure whose source has no free plan that
+  does its work: when `Configured` gives `run.ReasonNoKey`, the runner leaves it out of the output
+  (no procedure state, no `not_configured` entry) instead of showing it as not-configured. `Required` marks a procedure others depend on, which
   `--skip` refuses. `Historical` marks a procedure whose addresses come from DNS history: an address that only such procedures
   observe is left out of the abusive-network check. Code outside a procedure never names a procedure: it asks the
   procedures through these interfaces.

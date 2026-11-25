@@ -77,11 +77,12 @@ func (r *Runner) result() Result {
 	return res
 }
 
-// notConfigured lists blocked procedures and their reasons in registry order.
+// notConfigured lists blocked procedures and their reasons in registry order, leaving out a paid
+// procedure without its key.
 func (r *Runner) notConfigured() []report.ProcedureReason {
 	out := []report.ProcedureReason{}
 	for _, s := range r.cfg.Procedures {
-		if ok, reason := r.gate(s); !ok {
+		if ok, reason := r.gate(s); !ok && !unlisted(s, ok, reason) {
 			out = append(out, report.ProcedureReason{Procedure: s.Name(), Reason: reason})
 		}
 	}
