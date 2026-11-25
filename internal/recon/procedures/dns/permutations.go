@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
@@ -67,7 +69,7 @@ func (p *Permutations) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, 
 			c := run.Job{Key: fmt.Sprintf("root|%s|wl=%s|wk=%s", root, hash, wellKnownToken)}
 			if !v.Done(c.Key) { // the runner skips a done job before reading its names
 				names := rootNames(root, valid)
-				c.Input, c.Cost = names, len(names)
+				c.Input, c.Cost = permInput{names, s.Concurrency}, len(names)
 			}
 			if !yield(c, nil) {
 				return
@@ -81,7 +83,7 @@ func (p *Permutations) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, 
 					_, parent, _ := strings.Cut(n, ".")
 					return v.WildcardZone(parent)
 				})
-				c.Input, c.Cost = names, len(names)
+				c.Input, c.Cost = permInput{names, s.Concurrency}, len(names)
 			}
 			if !yield(c, nil) {
 				return
@@ -90,20 +92,47 @@ func (p *Permutations) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, 
 	}
 }
 
-// Run queries A once per generated name. A CNAME establishes existence even with a dangling
-// NXDOMAIN target. SERVFAIL proves nothing; other non-NXDOMAIN results establish existence.
-// Timeouts fail the whole job for retry next run.
+// permInput is a job's generated names and how many of them are looked up at once.
+type permInput struct {
+	names   []string
+	workers int
+}
+
+// Run queries A once per generated name, up to the concurrency setting at once: a root job is
+// thousands of lookups, and one at a time each would wait out a round trip under the DNS rate.
+// A CNAME establishes existence even with a dangling NXDOMAIN target. SERVFAIL proves nothing;
+// other non-NXDOMAIN results establish existence. A timeout stops the remaining lookups and
+// fails the whole job for retry next run. Names are recorded in generated order.
 func (p *Permutations) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+	in := c.Input.(permInput)
+	exists := make([]bool, len(in.names))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(max(in.workers, 1))
+	for i, n := range in.names {
+		if gctx.Err() != nil {
+			break
+		}
+		g.Go(func() (err error) {
+			defer run.RecoverInto(&err)
+			res, err := lookup(gctx, e, n, egress.TypeA)
+			if err != nil {
+				return err
+			}
+			exists[i] = len(res.CNAMEs) > 0 || res.RCode != egress.RCodeNXDomain && res.RCode != egress.RCodeServFail
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil { // cancelled before every name was sent
+		return nil, err
+	}
 	var obs []run.Observation
-	for _, n := range c.Input.([]string) {
-		res, err := lookup(ctx, e, n, egress.TypeA)
-		if err != nil {
-			return nil, err
+	for i, n := range in.names {
+		if exists[i] {
+			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
 		}
-		if len(res.CNAMEs) == 0 && (res.RCode == egress.RCodeNXDomain || res.RCode == egress.RCodeServFail) {
-			continue
-		}
-		obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
 	}
 	return obs, nil
 }

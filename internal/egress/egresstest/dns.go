@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	mdns "github.com/miekg/dns"
 
@@ -35,6 +36,9 @@ type DNS struct {
 	srv      map[string][]srvRecord
 	typeRC   map[string]int // "name|TYPE" -> rcode
 	queries  map[string]int
+	slow     map[string]time.Duration
+	// inFlight and maxInFlight count the slow queries being answered at once.
+	inFlight, maxInFlight int
 }
 
 type soaRecord struct{ mname, rname string }
@@ -67,6 +71,7 @@ func NewDNS(tb testing.TB) *DNS {
 		sufRcode: map[string]int{}, drop: map[string]bool{}, wild: map[string]wildcard{},
 		ptr: map[string][]string{}, txt: map[string][]string{}, mx: map[string][]mxRecord{}, queries: map[string]int{},
 		ns: map[string][]string{}, soa: map[string]soaRecord{}, caa: map[string][]caaRecord{}, srv: map[string][]srvRecord{}, typeRC: map[string]int{},
+		slow: map[string]time.Duration{},
 	}
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -131,6 +136,22 @@ func (d *DNS) Undrop(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.drop, dnsname.Normalise(name))
+}
+
+// Slow delays the answers for names by delay, so a test can see how many are asked at once.
+func (d *DNS) Slow(delay time.Duration, names ...string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, n := range names {
+		d.slow[dnsname.Normalise(n)] = delay
+	}
+}
+
+// MaxSlowInFlight is the most queries for Slow names that were being answered at once.
+func (d *DNS) MaxSlowInFlight() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.maxInFlight
 }
 
 // Wildcard resolves otherwise unknown direct children of zone.
@@ -286,7 +307,18 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 	if !dropped {
 		d.answer(m, name, q.Qtype)
 	}
+	delay := d.slow[name]
+	if delay > 0 {
+		d.inFlight++
+		d.maxInFlight = max(d.maxInFlight, d.inFlight)
+	}
 	d.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+		d.mu.Lock()
+		d.inFlight--
+		d.mu.Unlock()
+	}
 	if dropped {
 		return
 	}

@@ -413,6 +413,63 @@ func TestPermutations_Disabled(t *testing.T) {
 	}
 }
 
+// slowRootWorld is a world with no other source, so the only permutations job is the root's,
+// whose twelve wordlist names all answer slowly; w03 exists.
+func slowRootWorld(t *testing.T) (*world, string) {
+	t.Helper()
+	w := newWorld(t)
+	var words, names []string
+	for i := range 12 {
+		words = append(words, fmt.Sprintf("w%02d", i))
+		names = append(names, fmt.Sprintf("w%02d.example.com", i))
+	}
+	wl := writeFile(t, t.TempDir(), "words.txt", strings.Join(words, "\n")+"\n")
+	w.dns.A("w03.example.com", "203.0.113.6")
+	w.dns.Slow(50*time.Millisecond, names...)
+	return w, wl
+}
+
+// One job's names are looked up up to --concurrency at once rather than one after another.
+func TestPermutations_OneJobsNamesAreLookedUpConcurrently(t *testing.T) {
+	t.Parallel()
+	w, wl := slowRootWorld(t)
+	if code := w.run("--passive", "--concurrency", "4", "--wordlist", wl, "example.com"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
+	}
+	if got := w.dns.MaxSlowInFlight(); got < 2 || got > 4 {
+		t.Errorf("at most %d of the root job's names were asked at once, want 2 to 4 (--concurrency 4)", got)
+	}
+	if hosts := w.lines(eng, "subdomains.txt"); !slices.Contains(hosts, "w03.example.com") {
+		t.Errorf("the permutation that exists was not recorded: %v", hosts)
+	}
+}
+
+// A timeout on one name fails the whole job, so none of its names is recorded and the next run
+// asks them all again.
+func TestPermutations_ATimeoutFailsTheWholeJob(t *testing.T) {
+	t.Parallel()
+	w, wl := slowRootWorld(t)
+	w.dns.Drop("w07.example.com")
+	args := []string{"--passive", "--concurrency", "4", "--wordlist", wl, "example.com"}
+	w.run(args...)
+	if done := w.h.completed(eng, "permutations"); len(done) != 0 {
+		t.Errorf("a timed-out lookup must not complete the job: %v", done)
+	}
+	if hosts := w.lines(eng, "subdomains.txt"); slices.Contains(hosts, "w03.example.com") {
+		t.Errorf("a failed job recorded a name: %v", hosts)
+	}
+	w.dns.Undrop("w07.example.com")
+	if code := w.run(args...); code != 0 {
+		t.Fatalf("second run exit %d\n%s", code, w.h.stderr.String())
+	}
+	if done := w.h.completed(eng, "permutations"); len(done) != 1 {
+		t.Errorf("the failed job must be retried and complete on the next run: %v", done)
+	}
+	if hosts := w.lines(eng, "subdomains.txt"); !slices.Contains(hosts, "w03.example.com") {
+		t.Errorf("the retried job did not record the permutation that exists: %v", hosts)
+	}
+}
+
 func TestPermutations_InvalidCapExits2(t *testing.T) {
 	t.Parallel()
 	w, _ := permWorld(t, "dev\n")
