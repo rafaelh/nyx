@@ -118,7 +118,7 @@ calls and takes no `--timeout`. Without the flag a run takes as long as it needs
     start one, or every job started was cancelled or failed) the hint says to raise `--timeout`:
     `raise --timeout: no job succeeded within 30m`. Running the same command again would make no
     progress, so the error is not marked transient.
-- **Long jobs.** A single permutations job (one per root: about 4,900 lookups, at the default
-  50 a second) or crawl job (one per service) can take minutes, and the deadline cancels a job
-  that has not finished. A short `--timeout` may therefore never finish one: a run that stops at one
+- **Long jobs.** A single permutations job (one per root: about 103,000 lookups, at the default
+  50 a second) can take over half an hour, and a crawl job (one per service) minutes; the
+  deadline cancels a job that has not finished. A short `--timeout` may therefore never finish one: a run that stops at one
   makes no progress past it on the next. Give such a run a longer `--timeout` (or none).

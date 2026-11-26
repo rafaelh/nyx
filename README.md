@@ -32,8 +32,9 @@ nyx cve CVE-2021-44228                 # look a CVE up in the NVD
 nyx ip 1.1.1.1                         # who runs an address, and what is known about it
 ```
 
-Results are written to `<output-dir>/<engagement>/` (`output_dir` defaults to `.`). `nyx --help`
-prints the whole reference.
+Results are written to `./<engagement>/` (this is configurable). `nyx --help` prints all the
+sub-commands and flags to modify them. `nyx` is agent friendly, but you probably don't want your
+agent running full recon passes that take 35 mins or more.
 
 ## Documentation
 
@@ -57,3 +58,5 @@ Data on abusive networks is available thanks to:
 
 - Spamhaus’s [Don’t Route Or Peer Lists (DROP)](https://www.spamhaus.org/blocklists/do-not-route-or-peer/) Project, (c) The Spamhaus Project SLU ([terms](https://www.spamhaus.org/drop/terms/)).
 - ipapi.is [Most Abusive Networks on the Internet](https://ipapi.is/most-abusive-networks.html)
+
+- 110,000 subdomains from the Top 1 Million subdomains, Daniel Miessler's [SecLists](https://github.com/danielmiessler/SecLists)

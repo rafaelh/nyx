@@ -31,7 +31,7 @@ Flags:
       --ports ports                            TCP ports to check, separated by commas (e.g.: 37,53,79-81,443)
       --risky-ports ports                      Ports whose being open is reported as a risk (default 21,23,445,1433,1521,3306,3389,5432,5900,6379,9200,11211,27017)
       --sensitive-paths string                 YAML file of sensitive paths to request (default: built-in (268 entries))
-      --wordlist string                        Subdomain wordlist file (default: built-in (4860 entries))
+      --wordlist string                        Subdomain wordlist file (default: built-in (103151 entries))
       --concurrency integer                    Workers per procedure (ports: --port-concurrency) (default 10)
       --port-concurrency integer               Workers for the port sweep, higher than --concurrency to prevent stalling on silent ports waiting for timeout (default 100)
       --rate-per-host float                    Requests per second per dialled target IP (HTTP requests and TCP connects) (default 5)

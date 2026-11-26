@@ -22,8 +22,8 @@ func TestBuiltinWordlist(t *testing.T) {
 		t.Fatal(err)
 	}
 	words := s.WordlistWords
-	if len(words) < 2000 || len(words) > 5000 {
-		t.Fatalf("built-in wordlist has %d entries, want 2000 to 5000", len(words))
+	if len(words) < 100000 || len(words) > 110000 {
+		t.Fatalf("built-in wordlist has %d entries, want 100000 to 110000", len(words))
 	}
 	seen := map[string]bool{}
 	for _, w := range words {
@@ -57,7 +57,7 @@ func TestBuiltinWordlistAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	header, _, _ := strings.Cut(string(b), "\n\n")
-	for _, want := range []string{"SecLists", "MIT", "Daniel Miessler", "subdomains-top1million-5000"} {
+	for _, want := range []string{"SecLists", "MIT", "Daniel Miessler", "subdomains-top1million-110000"} {
 		if !strings.Contains(header, want) {
 			t.Errorf("wordlist header does not mention %q:\n%s", want, header)
 		}
