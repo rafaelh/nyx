@@ -174,6 +174,10 @@ func withDefaults(d Deps) Deps {
 // Repeated passes pick up results found late. The port sweep runs last because it can take hours;
 // hostname probing runs first, and the next pass probes newly found ports.
 //
+// wildcard precedes learned-names, and the runner flushes after each procedure's work, so
+// learned-names reads every zone's wildcard check as of this pass. learned-names follows
+// permutations so the names both find are learned from, and varied, in the same run.
+//
 // Email follows DNS. RDAP and shodan-host follow ipowner so ownership can guide lookups;
 // netblockowner follows to supply abuse-check evidence. Storage follows crawling,
 // identifier-pivot follows web identifier collection, and origincheck follows DNS history and
@@ -184,7 +188,7 @@ func defaultProcedures() []run.Procedure {
 	procedures = append(procedures, sub...)
 	return append(procedures,
 		github.New(), shodan.New(), shodan.NewDNS(), providerranges.New(),
-		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewNetblockOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
+		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewLearnedNames(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewNetblockOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
 		dnshistory.New(), risk.NewEmail(), nsreverse.New(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }

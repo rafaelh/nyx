@@ -5,6 +5,7 @@ package dnsname
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -107,6 +108,23 @@ func ValidLabel(s string) bool {
 		}
 	}
 	return true
+}
+
+// LearnableForms returns the forms of a label that name guessing learns: the label itself and,
+// unless it begins "xn--", its hyphen-separated parts, leaving out empty, digits-only and
+// invalid forms and repeats.
+func LearnableForms(label string) []string {
+	forms := []string{label}
+	if !strings.HasPrefix(label, "xn--") {
+		forms = append(forms, strings.Split(label, "-")...)
+	}
+	var out []string
+	for _, f := range forms {
+		if ValidLabel(f) && strings.Trim(f, "0123456789") != "" && !slices.Contains(out, f) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // Permute deterministically generates unique label variants up to max, trying digit changes

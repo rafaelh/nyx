@@ -657,7 +657,7 @@ func (r *Runner) notes() []string {
 // view gives procedures and notes the build's scope, inventory and visibility, all nil before
 // the first build.
 func (b *Built) view(r *Runner) View {
-	v := View{r: r, cache: &recordCache{m: map[string][]store.Record{}}}
+	v := View{r: r, cache: &recordCache{m: map[string][]store.Record{}, doneBy: map[string]map[string]struct{}{}}}
 	if b != nil {
 		v.sc, v.inv, v.vis = b.Scope, b.Inv, b.Vis
 	}

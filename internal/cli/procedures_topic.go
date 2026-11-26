@@ -36,6 +36,7 @@ var procedureHelps = map[string]procedureHelp{
 	"resolve":          {"", "A and AAAA records of each hostname and root, from public resolvers"},
 	"wildcard":         {"", "Lookups of random labels in each zone, to detect wildcard DNS"},
 	"permutations":     {"", "Variations of found labels and the wordlist that exist in DNS"},
+	"learned-names":    {"", "Labels of found names tried under the other zones that have names"},
 	"rdns":             {"", "PTR records of the addresses in in-scope netblocks"},
 	"ipowner":          {"", "Origin AS of each address outside the in-scope netblocks (Team Cymru)"},
 	"netblockowner":    {"", "Origin AS of the addresses inside the in-scope netblocks, once per /24 or /48, for the abusive-network check (Team Cymru)"},

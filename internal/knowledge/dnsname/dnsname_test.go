@@ -93,3 +93,34 @@ func TestPermute(t *testing.T) {
 		}
 	}
 }
+
+// A label's learnable forms are the label, then its hyphen-separated parts in order. A form that is
+// empty, digits only, not a valid label or a repeat is left out, and a label beginning "xn--" is
+// not split.
+func TestLearnableForms(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		label string
+		want  []string
+	}{
+		{"api", []string{"api"}},
+		{"api-dev2", []string{"api-dev2", "api", "dev2"}},
+		{"2024", nil}, // digits only
+		{"api-2024", []string{"api-2024", "api"}}, // a digits-only part
+		{"2024-api", []string{"2024-api", "api"}},
+		{"xn--bcher-kva", []string{"xn--bcher-kva"}}, // not split
+		{"api-api", []string{"api-api", "api"}},      // a part repeats
+		{"a--b", []string{"a--b", "a", "b"}},         // an empty part
+		{"-a", []string{"a"}},                        // the label is invalid, its part is not
+		{"web-01-02", []string{"web-01-02", "web"}},
+	}
+	for _, c := range cases {
+		got := dnsname.LearnableForms(c.label)
+		if len(got) == 0 && len(c.want) == 0 {
+			continue
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("LearnableForms(%q) = %q, want %q", c.label, got, c.want)
+		}
+	}
+}

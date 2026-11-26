@@ -46,24 +46,17 @@ func (*Permutations) Budget(s config.Settings) int { return s.Permutations.MaxNa
 // equals queried names. Keys include the wordlist hash; seed keys also include the cap, and
 // root keys version the well-known labels. Changing these inputs reruns only affected jobs.
 // Known wildcard zones and generated names directly beneath them are omitted because arbitrary
-// names already resolve there.
+// names already resolve there, and a root or seed whose zone's wildcard check is still pending
+// waits for it.
 func (p *Permutations) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 	return func(yield func(run.Job, error) bool) {
 		s := v.Settings()
 		hash := config.ListHash(s.WordlistWords)
-		words := make([]string, len(s.WordlistWords))
-		for i, w := range s.WordlistWords {
-			words[i] = strings.ToLower(w)
-		}
-		// A word that is not a valid label gives no name under any root.
-		valid := slices.DeleteFunc(slices.Clone(words), func(w string) bool { return !dnsname.ValidLabel(w) })
-		for _, l := range wellKnownLabels {
-			if !slices.Contains(valid, l) {
-				valid = append(valid, l)
-			}
-		}
+		words := lowerWords(s)
+		valid := rootWords(words)
+		zones := wildcardZones(v)
 		for _, root := range slices.Sorted(slices.Values(v.Inputs().Roots)) {
-			if v.WildcardZone(dnsname.Normalise(root)) {
+			if z := dnsname.Normalise(root); v.WildcardZone(z) || wildcardPending(v, zones, z) {
 				continue
 			}
 			c := run.Job{Key: fmt.Sprintf("root|%s|wl=%s|wk=%s", root, hash, wellKnownToken)}
@@ -77,6 +70,9 @@ func (p *Permutations) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, 
 		}
 		// Seeds are never directly under a wildcard zone: the view leaves them out.
 		for _, seed := range v.Seeds(p.Name()) {
+			if _, zone, _ := strings.Cut(seed, "."); wildcardPending(v, zones, zone) {
+				continue
+			}
 			c := run.Job{Key: fmt.Sprintf("seed|%s|wl=%s|max=%d", seed, hash, s.Permutations.MaxPerSeed)}
 			if !v.Done(c.Key) {
 				names := slices.DeleteFunc(seedNames(seed, words, s.Permutations.MaxPerSeed), func(n string) bool {
@@ -92,6 +88,27 @@ func (p *Permutations) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, 
 	}
 }
 
+// lowerWords is the wordlist in lower case.
+func lowerWords(s config.Settings) []string {
+	words := make([]string, len(s.WordlistWords))
+	for i, w := range s.WordlistWords {
+		words[i] = strings.ToLower(w)
+	}
+	return words
+}
+
+// rootWords are the labels a root job tries directly under each root: the valid words of the
+// lower-cased wordlist (a word that is not a valid label gives no name) and the well-known labels.
+func rootWords(words []string) []string {
+	valid := slices.DeleteFunc(slices.Clone(words), func(w string) bool { return !dnsname.ValidLabel(w) })
+	for _, l := range wellKnownLabels {
+		if !slices.Contains(valid, l) {
+			valid = append(valid, l)
+		}
+	}
+	return valid
+}
+
 // permInput is a job's generated names and how many of them are looked up at once.
 type permInput struct {
 	names   []string
@@ -100,8 +117,7 @@ type permInput struct {
 
 // Run queries A once per generated name, up to the concurrency setting at once: a root job is
 // thousands of lookups, and one at a time each would wait out a round trip under the DNS rate.
-// A CNAME establishes existence even with a dangling NXDOMAIN target. SERVFAIL proves nothing;
-// other non-NXDOMAIN results establish existence. A timeout stops the remaining lookups and
+// A name exists by guessExists's rule. A timeout stops the remaining lookups and
 // fails the whole job for retry next run. Names are recorded in generated order.
 func (p *Permutations) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(permInput)
@@ -118,7 +134,7 @@ func (p *Permutations) Run(ctx context.Context, c run.Job, e egress.Clients) ([]
 			if err != nil {
 				return err
 			}
-			exists[i] = len(res.CNAMEs) > 0 || res.RCode != egress.RCodeNXDomain && res.RCode != egress.RCodeServFail
+			exists[i] = guessExists(res)
 			return nil
 		})
 	}

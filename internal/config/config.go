@@ -55,6 +55,12 @@ type Permutations struct {
 	MaxNames   int
 }
 
+// LearnedNames holds the settings of the learned-names procedure.
+type LearnedNames struct {
+	// MaxNames bounds the learned names tried per run, separately from Permutations.MaxNames.
+	MaxNames int
+}
+
 // Storage holds the cloud-storage settings.
 type Storage struct {
 	// MaxNames bounds storage guesses per root or organisation.
@@ -131,6 +137,7 @@ type Settings struct {
 	// WordlistWords holds parsed custom or embedded names.
 	WordlistWords []string
 	Permutations  Permutations
+	LearnedNames  LearnedNames
 	Concurrency   int
 	// PortConcurrency gives slow port jobs a separate worker pool because silent ports
 	// consume the full connect timeout.
@@ -189,6 +196,7 @@ func Defaults() Settings {
 		OutputDir:       ".",
 		NetblockLimit:   4096,
 		Permutations:    Permutations{Enabled: true, MaxPerSeed: 200, MaxNames: 200000},
+		LearnedNames:    LearnedNames{MaxNames: 50000},
 		Certspotter:     PagedSource{MaxPages: 10},
 		ShodanDNS:       PagedSource{MaxPages: 10},
 		Shodan:          Shodan{MaxHosts: 500},
@@ -310,7 +318,8 @@ var settingTable = []setting{
 	{"storage-max-names", "storage.max_names"}, {"cert-expiry-days", "cert_expiry_days"},
 	{"skip", "skip"}, {"certspotter-max-pages", "certspotter.max_pages"},
 	{"shodan-dns-max-pages", "shodan_dns.max_pages"}, {"censys-max-pages", "censys.max_pages"}, {"chaos-max-pages", "chaos.max_pages"},
-	{"permutations-max-names", "permutations.max_names"}, {"sensitive-path-max-requests", "sensitive_path_max_requests"},
+	{"permutations-max-names", "permutations.max_names"}, {"learned-names-max-names", "learned_names.max_names"},
+	{"sensitive-path-max-requests", "sensitive_path_max_requests"},
 	{"shodan-max-hosts", "shodan.max_hosts"}, {"reverseip-max-domains", "reverseip.max_domains"},
 	{"jsparse-max-scripts", "jsparse.max_scripts"}, {"identifier-pivot-max-queries", "identifier_pivot.max_queries"},
 	{"github-max-results", "github.max_results"},
@@ -340,7 +349,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	intFlag(fs, "storage-max-names", d.Storage.MaxNames, "Cloud-storage bucket names guessed per root and per organisation (checked on AWS, Azure and GCP)")
 	intFlag(fs, "cert-expiry-days", d.CertExpiryDays, "Report certificates that expire within this many days")
 	fs.String("output-dir", d.OutputDir, "Directory in which engagement directories are created")
-	fs.Bool("no-permutations", false, "Do not resolve permutations of discovered subdomain labels (default: on, including with --passive)")
+	fs.Bool("no-permutations", false, "Do not resolve permutations of discovered subdomain labels, nor learned names (default: on, including with --passive)")
 	intFlag(fs, "permutations-max", d.Permutations.MaxPerSeed, "Maximum permutations generated per discovered subdomain label")
 	intFlag(fs, "netblock-limit", d.NetblockLimit, "IPv4 address count above which the run stops unless --allow-large-netblocks is given")
 	fs.StringArray("skip", nil, "Procedure to turn off for this run (repeatable; replaces the skip setting, and none clears it; see nyx help procedures)")
@@ -349,6 +358,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	intFlag(fs, "censys-max-pages", d.Censys.MaxPages, "Result pages followed per root from Censys")
 	intFlag(fs, "chaos-max-pages", d.Chaos.MaxPages, "Result pages followed per root from Chaos (it answers in one page, so this is not reached)")
 	intFlag(fs, "permutations-max-names", d.Permutations.MaxNames, "Maximum permutation names generated per run; the rest are deferred to later runs")
+	intFlag(fs, "learned-names-max-names", d.LearnedNames.MaxNames, "Maximum learned names tried per run; the rest are deferred to later runs")
 	intFlag(fs, "sensitive-path-max-requests", d.SensitivePathMaxRequests, "Maximum sensitive-path requests sent per run; the rest are deferred to later runs")
 	intFlag(fs, "shodan-max-hosts", d.Shodan.MaxHosts, "Maximum addresses looked up on Shodan per run; the rest are deferred to later runs")
 	intFlag(fs, "reverseip-max-domains", d.ReverseIP.MaxDomains, "Registrable domains one address may return from reverse lookups before it is treated as shared hosting and nothing is recorded")
@@ -416,6 +426,9 @@ type rawSettings struct {
 		MaxPerSeed string `mapstructure:"max_per_seed"`
 		MaxNames   string `mapstructure:"max_names"`
 	} `mapstructure:"permutations"`
+	LearnedNames struct {
+		MaxNames string `mapstructure:"max_names"`
+	} `mapstructure:"learned_names"`
 	Certspotter rawPages `mapstructure:"certspotter"`
 	Skip        []string `mapstructure:"skip"`
 	ShodanDNS   rawPages `mapstructure:"shodan_dns"`
@@ -520,7 +533,8 @@ func setDefaults(v *viper.Viper, d Settings) {
 		"output_dir": d.OutputDir, "netblock_limit": d.NetblockLimit,
 		"storage.max_names": d.Storage.MaxNames, "cert_expiry_days": d.CertExpiryDays,
 		"permutations.enabled": d.Permutations.Enabled, "permutations.max_per_seed": d.Permutations.MaxPerSeed, "permutations.max_names": d.Permutations.MaxNames,
-		"certspotter.max_pages": d.Certspotter.MaxPages, "skip": []string{},
+		"learned_names.max_names": d.LearnedNames.MaxNames,
+		"certspotter.max_pages":   d.Certspotter.MaxPages, "skip": []string{},
 		"shodan_dns.max_pages": d.ShodanDNS.MaxPages, "censys.max_pages": d.Censys.MaxPages, "chaos.max_pages": d.Chaos.MaxPages,
 		"sensitive_path_max_requests": d.SensitivePathMaxRequests, "shodan.max_hosts": d.Shodan.MaxHosts,
 		"reverseip.max_domains": d.ReverseIP.MaxDomains, "jsparse.max_scripts": d.JSParse.MaxScripts,
@@ -627,6 +641,7 @@ func (c settingChecker) numbers(raw rawSettings, s *Settings) {
 	c.posInt("cert_expiry_days", raw.CertExpiryDays, 0, &s.CertExpiryDays)
 	c.posInt("permutations.max_per_seed", raw.Permutations.MaxPerSeed, 1, &s.Permutations.MaxPerSeed)
 	c.posInt("permutations.max_names", raw.Permutations.MaxNames, 1, &s.Permutations.MaxNames)
+	c.posInt("learned_names.max_names", raw.LearnedNames.MaxNames, 1, &s.LearnedNames.MaxNames)
 	c.posInt("sensitive_path_max_requests", raw.SensitivePathMaxRequests, 1, &s.SensitivePathMaxRequests)
 	c.posInt("certspotter.max_pages", raw.Certspotter.MaxPages, 1, &s.Certspotter.MaxPages)
 	c.posInt("shodan_dns.max_pages", raw.ShodanDNS.MaxPages, 1, &s.ShodanDNS.MaxPages)

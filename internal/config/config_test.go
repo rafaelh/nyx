@@ -396,6 +396,7 @@ func TestIntSettings(t *testing.T) {
 		{"eol_warn_days", "--eol-warn-days", 90, 0, func(s config.Settings) int { return s.EOLWarnDays }},
 		{"permutations.max_per_seed", "--permutations-max", 200, 1, func(s config.Settings) int { return s.Permutations.MaxPerSeed }},
 		{"permutations.max_names", "--permutations-max-names", 200000, 1, func(s config.Settings) int { return s.Permutations.MaxNames }},
+		{"learned_names.max_names", "--learned-names-max-names", 50000, 1, func(s config.Settings) int { return s.LearnedNames.MaxNames }},
 		{"sensitive_path_max_requests", "--sensitive-path-max-requests", 50000, 1, func(s config.Settings) int { return s.SensitivePathMaxRequests }},
 		{"shodan.max_hosts", "--shodan-max-hosts", 500, 1, func(s config.Settings) int { return s.Shodan.MaxHosts }},
 		{"reverseip.max_domains", "--reverseip-max-domains", 100, 1, func(s config.Settings) int { return s.ReverseIP.MaxDomains }},

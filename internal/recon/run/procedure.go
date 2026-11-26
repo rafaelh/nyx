@@ -210,6 +210,8 @@ type recordCache struct {
 	mu    sync.Mutex
 	m     map[string][]store.Record
 	hosts map[netip.Addr][]string // probe hostnames by address, indexed lazily
+	// doneBy holds other procedures' completed job keys, in stored form, loaded on first use.
+	doneBy map[string]map[string]struct{}
 }
 
 // View exposes the store and scope as of one procedure pass. Records are cached for that pass;
@@ -227,6 +229,24 @@ type View struct {
 // their stored, redacted form before lookup.
 func (v View) Done(key string) bool {
 	_, ok := v.done[v.r.st.JobKey(key)]
+	return ok
+}
+
+// DoneBy reports whether the named procedure has completed the job with this key. On a store
+// error it warns once and answers false.
+func (v View) DoneBy(procedure, key string) bool {
+	v.cache.mu.Lock()
+	defer v.cache.mu.Unlock()
+	done, ok := v.cache.doneBy[procedure]
+	if !ok {
+		var err error
+		if done, err = v.r.st.Completed(procedure); err != nil {
+			v.r.warn("reading %s's completed jobs: %v", procedure, err)
+			done = nil
+		}
+		v.cache.doneBy[procedure] = done
+	}
+	_, ok = done[v.r.st.JobKey(key)]
 	return ok
 }
 
@@ -308,7 +328,10 @@ func (v View) InScopeRoots() []string {
 
 // ResolvableHostnames returns sorted input roots and discovered names to resolve. Excluded
 // names are included because address-based exclusions need DNS results; candidates are omitted.
-func (v View) ResolvableHostnames() []string {
+//
+// A name whose only hostname producer is the generator is left out: the generator found it by
+// resolving it (a parent name that resolved), so it is not asked again under a second key.
+func (v View) ResolvableHostnames(generator string) []string {
 	set := map[string]bool{}
 	add := func(h string) {
 		if v.sc.ClassifyHost(h).Class != scope.Candidate {
@@ -316,7 +339,9 @@ func (v View) ResolvableHostnames() []string {
 		}
 	}
 	for _, rec := range v.Records(kinds.Hostname) {
-		add(rec.Key)
+		if inventory.FoundByOther(rec.Producers, generator) {
+			add(rec.Key)
+		}
 	}
 	for _, root := range v.Inputs().Roots {
 		add(root)
@@ -360,6 +385,15 @@ func (v View) StorageRefs() []cloudstorage.Reference {
 
 // WildcardZone identifies known wildcard-answering zones.
 func (v View) WildcardZone(name string) bool { return v.inv.WildcardZone(name) }
+
+// ParentNames returns the names between an in-scope hostname and its input root, to be resolved
+// as parent names. A name that has a hostname record from a producer other than the generator is
+// left out: it is resolved as the hostname it is.
+func (v View) ParentNames(generator string) []string { return v.inv.ParentNames(v.sc, generator) }
+
+// Learnable returns the in-scope hostnames under an input root that have an address or a CNAME
+// and are not wildcard-only: the names whose labels learning tries elsewhere.
+func (v View) Learnable() []string { return v.inv.Learnable(v.sc) }
 
 // Seeds returns hostnames for name generation. It excludes names observed only by this
 // generator and direct children of wildcard zones to avoid feeding generated names back into

@@ -21,6 +21,9 @@
   - `go test ./internal/cli/ -run 'TestSetup_FailedSaveKeepsTheEdits$' -count=5`: 5/5 fail. The
     100-column test window cuts the long `/var/folders/...` temporary path short with `…`, so the
     asserted reason and path never appear whole. A wider `h.winW` in the test would fix it.
+- **`TestLearnedNames_InterruptKeepsCompletedNames` depends on timing.** It cancels the run once
+  three slow (100 ms) learning lookups have been asked and asserts only that some, not all, names
+  were kept. Watch it for flakiness on slow CI machines.
 - **`TestAbusiveDocs_GiveTheSnapshotDates` fails every time** (20/20 on the base commit a79fd35, so
   not a regression): after `make threat-data`, the docs don't give the date of the built-in Spamhaus
   asndrop list, 2026-11-24. The fix is to update the five dates in `docs/abusive-networks.md`.
@@ -86,6 +89,14 @@ Confirm each with `/code-review` before fixing.
 
 - **Numeric port order.** Sort `OpenPorts` with `AddrPort.Compare`. Changes the order users see
   from text to numeric.
+
+- **Stop `learned-names` enumeration at the cap.** Its `Jobs` yields the whole backlog every pass
+  and lets the runner defer what is over `learned_names.max_names`, so on a very large engagement
+  (thousands of labels times hundreds of zones) a pass yields millions of jobs and fills
+  `procedureRun.all`. Stopping enumeration once the budget is spent needs a runner change: a way
+  for `Jobs` to learn the remaining budget, or for the runner to stop pulling jobs while still
+  counting the deferred cost the summary reports. The same change would let the cap's rank order
+  hold across the passes of a run; today it holds within each pass only.
 
 
 

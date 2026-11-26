@@ -25,6 +25,12 @@ type Host struct {
 	Producers []string
 }
 
+// FoundByOther reports whether a producer other than generator observed a record: a name a
+// generator only found itself is not fed back to it.
+func FoundByOther(producers []string, generator string) bool {
+	return slices.ContainsFunc(producers, func(p string) bool { return p != generator })
+}
+
 // Resolution represents a DNS answer. A/AAAA rows associate the queried name with an address;
 // CNAME rows associate an alias with its target. SRV rows contain "priority weight port target"
 // and advertise ports only; their service names are not hostnames.
@@ -271,12 +277,50 @@ func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 			!sc.HostInScope(parent(h.Name)) {
 			continue
 		}
-		if slices.ContainsFunc(h.Producers, func(s string) bool { return s != generator }) {
+		if FoundByOther(h.Producers, generator) {
 			out = append(out, h.Name)
 		}
 	}
 	slices.Sort(out)
 	return out
+}
+
+// ParentNames returns, sorted, every ancestor of a current in-scope hostname under an input root
+// that is itself under an input root and is not one, leaving out an ancestor that has a hostname
+// record from a producer other than the generator.
+func (i *Inventory) ParentNames(sc *scope.Scope, generator string) []string {
+	other := map[string]bool{}
+	for _, h := range i.d.Hosts {
+		if FoundByOther(h.Producers, generator) {
+			other[h.Name] = true
+		}
+	}
+	set := map[string]bool{}
+	for _, h := range i.d.Hosts {
+		if sc.RootOf(h.Name) == "" || !sc.HostInScope(h.Name) {
+			continue
+		}
+		for _, p := range dnsname.Parents(h.Name) {
+			if r := sc.RootOf(p); r != "" && r != p && !other[p] {
+				set[p] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// Learnable returns, sorted, the in-scope hostnames under an input root that have an address or a
+// CNAME and are not wildcard-only: the names whose labels name guessing learns.
+func (i *Inventory) Learnable(sc *scope.Scope) []string {
+	var out []string
+	for _, h := range i.d.Hosts {
+		if (len(i.addr[h.Name]) > 0 || len(i.cn[h.Name]) > 0) && !i.wo[h.Name] &&
+			sc.RootOf(h.Name) != "" && sc.HostInScope(h.Name) {
+			out = append(out, h.Name)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func (i *Inventory) result(a netip.Addr) provider.Result {

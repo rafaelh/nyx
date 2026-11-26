@@ -438,3 +438,75 @@ func TestRegistrantCandidate(t *testing.T) {
 		t.Error("a shared address inside one of its netblocks makes it not a candidate")
 	}
 }
+
+// learnScope is a scope with the given roots and exclusions over the inventory's resolutions.
+func learnScope(inv *inventory.Inventory, roots []string, excl ...string) *scope.Scope {
+	xs, _ := input.ParseExclusions(excl)
+	return scope.New(scope.Config{Roots: roots, Exclusions: xs, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly()})
+}
+
+// hosts are hostname records with no resolutions, each observed by the producers given.
+func hosts(d *inventory.Data, producers []string, names ...string) {
+	for _, n := range names {
+		d.Hosts = append(d.Hosts, inventory.Host{Name: n, Producers: producers})
+	}
+}
+
+// The parent names are the ancestors of in-scope hostnames under an input root, sorted and once
+// each: an ancestor under no input root, an input root, and an ancestor another procedure found
+// are left out; an ancestor only the generator found, and an excluded one, are kept.
+func TestParentNames(t *testing.T) {
+	t.Parallel()
+	var d inventory.Data
+	crtsh := []string{"crtsh"}
+	hosts(&d, crtsh,
+		"a.b.example.com", "c.b.example.com", // one parent, two children
+		"x.y.dev.corp.example.com",                 // under the nested root corp.example.com
+		"a.b.deep.example.org",                     // under the root deep.example.org only
+		"www.other.net",                            // a candidate
+		"h.ex.example.com",                         // an excluded parent
+		"bad.q.example.com",                        // an excluded child
+		"p.known.example.com", "known.example.com", // a parent crt.sh also found
+		"p.gen.example.com", // a parent only the generator found
+		"p.both.example.com",
+	)
+	hosts(&d, []string{"resolve"}, "gen.example.com")
+	hosts(&d, []string{"resolve", "crtsh"}, "both.example.com")
+	inv := inventory.New(d, provider.Default())
+	sc := learnScope(inv, []string{"example.com", "corp.example.com", "deep.example.org"}, "ex.example.com", "bad.q.example.com")
+
+	got := inv.ParentNames(sc, "resolve")
+	want := []string{
+		"b.deep.example.org", "b.example.com", "dev.corp.example.com", "ex.example.com",
+		"gen.example.com", "y.dev.corp.example.com",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ParentNames = %q,\nwant %q", got, want)
+	}
+}
+
+// The learnable hostnames are the in-scope names that have an address or a CNAME and are not
+// wildcard-only, whoever found them, sorted.
+func TestLearnable(t *testing.T) {
+	t.Parallel()
+	var d inventory.Data
+	d.Wildcards = []inventory.Wildcard{{Zone: "w.example.com", Addrs: ips("203.0.113.1")}}
+	resolve(&d, "api.example.com", "203.0.113.10")
+	resolve(&d, "v6.example.com", "2001:db8::1")
+	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: "alias.example.com", Type: "CNAME", Value: "gone.example.net"})
+	hosts(&d, []string{"crtsh"}, "alias.example.com", "gone.example.com") // a dangling CNAME; no records
+	resolve(&d, "zz.w.example.com", "203.0.113.1")                        // wildcard-only
+	resolve(&d, "real.w.example.com", "203.0.113.50")                     // its own answer in a wildcard zone
+	resolve(&d, "x.example.org", "203.0.113.60")                          // a candidate
+	resolve(&d, "admin.example.com", "203.0.113.70")                      // excluded
+	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: "found.example.com", Type: "A", Value: "203.0.113.80"})
+	hosts(&d, []string{"learned-names"}, "found.example.com") // found by trying
+	inv := inventory.New(d, provider.Default())
+	sc := learnScope(inv, []string{"example.com"}, "admin.example.com")
+
+	got := inv.Learnable(sc)
+	want := []string{"alias.example.com", "api.example.com", "found.example.com", "real.w.example.com", "v6.example.com"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Learnable = %q,\nwant %q", got, want)
+	}
+}

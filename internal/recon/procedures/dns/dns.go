@@ -30,6 +30,12 @@ func lookup(ctx context.Context, e egress.Clients, name string, qtype uint16) (e
 	return res, nil
 }
 
+// guessExists is the rule for a guessed name: it exists when its A lookup answers a CNAME (even
+// one whose target does not exist) or an A address. An answer with no records proves nothing,
+// since many hosted zones answer that for names that do not exist, and SERVFAIL or NXDOMAIN
+// is no answer.
+func guessExists(a egress.DNSResult) bool { return len(a.CNAMEs) > 0 || len(a.Addrs()) > 0 }
+
 func sortedStrings(addrs []netip.Addr) []string {
 	out := make([]string, len(addrs))
 	for i, a := range addrs {

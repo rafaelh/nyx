@@ -52,6 +52,13 @@
   caps the script files `jsparse` reads per origin.
 - **Web identifiers.** `keys.shodan` also turns on `identifier-pivot`. `identifier_pivot.max_queries` (`--identifier-pivot-max-queries`,
   default 50, at least 1) caps the Shodan searches it sends in one run.
+- **Name guessing.** `permutations.enabled` (`--no-permutations` turns it off; default `true`)
+  turns on the wordlist, variant and learned-name guessing (see
+  [Name guessing](sources.md#name-guessing)). `permutations.max_per_seed` (`--permutations-max`,
+  default 200, at least 1) caps the variants of one found name, and `permutations.max_names`
+  (`--permutations-max-names`, default 200,000, at least 1) the wordlist and variant names tried in
+  one run. `learned_names.max_names` (`--learned-names-max-names`, default 50,000, at least 1) caps
+  the learned names tried in one run, separately. Names over a cap are deferred to the next run.
 - **End-of-life software.** `eol_warn_days` (`--eol-warn-days`, default 90, at least 0) is how many
   days before the end of a release cycle's security support the low `eol-approaching` finding is
   reported; 0 turns it off.

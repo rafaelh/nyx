@@ -37,6 +37,8 @@ type DNS struct {
 	typeRC   map[string]int // "name|TYPE" -> rcode
 	queries  map[string]int
 	slow     map[string]time.Duration
+	noData   map[string]bool      // suffix -> otherwise unknown names beneath answer NOERROR, no records
+	anySuf   map[string]anyAnswer // suffix -> otherwise unknown names beneath answer an address
 	// inFlight and maxInFlight count the slow queries being answered at once.
 	inFlight, maxInFlight int
 }
@@ -58,6 +60,13 @@ type mxRecord struct {
 	host string
 }
 
+// anyAnswer answers every otherwise unknown name beneath a suffix with addrs, unless except
+// reports true for the name.
+type anyAnswer struct {
+	addrs  []netip.Addr
+	except func(name string) bool
+}
+
 type wildcard struct {
 	addrs []netip.Addr
 	cname string
@@ -71,7 +80,7 @@ func NewDNS(tb testing.TB) *DNS {
 		sufRcode: map[string]int{}, drop: map[string]bool{}, wild: map[string]wildcard{},
 		ptr: map[string][]string{}, txt: map[string][]string{}, mx: map[string][]mxRecord{}, queries: map[string]int{},
 		ns: map[string][]string{}, soa: map[string]soaRecord{}, caa: map[string][]caaRecord{}, srv: map[string][]srvRecord{}, typeRC: map[string]int{},
-		slow: map[string]time.Duration{},
+		slow: map[string]time.Duration{}, noData: map[string]bool{}, anySuf: map[string]anyAnswer{},
 	}
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -170,6 +179,28 @@ func (d *DNS) WildcardCNAME(zone, target string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.wild[dnsname.Normalise(zone)] = wildcard{cname: dnsname.Normalise(target)}
+}
+
+// NoDataSuffix makes every otherwise unknown name beneath suffix (not suffix itself) answer
+// NOERROR with no records, as a Cloudflare-hosted zone answers a name that does not exist.
+func (d *DNS) NoDataSuffix(suffix string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.noData[dnsname.Normalise(suffix)] = true
+}
+
+// AnySuffix makes every otherwise unknown name beneath suffix (not suffix itself), at any depth,
+// answer with addrs, unless except reports true for the name, which then answers as though no
+// AnySuffix covered it (NXDOMAIN, or no records beneath a NoDataSuffix). A nil except excepts
+// nothing. except is called with the server's lock held, so it must not call back into d.
+func (d *DNS) AnySuffix(suffix string, except func(name string) bool, addrs ...string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	a := anyAnswer{except: except}
+	for _, s := range addrs {
+		a.addrs = append(a.addrs, netip.MustParseAddr(s))
+	}
+	d.anySuf[dnsname.Normalise(suffix)] = a
 }
 
 // PTR configures reverse lookup for addr.
@@ -344,10 +375,38 @@ func (d *DNS) answer(m *mdns.Msg, name string, qtype uint16) {
 		}
 	}
 	if !known {
+		if addrs, ok := d.anyAddrs(cur); ok {
+			m.Answer = append(m.Answer, addrRecords(rrHeader(cur, qtype), qtype, addrs)...)
+			return
+		}
+		if d.noDataFor(cur) {
+			return // NOERROR, no records
+		}
 		m.Rcode = mdns.RcodeNameError // no such name, or a dangling chain
 		return
 	}
 	m.Answer = append(m.Answer, d.records(cur, qtype, wild)...)
+}
+
+// anyAddrs reports the AnySuffix answer for an otherwise unknown name. The caller holds d.mu.
+func (d *DNS) anyAddrs(name string) ([]netip.Addr, bool) {
+	for suf, a := range d.anySuf {
+		if name != suf && dnsname.Under(name, suf) && (a.except == nil || !a.except(name)) {
+			return a.addrs, true
+		}
+	}
+	return nil, false
+}
+
+// noDataFor reports whether an otherwise unknown name sits beneath a NoDataSuffix. The caller
+// holds d.mu.
+func (d *DNS) noDataFor(name string) bool {
+	for suf := range d.noData {
+		if name != suf && dnsname.Under(name, suf) {
+			return true
+		}
+	}
+	return false
 }
 
 // forcedRcode prefers name overrides, then name/type, then suffix matches.
