@@ -29,13 +29,18 @@ func placeHost(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class
 }
 
 // placeNetblock includes input and input-derived CIDRs in scope, and classifies other valid
-// CIDRs as candidates. Invalid CIDR keys remain unlisted.
+// CIDRs as candidates. Invalid CIDR keys remain unlisted, and so does a candidate that an
+// in-scope netblock contains: promoting a wider range clears the candidates inside it.
 func placeNetblock(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
-	if _, err := netip.ParsePrefix(key); err != nil {
+	p, err := netip.ParsePrefix(key)
+	if err != nil {
 		return 0, false
 	}
 	if sc.HasNetblock(key) {
 		return scope.InScope, true
+	}
+	if sc.InsideNetblock(p) {
+		return 0, false
 	}
 	return scope.Candidate, true
 }

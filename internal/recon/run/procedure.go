@@ -395,6 +395,14 @@ func (v View) ParentNames(generator string) []string { return v.inv.ParentNames(
 // and are not wildcard-only: the names whose labels learning tries elsewhere.
 func (v View) Learnable() []string { return v.inv.Learnable(v.sc) }
 
+// RecordNames returns the in-scope hostnames under an input root, other than the roots, that are
+// neither wildcard-only nor an alias: the names whose own NS, MX and TXT records may be asked for.
+// A name in scope only by its address has no input root, so it is never one of them.
+func (v View) RecordNames() []string { return v.inv.RecordNames(v.sc) }
+
+// SharedAddr reports whether the address is known shared provider infrastructure.
+func (v View) SharedAddr(a netip.Addr) bool { return v.inv.Shared(a) }
+
 // Seeds returns hostnames for name generation. It excludes names observed only by this
 // generator and direct children of wildcard zones to avoid feeding generated names back into
 // discovery.

@@ -239,3 +239,50 @@ func TestOwnerUnit(t *testing.T) {
 		}
 	}
 }
+
+// A prefix is inside a netblock when a wider in-scope netblock contains it. An in-scope netblock
+// equal to the prefix does not count, nor does a narrower or disjoint one, nor one of the other
+// address family.
+func TestInsideNetblock(t *testing.T) {
+	t.Parallel()
+	s := scope.New(scope.Config{Netblocks: []netip.Prefix{
+		netip.MustParsePrefix("192.0.3.0/24"),
+		netip.MustParsePrefix("198.51.101.0/25"),
+		netip.MustParsePrefix("198.51.101.0/24"), // holds the /25 above
+		netip.MustParsePrefix("2a00:1450::/32"),
+	}})
+	for _, tc := range []struct {
+		prefix string
+		want   bool
+	}{
+		{"192.0.3.128/25", true},
+		{"192.0.3.7/32", true},
+		{"192.0.3.0/24", false},   // equal to an in-scope netblock
+		{"192.0.0.0/16", false},   // wider than the in-scope netblock it holds
+		{"203.0.114.0/24", false}, // disjoint
+		{"198.51.101.0/25", true}, // in scope, and inside the wider /24
+		{"198.51.101.0/24", false},
+		{"198.51.101.200/32", true},
+		{"2a00:1450:4000::/36", true},
+		{"2a00:1450::/32", false},
+		{"2a00::/16", false},
+		{"2a01::/32", false},
+		{"::ffff:192.0.3.0/120", false}, // IPv6, though it maps the IPv4 netblock
+	} {
+		if got := s.InsideNetblock(netip.MustParsePrefix(tc.prefix)); got != tc.want {
+			t.Errorf("InsideNetblock(%s) = %v, want %v", tc.prefix, got, tc.want)
+		}
+	}
+	// An IPv4 netblock never holds an IPv6 prefix, nor the reverse.
+	v4 := scope.New(scope.Config{Netblocks: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}})
+	if v4.InsideNetblock(netip.MustParsePrefix("2a00:1450::/32")) || !v4.InsideNetblock(netip.MustParsePrefix("192.0.3.0/24")) {
+		t.Error("0.0.0.0/0 holds every IPv4 prefix and no IPv6 one")
+	}
+	v6 := scope.New(scope.Config{Netblocks: []netip.Prefix{netip.MustParsePrefix("::/0")}})
+	if v6.InsideNetblock(netip.MustParsePrefix("192.0.3.0/24")) || !v6.InsideNetblock(netip.MustParsePrefix("2a00:1450::/32")) {
+		t.Error("::/0 holds every IPv6 prefix and no IPv4 one")
+	}
+	if scope.New(scope.Config{}).InsideNetblock(netip.MustParsePrefix("192.0.3.0/24")) {
+		t.Error("no netblock holds anything")
+	}
+}

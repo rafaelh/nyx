@@ -26,6 +26,7 @@ type DNS struct {
 	rcodes   map[string]int
 	sufRcode map[string]int
 	drop     map[string]bool
+	dropType map[string]bool // "name|TYPE" -> received and counted, never answered
 	wild     map[string]wildcard
 	ptr      map[string][]string
 	txt      map[string][]string
@@ -77,7 +78,7 @@ func NewDNS(tb testing.TB) *DNS {
 	tb.Helper()
 	d := &DNS{
 		addrs: map[string][]netip.Addr{}, cnames: map[string]string{}, rcodes: map[string]int{},
-		sufRcode: map[string]int{}, drop: map[string]bool{}, wild: map[string]wildcard{},
+		sufRcode: map[string]int{}, drop: map[string]bool{}, dropType: map[string]bool{}, wild: map[string]wildcard{},
 		ptr: map[string][]string{}, txt: map[string][]string{}, mx: map[string][]mxRecord{}, queries: map[string]int{},
 		ns: map[string][]string{}, soa: map[string]soaRecord{}, caa: map[string][]caaRecord{}, srv: map[string][]srvRecord{}, typeRC: map[string]int{},
 		slow: map[string]time.Duration{}, noData: map[string]bool{}, anySuf: map[string]anyAnswer{},
@@ -145,6 +146,21 @@ func (d *DNS) Undrop(name string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.drop, dnsname.Normalise(name))
+}
+
+// DropType simulates unanswered queries of one type for name: such a query is received and
+// counted but never answered, while the name's other types answer normally.
+func (d *DNS) DropType(name, qtype string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dropType[dnsname.Normalise(name)+"|"+qtype] = true
+}
+
+// UndropType restores replies to the name/type pair that DropType dropped.
+func (d *DNS) UndropType(name, qtype string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.dropType, dnsname.Normalise(name)+"|"+qtype)
 }
 
 // Slow delays the answers for names by delay, so a test can see how many are asked at once.
@@ -330,7 +346,7 @@ func (d *DNS) serve(w mdns.ResponseWriter, r *mdns.Msg) {
 
 	d.mu.Lock()
 	d.queries[name+"|"+ty]++
-	dropped := d.drop[name]
+	dropped := d.drop[name] || d.dropType[name+"|"+ty]
 	m := new(mdns.Msg)
 	m.SetReply(r)
 	m.RecursionAvailable = true // Mark recursion availability so Go accepts empty answers rather than treating them as lame

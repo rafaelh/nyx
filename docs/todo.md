@@ -28,6 +28,14 @@
   not a regression): after `make threat-data`, the docs don't give the date of the built-in Spamhaus
   asndrop list, 2026-11-24. The fix is to update the five dates in `docs/abusive-networks.md`.
 
+- **Test gaps in the records of every name.** A provider range only half in provider space has a
+  unit test (`TestRecordObservations_SPFSharedRanges`) but no behaviour test, as the world's
+  provider-range fixture can't build one. The rule that hides a netblock candidate inside an
+  in-scope netblock is tested for `spf` and `rdap` candidates, not for `org-asn` ones or under
+  `nyx recon export`. Of the docs on these records, the tests check only that `docs/output.md`
+  names MX and the names below the roots, and that `docs/candidates.md` lists `spf` as a family of
+  its own.
+
 # Documentation gaps
 
 - **`docs/console-and-json.md` doesn't exist.** `README.md`, `docs/release-preparation.md` and
@@ -53,6 +61,12 @@ Confirm each with `/code-review` before fixing.
 
 
 ## Design changes
+
+- **`addrkind.PublicPrefix` is stricter than `addrkind.Of`.** It calls a prefix not public when any
+  non-public special-purpose row overlaps it, so a globally reachable exception inside one
+  (`192.0.0.9/32`, `2001:3::/32`) or the public `64:ff9b::/96` gives no SPF candidate, though `Of`
+  calls every address in it public. Using the longest row that contains the prefix, plus any
+  non-public row inside it, would make the two agree.
 
 - **Scope build.** Separate the egress Policy from the scope build, and derive `scopeKinds` from a
   table.
@@ -113,6 +127,14 @@ Rendering the summary from one list of blocks.
 
 
 ## Architecture
+
+- **`email` could read SPF with `internal/knowledge/spf`.** `email.go`'s `walk` and `lookupable`
+  parse SPF terms by hand; the `spf` package (`Record`, `Parse`, `Term.Network`, `Term.Domain`)
+  that `dnsrecords` uses now does the same, and `email` could use it. They already differ in two
+  places: `email`'s `withPrefix` accepts `v=spf1;` (a `;` straight after the version) as an SPF
+  record, and `spf.Record` does not, so for such a value `email` sees a record and `dnsrecords`
+  none. And `email` still reads mechanisms written after `all`, which RFC 7208 section 5.1 says are
+  never evaluated and `spf.Policy.Applies` leaves out.
 
 internal/cli has about 4.2k lines of code and about 40k lines of tests across 93 files. That's intentional (behaviour tests drive cli.Execute), but it means one package does most of the test work and Go can't split it across packages in parallel. If make test gets slow, the option is to move the harness into an exported internal/clitest and split the tests by command (ip, cve, setup, recon). It's not worth doing until the time hurts.
 

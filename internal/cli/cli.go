@@ -177,6 +177,7 @@ func withDefaults(d Deps) Deps {
 // wildcard precedes learned-names, and the runner flushes after each procedure's work, so
 // learned-names reads every zone's wildcard check as of this pass. learned-names follows
 // permutations so the names both find are learned from, and varied, in the same run.
+// dnsrecords follows resolve and wildcard so it reads their completion as of this pass.
 //
 // Email follows DNS. RDAP and shodan-host follow ipowner so ownership can guide lookups;
 // netblockowner follows to supply abuse-check evidence. Storage follows crawling,
@@ -188,7 +189,7 @@ func defaultProcedures() []run.Procedure {
 	procedures = append(procedures, sub...)
 	return append(procedures,
 		github.New(), shodan.New(), shodan.NewDNS(), providerranges.New(),
-		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewLearnedNames(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewNetblockOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
+		dns.NewResolve(), dns.NewWildcard(nil), dns.NewPermutations(), dns.NewLearnedNames(), dns.NewDNSRecords(), dns.NewRDNS(), dns.NewIPOwner(), dns.NewNetblockOwner(), dns.NewDNSRoot(), rdap.New(), shodan.NewHost(), reverseip.New(),
 		dnshistory.New(), risk.NewEmail(), nsreverse.New(), web.NewProbe(), web.NewCrawl(), web.NewJSParse(), shodan.NewPivot(),
 		risk.NewStorage(), risk.NewTakeover(), risk.NewSensitivePaths(), web.NewOriginCheck(), ports.New())
 }

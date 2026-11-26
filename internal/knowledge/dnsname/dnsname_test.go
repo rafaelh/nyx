@@ -124,3 +124,46 @@ func TestLearnableForms(t *testing.T) {
 		}
 	}
 }
+
+// Hostnames in text are read as whole runs of name characters, in lower case, so a name is
+// never cut out of a longer one: a run with an invalid label, or a single label, gives nothing.
+// Order is not compared.
+func TestHostnamesIn(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		text string
+		want []string
+	}{
+		{"API.Example.COM", []string{"api.example.com"}},
+		{"example.com", []string{"example.com"}},
+		{"www.example.com.evil.net", []string{"www.example.com.evil.net"}},
+		{"_dmarc.example.com", nil},
+		{"sel._domainkey.example.com", nil},
+		{"v=spf1 include:_spf.example.com ~all", nil},
+		{"a_b.example.com", nil},
+		{"*.cdn.example.com", []string{"cdn.example.com"}},
+		{"mailto:a@mail.example.com", []string{"mail.example.com"}},
+		{"https://app.example.com/x", []string{"app.example.com"}},
+		{"ns1.example.com:53", []string{"ns1.example.com"}},
+		{"see www.example.com.", []string{"www.example.com"}},
+		{"..example.com..", []string{"example.com"}},
+		{"mail.example.com, smtp.Example.NET", []string{"mail.example.com", "smtp.example.net"}},
+		{"-bad.example.com", nil},
+		{"bad-.example.com", nil},
+		{"a..example.com", nil},
+		{strings.Repeat("a", 64) + ".example.com", nil},
+		{"localhost", nil},
+		{"google-site-verification=abc123", nil},
+		{"", nil},
+	}
+	for _, c := range cases {
+		got := slices.Sorted(slices.Values(dnsname.HostnamesIn(c.text)))
+		want := slices.Sorted(slices.Values(c.want))
+		if len(got) == 0 && len(want) == 0 {
+			continue
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("HostnamesIn(%q) = %q, want %q", c.text, got, want)
+		}
+	}
+}

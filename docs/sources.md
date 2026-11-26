@@ -186,9 +186,39 @@ guess is one A lookup through the public resolvers, so guessing runs under `--pa
 - **Parent names.** Every name between a found name and its input root is resolved, so
   `b.example.com` is listed when `a.b.example.com` was found and `b.example.com` has an address or
   a CNAME. A parent that does not resolve, and that no source found, is listed in no file
-  (`unresolved.txt` included), though learning still tries labels under it. A parent is asked once
+  (`unresolved.txt` included), apart from rows of its own records in `resolutions.csv`, though learning still tries labels under it. A parent is asked once
   its zone's wildcard check has completed, and one that only the wildcard answers counts as not
   resolving. Parent names are resolved even when learning is skipped or turned off, and they are
   reported under `resolve`.
 - **Only under input roots.** Learning and parent names apply only to names under an input root: a
   candidate's labels are not learned and its parents are never asked.
+
+## Records of every name
+
+The `dnsroot` procedure asks each input root for its NS, SOA, TXT, CAA and MX records and a list of
+SRV service names. The `dnsrecords` procedure asks the names below the roots, through the public
+resolvers, so it runs under `--passive` and needs no `--authorised`.
+
+- **Which names.** Every in-scope hostname below an input root that resolve did not answer
+  NXDOMAIN, that is not wildcard-only and that is not an alias (a name with a CNAME, which can own
+  no other record), once its zone's wildcard check has completed. A parent name that does not
+  resolve is asked too. A candidate or excluded name is never asked.
+- **What is asked.** Each name's NS, MX and TXT records, one lookup each. A name with NS records of
+  its own is a delegated zone and also gets the SOA and CAA lookups and the SRV service list a root
+  gets (16 more lookups); it gets no mail posture. An in-scope domain that an SPF record includes
+  or redirects to is asked for its TXT records only. Only records a name owns are kept: an alias's
+  target's records are not the alias's, for roots too.
+- **What it finds.** The records are rows of `resolutions.csv`. An in-scope target of an NS, MX or
+  SRV record, the in-scope target of an in-scope name's CNAME, and an in-scope name written in a
+  TXT value become hostnames, are resolved, and are asked for their own records in the same run; a
+  name with a label that starts with `_` is not a hostname. A target outside scope, a verification
+  TXT and the domains an SPF record names are rows of `third-parties.csv` under the name's input
+  root (a root's own `mx` and `spf` rows come from `email`). An SPF record's addresses are
+  [candidates](candidates.md). A subdomain's name servers and mail hosts are never searched for
+  shared infrastructure.
+- **Failures.** A timeout fails only that name's lookup of that type, which is asked again on the
+  next run. SERVFAIL, NXDOMAIN and an empty answer are results, so a broken delegated zone never
+  keeps a run partial.
+- **Cost.** About 3 lookups for each name below a root that is not an alias, and 16 more for each
+  delegated zone, once per engagement; there is no cap. `--skip dnsrecords` turns it off and leaves
+  the roots' lookups, and `--redo dnsrecords` asks every name again.

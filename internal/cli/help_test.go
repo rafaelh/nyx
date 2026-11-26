@@ -125,6 +125,25 @@ func helpOff(t *testing.T, args ...string) string {
 
 // The procedures topic follows registry order and marks required procedures; recon help omits the
 // full list.
+// The records of the names below the roots are a third-party procedure of their own, run after
+// names are learned and before the PTR lookups; the roots' procedure asks MX too.
+func TestHelp_ProceduresTopicRecords(t *testing.T) {
+	t.Parallel()
+	topic := newHarness(t, defaultProcedureList()...).proceduresHelp()
+	recs := procedureRow(topic, "dnsrecords")
+	const recsDoes = "NS, MX and TXT records of each name below the roots, and the names and third parties they show"
+	if !strings.Contains(recs, "  third party  ") || !strings.HasSuffix(strings.TrimSpace(recs), recsDoes) {
+		t.Errorf("dnsrecords row = %q, want a third-party procedure that does %q", recs, recsDoes)
+	}
+	if at := strings.Index(topic, recs); recs == "" || at < strings.Index(topic, procedureRow(topic, "learned-names")) ||
+		at > strings.Index(topic, procedureRow(topic, "rdns")) {
+		t.Errorf("dnsrecords is not listed between learned-names and rdns:\n%s", topic)
+	}
+	if root := procedureRow(topic, "dnsroot"); !strings.Contains(root, "MX") || !strings.Contains(root, "records of each root, and the third parties they show") {
+		t.Errorf("dnsroot row = %q, want MX among the records of each root", root)
+	}
+}
+
 func TestHelp_ProceduresTopic(t *testing.T) {
 	t.Parallel()
 	procedures := defaultProcedureList()

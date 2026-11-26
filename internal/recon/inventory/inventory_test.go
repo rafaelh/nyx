@@ -510,3 +510,45 @@ func TestLearnable(t *testing.T) {
 		t.Errorf("Learnable = %q,\nwant %q", got, want)
 	}
 }
+
+// The names whose own records are asked for are the in-scope hostnames below the input roots,
+// sorted and once each, leaving out the roots, wildcard-only names and aliases. A name with no
+// address, or with only a mail record, still counts; one that only a resolution row names does
+// not.
+func TestRecordNames(t *testing.T) {
+	t.Parallel()
+	var d inventory.Data
+	d.Wildcards = []inventory.Wildcard{{Zone: "example.com", Addrs: ips("203.0.113.1")}}
+	resolve(&d, "www.example.com", "192.0.3.10")
+	resolve(&d, "zz.example.com", "203.0.113.1") // wildcard-only
+	resolve(&d, "example.com", "192.0.3.1")      // an input root
+	resolve(&d, "corp.example.com", "192.0.3.2") // a nested input root
+	resolve(&d, "app.corp.example.com", "192.0.3.3")
+	resolve(&d, "x.example.org", "192.0.3.4")     // a candidate
+	resolve(&d, "admin.example.com", "192.0.3.5") // excluded by name
+	// An alias, and the in-scope target of its CNAME, which has none of its own.
+	resolve(&d, "cdn.example.com", "192.0.3.6")
+	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: "cdn.example.com", Type: "CNAME", Value: "edge.example.com"})
+	resolve(&d, "edge.example.com", "192.0.3.6")
+	// A name with only a mail record, and one not yet resolved.
+	d.Hosts = append(d.Hosts, inventory.Host{Name: "mailonly.example.com", Producers: []string{"resolve"}},
+		inventory.Host{Name: "new.example.com", Producers: []string{"crtsh"}})
+	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: "mailonly.example.com", Type: "MX", Value: "10 mx.example.net"})
+	// A second hostname record of a listed name, and a resolution with no hostname record.
+	d.Hosts = append(d.Hosts, inventory.Host{Name: "www.example.com", Producers: []string{"rdns"}})
+	d.Resolutions = append(d.Resolutions, inventory.Resolution{Name: "orphan.example.com", Type: "A", Value: "192.0.3.7"})
+
+	inv := inventory.New(d, provider.Default())
+	xs, err := input.ParseExclusions([]string{"admin.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := scope.New(scope.Config{
+		Roots: []string{"example.com", "corp.example.com"}, Exclusions: xs,
+		Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
+	})
+	want := []string{"app.corp.example.com", "edge.example.com", "mailonly.example.com", "new.example.com", "www.example.com"}
+	if got := inv.RecordNames(sc); !slices.Equal(got, want) {
+		t.Errorf("RecordNames = %q, want %q", got, want)
+	}
+}

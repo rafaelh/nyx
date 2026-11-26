@@ -325,11 +325,11 @@ func TestDNSRoot_JobsAndPassive(t *testing.T) {
 		k = strings.TrimSuffix(k, "|addrs") // the NS key carries a token for its address lookups
 		got = append(got, k)
 	}
-	want := []string{"example.com|CAA", "example.com|NS", "example.com|SOA", "example.com|SRV", "example.com|TXT"}
+	want := []string{"example.com|CAA", "example.com|MX", "example.com|NS", "example.com|SOA", "example.com|SRV", "example.com|TXT"}
 	if !slices.Equal(got, want) {
 		t.Errorf("jobs = %v, want %v", got, want)
 	}
-	for _, ty := range []string{"NS", "SOA", "TXT", "CAA"} {
+	for _, ty := range []string{"NS", "SOA", "TXT", "CAA", "MX"} {
 		if n := w.dns.Count("example.com", ty); n != 1 {
 			t.Errorf("%s queried %d times, want once", ty, n)
 		}
@@ -344,22 +344,33 @@ func TestDNSRoot_JobsAndPassive(t *testing.T) {
 	}
 }
 
-// An aliased root cannot inherit its target zone's NS/SOA ownership.
-func TestDNSRoot_AliasRootTakesNoTargetNameServers(t *testing.T) {
+// An aliased root owns none of its target's records: the target's NS, SOA, TXT, CAA and MX are
+// not the root's, and nothing is taken from them.
+func TestDNSRoot_AliasRootTakesNoTargetRecords(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.dns.CNAME("example.com", "edge.cdn-host.test")
 	w.dns.A("edge.cdn-host.test", "203.0.113.50")
 	w.dns.NS("edge.cdn-host.test", "ns1.cdn-dns.test")
 	w.dns.SOA("edge.cdn-host.test", "ns1.cdn-dns.test", "hostmaster.cdn-host.test")
+	w.dns.TXT("edge.cdn-host.test", "google-site-verification=cdntoken")
+	w.dns.TXT("edge.cdn-host.test", "v=spf1 ip4:192.0.3.0/24 include:spf.cdn-mail.test -all")
+	w.dns.CAA("edge.cdn-host.test", 0, "issue", "pki.cdn-host.test")
+	w.dns.MX("edge.cdn-host.test", 10, "mx.cdn-mail.test")
 	runRoot(t, w)
-	for _, ty := range []string{"NS", "SOA"} {
+	for _, ty := range []string{"NS", "SOA", "TXT", "CAA", "MX"} {
 		if r := resolutionRow(w, "example.com", ty); r != nil {
 			t.Errorf("the alias target's %s is recorded as the root's: %v", ty, r)
 		}
 	}
 	if tp := w.table(eng, "third-parties.csv"); len(tp) != 0 {
 		t.Errorf("third-parties.csv = %v", tp)
+	}
+	if c := find(w.table(eng, "candidates.csv"), "value", "192.0.3.0/24"); c != nil {
+		t.Errorf("an address in the alias target's SPF record is a candidate: %v", c)
+	}
+	if n := w.dns.Count("spf.cdn-mail.test", "TXT"); n != 0 {
+		t.Errorf("the alias target's SPF include was asked for TXT %d times", n)
 	}
 }
 

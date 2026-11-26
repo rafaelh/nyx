@@ -184,3 +184,23 @@ func digitVariants(label string) []string {
 	}
 	return out
 }
+
+// HostnamesIn returns the hostnames written in text: each maximal run of letters, digits, dots,
+// hyphens and underscores, in lower case and with its leading and trailing dots trimmed, that
+// has at least two labels and only valid labels. A run is read whole, so a name followed by
+// further labels (www.example.com.evil.net) is that longer name, and one with an underscore label
+// (_dmarc.example.com) gives nothing rather than the part after it.
+func HostnamesIn(text string) []string {
+	notName := func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-'
+	}
+	var out []string
+	for _, run := range strings.FieldsFunc(text, notName) {
+		name := strings.Trim(strings.ToLower(run), ".")
+		labels := strings.Split(name, ".")
+		if len(labels) >= 2 && !slices.ContainsFunc(labels, func(l string) bool { return !ValidLabel(l) }) {
+			out = append(out, name)
+		}
+	}
+	return out
+}

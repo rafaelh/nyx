@@ -469,13 +469,18 @@ func resolutionRows(s Snapshot) []Row {
 	at := map[string]int{}
 	for _, r := range s.of(kinds.Resolution) {
 		a := kinds.Resolution.Attrs(r) // recover retired-record identity from its key
-		// Only current NS rows can identify self-hosted servers; old rows have no
-		// attributes describing today's ownership.
+		// Only current NS rows of an input root can identify self-hosted servers: old rows have
+		// no attributes describing today's ownership, and a subdomain's servers' addresses are
+		// never looked up.
 		selfHosted := ""
-		if a.Type == "NS" && r.Current {
+		if a.Type == "NS" && r.Current && s.Scope.RootOf(a.Name) == a.Name {
 			selfHosted = yesNo(s.Inv.SelfHosted(a.Value, s.Scope))
 		}
 		at[r.Key] = len(rows)
+		if _, host, ok := strings.Cut(a.Value, " "); a.Type == "MX" && ok {
+			// A claim of a mail host holds the host without its preference.
+			at[kinds.DNSClaim.Key(kinds.DNSClaimAttrs{Name: a.Name, Type: a.Type, Value: host})] = len(rows)
+		}
 		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, "resolve", selfHosted, "", ""))
 	}
 	for _, r := range s.of(kinds.DNSClaim) {

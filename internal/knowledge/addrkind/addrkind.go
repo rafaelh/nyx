@@ -119,3 +119,18 @@ func Of(a netip.Addr) Kind {
 	}
 	return Public
 }
+
+// PublicPrefix reports whether every address of a prefix may be public: no special-purpose row
+// that is not globally reachable overlaps it, and an IPv6 prefix lies inside 2000::/3.
+func PublicPrefix(p netip.Prefix) bool {
+	if !p.IsValid() {
+		return false
+	}
+	p = p.Masked()
+	for _, r := range registry {
+		if r.kind != Public && r.prefix.Overlaps(p) {
+			return false
+		}
+	}
+	return p.Addr().Is4() || p.Bits() >= globalUnicast.Bits() && globalUnicast.Contains(p.Addr())
+}

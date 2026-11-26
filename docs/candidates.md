@@ -8,7 +8,7 @@ Each row says how well supported it is, so you can tell which are worth promotin
 | `type` | `root`, `hostname`, `netblock`, `asn` or `organisation` |
 | `value` | The candidate |
 | `sources` | The distinct procedures or mechanisms that found it, joined with `;` (listed below) |
-| `evidence_count` | The number of distinct pairs of a source and the item that linked the candidate: the address, root, name server, netblock, service or organisation the source was asked about |
+| `evidence_count` | The number of distinct pairs of a source and the item that linked the candidate: the address, root, name server, netblock, service or organisation the source was asked about, or for `spf` the name whose SPF record named it |
 | `confidence` | `low`, `medium` or `high` |
 
 The `sources` values are the procedures and mechanisms that can find a candidate. Each belongs to one
@@ -16,11 +16,27 @@ family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), w
 (`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`, `shodan-host`,
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
 results still count), registrant (`whoisxml`, `org-asn`, `rdap`) and reverse IP (`reverseip`).
-`httpprobe`, `rdns` and `crawl` are each a family of their own, and so is any other source.
+`httpprobe`, `rdns`, `crawl` and `spf` are each a family of their own, and so is any other source.
 The web identifier family is `identifier-pivot`; the `sources` value is `identifier-pivot:<id>`, with
 the identifier that found the candidate, so each is a source of its own but they are one family. Shared infrastructure is a family of two sources,
 `shared-ns` and `shared-mx`,
 so a root found by both is still one family.
+
+An `spf` candidate is a range an organisation's SPF record authorises to send its mail. Each
+`ip4:` and `ip6:` term with no qualifier or with `+`, in the SPF record of an input root, of an
+in-scope name below one, or of an in-scope domain such a record includes or redirects to, is a
+`netblock` candidate (a single address as a /32 or /128), with the name whose record named it as
+its item. These give none: a term qualified `-`, `~` or `?`; a term after `all`, which is never
+evaluated; a range wider than /16 (IPv4) or /32
+(IPv6); a range that is not public, or that holds a special-purpose block; a range (not a single
+address) whose first and last addresses are both known shared provider addresses, which is the
+provider's sending pool; a name with more than one `v=spf1` record; and any term of an included
+record whose domain is outside scope, which is never asked. Nothing in an `spf` candidate is
+contacted or looked up until you give it as `--cidr`.
+
+A netblock candidate that an in-scope netblock contains is not listed, and not counted in the
+summary, whichever source found it: give a wider range as `--cidr` and the candidates inside it
+leave `candidates.csv` on the next run, without `--redo`.
 
 The confidence follows from the families that agree:
 

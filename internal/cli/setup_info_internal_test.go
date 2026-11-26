@@ -61,6 +61,11 @@ func TestSetupProceduresLeaveOutTheUnskippable(t *testing.T) {
 	if !slices.Contains(names, "crtsh") {
 		t.Errorf("skippable procedures are missing: %v", names)
 	}
+	// The records of the names below the roots can be turned off alone.
+	const recsDoes = "NS, MX and TXT records of each name below the roots, and the names and third parties they show"
+	if i := slices.Index(names, "dnsrecords"); i < 0 || setupProcedures(defaultProcedures())[i].Does != recsDoes {
+		t.Errorf("dnsrecords is not offered with its description %q: %v", recsDoes, names)
+	}
 	if want := len(defaultProcedures()) - len(required); len(names) != want {
 		t.Errorf("%d procedures offered, want %d", len(names), want)
 	}

@@ -421,6 +421,7 @@ func TestCandidates_FamiliesOfTheRealSources(t *testing.T) {
 		"shared-ns": "shared infrastructure", "shared-mx": "shared infrastructure",
 		"identifier-pivot": "web identifier", "identifier-pivot:G-AAAAAA1": "web identifier",
 		"httpprobe": "httpprobe", "rdns": "rdns", "crawl": "crawl", "jsparse": "jsparse",
+		"spf": "spf",
 	} {
 		if got := realFamilies.Of(source); got != want {
 			t.Errorf("family of %q = %q, want %q", source, got, want)

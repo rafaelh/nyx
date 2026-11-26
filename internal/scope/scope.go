@@ -51,6 +51,7 @@ type Scope struct {
 	roots     []string
 	netblocks []netip.Prefix
 	blockSet  map[netip.Prefix]bool
+	blockBits []int // the prefix lengths of the netblocks, sorted, once each
 	exclHosts []input.Exclusion
 	exclCIDRs []input.Exclusion
 	resolved  map[string][]netip.Addr
@@ -72,7 +73,10 @@ func New(c Config) *Scope {
 	}
 	for _, p := range c.Netblocks {
 		s.blockSet[p] = true
+		s.blockBits = append(s.blockBits, p.Bits())
 	}
+	slices.Sort(s.blockBits)
+	s.blockBits = slices.Compact(s.blockBits)
 	for _, e := range c.Exclusions {
 		if _, ok := e.Prefix(); ok {
 			s.exclCIDRs = append(s.exclCIDRs, e)
@@ -285,6 +289,19 @@ func (s *Scope) MatchesOrg(name string) bool {
 func (s *Scope) HasNetblock(key string) bool {
 	p, err := netip.ParsePrefix(key)
 	return err == nil && s.blockSet[p.Masked()]
+}
+
+// InsideNetblock reports whether an in-scope netblock other than p itself contains p.
+func (s *Scope) InsideNetblock(p netip.Prefix) bool {
+	for _, bits := range s.blockBits {
+		if bits >= p.Bits() {
+			return false
+		}
+		if w, err := p.Addr().Prefix(bits); err == nil && s.blockSet[w] {
+			return true
+		}
+	}
+	return false
 }
 
 // ipv4Range is an inclusive range of IPv4 addresses held as integers.

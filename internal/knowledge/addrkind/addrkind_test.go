@@ -288,3 +288,62 @@ func TestRegistry_EachKindIsProduced(t *testing.T) {
 		}
 	}
 }
+
+// A prefix is public only when no special-purpose block that is not globally reachable overlaps
+// it, whether the block holds the prefix or the prefix holds the block, and an IPv6 prefix must
+// also lie inside global unicast.
+func TestPublicPrefix(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		prefix string
+		want   bool
+	}{
+		// Public IPv4: the neighbours of the documentation ranges, and ordinary space.
+		{"192.0.3.0/24", true},
+		{"198.51.101.0/24", true},
+		{"203.0.114.0/24", true},
+		{"11.0.0.0/8", true},
+		{"62.253.227.114/32", true},
+		// Inside a block that is not public.
+		{"10.0.0.0/8", false},
+		{"10.1.2.0/24", false},
+		{"127.0.0.0/8", false},
+		{"192.0.2.0/24", false},
+		{"192.0.2.128/25", false},
+		{"198.51.100.7/32", false},
+		{"100.64.0.0/10", false},
+		{"224.0.0.0/4", false},
+		{"239.1.0.0/16", false},
+		{"240.0.0.0/4", false},
+		// Holding a block that is not public.
+		{"192.0.0.0/16", false},   // holds 192.0.0.0/24
+		{"198.0.0.0/8", false},    // holds 198.18.0.0/15 and 198.51.100.0/24
+		{"192.88.99.0/24", false}, // holds the 6a44 relay's single address
+		{"172.0.0.0/8", false},    // holds 172.16.0.0/12
+		{"0.0.0.0/0", false},      // holds everything
+		{"203.0.112.0/23", false}, // reaches into 203.0.113.0/24
+		{"192.168.0.0/15", false}, // overlaps 192.168.0.0/16
+		// IPv6.
+		{"2a00:1450::/32", true},
+		{"2a00:1450:4000::/36", true},
+		{"2a00:1450::1/128", true},
+		{"2001:db8::/32", false},
+		{"2001:db8:1::/48", false},
+		{"2001::/16", false}, // holds 2001::/23 and 2001:db8::/32
+		{"2002::/16", false},
+		{"3fff::/20", false},
+		{"fc00::/7", false},
+		{"fe80::/10", false},
+		{"ff00::/8", false},
+		{"4000::/3", false}, // outside global unicast
+		{"::/0", false},
+		{"2000::/3", false}, // holds the documentation and other blocks
+	} {
+		if got := PublicPrefix(netip.MustParsePrefix(tc.prefix)); got != tc.want {
+			t.Errorf("PublicPrefix(%s) = %v, want %v", tc.prefix, got, tc.want)
+		}
+	}
+	if PublicPrefix(netip.Prefix{}) {
+		t.Error("an invalid prefix must not be public")
+	}
+}

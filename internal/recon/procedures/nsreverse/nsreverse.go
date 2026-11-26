@@ -71,7 +71,8 @@ func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] 
 		}
 	}
 	for _, rec := range v.Records(kinds.Resolution) {
-		if a := kinds.Resolution.Attrs(rec); a.Type == "NS" && sc.HostInScope(a.Name) {
+		// A subdomain's name servers are never searched: only an input root's are.
+		if a := kinds.Resolution.Attrs(rec); a.Type == "NS" && sc.HostInScope(a.Name) && sc.RootOf(a.Name) == a.Name {
 			add(roleNS, a.Value)
 		}
 	}

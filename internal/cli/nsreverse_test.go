@@ -216,6 +216,45 @@ func TestNSReverse_AsksOnlySelfHostedServers(t *testing.T) {
 	}
 }
 
+// A subdomain's name servers and mail hosts are never searched for shared infrastructure, even
+// ones the organisation runs itself; the root's still are.
+func TestNSReverse_SubdomainServersAreNotSearched(t *testing.T) {
+	t.Parallel()
+	x, st := sharedWorld(t, true)
+	x.dns.NS("app.example.com", "ns2.example.com")
+	x.dns.MX("app.example.com", 10, "mail2.example.com")
+	x.host("ns2.example.com", "203.0.113.14")
+	x.owner("203.0.113.14", 64514, "ACME-NET")
+	x.host("mail2.example.com", "203.0.113.15")
+	x.owner("203.0.113.15", 64515, "ACME-NET")
+	st.byNS["ns2.example.com"] = []string{"wrong-sub-ns.test"}
+	st.byMX["mail2.example.com"] = []string{"wrong-sub-mx.test"}
+	x.mustShared()
+
+	if r := resolutionRow(x.world, "app.example.com", "NS"); r == nil || r["value"] != "ns2.example.com" {
+		t.Fatalf("setup: the subdomain's NS record was not read: %v\n%s", r, x.file(eng, "resolutions.csv"))
+	}
+	asked := x.stServers()
+	for _, s := range []string{"ns|ns2.example.com", "mx|mail2.example.com"} {
+		if slices.Contains(asked, s) {
+			t.Errorf("SecurityTrails was asked about the subdomain's server %s: %v", s, asked)
+		}
+	}
+	for _, k := range x.completedKeys("nsreverse") {
+		if strings.Contains(k, "ns2.example.com") || strings.Contains(k, "mail2.example.com") {
+			t.Errorf("nsreverse has a job for a subdomain's server: %s", k)
+		}
+	}
+	if !slices.Contains(asked, "ns|ns1.example.com") || !slices.Contains(asked, "mx|mail.example.com") {
+		t.Errorf("the root's own servers were not searched: %v", asked)
+	}
+	for _, wrong := range []string{"wrong-sub-ns.test", "wrong-sub-mx.test"} {
+		if c := x.candidate(wrong); c != nil {
+			t.Errorf("%s came from a subdomain's server: %v", wrong, c)
+		}
+	}
+}
+
 // --- Candidates ---
 
 // Shared NS/MX evidence is at least medium but remains one family even when both mechanisms

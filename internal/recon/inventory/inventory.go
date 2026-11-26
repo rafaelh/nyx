@@ -285,6 +285,21 @@ func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 	return out
 }
 
+// RecordNames returns, sorted and once each, the current in-scope hostnames under an input root
+// that are not an input root, are not wildcard-only and have no CNAME of their own: the names
+// below the roots whose own records may be asked for.
+func (i *Inventory) RecordNames(sc *scope.Scope) []string {
+	var out []string
+	for _, h := range i.d.Hosts {
+		root := sc.RootOf(h.Name)
+		if root != "" && root != h.Name && !i.wo[h.Name] && len(i.cn[h.Name]) == 0 && sc.HostInScope(h.Name) {
+			out = append(out, h.Name)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // ParentNames returns, sorted, every ancestor of a current in-scope hostname under an input root
 // that is itself under an input root and is not one, leaving out an ancestor that has a hostname
 // record from a producer other than the generator.
