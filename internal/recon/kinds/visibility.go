@@ -62,13 +62,14 @@ func (v *Visibility) hostShown(k Kind, r store.Record) bool {
 	return true
 }
 
-// outside accepts records naming no domain or a domain outside scope.
+// outside accepts records naming no domain or a domain outside scope by its name: a domain in
+// scope only by its address is still a third party's.
 func (v *Visibility) outside(k Kind, r store.Record) bool {
 	if k.OutsideAttr == "" {
 		return true
 	}
 	d := r.Str(k.OutsideAttr)
-	return d == "" || !v.sc.HostInScope(d)
+	return d == "" || !v.sc.NameInScope(d)
 }
 
 func (v *Visibility) webHostInScope(host string) bool {

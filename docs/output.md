@@ -6,7 +6,7 @@ Everything is in `<output-dir>/<engagement>/`:
 
 | File | Contents |
 |---|---|
-| `scope.csv` | Inputs and the netblocks and roots in scope, and where each came from |
+| `scope.csv` | Inputs and the netblocks and roots in scope, and where each came from, and each hostname in scope by its address, with the address and in-scope netblock that brought it in (see [Names on in-scope addresses](sources.md#names-on-in-scope-addresses)) |
 | `candidates.csv` | Related domains, hostnames, netblocks, autonomous systems and organisations found but not in scope, ranked by how many independent sources support each (see [Ranked candidates](candidates.md)); pass one as an input to promote it |
 | `excluded.csv` | Excluded items and the reason |
 | `subdomains.txt` | In-scope hostnames |

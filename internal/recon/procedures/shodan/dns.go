@@ -155,7 +155,7 @@ func (o *dnsObs) record(sub, typ, value string) {
 	default:
 		return
 	}
-	if target != "" && o.in.sc.HostInScope(target) {
+	if target != "" && o.in.sc.NameInScope(target) {
 		o.hostname(target)
 	}
 	if c := kinds.DNSClaim.Obs(kinds.DNSClaimAttrs{Name: name, Type: typ, Value: value, Source: "shodan"}); !o.seen[c.Key] {

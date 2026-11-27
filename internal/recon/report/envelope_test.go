@@ -33,6 +33,7 @@ func fixedEnvelope() report.Envelope {
 			}},
 			CandidatesTotal:       23,
 			UnconfirmedRiskyPorts: 3,
+			HostsInScopeByAddress: 2,
 			Notes:                 []string{"n1"},
 			Changes: &report.Changes{
 				Counts:   []report.ChangeCount{{Kind: "hostname", Change: "new", N: 2}},
@@ -55,7 +56,7 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 		`"findings":[{"severity":"high","category":"exposed-admin","target":"https://a.example.com/admin","detail":"login <page> & more"},` +
 		`{"severity":"medium","category":"banner","target":"10.0.0.1:21","detail":null}],` +
 		`"candidates":[{"kind":"root","value":"x.org","sources":["crtsh","whoisxml"],"evidence_count":2,"confidence":"high","promote":"-d x.org"}],` +
-		`"candidates_total":23,"unconfirmed_risky_ports":3,"notes":["n1"],` +
+		`"candidates_total":23,"unconfirmed_risky_ports":3,"hosts_in_scope_by_address":2,"notes":["n1"],` +
 		`"changes":{"counts":[{"kind":"hostname","change":"new","n":2}],` +
 		`"findings":[{"severity":"high","category":"exposed-admin","target":"https://a.example.com/admin","detail":"login <page> & more"}]}},` +
 		`"meta":{"count":1,"deadline_exceeded":true,"jobs_completed":5,"jobs_cancelled":2,"warnings":["w"]}}` + "\n"
@@ -69,7 +70,7 @@ func TestEnvelope_ZeroValueShape(t *testing.T) {
 	t.Parallel()
 	out := encode(t, report.Envelope{})
 	want := `{"data":{"engagement":"","directory":"","counts":[],"failed_jobs":[],"deferred":[],"not_configured":[],` +
-		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"notes":[],"changes":null},` +
+		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"hosts_in_scope_by_address":0,"notes":[],"changes":null},` +
 		`"meta":{"count":0,"deadline_exceeded":false,"jobs_completed":0,"jobs_cancelled":0,"warnings":[]}}` + "\n"
 	if got := out; got != want {
 		t.Errorf("zero envelope\n got %s\nwant %s", got, want)

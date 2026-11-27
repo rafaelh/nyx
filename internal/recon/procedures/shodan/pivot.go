@@ -72,17 +72,18 @@ type pivotInput struct {
 	sc        *scope.Scope
 }
 
-// Jobs emits one sorted job per identifier on a visible, non-SaaS service. SaaS identifiers
-// belong to the platform, so they cannot support organisation pivots. The hosting test matches
+// Jobs emits one sorted job per identifier on a visible, non-SaaS service whose host is not in
+// scope by address. SaaS identifiers belong to the platform, so they cannot support organisation
+// pivots, and a name its address brought in is not the organisation's own. The hosting test matches
 // web-posture findings.
 func (*Pivot) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
+	sc := v.Scope()
 	pivotable := map[string]bool{} // the service keys
 	for _, ws := range v.WebServices() {
-		if !v.SaaSServed(ws.Svc.Host) {
+		if !sc.InScopeByAddress(ws.Svc.Host) && !v.SaaSServed(ws.Svc.Host) {
 			pivotable[ws.Key] = true
 		}
 	}
-	sc := v.Scope()
 	keys := map[string]pivotInput{}
 	for _, rec := range v.Records(kinds.WebIdentifier) {
 		a := kinds.WebIdentifier.Attrs(rec)

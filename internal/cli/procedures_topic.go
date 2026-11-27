@@ -38,6 +38,7 @@ var procedureHelps = map[string]procedureHelp{
 	"permutations":     {"", "Variations of found labels and the wordlist that exist in DNS"},
 	"learned-names":    {"", "Labels of found names tried under the other zones that have names"},
 	"rdns":             {"", "PTR records of the addresses in in-scope netblocks"},
+	"in-netblock":      {"", "Addresses of candidate names, which bring into scope those served from an in-scope netblock"},
 	"ipowner":          {"", "Origin AS of each address outside the in-scope netblocks (Team Cymru)"},
 	"netblockowner":    {"", "Origin AS of the addresses inside the in-scope netblocks, once per /24 or /48, for the abusive-network check (Team Cymru)"},
 	"dnsrecords":       {"", "NS, MX and TXT records of each name below the roots, and the names and third parties they show"},

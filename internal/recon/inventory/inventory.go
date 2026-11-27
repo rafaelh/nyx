@@ -267,14 +267,14 @@ func (i *Inventory) Representatives(sc *scope.Scope) map[string]string {
 // beneath them would not reveal distinct hosts.
 func (i *Inventory) WildcardZone(name string) bool { return i.zone[name] }
 
-// Seeds selects in-scope names observed by procedures other than the generator. It excludes
-// wildcard-only names and names whose parent is outside scope or a wildcard zone. This avoids
-// splitting an apex at its public suffix and feeding generated names back into discovery.
+// Seeds selects names in scope by their name (under an input root) observed by procedures other
+// than the generator. It excludes wildcard-only names and names whose parent is not in scope by
+// its name or is a wildcard zone. This avoids splitting an apex at its public suffix and feeding
+// generated names back into discovery.
 func (i *Inventory) Seeds(sc *scope.Scope, generator string) []string {
 	var out []string
 	for _, h := range i.d.Hosts {
-		if i.wo[h.Name] || i.zone[parent(h.Name)] || !sc.HostInScope(h.Name) ||
-			!sc.HostInScope(parent(h.Name)) {
+		if i.wo[h.Name] || i.zone[parent(h.Name)] || !sc.NameInScope(h.Name) || !sc.NameInScope(parent(h.Name)) {
 			continue
 		}
 		if FoundByOther(h.Producers, generator) {

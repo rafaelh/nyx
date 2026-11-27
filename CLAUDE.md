@@ -142,7 +142,8 @@ it performs and records.
   own), `ASNExpander` (its netblocks under an input ASN's job are in scope; the asn procedure), and
   `Budgeted` (a per-run cap on the summed `Job.Cost` of the jobs sent; the runner defers the
   first job that would pass it and all after it, without failing or retiring them, and the
-  summary reports the deferred cost). `Paid` marks a procedure whose source has no free plan that
+  summary reports the deferred cost; a job with `Job.Unbudgeted` set is admitted without a charge
+  even after that). `Paid` marks a procedure whose source has no free plan that
   does its work: when `Configured` gives `run.ReasonNoKey`, the runner leaves it out of the output
   (no procedure state, no `not_configured` entry) instead of showing it as not-configured. `Required` marks a procedure others depend on, which
   `--skip` refuses. `Historical` marks a procedure whose addresses come from DNS history: an address that only such procedures
@@ -173,7 +174,9 @@ time from the current scope. An entity kind carries its own placement rule (in s
 or excluded).
 
 **Derived on read, never stored by procedures.** `scope` (classifies hosts and addresses as
-in-scope, candidate or excluded), `inventory` (wildcards, provider hosts, port eligibility) and
+in-scope, candidate or excluded; a candidate whose `candidate_lookup` record has an address in an
+in-scope netblock is in scope by address, `Scope.ByAddress`, while `ClassifyName` judges a name by
+the roots alone), `inventory` (wildcards, provider hosts, port eligibility) and
 `findings` are pure functions of the current records, scope, settings and date. Risk procedures
 (`internal/recon/procedures/risk`) store only *evidence* kinds. `internal/recon/analysis/findings` derives findings from
 the evidence that is shown. A finding that is no longer derived stays on record but is marked not
@@ -187,7 +190,10 @@ severity and to keep the storage attribution for the render).
 `nyx recon export` (`internal/cli/export.go`) reads an engagement without running it: `engagement.OpenReadOnly`
 takes no lock, creates nothing and returns a `store.ReadOnly` whose `View` gives one snapshot, and
 `run.BuildScope` classifies records with the same rules as a run. A kind a new procedure's scope depends on goes in `scopeKinds`
-(`internal/recon/run/scopebuild.go`), which the candidate-rank analysis also reads.
+(`internal/recon/run/scopebuild.go`), which the candidate-rank analysis also reads. Scope also
+depends on two settings, `in_netblock.enabled` and `in_netblock.max_names_per_address`: the runner
+writes the run's values to the store's `meta` table before its first scope build, and `BuildScope`
+reads them through `ScopeSource.Meta`, so an export classifies names as the last run did.
 
 **Pure knowledge packages** with no I/O. In `internal/knowledge/`: `cloudstorage` (bucket naming,
 S3/GCS/Azure), `provider` (shared infrastructure from CNAME suffixes, address ranges and ASNs; data

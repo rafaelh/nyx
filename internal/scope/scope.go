@@ -44,6 +44,12 @@ type Config struct {
 	// ASN values use the canonical "AS123" form; expansion into netblocks happens
 	// separately.
 	ASNs, Orgs []string
+	// Lookups holds the addresses of each candidate name's lookup, by name; nil when promotion
+	// by address is off.
+	Lookups map[string][]netip.Addr
+	// MaxNamesPerAddress is the shared-hosting guard: an in-scope address listed by more of
+	// the Lookups names than this brings none of them into scope.
+	MaxNamesPerAddress int
 }
 
 // Scope classifies names and addresses.
@@ -59,6 +65,9 @@ type Scope struct {
 	hostAddrs map[netip.Addr]bool   // addresses of in-scope, non-wildcard-only hostnames
 	asns      map[string]bool
 	orgs      []orgname.Org
+	byAddr    map[string]byAddress // names in scope by address
+	promotes  bool                 // Config.Lookups was given: promotion by address is on
+	shared    []netip.Addr         // in-netblock addresses over the shared-hosting guard, sorted
 }
 
 func New(c Config) *Scope {
@@ -72,7 +81,7 @@ func New(c Config) *Scope {
 		s.orgs = append(s.orgs, orgname.New(o))
 	}
 	for _, p := range c.Netblocks {
-		s.blockSet[p] = true
+		s.blockSet[p.Masked()] = true
 		s.blockBits = append(s.blockBits, p.Bits())
 	}
 	slices.Sort(s.blockBits)
@@ -93,8 +102,9 @@ func New(c Config) *Scope {
 			}
 		}
 	}
+	s.promote(c.Lookups, c.MaxNamesPerAddress)
 	for h, addrs := range s.resolved {
-		if c.WildcardOnly[h] || s.ClassifyHost(h).Class != InScope {
+		if c.WildcardOnly[h] || !s.NameInScope(h) {
 			continue
 		}
 		for _, a := range addrs {
@@ -102,6 +112,61 @@ func New(c Config) *Scope {
 		}
 	}
 	return s
+}
+
+// byAddress is the address that brings a name into scope, and the narrowest in-scope netblock
+// holding it.
+type byAddress struct {
+	addr  netip.Addr
+	block netip.Prefix
+}
+
+// promote works out the names in scope by address: of the looked-up names under no root and
+// matching no name exclusion, each with an address inside an in-scope netblock that at most max
+// of them list, none of whose addresses is in an excluded CIDR and that is not generic for any of
+// its IPv4 addresses. A generic or CIDR-excluded name is still counted against the guard.
+func (s *Scope) promote(lookups map[string][]netip.Addr, max int) {
+	s.byAddr = map[string]byAddress{}
+	s.promotes = lookups != nil
+	if len(s.netblocks) == 0 {
+		return
+	}
+	names := map[string][]netip.Addr{}
+	listed := map[netip.Addr]int{} // the looked-up names of each in-netblock address
+	for h, addrs := range lookups {
+		h = dnsname.Normalise(h)
+		if _, ok := s.matchName(h); ok || s.RootOf(h) != "" {
+			continue
+		}
+		names[h] = addrs
+		for _, a := range addrs {
+			if s.InScopeIP(a) {
+				listed[a]++
+			}
+		}
+	}
+	for a, n := range listed {
+		if n > max {
+			s.shared = append(s.shared, a)
+		}
+	}
+	slices.SortFunc(s.shared, netip.Addr.Compare)
+	for h, addrs := range names {
+		var best netip.Addr
+		for _, a := range addrs {
+			if n, ok := listed[a]; ok && n <= max && (!best.IsValid() || a.Less(best)) {
+				best = a
+			}
+		}
+		if !best.IsValid() || slices.ContainsFunc(addrs, func(a netip.Addr) bool {
+			_, excl := s.cidrOf(a)
+			return excl || dnsname.Generic(h, a)
+		}) {
+			continue
+		}
+		block, _ := s.holder(best)
+		s.byAddr[h] = byAddress{best, block.Masked()}
+	}
 }
 
 func normaliseAll(in []string) []string {
@@ -136,8 +201,22 @@ func (s *Scope) HostInScope(host string) bool { return s.ClassifyHost(host).Clas
 func (s *Scope) Addrs(host string) []netip.Addr { return s.resolved[dnsname.Normalise(host)] }
 
 // ClassifyHost applies name exclusions and excluded resolved CIDRs before classifying a name as
-// in scope or a candidate.
+// in scope (under an input root, or by an address of its candidate lookup) or a candidate.
 func (s *Scope) ClassifyHost(host string) Classification {
+	c := s.ClassifyName(host)
+	if c.Class == Candidate && s.InScopeByAddress(host) {
+		return Classification{InScope, ""}
+	}
+	return c
+}
+
+// NameInScope reports whether host is in scope by its name: under an input root and not
+// excluded. A name in scope only by its address is not.
+func (s *Scope) NameInScope(host string) bool { return s.ClassifyName(host).Class == InScope }
+
+// ClassifyName classifies host by name exclusions, resolved addresses in excluded CIDRs and the
+// input roots alone: a name in scope by address is a candidate here.
+func (s *Scope) ClassifyName(host string) Classification {
 	h := dnsname.Normalise(host)
 	if e, ok := s.matchName(h); ok {
 		return Classification{Excluded, "matched exclusion " + e.Entry}
@@ -169,12 +248,22 @@ func (s *Scope) RootOf(host string) string {
 
 // InScopeIP reports whether the address is inside an in-scope netblock.
 func (s *Scope) InScopeIP(a netip.Addr) bool {
-	for _, p := range s.netblocks {
-		if p.Contains(a) {
+	for _, bits := range s.blockBits {
+		if p, err := a.Prefix(bits); err == nil && s.blockSet[p] {
 			return true
 		}
 	}
 	return false
+}
+
+// holder returns the narrowest in-scope netblock holding the address.
+func (s *Scope) holder(a netip.Addr) (holder netip.Prefix, ok bool) {
+	for _, p := range s.netblocks {
+		if p.Contains(a) && (!ok || p.Bits() > holder.Bits()) {
+			holder, ok = p, true
+		}
+	}
+	return holder, ok
 }
 
 // WebHostInScope controls web-record visibility for reports and counts. Names must be in scope;
@@ -274,6 +363,37 @@ func (s *Scope) portVerdict(a netip.Addr, owner Owner) portVerdict {
 	return portOutside
 }
 
+// ByAddress reports whether host is in scope by an address of its candidate lookup, with the
+// lowest such address and the narrowest in-scope netblock holding it.
+func (s *Scope) ByAddress(host string) (addr netip.Addr, block netip.Prefix, ok bool) {
+	b, ok := s.byAddr[dnsname.Normalise(host)]
+	return b.addr, b.block, ok
+}
+
+// PromotesByAddress reports whether names can enter scope by address: promotion is on and there
+// is an in-scope netblock.
+func (s *Scope) PromotesByAddress() bool { return s.promotes && len(s.netblocks) > 0 }
+
+// InScopeByAddress reports whether host is in scope by an address of its candidate lookup.
+func (s *Scope) InScopeByAddress(host string) bool {
+	_, ok := s.byAddr[dnsname.Normalise(host)]
+	return ok
+}
+
+// SharedHosting returns, sorted, the in-scope addresses listed by more lookup names than the
+// shared-hosting guard allows.
+func (s *Scope) SharedHosting() []netip.Addr { return slices.Clone(s.shared) }
+
+// DialAddrs returns the addresses host may be dialled at: for a name in scope by address, its
+// resolved addresses inside an in-scope netblock; for any other name, Addrs.
+func (s *Scope) DialAddrs(host string) []netip.Addr {
+	addrs := s.Addrs(host)
+	if !s.InScopeByAddress(host) {
+		return addrs
+	}
+	return slices.DeleteFunc(slices.Clone(addrs), func(a netip.Addr) bool { return !s.InScopeIP(a) })
+}
+
 // Netblocks returns the in-scope netblocks.
 func (s *Scope) Netblocks() []netip.Prefix { return slices.Clone(s.netblocks) }
 
@@ -359,12 +479,7 @@ func (s *Scope) IPv4Addrs() iter.Seq[netip.Addr] {
 // outside all in-scope netblocks return ok=false.
 func (s *Scope) OwnerUnit(a netip.Addr) (unit netip.Prefix, ok bool) {
 	a = a.Unmap()
-	var holder netip.Prefix // the smallest in-scope netblock holding the address
-	for _, p := range s.netblocks {
-		if p.Contains(a) && (!ok || p.Bits() > holder.Bits()) {
-			holder, ok = p, true
-		}
-	}
+	holder, ok := s.holder(a)
 	if !ok {
 		return netip.Prefix{}, false
 	}

@@ -338,6 +338,8 @@ func (s *snapshotSource) Observations(k kinds.Named, procedure string) ([]store.
 	return s.r.Observations(k.Name(), procedure)
 }
 
+func (s *snapshotSource) Meta(key string) (string, bool) { return s.r.Meta(key) }
+
 // cleanText sanitises display text and masks API keys.
 func cleanText(s string, red *config.Redactor) string { return red.Redact(sanitize.Text(s)) }
 

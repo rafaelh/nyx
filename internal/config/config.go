@@ -95,6 +95,17 @@ type ReverseIP struct {
 	MaxDomains int
 }
 
+// InNetblock holds the settings of the in-netblock procedure, which looks up candidate names
+// and brings into scope those served from an in-scope netblock.
+type InNetblock struct {
+	Enabled bool
+	// MaxLookups budgets candidate lookups per run.
+	MaxLookups int
+	// MaxNamesPerAddress is the shared-hosting guard: an in-scope address more looked-up names
+	// point at than this brings none of them into scope.
+	MaxNamesPerAddress int
+}
+
 // DNSHistory holds the settings of the dnshistory procedure.
 type DNSHistory struct {
 	// MaxHosts budgets historical hostname lookups across runs.
@@ -170,6 +181,7 @@ type Settings struct {
 	// findings.
 	EOLWarnDays int
 	NSReverse   NSReverse
+	InNetblock  InNetblock
 }
 
 // Key returns the configured API key for a source, matched case-insensitively. ok is false when
@@ -208,6 +220,7 @@ func Defaults() Settings {
 		OriginCheck:     OriginCheck{MaxCandidates: 5},
 		EOLWarnDays:     90,
 		NSReverse:       NSReverse{MaxDomains: 1000},
+		InNetblock:      InNetblock{Enabled: true, MaxLookups: 1000, MaxNamesPerAddress: 100},
 		Censys:          PagedSource{MaxPages: 10},
 		Chaos:           PagedSource{MaxPages: 10},
 
@@ -325,6 +338,8 @@ var settingTable = []setting{
 	{"github-max-results", "github.max_results"},
 	{"dnshistory-max-hosts", "dnshistory.max_hosts"}, {"origincheck-max-candidates", "origincheck.max_candidates"},
 	{"eol-warn-days", "eol_warn_days"}, {"nsreverse-max-domains", "nsreverse.max_domains"},
+	{"in-netblock-max-lookups", "in_netblock.max_lookups"},
+	{"in-netblock-max-names-per-address", "in_netblock.max_names_per_address"},
 }
 
 // RegisterFlags exposes settings through flags while leaving credentials file-only.
@@ -369,6 +384,9 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	intFlag(fs, "origincheck-max-candidates", d.OriginCheck.MaxCandidates, "Maximum origin candidates kept, and checked, for each hostname behind a CDN or WAF")
 	intFlag(fs, "eol-warn-days", d.EOLWarnDays, "Report software whose security support ends within this many days (0 turns the warning off)")
 	intFlag(fs, "nsreverse-max-domains", d.NSReverse.MaxDomains, "Domains one self-hosted name server or mail host may host before it is treated as shared hosting and nothing is recorded")
+	fs.Bool("no-in-netblock", false, "Do not look up candidate names, nor bring into scope those served from an in-scope netblock (default: on)")
+	intFlag(fs, "in-netblock-max-lookups", d.InNetblock.MaxLookups, "Maximum candidate names looked up per run; the rest are deferred to later runs")
+	intFlag(fs, "in-netblock-max-names-per-address", d.InNetblock.MaxNamesPerAddress, "Names one in-scope address may serve before it is treated as shared hosting and none of them enters scope")
 }
 
 // numberFlag preserves numeric text for combined validation in Load. Its Type avoids
@@ -461,6 +479,11 @@ type rawSettings struct {
 	NSReverse   struct {
 		MaxDomains string `mapstructure:"max_domains"`
 	} `mapstructure:"nsreverse"`
+	InNetblock struct {
+		Enabled            string `mapstructure:"enabled"`
+		MaxLookups         string `mapstructure:"max_lookups"`
+		MaxNamesPerAddress string `mapstructure:"max_names_per_address"`
+	} `mapstructure:"in_netblock"`
 	// KeyTests stores setup's last key-test results. Other commands accept any contents;
 	// setup ignores unreadable entries.
 	KeyTests any `mapstructure:"key_tests"`
@@ -542,6 +565,8 @@ func setDefaults(v *viper.Viper, d Settings) {
 		"github.max_results":           d.GitHub.MaxResults,
 		"dnshistory.max_hosts":         d.DNSHistory.MaxHosts, "origincheck.max_candidates": d.OriginCheck.MaxCandidates,
 		"eol_warn_days": d.EOLWarnDays, "nsreverse.max_domains": d.NSReverse.MaxDomains,
+		"in_netblock.enabled": d.InNetblock.Enabled, "in_netblock.max_lookups": d.InNetblock.MaxLookups,
+		"in_netblock.max_names_per_address": d.InNetblock.MaxNamesPerAddress,
 	}
 	for k, val := range defaults {
 		v.SetDefault(k, val)
@@ -656,26 +681,35 @@ func (c settingChecker) numbers(raw rawSettings, s *Settings) {
 	c.posInt("origincheck.max_candidates", raw.OriginCheck.MaxCandidates, 1, &s.OriginCheck.MaxCandidates)
 	c.posInt("eol_warn_days", raw.EOLWarnDays, 0, &s.EOLWarnDays)
 	c.posInt("nsreverse.max_domains", raw.NSReverse.MaxDomains, 1, &s.NSReverse.MaxDomains)
+	c.posInt("in_netblock.max_lookups", raw.InNetblock.MaxLookups, 1, &s.InNetblock.MaxLookups)
+	c.posInt("in_netblock.max_names_per_address", raw.InNetblock.MaxNamesPerAddress, 1, &s.InNetblock.MaxNamesPerAddress)
 	if s.GitHub.MaxResults > maxGitHubResults {
 		c.bad("github.max_results", raw.GitHub.MaxResults, fmt.Sprintf("must be at most %d", maxGitHubResults))
 	}
 }
 
-// choices validates skip/permutation choices, applying explicit --no-permutations.
+// choices validates skip, permutation and in-netblock choices, applying explicit
+// --no-permutations and --no-in-netblock.
 func (c settingChecker) choices(raw rawSettings, s *Settings, fs *pflag.FlagSet) {
 	if skip, err := parseSkip(raw.Skip); err != nil {
 		c.bad("skip", strings.Join(raw.Skip, ","), err.Error())
 	} else {
 		s.Skip = skip
 	}
-	if enabled, err := strconv.ParseBool(strings.TrimSpace(raw.Permutations.Enabled)); err != nil {
-		c.bad("permutations.enabled", raw.Permutations.Enabled, "not true or false")
+	c.toggle("permutations.enabled", raw.Permutations.Enabled, "no-permutations", fs, &s.Permutations.Enabled)
+	c.toggle("in_netblock.enabled", raw.InNetblock.Enabled, "no-in-netblock", fs, &s.InNetblock.Enabled)
+}
+
+// toggle parses an on/off setting into dst, which an explicit --no-<name> flag turns off.
+func (c settingChecker) toggle(key, raw, noFlag string, fs *pflag.FlagSet, dst *bool) {
+	if enabled, err := strconv.ParseBool(strings.TrimSpace(raw)); err != nil {
+		c.bad(key, raw, "not true or false")
 	} else {
-		s.Permutations.Enabled = enabled
+		*dst = enabled
 	}
 	if fs != nil {
-		if f := fs.Lookup("no-permutations"); f != nil && f.Changed && f.Value.String() == "true" {
-			s.Permutations.Enabled = false
+		if f := fs.Lookup(noFlag); f != nil && f.Changed && f.Value.String() == "true" {
+			*dst = false
 		}
 	}
 }

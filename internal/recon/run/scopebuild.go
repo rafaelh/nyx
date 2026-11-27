@@ -2,7 +2,9 @@ package run
 
 import (
 	"net/netip"
+	"strconv"
 
+	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/knowledge/provider"
@@ -16,7 +18,15 @@ import (
 // scope change also triggers reranking. Ranking additionally reads the candidate kinds it
 // produces; see newAnalyses.
 var scopeKinds = []kinds.Named{kinds.Hostname, kinds.Root, kinds.Netblock, kinds.Resolution, kinds.Wildcard,
-	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration, kinds.ServerAddress}
+	kinds.IP, kinds.IPOwner, kinds.IPHostname, kinds.ProviderRange, kinds.PortCheck, kinds.Registration, kinds.ServerAddress,
+	kinds.CandidateLookup}
+
+// The meta keys under which a run stores the settings scope depends on, so that every reader of
+// the engagement, an export included, classifies names as the last run did.
+const (
+	metaInNetblockEnabled  = "in_netblock.enabled"
+	metaMaxNamesPerAddress = "in_netblock.max_names_per_address"
+)
 
 // ScopeSource supplies records for scope classification. Runs read through the store; exports
 // read a single snapshot. Both use the same classification code.
@@ -26,6 +36,8 @@ type ScopeSource interface {
 	CurrentRecords(kinds.Named) ([]store.Record, error)
 	// Observations lists the observations of a kind made by a procedure.
 	Observations(kind kinds.Named, procedure string) ([]store.ObsRow, error)
+	// Meta reads a value from the engagement's meta table.
+	Meta(key string) (string, bool)
 }
 
 // rangeCache lets BuildScope reuse the provider-range index between builds. Other sources are
@@ -75,9 +87,36 @@ func BuildScope(in input.Parsed, procedures []Procedure, src ScopeSource) (*Buil
 		return nil, err
 	}
 	inv := inventory.New(data, provider.Default())
+	lookups, maxNames, err := candidateLookups(src)
+	if err != nil {
+		return nil, err
+	}
 	sc := scope.New(scope.Config{Roots: in.Roots, Netblocks: blocks, Exclusions: excl, Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
-		ASNs: in.ASNs, Orgs: in.Orgs})
+		ASNs: in.ASNs, Orgs: in.Orgs, Lookups: lookups, MaxNamesPerAddress: maxNames})
 	return &Built{Scope: sc, Inv: inv, Vis: kinds.NewVisibility(sc, inv), ASNNetblocks: asnBlocks}, nil
+}
+
+// candidateLookups gives the addresses of each current candidate lookup by name, or nil when the
+// last run turned promotion by address off, and the shared-hosting guard that run used.
+func candidateLookups(src ScopeSource) (map[string][]netip.Addr, int, error) {
+	maxNames := config.Defaults().InNetblock.MaxNamesPerAddress // when no run has stored the setting
+	if v, ok := src.Meta(metaMaxNamesPerAddress); ok {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxNames = n
+		}
+	}
+	if v, ok := src.Meta(metaInNetblockEnabled); ok && v == "false" {
+		return nil, maxNames, nil
+	}
+	recs, err := src.CurrentRecords(kinds.CandidateLookup)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := map[string][]netip.Addr{}
+	for _, rec := range recs {
+		out[rec.Key] = kinds.CandidateLookup.Attrs(rec).Addresses()
+	}
+	return out, maxNames, nil
 }
 
 // asnNetblocks maps netblocks observed by ASNExpander procedures to their input ASN. It uses job
@@ -264,6 +303,8 @@ func (s runnerSource) Observations(k kinds.Named, procedure string) ([]store.Obs
 	return s.r.st.Observations(k.Name(), procedure)
 }
 
+func (s runnerSource) Meta(key string) (string, bool) { return s.r.st.Meta(key) }
+
 // ProviderRanges caches the index until the store's provider_range version changes. Scope is
 // rebuilt after every procedure, so this avoids repeatedly indexing thousands of rows.
 func (s runnerSource) ProviderRanges() (*provider.Ranges, error) {
@@ -278,4 +319,14 @@ func (s runnerSource) ProviderRanges() (*provider.Ranges, error) {
 	}
 	r.ranges, r.rangesVer = indexRanges(recs), ver
 	return r.ranges, nil
+}
+
+// storeScopeSettings writes the run's settings that scope depends on to the meta table, before
+// the first scope build, so that BuildScope reads the same values for the run and for an export.
+func (r *Runner) storeScopeSettings() error {
+	s := r.cfg.Settings.InNetblock
+	if err := r.st.SetMeta(metaInNetblockEnabled, strconv.FormatBool(s.Enabled)); err != nil {
+		return err
+	}
+	return r.st.SetMeta(metaMaxNamesPerAddress, strconv.Itoa(s.MaxNamesPerAddress))
 }

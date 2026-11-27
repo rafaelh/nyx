@@ -215,7 +215,7 @@ func (in input) hostnames(it match) []string {
 				continue
 			}
 			n := scopeinput.CleanName(strings.Trim(tok, ".-"))
-			if n != "" && !slices.Contains(in.roots, n) && in.sc.HostInScope(n) {
+			if n != "" && !slices.Contains(in.roots, n) && in.sc.NameInScope(n) {
 				set[n] = true
 			}
 		}

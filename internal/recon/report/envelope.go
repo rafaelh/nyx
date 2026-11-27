@@ -51,6 +51,7 @@ func (e Envelope) clone(f func(string) string, nonNil bool) Envelope {
 		Candidates:            mapRows(s.Candidates, nonNil, func(r CandidateRow) CandidateRow { return cloneCandidate(r, nonNil, f) }),
 		CandidatesTotal:       s.CandidatesTotal,
 		UnconfirmedRiskyPorts: s.UnconfirmedRiskyPorts,
+		HostsInScopeByAddress: s.HostsInScopeByAddress,
 		Notes:                 mapRows(s.Notes, nonNil, f),
 	}
 	if s.Changes != nil {

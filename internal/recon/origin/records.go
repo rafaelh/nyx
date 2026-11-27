@@ -43,6 +43,9 @@ func (p Pair) JobKey() string {
 func FrontedHosts(sc *scope.Scope, inv *inventory.Inventory) []Front {
 	var out []Front
 	for _, h := range inv.ProbeHostnames(sc) {
+		if sc.InScopeByAddress(h) {
+			continue // its own address brought it in, so it has no origin to find
+		}
 		if p, ok := inv.Fronted(h); ok {
 			out = append(out, Front{Host: h, Provider: p})
 		}

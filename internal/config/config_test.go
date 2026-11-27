@@ -403,6 +403,8 @@ func TestIntSettings(t *testing.T) {
 		{"nsreverse.max_domains", "--nsreverse-max-domains", 1000, 1, func(s config.Settings) int { return s.NSReverse.MaxDomains }},
 		{"jsparse.max_scripts", "--jsparse-max-scripts", 50, 1, func(s config.Settings) int { return s.JSParse.MaxScripts }},
 		{"identifier_pivot.max_queries", "--identifier-pivot-max-queries", 50, 1, func(s config.Settings) int { return s.IdentifierPivot.MaxQueries }},
+		{"in_netblock.max_lookups", "--in-netblock-max-lookups", 1000, 1, func(s config.Settings) int { return s.InNetblock.MaxLookups }},
+		{"in_netblock.max_names_per_address", "--in-netblock-max-names-per-address", 100, 1, func(s config.Settings) int { return s.InNetblock.MaxNamesPerAddress }},
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			t.Parallel()
@@ -410,6 +412,20 @@ func TestIntSettings(t *testing.T) {
 			checkIntPrecedence(t, c)
 			checkIntRejected(t, c)
 		})
+	}
+}
+
+// Promotion by address defaults on and respects file/flag disablement.
+func TestInNetblockEnabled(t *testing.T) {
+	t.Parallel()
+	if s, err := load(t, nil, ""); err != nil || !s.InNetblock.Enabled {
+		t.Errorf("default: %+v %v", s.InNetblock, err)
+	}
+	if s, err := load(t, nil, "", "--no-in-netblock"); err != nil || s.InNetblock.Enabled {
+		t.Errorf("--no-in-netblock: %+v %v", s.InNetblock, err)
+	}
+	if s, err := load(t, nil, writeFile(t, "in_netblock:\n  enabled: false\n")); err != nil || s.InNetblock.Enabled {
+		t.Errorf("file: %+v %v", s.InNetblock, err)
 	}
 }
 

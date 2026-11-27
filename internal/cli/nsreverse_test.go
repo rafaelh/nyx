@@ -432,8 +432,10 @@ func TestNSReverse_NothingFoundIsContacted(t *testing.T) {
 		}
 	}
 	for _, root := range []string{"sister-org.test", "alpha-corp.test", "mx-only.test", "eligible-co.test", "mailco.test"} {
-		if n := x.dns.Count(root, "A") + x.dns.Count(root, "AAAA"); n != 0 {
-			t.Errorf("candidate root %s was resolved (%d queries)", root, n)
+		// With a netblock in scope, each candidate root is looked up once through the public
+		// resolvers to see whether it is served from the netblock; that is not contact.
+		if a, aaaa := x.dns.Count(root, "A"), x.dns.Count(root, "AAAA"); a > 1 || aaaa > 1 {
+			t.Errorf("candidate root %s was resolved more than once (A %d, AAAA %d)", root, a, aaaa)
 		}
 		if x.dns.Count(root, "NS")+x.dns.Count(root, "SOA")+x.dns.Count(root, "TXT")+x.dns.Count(root, "MX") != 0 {
 			t.Errorf("candidate root %s was looked up", root)

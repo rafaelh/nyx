@@ -119,71 +119,90 @@ func (*Resolve) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Obs
 	return append(obs, kinds.Hostname.Obs(name, kinds.HostnameAttrs{})), nil
 }
 
-// answer is what the A and AAAA lookups of a name gave: its addresses and the targets of its own
-// CNAMEs.
+// answer is what the A and AAAA lookups of a name gave: its distinct addresses and CNAME links, in
+// answer order, and the reason it has no address when it has none.
 type answer struct {
-	addrs, cnames []string
-	chained       bool // any CNAME in the chain
+	name  string
+	addrs []netip.Addr
+	links []egress.CNAME
+	rcode string
 }
 
-func (a answer) found() bool { return len(a.addrs) > 0 || a.chained }
+func (a answer) found() bool { return len(a.addrs) > 0 || len(a.links) > 0 }
 
 // matches reports whether the answer is its zone's wildcard's, by the rule inventory uses to mark
-// a name wildcard-only: one of its addresses is a wildcard address, or its CNAME is the wildcard's
-// target.
+// a name wildcard-only: one of its addresses is a wildcard address, or its own CNAME is the
+// wildcard's target.
 func (a answer) matches(w kinds.WildcardAttrs) bool {
-	return w.CNAME != "" && slices.Contains(a.cnames, w.CNAME) ||
-		slices.ContainsFunc(a.addrs, func(s string) bool { return slices.Contains(w.Addrs, s) })
+	return w.CNAME != "" && slices.ContainsFunc(a.links, func(l egress.CNAME) bool {
+		return dnsname.Normalise(l.Name) == a.name && l.Target == w.CNAME
+	}) || slices.ContainsFunc(a.addrs, func(addr netip.Addr) bool { return slices.Contains(w.Addrs, addr.String()) })
 }
 
-// resolve asks A and AAAA for the name and returns its observations and the answer. The in-scope
-// target of each in-scope alias in the chain is observed as a hostname.
-func resolve(ctx context.Context, e egress.Clients, name string, sc *scope.Scope) (obs []run.Observation, ans answer, err error) {
-	a, err := lookup(ctx, e, name, egress.TypeA)
+// resolve asks A and AAAA for the name and returns its observations and the answer.
+func resolve(ctx context.Context, e egress.Clients, name string, sc *scope.Scope) ([]run.Observation, answer, error) {
+	ans, err := ask(ctx, e, name)
 	if err != nil {
 		return nil, ans, err
+	}
+	obs := ans.observations(sc)
+	if len(ans.addrs) == 0 {
+		obs = append(obs, kinds.Unresolved.Obs(name, kinds.UnresolvedAttrs{RCode: ans.rcode}))
+	}
+	return obs, ans, nil
+}
+
+// ask asks A and AAAA for the name. A timeout is an error.
+func ask(ctx context.Context, e egress.Clients, name string) (answer, error) {
+	ans := answer{name: name}
+	a, err := lookup(ctx, e, name, egress.TypeA)
+	if err != nil {
+		return ans, err
 	}
 	aaaa, err := lookup(ctx, e, name, egress.TypeAAAA)
 	if err != nil {
-		return nil, ans, err
+		return ans, err
 	}
-	links := map[egress.CNAME]bool{}
 	for _, res := range []egress.DNSResult{a, aaaa} {
 		for _, l := range res.CNAMEs {
-			if !links[l] {
-				links[l] = true
-				if dnsname.Normalise(l.Name) == name {
-					ans.cnames = append(ans.cnames, l.Target)
-				}
-				obs = append(obs, kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: l.Name, Type: "CNAME", Value: l.Target}))
-				if cnameHost(sc, l.Name, l.Target) {
-					obs = append(obs, kinds.Hostname.Obs(l.Target, kinds.HostnameAttrs{}))
-				}
+			if !slices.Contains(ans.links, l) {
+				ans.links = append(ans.links, l)
 			}
 		}
 	}
-	seen := map[netip.Addr]bool{}
 	for _, res := range []egress.DNSResult{a, aaaa} {
 		for _, addr := range res.Addrs() {
-			if seen[addr] {
-				continue
+			if !slices.Contains(ans.addrs, addr) {
+				ans.addrs = append(ans.addrs, addr)
 			}
-			seen[addr] = true
-			typ := "AAAA"
-			if addr.Is4() {
-				typ = "A"
-			}
-			ans.addrs = append(ans.addrs, addr.String())
-			obs = append(obs,
-				kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: name, Type: typ, Value: addr.String()}),
-				kinds.IP.Obs(addr.String()))
 		}
 	}
-	if len(seen) == 0 {
-		obs = append(obs, kinds.Unresolved.Obs(name, kinds.UnresolvedAttrs{RCode: rcodeName(a, aaaa)}))
+	if len(ans.addrs) == 0 {
+		ans.rcode = rcodeName(a, aaaa)
 	}
-	ans.chained = len(links) > 0
-	return obs, ans, nil
+	return ans, nil
+}
+
+// observations turns an answer into its records: a resolution row per CNAME link and per address,
+// an ip per address, and a hostname for the in-scope target of each in-scope alias in the chain.
+func (a answer) observations(sc *scope.Scope) []run.Observation {
+	var obs []run.Observation
+	for _, l := range a.links {
+		obs = append(obs, kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: l.Name, Type: "CNAME", Value: l.Target}))
+		if cnameHost(sc, l.Name, l.Target) {
+			obs = append(obs, kinds.Hostname.Obs(l.Target, kinds.HostnameAttrs{}))
+		}
+	}
+	for _, addr := range a.addrs {
+		typ := "AAAA"
+		if addr.Is4() {
+			typ = "A"
+		}
+		obs = append(obs,
+			kinds.Resolution.Obs(kinds.ResolutionAttrs{Name: a.name, Type: typ, Value: addr.String()}),
+			kinds.IP.Obs(addr.String()))
+	}
+	return obs
 }
 
 // rcodeName prioritises NXDOMAIN, then either query's SERVFAIL, otherwise NODATA when no

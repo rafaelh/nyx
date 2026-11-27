@@ -22,7 +22,7 @@ import (
 var (
 	envelopeKeys = []string{"data", "meta"}
 	dataKeys     = []string{"engagement", "directory", "counts", "failed_jobs", "deferred", "not_configured", "findings",
-		"candidates", "candidates_total", "unconfirmed_risky_ports", "notes", "changes"}
+		"candidates", "candidates_total", "unconfirmed_risky_ports", "hosts_in_scope_by_address", "notes", "changes"}
 	metaKeys = []string{"count", "deadline_exceeded", "jobs_completed", "jobs_cancelled", "warnings"}
 )
 
@@ -114,7 +114,7 @@ func TestEnvelope_ExactBytes(t *testing.T) {
 		`,"counts":[{"category":"code mentions","n":0},{"category":"findings","n":0},{"category":"hosts","n":1},{"category":"ips","n":0},` +
 		`{"category":"open ports (confirmed)","n":0},{"category":"open ports (third-party reported)","n":0},{"category":"third parties","n":0},` +
 		`{"category":"unresolved names","n":0},{"category":"urls","n":0},{"category":"web services","n":0}],"failed_jobs":[{"procedure":"flaky","n":1}],"deferred":[],"not_configured":[],` +
-		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"notes":[],"changes":null},` +
+		`"findings":[],"candidates":[],"candidates_total":0,"unconfirmed_risky_ports":0,"hosts_in_scope_by_address":0,"notes":[],"changes":null},` +
 		`"meta":{"count":1,"deadline_exceeded":false,"jobs_completed":2,"jobs_cancelled":0,"warnings":[]}}` + "\n"
 	if got := h.stdout.String(); got != want {
 		t.Errorf("envelope:\n got %s\nwant %s", got, want)

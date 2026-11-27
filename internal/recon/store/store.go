@@ -781,13 +781,38 @@ func (s *Store) Observers(kind string) (map[string][]Observer, error) {
 	return out, nil
 }
 
+// Observed lists the producer and job of every stored observation of a kind by record key,
+// whether or not the job is still marked complete (a redo clears the marks before its jobs run
+// again), ordered by producer and job key.
+func (s *Store) Observed(kind string) (map[string][]Observer, error) {
+	type row struct {
+		key string
+		o   Observer
+	}
+	rows, err := queryAll(s.db, func(r *sql.Rows) (w row, err error) {
+		err = r.Scan(&w.key, &w.o.Procedure, &w.o.JobKey)
+		return w, err
+	}, "SELECT key, producer, job_key FROM observations WHERE kind = ? ORDER BY key, producer, job_key", kind)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]Observer{}
+	for _, w := range rows {
+		out[w.key] = append(out[w.key], w.o)
+	}
+	return out, nil
+}
+
 // Meta reads a metadata value.
-func (s *Store) Meta(key string) (string, bool) {
-	var v string
-	if err := s.db.QueryRow("SELECT value FROM meta WHERE key=?", key).Scan(&v); err != nil {
+func (s *Store) Meta(key string) (string, bool) { return Reader{s.db}.Meta(key) }
+
+// Meta reads a metadata value using this reader's snapshot.
+func (rd Reader) Meta(key string) (string, bool) {
+	vals, err := queryAll(rd.q, scanString, "SELECT value FROM meta WHERE key=?", key)
+	if err != nil || len(vals) == 0 {
 		return "", false
 	}
-	return v, true
+	return vals[0], true
 }
 
 const setMetaSQL = "INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"

@@ -66,7 +66,7 @@ recon export flags:
       --kind stringArray    Export only this kind (repeatable); the kinds are listed below
       --output-dir string   Directory in which engagement directories are created (default ".")
       --config string       Config file (default $XDG_CONFIG_HOME/nyx/config.yaml, else ~/.config/nyx/config.yaml)
-Kinds accepted by --kind: asn, candidate_rank, code_mention, dns_claim, email_posture, excluded, finding, historical_address, hostname, http_port, ip, ip_hostname, ip_owner, netblock, netblock_owner, open_port, organisation, origin_check, port_check, provider_range, registration, reported_port, resolution, root, script, script_parsed, sensitive_hit, server_address, shodan_netblock, storage, storage_account, storage_object, storage_ref, takeover_http, text_hostname, third_party, unresolved, url, web_identifier, web_posture, web_service, wildcard, input, exclusion
+Kinds accepted by --kind: asn, candidate_lookup, candidate_rank, code_mention, dns_claim, email_posture, excluded, finding, historical_address, hostname, http_port, ip, ip_hostname, ip_owner, netblock, netblock_owner, open_port, organisation, origin_check, port_check, provider_range, registration, reported_port, resolution, root, script, script_parsed, sensitive_hit, server_address, shodan_netblock, storage, storage_account, storage_object, storage_ref, takeover_http, text_hostname, third_party, unresolved, url, web_identifier, web_posture, web_service, wildcard, input, exclusion
 
 nyx setup [flags]
   Store API keys and common settings in the config file, and test the keys

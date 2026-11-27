@@ -17,7 +17,7 @@ import (
 // Entities use scope placement; in-scope roots are inputs and are not counted as discoveries.
 var (
 	Hostname = define[HostnameAttrs](Kind{Name: "hostname", Singular: "host", Category: Hosts, place: placeHost, Printed: true, Change: LabelHostname})
-	Root     = defineBare(Kind{Name: "root", Singular: "root", place: placeHost})
+	Root     = defineBare(Kind{Name: "root", Singular: "root", place: placeRoot})
 	Netblock = define[NetblockAttrs](Kind{Name: "netblock", Singular: "netblock", Category: Netblocks, place: placeNetblock, Change: LabelNetblock})
 	// ExcludedKind records dial-time exclusions; Excluded names their summary category.
 	ExcludedKind = define[ExcludedAttrs](Kind{Name: "excluded", Singular: "excluded", place: placeExcluded})
@@ -26,6 +26,13 @@ var (
 // placeHost places a hostname or root as the scope classifies it.
 func placeHost(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
 	return sc.ClassifyHost(key).Class, true
+}
+
+// placeRoot places a root by its name alone: a candidate root in scope by an address of its own
+// stays a candidate root, since passing it as a domain is still how its subdomains are found,
+// while its hostname record is placed in scope.
+func placeRoot(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
+	return sc.ClassifyName(key).Class, true
 }
 
 // placeNetblock includes input and input-derived CIDRs in scope, and classifies other valid

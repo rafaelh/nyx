@@ -52,6 +52,13 @@
   caps the script files `jsparse` reads per origin.
 - **Web identifiers.** `keys.shodan` also turns on `identifier-pivot`. `identifier_pivot.max_queries` (`--identifier-pivot-max-queries`,
   default 50, at least 1) caps the Shodan searches it sends in one run.
+- **Names on in-scope addresses.** `in_netblock.enabled` (`--no-in-netblock` turns it off; default
+  `true`) looks up candidate names and brings into scope those served from an in-scope netblock (see
+  [Names on in-scope addresses](sources.md#names-on-in-scope-addresses)).
+  `in_netblock.max_lookups` (`--in-netblock-max-lookups`, default 1,000, at least 1) caps the
+  candidates looked up in one run.
+  `in_netblock.max_names_per_address` (`--in-netblock-max-names-per-address`, default 100, at least 1)
+  is how many looked-up names one in-scope address may serve before it is treated as shared hosting.
 - **Name guessing.** `permutations.enabled` (`--no-permutations` turns it off; default `true`)
   turns on the wordlist, variant and learned-name guessing (see
   [Name guessing](sources.md#name-guessing)). `permutations.max_per_seed` (`--permutations-max`,

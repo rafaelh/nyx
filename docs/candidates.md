@@ -1,6 +1,10 @@
 # Ranked candidates
 
 `candidates.csv` lists the roots, hostnames, netblocks, autonomous systems and organisations that were found but are not in scope.
+While a netblock is in scope, each candidate hostname and root is looked up through the public
+resolvers, and a hostname served from an in-scope netblock enters scope by its address and leaves
+this file (see [Names on in-scope addresses](sources.md#names-on-in-scope-addresses)). A candidate
+root whose own name enters scope that way stays listed as a root.
 Each row says how well supported it is, so you can tell which are worth promoting to scope:
 
 | Column | Meaning |
@@ -16,7 +20,9 @@ family: certificate transparency (`crtsh`, `certspotter`, `censys`, `ct-org`), w
 (`wayback`, `commoncrawl`), passive DNS (`virustotal`, `securitytrails`, `shodan`, `shodan-dns`, `shodan-host`,
 `chaos`, `urlscan`, `hackertarget`, and `otx` and `anubis`, which no longer run but whose stored
 results still count), registrant (`whoisxml`, `org-asn`, `rdap`) and reverse IP (`reverseip`).
-`httpprobe`, `rdns`, `crawl` and `spf` are each a family of their own, and so is any other source.
+`httpprobe`, `rdns`, `crawl`, `spf` and `in-netblock` are each a family of their own, and so is any other source.
+An `in-netblock` candidate is the registrable domain of a hostname in scope by its address (see
+[Names on in-scope addresses](sources.md#names-on-in-scope-addresses)), with that hostname as its item.
 The web identifier family is `identifier-pivot`; the `sources` value is `identifier-pivot:<id>`, with
 the identifier that found the candidate, so each is a source of its own but they are one family. Shared infrastructure is a family of two sources,
 `shared-ns` and `shared-mx`,

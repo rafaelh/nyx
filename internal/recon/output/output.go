@@ -396,6 +396,10 @@ func scopeRows(s Snapshot) []Row {
 			rows = append(rows, recordRow(r, "netblock", r.Key, src))
 		}
 	}
+	for _, r := range kinds.ByAddressHosts(s.Scope, s.of(kinds.Hostname)) {
+		addr, block, _ := s.Scope.ByAddress(r.Key)
+		rows = append(rows, recordRow(r, "hostname", r.Key, addr.String()+" in "+block.String()))
+	}
 	return rows
 }
 

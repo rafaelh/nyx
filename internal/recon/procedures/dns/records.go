@@ -335,7 +335,7 @@ func includedDepths(starts []string, txt map[string][]string, sc *scope.Scope) m
 				continue
 			}
 			d, ok := t.Domain()
-			if _, seen := depths[d]; !ok || seen || !sc.HostInScope(d) || sc.RootOf(d) == d { // in scope is below a root
+			if _, seen := depths[d]; !ok || seen || !sc.NameInScope(d) || sc.RootOf(d) == d { // in scope is below a root
 				continue
 			}
 			depths[d] = depths[name] + 1

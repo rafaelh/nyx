@@ -29,6 +29,7 @@ type Summary struct {
 	Candidates            []CandidateRow    `json:"candidates"`
 	CandidatesTotal       int               `json:"candidates_total"`
 	UnconfirmedRiskyPorts int               `json:"unconfirmed_risky_ports"`
+	HostsInScopeByAddress int               `json:"hosts_in_scope_by_address"`
 	Notes                 []string          `json:"notes"`
 	Changes               *Changes          `json:"changes"`
 }
@@ -118,6 +119,9 @@ func writeSummaryBlocks(o summaryWriter, env Envelope) {
 	o.counts(rows)
 	if s.UnconfirmedRiskyPorts > 0 {
 		o.text(fmt.Sprintf("%d risky ports reported by Shodan, unconfirmed", s.UnconfirmedRiskyPorts))
+	}
+	if s.HostsInScopeByAddress > 0 {
+		o.text(layout.Count(s.HostsInScopeByAddress, "host", "hosts") + " in scope by address")
 	}
 	for _, n := range s.Notes {
 		o.text(n)

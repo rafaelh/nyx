@@ -283,6 +283,7 @@ func TestChildProcesses(t *testing.T) { //nolint:paralleltest // its subtests fo
 		{"SetupOnAPty", testSetupOnAPty},
 		{"ThreatCrashPoints", testThreatCrashPoints},
 		{"ThreatSignals", testThreatSignals},
+		{"InNetblockCrashInRowsJob", testLkInNetblockCrash},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

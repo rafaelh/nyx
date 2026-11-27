@@ -23,25 +23,9 @@ var (
 // ranks with the candidate's own dates and current status. Missing derivation yields low
 // confidence and no sources.
 func candidateRows(s Snapshot) []Row {
-	ranks := map[string]kinds.CandidateRankAttrs{}
-	for _, r := range s.of(kinds.CandidateRank) {
-		if r.Current {
-			ranks[r.Key] = kinds.CandidateRank.Attrs(r)
-		}
-	}
 	var rows []Row
-	vis := s.vis()
-	for _, kind := range kinds.CandidateKinds {
-		for _, r := range s.of(kind) {
-			if vis.Category(kind, r) != kinds.Candidates {
-				continue
-			}
-			rank, ok := ranks[kinds.CandidateRank.Key(kinds.CandidateRankAttrs{Type: kind.Name(), Value: r.Key})]
-			if !ok {
-				rank.Confidence = string(candidates.Low)
-			}
-			rows = append(rows, recordRow(r, kind.Name(), r.Key, rank.Sources, strconv.Itoa(rank.EvidenceCount), rank.Confidence))
-		}
+	for _, c := range kinds.CandidateRecords(s.vis(), s.of, s.of(kinds.CandidateRank)) {
+		rows = append(rows, recordRow(c.Record, c.Kind.Name(), c.Record.Key, c.Rank.Sources, strconv.Itoa(c.Rank.EvidenceCount), c.Rank.Confidence))
 	}
 	return rows
 }

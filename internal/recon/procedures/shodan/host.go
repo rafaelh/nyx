@@ -125,8 +125,8 @@ func (*Host) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observ
 	return obs, nil
 }
 
-// nameObs cleans and deduplicates returned names/roots. In-scope hostnames get optional address
-// pairings; external names contribute candidate roots. seen uses type-prefixed keys to keep
+// nameObs cleans and deduplicates returned names/roots. Hostnames under an input root get optional
+// address pairings; other names, those in scope by address included, contribute candidate roots. seen uses type-prefixed keys to keep
 // both distinct.
 func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string) []run.Observation {
 	var obs []run.Observation
@@ -135,7 +135,7 @@ func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string)
 			continue
 		}
 		seen["name|"+n] = true
-		if sc.HostInScope(n) {
+		if sc.NameInScope(n) {
 			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
 			if addr != "" {
 				obs = append(obs, kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: addr, Hostname: n, Source: "shodan"}))

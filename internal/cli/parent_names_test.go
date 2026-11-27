@@ -199,8 +199,10 @@ func TestParentNames_NoParentOfACandidateIsQueried(t *testing.T) {
 	if code := w.run("--passive", "--cidr", "198.51.100.0/30", "example.com"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, w.h.stderr.String())
 	}
-	if find(w.table(eng, "candidates.csv"), "value", "host.deep.other.org") == nil {
-		t.Fatalf("the PTR name is not a candidate: %s", w.file(eng, "candidates.csv"))
+	// The PTR name resolves into the netblock, so it is in scope by its address; it is still under
+	// no input root, so its parents are not names to resolve.
+	if find(w.table(eng, "scope.csv"), "value", "host.deep.other.org") == nil {
+		t.Fatalf("the PTR name is not in scope by address: %s", w.file(eng, "scope.csv"))
 	}
 	for _, typ := range []string{"A", "AAAA", "CNAME", "NS", "MX", "TXT", "SOA", "CAA", "SRV"} {
 		for _, n := range w.dns.Queried(typ) {

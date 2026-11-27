@@ -43,6 +43,9 @@ type Job struct {
 	// Cost counts units of the procedure's per-run budget, such as names queried or requests
 	// sent. Zero counts as one.
 	Cost int
+	// Unbudgeted jobs are admitted without charging the procedure's budget, even after
+	// another job was deferred.
+	Unbudgeted bool
 }
 
 // Observation is a fact found by a job, constructed with a kind handle such as
@@ -340,14 +343,15 @@ func (v View) InScopeRoots() []string {
 }
 
 // ResolvableHostnames returns sorted input roots and discovered names to resolve. Excluded
-// names are included because address-based exclusions need DNS results; candidates are omitted.
+// names are included because address-based exclusions need DNS results; candidates are omitted,
+// and so are names in scope by address, whose rows come from their candidate lookup.
 //
 // A name whose only hostname producer is the generator is left out: the generator found it by
 // resolving it (a parent name that resolved), so it is not asked again under a second key.
 func (v View) ResolvableHostnames(generator string) []string {
 	set := map[string]bool{}
 	add := func(h string) {
-		if v.sc.ClassifyHost(h).Class != scope.Candidate {
+		if v.sc.ClassifyName(h).Class != scope.Candidate {
 			set[dnsname.Normalise(h)] = true
 		}
 	}
@@ -360,6 +364,51 @@ func (v View) ResolvableHostnames(generator string) []string {
 		add(root)
 	}
 	return slices.Sorted(maps.Keys(set))
+}
+
+// Candidates returns the names of the current candidate hostnames and roots in candidates.csv's
+// order; a name that is both is listed twice.
+func (v View) Candidates() []string {
+	recs := kinds.CandidateRecords(v.vis, func(k kinds.Named) []store.Record {
+		if n := k.Name(); n != kinds.Hostname.Name() && n != kinds.Root.Name() {
+			return nil
+		}
+		return v.Records(k)
+	}, v.Records(kinds.CandidateRank))
+	slices.SortStableFunc(recs, kinds.CandidateRecord.Compare)
+	out := make([]string, len(recs))
+	for i, c := range recs {
+		out[i] = c.Record.Key
+	}
+	return out
+}
+
+// Observer is a job supporting a record, and whether its procedure contacts targets.
+type Observer struct {
+	Procedure, JobKey string
+	Target            bool
+}
+
+// Observers returns, for each current record of a kind, the jobs whose observations support it,
+// as Producers counts them: a job a pending redo has unmarked still counts until it runs again.
+// On a store error it warns once and answers nil.
+func (v View) Observers(k kinds.Named) map[string][]Observer {
+	m, err := v.r.st.Observed(k.Name())
+	if err != nil {
+		v.r.warn("reading %s's supporting jobs: %v", k.Name(), err)
+		return nil
+	}
+	target := map[string]bool{}
+	for _, s := range v.r.cfg.Procedures {
+		target[s.Name()] = s.Contact() == Target
+	}
+	out := map[string][]Observer{}
+	for _, rec := range v.Records(k) {
+		for _, o := range m[rec.Key] {
+			out[rec.Key] = append(out[rec.Key], Observer{o.Procedure, o.JobKey, target[o.Procedure]})
+		}
+	}
+	return out
 }
 
 // ProbeHostnames returns resolved in-scope names eligible for HTTP probing, with one
@@ -456,14 +505,14 @@ func (v View) Registered(a netip.Addr) bool {
 // OwnerKnown reports whether ownership information is available for the address.
 func (v View) OwnerKnown(a netip.Addr) bool { return v.inv.OwnerKnown(a, v.sc) }
 
-// HostsFor returns sorted probe hostnames resolving to the address.
+// HostsFor returns sorted probe hostnames resolving to the address that may be dialled there.
 func (v View) HostsFor(a netip.Addr) []string {
 	v.cache.mu.Lock()
 	defer v.cache.mu.Unlock()
 	if v.cache.hosts == nil {
 		idx := map[netip.Addr][]string{}
 		for _, name := range v.ProbeHostnames() {
-			for _, addr := range v.inv.Addrs()[name] {
+			for _, addr := range v.sc.DialAddrs(name) {
 				if l := idx[addr]; len(l) == 0 || l[len(l)-1] != name {
 					idx[addr] = append(l, name)
 				}

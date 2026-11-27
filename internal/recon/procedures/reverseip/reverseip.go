@@ -29,7 +29,10 @@ const maxSecurityTrailsPages = 10
 // SecurityTrails for A/AAAA data. It does not expand netblocks.
 //
 // Results exceeding reverseip.max_domains are discarded as shared hosting. The cap is part of
-// job keys; scope is not, so names beneath newly promoted roots need --redo reverseip for
+// job keys, and so is whether the address is inside an in-scope netblock: there, a name under no
+// root is kept as a candidate hostname as well as its registrable domain as a candidate root, so
+// an address asked before its netblock came into scope is asked once more. Other scope changes are
+// not in the key, so names beneath newly promoted roots need --redo reverseip for
 // reclassification. Shodan is queried separately.
 type Procedure struct{}
 
@@ -52,6 +55,7 @@ type input struct {
 	sc    *scope.Scope
 	max   int
 	keyed bool // keys.securitytrails was set when the job was made
+	names bool // the address is inside an in-scope netblock, so names under no root are kept
 }
 
 // Jobs lists eligible recorded addresses in order. IPv6 requires a SecurityTrails key and
@@ -63,7 +67,11 @@ func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] 
 	addrs := v.IPs(func(a netip.Addr) bool { return (a.Is4() || keyed) && v.PortEligible(a) })
 	return run.JobsOf(addrs, func(a netip.Addr) run.Job {
 		key := fmt.Sprintf("%s|max=%d", a, set.ReverseIP.MaxDomains)
-		return run.Job{Key: key, Input: input{a, sc, set.ReverseIP.MaxDomains, keyed}}
+		names := sc.InScopeIP(a)
+		if names {
+			key += "|names"
+		}
+		return run.Job{Key: key, Input: input{a, sc, set.ReverseIP.MaxDomains, keyed, names}}
 	})
 }
 
@@ -79,9 +87,9 @@ func (*Procedure) Evidence(jobKey string) (source, item string) {
 	return "reverseip", addr
 }
 
-// Run merges source names. In-scope/excluded names remain hostname records; other names
-// contribute only their registrable domain as a candidate root. Empty results complete
-// normally.
+// Run merges source names. Names under an input root and excluded names remain hostname records;
+// other names contribute their registrable domain as a candidate root and, for an address inside
+// an in-scope netblock, are kept as candidate hostnames too. Empty results complete normally.
 func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(input)
 	f := found{seen: map[string]bool{}, domains: map[string]bool{}}
@@ -96,9 +104,11 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 	var obs []run.Observation
 	roots := map[string]bool{}
 	for _, n := range f.names {
-		if class := in.sc.ClassifyHost(n.name).Class; class == scope.InScope || class == scope.Excluded {
+		class := in.sc.ClassifyName(n.name).Class
+		if class != scope.Candidate || in.names {
 			obs = append(obs, kinds.Hostname.Obs(n.name, kinds.HostnameAttrs{}))
-		} else if n.root != "" && !roots[n.root] {
+		}
+		if class == scope.Candidate && n.root != "" && !roots[n.root] {
 			roots[n.root] = true
 			obs = append(obs, kinds.Root.Obs(n.root))
 		}

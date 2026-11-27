@@ -67,7 +67,8 @@ func (r *Runner) result() Result {
 		Counts: []report.CountRow{}, FailedJobs: failed, Deferred: deferred,
 		NotConfigured: r.notConfigured(), Findings: headlineRows(recs),
 		Candidates: ranked[:min(len(ranked), maxListedCandidates)], CandidatesTotal: len(ranked),
-		UnconfirmedRiskyPorts: findings.UnconfirmedRisky(recs), Notes: r.notes(),
+		UnconfirmedRiskyPorts: findings.UnconfirmedRisky(recs), HostsInScopeByAddress: r.hostsInScopeByAddress(),
+		Notes:   r.notes(),
 		Changes: r.changesSummary(recs),
 	}
 	for _, k := range slices.Sorted(maps.Keys(r.lastTot)) {
@@ -149,4 +150,15 @@ func headlineRows(recs []store.Record) []report.FindingRow {
 		listed = append(listed, row)
 	}
 	return listed
+}
+
+// hostsInScopeByAddress counts the current hostname records in scope by an address of their
+// candidate lookup.
+func (r *Runner) hostsInScopeByAddress() int {
+	built := r.built.Load()
+	if built == nil {
+		return 0
+	}
+	recs, _ := r.records(kinds.Hostname.Name())
+	return len(kinds.ByAddressHosts(built.Scope, recs))
 }

@@ -224,9 +224,10 @@ func (sr *procedureRun) admit(c Job) bool {
 	return sr.withinBudget(c)
 }
 
-// withinBudget charges the job's cost or defers it when the budget is exhausted.
+// withinBudget charges the job's cost or defers it when the budget is exhausted. An unbudgeted job
+// is admitted without a charge.
 func (sr *procedureRun) withinBudget(c Job) bool {
-	if sr.budget == 0 {
+	if sr.budget == 0 || c.Unbudgeted {
 		return true
 	}
 	cost := max(c.Cost, 1)

@@ -658,3 +658,52 @@ func numericReference[T ~string | ~[]byte](text T, i int) (v, next, res int, tru
 	}
 	return v, i, refOK, truncated
 }
+
+// Generic reports whether name is generic for the IPv4 address a: it holds the address's four
+// decimal octets, forwards or backwards, each one to three digits with leading zeros allowed,
+// joined by "." or "-", and touching no other digit at either end. It is false for any other
+// address.
+func Generic(name string, a netip.Addr) bool {
+	if a = a.Unmap(); !a.Is4() {
+		return false
+	}
+	o := a.As4()
+	fwd := [4]int{int(o[0]), int(o[1]), int(o[2]), int(o[3])}
+	rev := [4]int{fwd[3], fwd[2], fwd[1], fwd[0]}
+	// runs holds each maximal run of digits: its value (-1 when longer than three digits) and
+	// where it starts and ends.
+	type run struct{ val, start, end int }
+	var runs []run
+	for i := 0; i < len(name); {
+		if !isDigit(name[i]) {
+			i++
+			continue
+		}
+		j, val := i, 0
+		for ; j < len(name) && isDigit(name[j]); j++ {
+			val = val*10 + int(name[j]-'0')
+		}
+		if j-i > 3 {
+			val = -1
+		}
+		runs = append(runs, run{val, i, j})
+		i = j
+	}
+	for i := 0; i+4 <= len(runs); i++ {
+		var got [4]int
+		joined := true
+		for k := range 4 {
+			got[k] = runs[i+k].val
+			if k < 3 {
+				end := runs[i+k].end
+				joined = joined && runs[i+k+1].start == end+1 && (name[end] == '.' || name[end] == '-')
+			}
+		}
+		if joined && (got == fwd || got == rev) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDigit(b byte) bool { return '0' <= b && b <= '9' }

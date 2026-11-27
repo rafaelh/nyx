@@ -177,13 +177,14 @@ func TestDNSRecords_NamesThatAreNotAsked(t *testing.T) {
 	w.dns.A("edge.cdn-host.test", "203.0.113.50")
 	w.owner("203.0.113.50", 64513, "ACME-NET")
 	w.dns.A("secret.example.com", drAddr)
-	// A PTR name in an in-scope netblock, under no input root: a candidate hostname.
+	// A PTR name in an in-scope netblock that resolves into it, under no input root: in scope by
+	// its address, but not a name whose records are asked for.
 	w.dns.PTR("198.51.100.2", "host.deep.other.org")
 	w.dns.A("host.deep.other.org", "198.51.100.2")
 	drRun(t, w, "--cidr", "198.51.100.0/30", "-x", "secret.example.com")
 
-	if find(w.table(eng, "candidates.csv"), "value", "host.deep.other.org") == nil {
-		t.Fatalf("setup: the PTR name is not a candidate: %s", w.file(eng, "candidates.csv"))
+	if find(w.table(eng, "scope.csv"), "value", "host.deep.other.org") == nil {
+		t.Fatalf("setup: the PTR name is not in scope by address: %s", w.file(eng, "scope.csv"))
 	}
 	if !slices.Contains(w.lines(eng, "wildcard-excluded.txt"), "x.wz.example.com") {
 		t.Fatalf("setup: x.wz.example.com is not wildcard-only: %v", w.lines(eng, "wildcard-excluded.txt"))
@@ -198,7 +199,7 @@ func TestDNSRecords_NamesThatAreNotAsked(t *testing.T) {
 		"al.example.com":      "an alias",
 		"edge.cdn-host.test":  "an alias's target outside scope",
 		"secret.example.com":  "excluded",
-		"host.deep.other.org": "a candidate hostname",
+		"host.deep.other.org": "in scope by address, under no input root",
 	} {
 		drWantCounts(t, w, name, 0, why, drTypes...)
 	}

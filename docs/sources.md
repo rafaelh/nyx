@@ -77,12 +77,15 @@ port-checked, so one that is in an in-scope netblock, or is dedicated to the org
 is known and it is not shared provider infrastructure) and is not excluded, it asks HackerTarget's
 reverse IP lookup (IPv4 only) which hostnames point at it, and, with `keys.securitytrails`,
 SecurityTrails for the domains whose current A or AAAA record is the address. It never walks a
-netblock: only an address another procedure recorded is asked. Nothing it finds enters scope on its own.
+netblock: only an address another procedure recorded is asked. A name it finds enters scope only by
+its address (see [Names on in-scope addresses](#names-on-in-scope-addresses)).
 
 - **Names.** A name under an in-scope root is a hostname, and an excluded name is recorded as
-  excluded. Any other name gives its registrable domain as a candidate root in `candidates.csv`, and
-  the hostname itself is not kept. Having no names, or HackerTarget's "no records" reply, completes
-  the job with nothing. No candidate root is resolved or contacted.
+  excluded. Any other name gives its registrable domain as a candidate root in `candidates.csv`. For
+  an address inside an in-scope netblock the name itself is kept too, as a candidate hostname; for
+  any other address it is not. Having no names, or HackerTarget's "no records" reply, completes
+  the job with nothing. A candidate is never contacted: with a netblock in scope it is looked up
+  through the public resolvers, and without one it is not looked up at all.
 - **Shared hosting.** An address that returns more than `reverseip.max_domains` distinct
   registrable domains (default 100) is treated as unrecognised shared hosting: nothing is recorded
   for it, and a WARN line names the address. The cap is part of the job, so changing it asks
@@ -93,8 +96,10 @@ netblock: only an address another procedure recorded is asked. Nothing it finds 
 - **IPv6.** HackerTarget cannot answer an IPv6 address, so one is asked only with
   `keys.securitytrails`, and gets its job when the key is added.
 - **Refresh.** Each address is asked once per engagement, and new results arrive only with
-  `--redo reverseip`. The job is keyed by the address and the cap, not by the scope, so a hostname
-  under a root you promote later was recorded only as a candidate root, and becomes a hostname after
+  `--redo reverseip`. The job is keyed by the address, the cap and whether the address is inside an
+  in-scope netblock, so an address asked before its netblock came into scope is asked once more
+  after, to keep the names it hosts. The rest of the scope is not in the key, so a hostname under a
+  root you promote later was recorded only as a candidate root, and becomes a hostname after
   `--redo reverseip`. A SecurityTrails key added later is used only for the addresses not yet
   asked, so an IPv4 address HackerTarget already answered reaches SecurityTrails only after
   `--redo reverseip`.
@@ -191,7 +196,57 @@ guess is one A lookup through the public resolvers, so guessing runs under `--pa
   resolving. Parent names are resolved even when learning is skipped or turned off, and they are
   reported under `resolve`.
 - **Only under input roots.** Learning and parent names apply only to names under an input root: a
-  candidate's labels are not learned and its parents are never asked.
+  candidate's labels are not learned and its parents are never asked, and the same holds for a
+  name in scope by its address (see [Names on in-scope addresses](#names-on-in-scope-addresses)).
+
+## Names on in-scope addresses
+
+The `in-netblock` procedure runs under `--passive` and needs no key. While the engagement has an
+in-scope netblock (a `--cidr` input, or a netblock of an `--asn` input), it looks up the A and AAAA
+records of each current candidate hostname and candidate root in `candidates.csv`, in the file's
+order, through the public resolvers. A candidate is never contacted. A hostname whose lookup gives
+an address inside an in-scope netblock enters scope on its own, as bbot does, so the other names
+an organisation serves from its netblocks are probed and reported without promoting each one.
+
+- **Which names.** A candidate is looked up when a source other than `in-netblock` found it. Up to
+  `in_netblock.max_lookups` are asked in one run (default 1,000); the rest are deferred to the next
+  run and counted under `Deferred to the next run`. A candidate is asked once per engagement, and
+  again after `--redo in-netblock` (which also asks again each name in scope by its address) or
+  once it has stopped being a candidate and is found again. A candidate looked up before a
+  netblock came into scope is judged against it without being asked again.
+- **The rule.** A name enters scope when an address of its lookup is inside an in-scope netblock,
+  unless the name is excluded, an address of its lookup is in an excluded CIDR, or it is generic: a
+  name that holds the four numbers of an IPv4 address it resolves to, forwards or backwards,
+  joined by `.` or `-` (`203-0-113-5.static.example.net`, `5.113.0.203.example.net`), never enters
+  scope this way. An address more than `in_netblock.max_names_per_address` looked-up names point at
+  (default 100) is treated as shared hosting: none of its names enters scope by it, a WARN line
+  names the address, and the names it had brought in leave scope. A candidate root whose own name
+  meets the rule enters scope as one hostname and stays a candidate root, since passing it as a
+  domain is still how its subdomains are found.
+- **In scope.** Such a name is listed in `scope.csv` with the address and netblock that brought it
+  in, and in `subdomains.txt`. Its rows in `resolutions.csv` and `ips.csv` come from its lookup,
+  which `resolve` does not repeat. It is probed, crawled, port-checked and checked for findings like
+  any in-scope hostname, except that it gets no origin check, and identifiers seen only on its
+  pages are not searched for. It is contacted only at its addresses inside the in-scope netblocks:
+  an address of its outside them is listed in `ips.csv` but never dialled for it. Without
+  `--authorised`, or under `--passive`, it is listed and resolved but not contacted.
+- **Only the name.** Its registrable domain does not become a root: no source is asked about it, no
+  name is guessed or learned under or beside it, its parents are not resolved, its NS, MX and TXT
+  records are not asked for, it gives no `third-parties.csv` row, and names under its registrable
+  domain in the text of its responses are ignored. The registrable domain is a candidate root with
+  the source `in-netblock`, and is not looked up on that evidence alone. A wildcard of a zone that
+  is itself in scope by its address is detected as for any zone in scope.
+- **Leaving.** A name stays in scope only while the rule holds. When its lookup, asked again after
+  `--redo in-netblock`, no longer gives an address inside an in-scope netblock, or the name is
+  excluded, or no source but `in-netblock` finds it any more, it is a candidate (or excluded, or
+  gone) again, and `changes.csv` reports it. A name found only by probing a name in scope by its
+  address (in its certificate or redirects, say) does not count as found by another source, so two
+  such names cannot keep each other in scope.
+- **Turning it off.** `in_netblock.enabled: false` (`--no-in-netblock`) turns the lookups off, and
+  the names that had entered scope this way are candidates again. The lookups already made are
+  kept, unless `--redo in-netblock` is given while it is off, which discards them.
+- **Reported.** The summary says `N hosts in scope by address` (`1 host` for one) when there are any, and the `--json`
+  envelope carries the number as `data.hosts_in_scope_by_address` (0 when there are none).
 
 ## Records of every name
 
@@ -202,7 +257,8 @@ resolvers, so it runs under `--passive` and needs no `--authorised`.
 - **Which names.** Every in-scope hostname below an input root that resolve did not answer
   NXDOMAIN, that is not wildcard-only and that is not an alias (a name with a CNAME, which can own
   no other record), once its zone's wildcard check has completed. A parent name that does not
-  resolve is asked too. A candidate or excluded name is never asked.
+  resolve is asked too. A candidate, an excluded name or a name in scope by its address is never
+  asked.
 - **What is asked.** Each name's NS, MX and TXT records, one lookup each. A name with NS records of
   its own is a delegated zone and also gets the SOA and CAA lookups and the SRV service list a root
   gets (16 more lookups); it gets no mail posture. An in-scope domain that an SPF record includes

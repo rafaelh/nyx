@@ -525,7 +525,7 @@ func readCapped(r io.Reader, n int) (body []byte, truncated bool, err error) {
 // (Policy.nonPublic), saying why it removed the first non-public one. Known shared
 // infrastructure is exempt only from name-based exclusions.
 func (p *Policy) vetted(host string, public func(netip.Addr) bool) (out []netip.Addr, nonPublic string) {
-	for _, a := range p.Scope.Addrs(host) {
+	for _, a := range p.Scope.DialAddrs(host) {
 		if ok, why := p.Scope.ExcludedFor(a, p.isShared(a)); ok {
 			p.reportExcluded(a.String(), why)
 			continue

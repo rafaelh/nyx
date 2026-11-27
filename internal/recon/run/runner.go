@@ -243,6 +243,9 @@ func (r *Runner) Run(ctx context.Context) (Result, error) {
 	})
 	r.warnUnauthorised()
 	r.warnStaleEOLData()
+	if err := r.storeScopeSettings(); err != nil {
+		return Result{}, err
+	}
 
 	// Read the last saved output before derivation so a resumed run compares against where
 	// the previous run stopped.

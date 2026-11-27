@@ -228,7 +228,8 @@ func TestReverseIP_AsksOnlyDedicatedKnownOwnerAddresses(t *testing.T) {
 		t.Errorf("reverseip = %s (%s), want done under --passive with no key", st, reason)
 	}
 	done := x.completedKeys("reverseip")
-	if !slices.Equal(done, []string{"198.51.100.1|max=100", "203.0.113.250|max=100", "203.0.113.7|max=100"}) {
+	// An address inside an in-scope netblock has its own key, since it keeps the names it hosts.
+	if !slices.Equal(done, []string{"198.51.100.1|max=100|names", "203.0.113.250|max=100", "203.0.113.7|max=100"}) {
 		t.Errorf("completed jobs = %v", done)
 	}
 }

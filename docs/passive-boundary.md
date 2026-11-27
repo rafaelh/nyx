@@ -25,6 +25,11 @@ nyx limits what target-owned systems can receive. It sends only:
 In-scope hostnames are read from the responses and banners already received, and reading them
 sends nothing (see [Hostnames in responses](sources.md#hostnames-in-responses)).
 
+Candidate hostnames and roots are looked up through the public resolvers and never contacted. A
+candidate whose lookup gives an address inside an in-scope netblock enters scope by that address
+(see [Names on in-scope addresses](sources.md#names-on-in-scope-addresses)), and is contacted only
+at its addresses inside the in-scope netblocks, under the same rules as any in-scope hostname.
+
 A hostname is contacted only at its public addresses. A target can point one of its names at any
 address, and can redirect an in-scope page to that name, so an address the public resolvers gave
 that is not public (loopback such as 127.0.0.1, link-local such as a cloud metadata service at
