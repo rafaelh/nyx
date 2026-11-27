@@ -168,12 +168,13 @@ type result struct {
 // searchOrg searches by the organisation's first word, then applies the shared word rule to
 // registry entity names before accepting their ranges and ASNs.
 func searchOrg(ctx context.Context, e egress.Clients, in orgInput) ([]run.Observation, error) {
-	words := orgname.Tokens(in.org)
-	if len(words) == 0 {
-		return nil, nil
-	}
 	if !in.reg.Search {
 		run.Warnf(ctx, "rdap: %s (%s) does not return an organisation's netblocks, so %q is not searched there", in.reg.Name, in.reg.Host, in.org)
+		return nil, nil
+	}
+	words := orgname.Tokens(in.org)
+	if len(words) == 0 {
+		run.Warnf(ctx, "rdap: %q has no words to search %s (%s) by once legal suffixes are left out, so it is not searched", in.org, in.reg.Name, in.reg.Host)
 		return nil, nil
 	}
 	found, err := searchEntities(ctx, e, in, words[0])
@@ -228,6 +229,9 @@ func withNetworks(ctx context.Context, e egress.Clients, in orgInput, ent entity
 	if ent.has() {
 		return ent, true, nil
 	}
+	if ent.Handle == "" {
+		return ent, false, nil // no record to follow: asking for "entity/" would fail on every run
+	}
 	raw, err := get(ctx, e, in.reg.Base+"entity/"+url.PathEscape(ent.Handle))
 	if errors.Is(err, httpsrc.ErrNotFound) {
 		return ent, false, nil
@@ -254,7 +258,7 @@ type orgResults struct {
 // add records the results of one matching entity, named name. It reports false
 // once the cap is reached.
 func (c *orgResults) add(ent entity, name string) bool {
-	for _, r := range results(ent) {
+	for r := range results(ent) {
 		// A result another matching entity already gave adds nothing, so it does
 		// not count toward the cap.
 		if !slices.ContainsFunc(r.prefixes, func(p netip.Prefix) bool { return !c.seen[p.String()] }) &&
@@ -282,33 +286,35 @@ func (c *orgResults) add(ent entity, name string) bool {
 	return true
 }
 
-// results are the netblocks and autonomous systems of an entity that name something usable.
-func results(e entity) []result {
-	var out []result
-	for _, n := range e.Networks {
-		start, e1 := netip.ParseAddr(n.StartAddress)
-		end, e2 := netip.ParseAddr(n.EndAddress)
-		if e1 == nil && e2 == nil {
-			if ps := input.RangeCIDRs(start, end); len(ps) > 0 {
-				out = append(out, result{prefixes: ps})
+// results yields the netblocks and autonomous systems of an entity that name something
+// usable. Each ASN of a range is a result of its own, made only when the caller asks for it,
+// so the caller's cap (which skips results it has already seen) bounds a range's expansion.
+func results(e entity) iter.Seq[result] {
+	return func(yield func(result) bool) {
+		for _, n := range e.Networks {
+			start, e1 := netip.ParseAddr(n.StartAddress)
+			end, e2 := netip.ParseAddr(n.EndAddress)
+			if e1 == nil && e2 == nil {
+				if ps := input.RangeCIDRs(start, end); len(ps) > 0 && !yield(result{prefixes: ps}) {
+					return
+				}
+			}
+		}
+		for _, a := range e.Autnums {
+			start, end := a.StartAutnum, max(a.EndAutnum, a.StartAutnum)
+			if start == 0 {
+				if canon, err := input.ParseASN(a.Handle); err == nil && !yield(result{asns: []string{canon}}) {
+					return
+				}
+				continue
+			}
+			for n := uint64(start); n <= uint64(end); n++ {
+				if !yield(result{asns: []string{fmt.Sprintf("AS%d", n)}}) {
+					return
+				}
 			}
 		}
 	}
-	for _, a := range e.Autnums {
-		start, end := a.StartAutnum, max(a.EndAutnum, a.StartAutnum)
-		if start == 0 {
-			if canon, err := input.ParseASN(a.Handle); err == nil {
-				out = append(out, result{asns: []string{canon}})
-			}
-			continue
-		}
-		// Count each ASN in an expanded range against the cap. One extra item is enough
-		// to detect truncation and warn.
-		for n := uint64(start); n <= uint64(end) && len(out) <= maxResults; n++ {
-			out = append(out, result{asns: []string{fmt.Sprintf("AS%d", n)}})
-		}
-	}
-	return out
 }
 
 // --- address lookups ---
