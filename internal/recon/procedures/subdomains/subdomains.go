@@ -106,6 +106,13 @@ func (s *Procedure) Sources() []string    { return s.sources }
 // CandidateSources declares the procedure's evidence family.
 func (s *Procedure) CandidateSources() map[string]string { return map[string]string{s.name: s.family} }
 
+// Evidence gives the root as the supporting item, so a job key that carries a cap (urls= or
+// pages=) does not count a candidate twice when the cap changes.
+func (s *Procedure) Evidence(jobKey string) (source, item string) {
+	root, _, _ := strings.Cut(jobKey, "|")
+	return s.name, root
+}
+
 // Configured: keyed sources need keys.<source>.
 func (s *Procedure) Configured(e run.Env) (bool, string) {
 	return httpsrc.Configured(e, s.name, s.keyed)
@@ -231,9 +238,11 @@ func crtsh(ctx context.Context, in rootInput, c egress.Clients) (result, error) 
 
 // --- Wayback Machine (CDX) ---
 
-// withScheme adds HTTP to scheme-less archive URLs so both host and URL survive parsing.
+// withScheme adds HTTP to scheme-less archive URLs so both host and URL survive parsing. A "://"
+// only marks a scheme when it follows a run of scheme characters, not one in a path or query.
 func withScheme(raw string) string {
-	if !strings.Contains(raw, "://") {
+	i := strings.Index(raw, "://")
+	if i <= 0 || strings.ContainsAny(raw[:i], "/?#:@") {
 		return "http://" + raw
 	}
 	return raw
@@ -251,7 +260,10 @@ func wayback(ctx context.Context, in rootInput, c egress.Clients) (result, error
 	if err != nil {
 		return result{}, fmt.Errorf("unreadable CDX page count: %w", err)
 	}
-	pages = min(pages, maxPages)
+	if pages > maxPages {
+		run.Warnf(ctx, "wayback %s: result truncated after %d of %d pages", root, maxPages, pages)
+		pages = maxPages
+	}
 	var names, urls []string
 	for p := range pages {
 		q := maps.Clone(base) // shallow is enough: only Set follows
@@ -330,20 +342,28 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients, backoff ti
 	}
 	endpoint := "https://index.commoncrawl.org/" + id + "-index?"
 	var names, urls []string
+	answered, exhausted := false, false
 	for p := range maxPages {
 		q := url.Values{"url": {"*." + root}, "output": {"json"}, "fl": {"url"}, "page": {strconv.Itoa(p)}}
 		body, err := ccGet(ctx, c, endpoint+q.Encode(), backoff)
 		if errors.Is(err, errPastLastPage) {
+			exhausted = true
 			break
 		}
 		// Common Crawl pages contain index blocks, so an empty match page can
-		// legitimately return a no-captures 404.
+		// legitimately return a no-captures 404. Only the first block can hold no match, so
+		// when the first two pages are both 404 the root has no captures at all.
 		if errors.Is(err, httpsrc.ErrNotFound) {
+			if !answered && p >= 1 {
+				exhausted = true
+				break
+			}
 			continue
 		}
 		if err != nil {
 			return result{}, err
 		}
+		answered = true
 		for line := range strings.SplitSeq(string(body), "\n") {
 			var row struct {
 				URL string `json:"url"`
@@ -354,6 +374,9 @@ func commoncrawl(ctx context.Context, in rootInput, c egress.Clients, backoff ti
 				urls = append(urls, u)
 			}
 		}
+	}
+	if !exhausted {
+		run.Warnf(ctx, "commoncrawl %s: result truncated after %d pages", root, maxPages)
 	}
 	return result{names: names, urls: urls, attrs: kinds.HostnameAttrs{Index: id}}, nil
 }
@@ -401,7 +424,11 @@ func virustotal(ctx context.Context, in rootInput, c egress.Clients) (result, er
 	root := in.root
 	var names []string
 	cursor := ""
-	for range maxPages {
+	for page := 0; ; page++ {
+		if page == maxPages {
+			run.Warnf(ctx, "virustotal %s: result truncated after %d pages", root, maxPages)
+			break
+		}
 		q := url.Values{"limit": {"40"}}
 		if cursor != "" {
 			q.Set("cursor", cursor)
@@ -428,6 +455,9 @@ func virustotal(ctx context.Context, in rootInput, c egress.Clients) (result, er
 		if err := json.Unmarshal(body, &r); err != nil {
 			return result{}, fmt.Errorf("unreadable VirusTotal response: %w", err)
 		}
+		if r.Data == nil {
+			return result{}, errors.New("unreadable VirusTotal response: no data list")
+		}
 		for _, d := range r.Data {
 			names = append(names, d.ID)
 		}
@@ -446,6 +476,10 @@ func securitytrails(ctx context.Context, in rootInput, c egress.Clients) (result
 		Method: "GET", URL: "https://api.securitytrails.com/v1/domain/" + url.PathEscape(root) + "/subdomains?children_only=false&include_inactive=true",
 		KeySource: "securitytrails", KeyHeader: "APIKEY",
 	})
+	// Like its domain search, SecurityTrails answers 404 for a domain it has no data on.
+	if errors.Is(err, httpsrc.ErrNotFound) {
+		return result{}, nil
+	}
 	if err != nil {
 		return result{}, err
 	}
@@ -454,6 +488,9 @@ func securitytrails(ctx context.Context, in rootInput, c egress.Clients) (result
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
 		return result{}, fmt.Errorf("unreadable SecurityTrails response: %w", err)
+	}
+	if r.Subdomains == nil {
+		return result{}, errors.New("unreadable SecurityTrails response: no subdomains list")
 	}
 	return result{names: httpsrc.JoinLabels(root, r.Subdomains)}, nil
 }

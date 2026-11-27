@@ -32,7 +32,8 @@ func censys(ctx context.Context, in rootInput, c egress.Clients) (result, error)
 		if err != nil {
 			return result{}, err
 		}
-		body, err := httpsrc.Get(ctx, c, egress.ThirdPartyRequest{
+		// Each search spends Censys credits: an exhausted allowance (402) stops the procedure.
+		body, err := httpsrc.GetCredits(ctx, c, egress.ThirdPartyRequest{
 			Method: "POST", URL: "https://api.platform.censys.io/v3/global/search/query", Body: b,
 			ContentType: "application/json", Accept: "application/json",
 			KeySource: "censys", KeyHeader: "Authorization", KeyPrefix: "Bearer ",
