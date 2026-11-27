@@ -5,8 +5,8 @@ Procedures, in the order each pass runs them:
   providerranges*  third party          Address ranges cloud and CDN providers publish, to tell shared infrastructure
   resolve*         third party          A and AAAA records of each hostname and root, from public resolvers
   wildcard*        third party          Lookups of random labels in each zone, to detect wildcard DNS
-  httpprobe        target               HTTP and HTTPS services on each hostname and open port, as a browser sees them
-  ports            target               TCP handshakes to the configured ports, keeping any banner sent unprompted
+  httpprobe        target               HTTP and HTTPS services on each hostname and open port, as a browser sees them, and the hostnames their answers name
+  ports            target               TCP handshakes to the configured ports, keeping any banner sent unprompted and the hostnames it names
 
 Third-party procedures ask public sources and resolvers, and run under --passive. Target procedures
 contact the target's own systems: they are skipped under --passive, and unless --authorised

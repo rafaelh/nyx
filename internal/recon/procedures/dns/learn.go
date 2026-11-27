@@ -95,9 +95,6 @@ func (*LearnedNames) Run(ctx context.Context, c run.Job, e egress.Clients) ([]ru
 // learnHost is a hostname that learning learns from, with its most specific input root.
 type learnHost struct{ Name, Root string }
 
-// maxNameLen is the longest DNS name in its text form, without the final dot.
-const maxNameLen = 253
-
 // learnNames plans the names learning tries: the learnable forms of every label of each host
 // below its root, under every populated zone (the roots and the names between a host and its
 // root) that zoneOK accepts. Labels are ranked by the number of zones that have a host whose
@@ -147,7 +144,7 @@ func learnNames(hosts []learnHost, roots []string, zoneOK func(zone string) bool
 	var out []string
 	for _, l := range ranked {
 		for _, z := range tryable {
-			if n := l + "." + z; len(n) <= maxNameLen && !skip(n) {
+			if n := l + "." + z; len(n) <= dnsname.MaxNameLen && !skip(n) {
 				out = append(out, n)
 			}
 		}

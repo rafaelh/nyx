@@ -9,6 +9,7 @@ import (
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/origin"
 	"github.com/rafaelh/nyx/internal/recon/run"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // OriginCheck requests a candidate address using the fronted hostname's SNI and Host header. It
@@ -38,18 +39,25 @@ func (*OriginCheck) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, err
 			if !p.Contactable || !p.Probed() {
 				continue
 			}
-			if !yield(run.Job{Key: p.JobKey(), Input: p}, nil) {
+			if !yield(run.Job{Key: p.JobKey(), Input: originInput{pair: p, sc: v.Scope()}}, nil) {
 				return
 			}
 		}
 	}
 }
 
+// originInput is the Job.Input of origincheck.
+type originInput struct {
+	pair origin.Pair
+	sc   *scope.Scope
+}
+
 // Run tries HTTPS, falling back to HTTP only when 443 gives no answer. TLS failure counts as an
 // answer, so it does not trigger fallback. Responses are recorded; no answer completes without
 // evidence.
 func (*OriginCheck) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
-	p := c.Input.(origin.Pair)
+	in := c.Input.(originInput)
+	p := in.pair
 	for _, scheme := range []string{"https", "http"} {
 		res, err := e.HTTP.Get(ctx, egress.OriginCheck(p.Host, scheme, p.Addr))
 		if err != nil {
@@ -64,7 +72,11 @@ func (*OriginCheck) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run
 			if len(r.PeerCerts) > 0 {
 				a.CertNamesHost = r.PeerCerts[0].VerifyHostname(p.Host) == nil
 			}
-			return []run.Observation{kinds.OriginCheck.Obs(a)}, nil
+			// The answer's names have a cap of their own, not the fronted service's.
+			var names textNames
+			names.read(r, takeable(in.sc, p.Host))
+			unit := textUnit{name: fmt.Sprintf("origincheck of %s at %s", p.Host, p.Addr), per: "one origin-check response"}
+			return append([]run.Observation{kinds.OriginCheck.Obs(a)}, commitText(ctx, &names, unit)...), nil
 		case egress.NoService:
 			if scheme == "https" && r.Reason != egress.NoServiceTLSFailed {
 				continue

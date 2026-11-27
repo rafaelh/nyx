@@ -59,16 +59,19 @@ func (*JSParse) Evidence(jobKey string) (source, item string) {
 }
 
 type scriptInput struct {
-	url string
-	sc  *scope.Scope
+	url  string
+	sc   *scope.Scope
+	unit textUnit // the cap of the origin that serves the script
 }
 
 // Jobs selects current scripts on eligible probe hosts or in-scope IPs, excluding SaaS.
 // Per-origin caps prefer already-read scripts so newly sorted URLs cannot evict existing work.
-// Parser version is keyed; scope is not, so extracting names under newly added roots needs
-// --redo jsparse.
+// Parser version is keyed; scope is not, so taking names under newly added roots needs
+// --redo jsparse. A script's names count against the origin that serves it, whichever pages
+// reference it.
 func (*JSParse) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 	return func(yield func(run.Job, error) bool) {
+		taken := v.TextHostnames()
 		parsed := map[string]bool{}
 		for _, rec := range v.Records(kinds.ScriptParsed) {
 			parsed[rec.Key] = true
@@ -82,7 +85,7 @@ func (*JSParse) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] 
 					skipped, layout.Plural(skipped, "script", "scripts"), origin, limit)
 			}
 			for _, u := range urls {
-				if !yield(run.Job{Key: u + "|p=" + parserHash, Input: scriptInput{url: u, sc: v.Scope()}}, nil) {
+				if !yield(run.Job{Key: u + "|p=" + parserHash, Input: scriptInput{url: u, sc: v.Scope(), unit: serviceUnit(origin, taken)}}, nil) {
 					return
 				}
 			}
@@ -143,10 +146,13 @@ func (*JSParse) Run(ctx context.Context, chk run.Job, e egress.Clients) ([]run.O
 	in := chk.Input.(scriptInput)
 	obs := []run.Observation{kinds.ScriptParsed.Obs(in.url)}
 	scriptHost := weburl.HostOfURL(in.url)
-	resp, ok, err := fetchScript(ctx, e, in.url, scriptHost)
+	names, keep := &textNames{}, takeable(in.sc, scriptHost)
+	resp, ok, err := fetchScript(ctx, e, in.url, scriptHost, func(r egress.Response) { names.read(r, keep) })
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", chk.Key, err)
 	}
+	// The names in every response the fetch received are taken, whether or not it was a script.
+	obs = append(obs, commitText(ctx, names, in.unit)...)
 	if !ok || isMarkup(resp) {
 		return obs, nil
 	}
@@ -154,15 +160,11 @@ func (*JSParse) Run(ctx context.Context, chk run.Job, e egress.Clients) ([]run.O
 		run.Warnf(ctx, "jsparse: %s is longer than %d MiB: truncated, only the first %d MiB was read", in.url, egress.MaxScriptBody>>20, egress.MaxScriptBody>>20)
 	}
 	found := ExtractEndpoints(resp.Body, originOf(resp.URL()))
-	hosts := map[string]bool{}
 	recorded, more := 0, false
 	for _, u := range found {
 		host := weburl.HostOfURL(u)
 		if !in.sc.WebHostInScope(host) {
 			continue
-		}
-		if d, ok := otherHost(host, scriptHost); ok {
-			hosts[d] = true
 		}
 		if recorded == maxEndpointsPerScript {
 			more = true
@@ -174,17 +176,14 @@ func (*JSParse) Run(ctx context.Context, chk run.Job, e egress.Clients) ([]run.O
 	if more {
 		run.Warnf(ctx, "jsparse: %s names more than %d URLs in scope: only the first %d are recorded", in.url, maxEndpointsPerScript, maxEndpointsPerScript)
 	}
-	for _, h := range slices.Sorted(maps.Keys(hosts)) {
-		obs = append(obs, kinds.Hostname.Obs(h, kinds.HostnameAttrs{}))
-	}
 	return obs, nil
 }
 
 var errScriptTimeout = errors.New("no complete response within the HTTP timeout")
 
-// fetchScript follows same-host redirects. Non-2xx, external redirects and policy refusals
-// return ok=false.
-func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string) (egress.Response, bool, error) {
+// fetchScript follows same-host redirects, handing every response it receives to seen. Non-2xx,
+// external redirects and policy refusals return ok=false.
+func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string, seen func(egress.Response)) (egress.Response, bool, error) {
 	req := egress.Script(scriptURL)
 	visited := map[string]bool{scriptURL: true}
 	for hop := 0; ; hop++ {
@@ -199,6 +198,7 @@ func fetchScript(ctx context.Context, e egress.Clients, scriptURL, host string) 
 			}
 			return egress.Response{}, false, nil
 		case egress.Response:
+			seen(r)
 			if !isRedirect(r.Status) {
 				return r, r.Status >= 200 && r.Status < 300, nil
 			}

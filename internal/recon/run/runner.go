@@ -108,6 +108,7 @@ type Runner struct {
 	recMu     sync.Mutex
 	recs      map[string]recordsCache   // cached records by kind; see records
 	observing map[string]observersCache // cached record observers by kind; see observers
+	textNames textNamesCache            // see textHostnames
 
 	mu      sync.Mutex
 	failed  map[string]map[string]bool // procedure -> job key, failed this run
@@ -141,6 +142,12 @@ type Runner struct {
 type recordsCache struct {
 	ver       uint64
 	all, curr []store.Record
+}
+
+// textNamesCache holds the index of the text_hostname records at store version ver.
+type textNamesCache struct {
+	ver uint64
+	m   map[string][]string
 }
 
 // observersCache holds a kind's supporting jobs at version ver. Completing, redoing or
@@ -275,7 +282,8 @@ func (r *Runner) wrapUp(ctx context.Context, err error) (Result, error) {
 // passes repeats the procedure registry until no procedure does work, rendering output after each
 // pass.
 func (r *Runner) passes(ctx context.Context) error {
-	ctx = withRunState(ctx)
+	ctx, st := withRunState(ctx)
+	defer r.endWarnings(st)
 	for pass := 1; ; pass++ {
 		worked, err := r.pass(ctx, pass == 1)
 		if err != nil {
@@ -294,6 +302,25 @@ func (r *Runner) passes(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return interrupted(ctx)
 		}
+	}
+}
+
+// endWarnings warns, in sorted order, the text of every value shared through PerRun that has
+// something to say once the run ends, whether it completed or was interrupted.
+func (r *Runner) endWarnings(st *runState) {
+	st.mu.Lock()
+	var texts []string
+	for _, v := range st.m {
+		if w, ok := v.(EndWarner); ok {
+			if t := w.EndWarning(); t != "" {
+				texts = append(texts, t)
+			}
+		}
+	}
+	st.mu.Unlock()
+	slices.Sort(texts)
+	for _, t := range texts {
+		r.warn("%s", t)
 	}
 }
 
@@ -815,6 +842,35 @@ func (r *Runner) cached(kind string) (recordsCache, error) {
 	r.recs[kind] = c
 	r.recMu.Unlock()
 	return c, nil
+}
+
+// textHostnames indexes every text_hostname record, current or not, by its service, and caches
+// the index until the kind's version changes, so the procedures that read it share one build.
+// Treat the returned map as read-only.
+func (r *Runner) textHostnames() map[string][]string {
+	kind := kinds.TextHostname.Name()
+	ver := r.st.KindVersion(kind)
+	r.recMu.Lock()
+	c := r.textNames
+	r.recMu.Unlock()
+	if c.m != nil && c.ver == ver {
+		return c.m
+	}
+	recs, err := r.records(kind)
+	if err != nil {
+		r.warn("reading %s records: %v", kind, err)
+	}
+	idx := map[string][]string{}
+	for _, rec := range recs {
+		a := kinds.TextHostname.Attrs(rec)
+		idx[a.Service] = append(idx[a.Service], a.Name)
+	}
+	if err == nil {
+		r.recMu.Lock()
+		r.textNames = textNamesCache{ver: ver, m: idx}
+		r.recMu.Unlock()
+	}
+	return idx
 }
 
 // observers caches completed jobs supporting each record until the kind's version changes.

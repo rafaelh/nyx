@@ -65,6 +65,10 @@ func (e *Egress) dialAddr(addr netip.Addr, port int) string {
 	return hp
 }
 
+// MaxBanner is the size of the one read that takes a banner: a banner of this length may have
+// been cut.
+const MaxBanner = 1024
+
 func (e *Egress) dialAndRead(ctx context.Context, addr netip.Addr, port int) (TCPResult, error) {
 	d := net.Dialer{Timeout: e.opts.ConnectTimeout}
 	conn, err := d.DialContext(ctx, "tcp", e.dialAddr(addr, port))
@@ -75,7 +79,7 @@ func (e *Egress) dialAndRead(ctx context.Context, addr netip.Addr, port int) (TC
 		return classifyDial(err, addr, udpRoute)
 	}
 	defer conn.Close()
-	buf := make([]byte, 1024)
+	buf := make([]byte, MaxBanner)
 	if err := conn.SetReadDeadline(time.Now().Add(e.opts.BannerWait)); err != nil {
 		return Open{}, nil // the port is open; without a deadline the read could block forever
 	}

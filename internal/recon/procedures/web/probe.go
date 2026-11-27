@@ -15,6 +15,7 @@ import (
 	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/run"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // maxHops is how many redirects a probe, the crawl or jsparse follows.
@@ -44,6 +45,10 @@ type probeInput struct {
 	scheme string // "" tries https, then http
 	detect bool   // a port-detection job, not a hostname job
 	addr   netip.AddrPort
+	sc     *scope.Scope
+	// taken gives the names already taken from each service's text. A port-detection job
+	// learns its scheme, and so its service, only when it runs.
+	taken map[string][]string
 }
 
 // Jobs starts with hostname ports 80/443, detects protocols on other bannerless open ports,
@@ -54,7 +59,9 @@ func (*Probe) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 		if _, err := fingerprints(); err != nil {
 			v.Warn("httpprobe: technology detection is off: %v", err)
 		}
+		sc, taken := v.Scope(), v.TextHostnames()
 		emit := func(key string, in probeInput) bool {
+			in.sc, in.taken = sc, taken
 			return yield(run.Job{Key: key, Input: in}, nil)
 		}
 		for _, h := range v.ProbeHostnames() {
@@ -182,13 +189,18 @@ func newObsSet() *obsSet { return &obsSet{seen: map[string]bool{}} }
 
 // add deduplicates observations by record identity, returning the appended index or -1.
 func (s *obsSet) add(o run.Observation) int {
-	if k := o.Kind + "\x00" + o.Key; !s.seen[k] {
+	if k := obsID(o.Kind, o.Key); !s.seen[k] {
 		s.seen[k] = true
 		s.list = append(s.list, o)
 		return len(s.list) - 1
 	}
 	return -1
 }
+
+// has reports whether the set holds the record of kind k with key.
+func (s *obsSet) has(k kinds.Named, key string) bool { return s.seen[obsID(k.Name(), key)] }
+
+func obsID(kind, key string) string { return kind + "\x00" + key }
 
 func isRedirect(status int) bool {
 	switch status {
@@ -245,7 +257,21 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 		return nil, err
 	}
 	ids.add(kinds.IdentifierFavicon, hash)
-	return append([]run.Observation{kinds.WebService.Obs(attrs.URL, attrs), kinds.WebPosture.Obs(attrs.URL, posture(in.host, chain))}, obs.list...), nil
+	out := append([]run.Observation{kinds.WebService.Obs(attrs.URL, attrs), kinds.WebPosture.Obs(attrs.URL, posture(in.host, chain))}, obs.list...)
+	return append(out, commitText(ctx, chainNames(in, chain, obs), serviceUnit(attrs.URL, in.taken))...), nil
+}
+
+// chainNames reads the names in every response of the chain, the favicon's left out. A redirect
+// target or certificate name the job already observed is taken outside the cap, so it does not
+// use a place.
+func chainNames(in probeInput, chain []*hop, obs *obsSet) *textNames {
+	base := takeable(in.sc, in.host)
+	keep := func(n string) bool { return base(n) && !obs.has(kinds.Hostname, n) }
+	c := &textNames{}
+	for _, h := range chain {
+		c.read(h.resp, keep)
+	}
+	return c
 }
 
 // followRedirects follows up to maxHops in-scope redirects, recording URLs, other hosts and

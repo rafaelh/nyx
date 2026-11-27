@@ -246,9 +246,12 @@ func recordObservations(in recordInput, answers []egress.Answer) []run.Observati
 	if in.t != txtType {
 		return obs
 	}
+	// A TXT value is read with the reader that web text uses (dnsname.HostnamesIn), so there is one
+	// reader of hostnames in text. TXT still drops an excluded name (and any name recordHost
+	// refuses) here, where web text records it as excluded.
 	seen := map[string]bool{}
 	for _, v := range values {
-		for _, h := range dnsname.HostnamesIn(v) {
+		for h := range dnsname.HostnamesIn(v, false) {
 			if !seen[h] && h != in.name && in.sc.RootOf(h) != h && recordHost(in.sc, h) {
 				seen[h] = true
 				obs = append(obs, kinds.Hostname.Obs(h, kinds.HostnameAttrs{}))

@@ -56,15 +56,16 @@ type crawlInput struct {
 	port          int
 	depth, pages  int
 	origin, start string
+	unit          textUnit // the service's cap on names taken from its text
 }
 
 // Jobs versions each in-scope current service by crawl limits so changing limits creates new
 // work.
 func (*Crawl) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
-	set := v.Settings().Crawl
+	set, sc, taken := v.Settings().Crawl, v.Scope(), v.TextHostnames()
 	return run.JobsOf(v.WebServices(), func(ws run.WebService) run.Job { // in key order
 		svc := ws.Svc
-		in := crawlInput{sc: v.Scope(), host: svc.Host, scheme: svc.Scheme, port: svc.Port, depth: set.MaxDepth, pages: set.MaxPages, origin: ws.Key}
+		in := crawlInput{sc: sc, host: svc.Host, scheme: svc.Scheme, port: svc.Port, depth: set.MaxDepth, pages: set.MaxPages, origin: ws.Key, unit: serviceUnit(ws.Key, taken)}
 		in.start, _ = weburl.NormaliseURL(ws.Key + "/")
 		key := fmt.Sprintf("%s|depth=%d|pages=%d", ws.Key, set.MaxDepth, set.MaxPages)
 		return run.Job{Key: key, Input: in}
@@ -90,7 +91,6 @@ type crawler struct {
 	visited  map[string]bool
 	recorded map[string]int
 	urls     []recordedURL
-	hosts    map[string]bool
 	queue    []queued
 	anchor   egress.Response // a same-origin response, the base egress.Link resolves from
 
@@ -100,6 +100,10 @@ type crawler struct {
 	scripts map[string]bool // normalised URLs of the <script src> elements seen, on any host
 
 	ids *identifierSet // the identifiers the scanned pages name
+
+	// names gathers the hostnames in every response, links included; keep is which are taken.
+	names textNames
+	keep  func(string) bool
 }
 
 // storageRef is a storage URL a page links to or loads.
@@ -112,7 +116,7 @@ type storageRef struct {
 // Run fails only when the root fetch errors; other page failures are skipped.
 func (*Crawl) Run(ctx context.Context, chk run.Job, e egress.Clients) ([]run.Observation, error) {
 	in := chk.Input.(crawlInput)
-	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, hosts: map[string]bool{}, storage: map[string]*storageRef{}, scripts: map[string]bool{}, ids: newIdentifierSet(in.origin, in.host, newObsSet())}
+	c := &crawler{ctx: ctx, in: in, e: e, visited: map[string]bool{in.start: true}, recorded: map[string]int{}, storage: map[string]*storageRef{}, scripts: map[string]bool{}, ids: newIdentifierSet(in.origin, in.host, newObsSet()), keep: takeable(in.sc, in.host)}
 	c.record(in.start)
 	root, scan, err := c.fetchPage(egress.Root(in.host, in.scheme, in.port), in.start)
 	if err != nil {
@@ -169,6 +173,7 @@ func (c *crawler) fetchPage(req egress.Request, page string) (resp egress.Respon
 		}
 		resp = r
 		c.setStatus(page, r.Status)
+		c.names.read(r, c.keep)
 		if !isRedirect(r.Status) || r.Location == "" || hop >= maxHops {
 			return resp, true, nil
 		}
@@ -284,10 +289,10 @@ func (c *crawler) storageRef(abs, tag, page string) {
 	c.storageKeys = append(c.storageKeys, key)
 }
 
-// record saves in-scope URLs within the cap and different in-scope hostname references,
-// ignoring external hosts.
+// record saves in-scope URLs within the cap, ignoring external hosts. The hosts of links are
+// taken by reading the responses, like any other name in them.
 func (c *crawler) record(abs string) {
-	if _, seen := c.recorded[abs]; seen { // its host was handled when it was first recorded
+	if _, seen := c.recorded[abs]; seen {
 		return
 	}
 	host := weburl.HostOfURL(abs)
@@ -297,9 +302,6 @@ func (c *crawler) record(abs string) {
 	if len(c.urls) < urlsPerPage*c.in.pages {
 		c.recorded[abs] = len(c.urls)
 		c.urls = append(c.urls, recordedURL{url: abs, host: host})
-	}
-	if d, ok := otherHost(host, c.in.host); ok {
-		c.hosts[d] = true
 	}
 }
 
@@ -314,9 +316,7 @@ func (c *crawler) observations() []run.Observation {
 	for _, u := range c.urls {
 		out = append(out, kinds.URL.Obs(u.url, kinds.URLAttrs{URL: u.url, Host: u.host, Status: u.status}))
 	}
-	for _, h := range slices.Sorted(maps.Keys(c.hosts)) {
-		out = append(out, kinds.Hostname.Obs(h, kinds.HostnameAttrs{}))
-	}
+	out = append(out, commitText(c.ctx, &c.names, c.in.unit)...)
 	for _, k := range c.storageKeys {
 		out = append(out, storageObservation(*c.storage[k]))
 	}

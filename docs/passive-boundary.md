@@ -22,6 +22,9 @@ nyx limits what target-owned systems can receive. It sends only:
   serves for the hostname; it is never an address nyx would not already handshake. One GET goes over
   HTTPS on 443 and, only if nothing answers there, one over HTTP on 80; a redirect is not followed.
 
+In-scope hostnames are read from the responses and banners already received, and reading them
+sends nothing (see [Hostnames in responses](sources.md#hostnames-in-responses)).
+
 A hostname is contacted only at its public addresses. A target can point one of its names at any
 address, and can redirect an in-scope page to that name, so an address the public resolvers gave
 that is not public (loopback such as 127.0.0.1, link-local such as a cloud metadata service at

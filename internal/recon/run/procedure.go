@@ -69,8 +69,10 @@ type runState struct {
 	m  map[any]any
 }
 
-func withRunState(ctx context.Context) context.Context {
-	return context.WithValue(ctx, runStateKey{}, &runState{m: map[any]any{}})
+// withRunState gives ctx a new run state, which it also returns.
+func withRunState(ctx context.Context) (context.Context, *runState) {
+	st := &runState{m: map[any]any{}}
+	return context.WithValue(ctx, runStateKey{}, st), st
 }
 
 // PerRun initialises a value once per key and shares it across jobs in this run. This is
@@ -144,6 +146,13 @@ type Budgeted interface {
 // requested once at the end using the final records.
 type Noter interface {
 	Notes(v View) []string
+}
+
+// EndWarner is a value shared through PerRun that has something to warn about once the run ends,
+// such as names a cap left out across many jobs. The runner asks every such value when its passes
+// end, on completion and on interrupt, and warns each non-empty text in sorted order.
+type EndWarner interface {
+	EndWarning() string
 }
 
 // Evidencer identifies the source and supporting item a job contributes to a candidate.
@@ -279,6 +288,10 @@ func (v View) Records(k kinds.Named) []store.Record {
 	v.cache.m[kind] = out
 	return out
 }
+
+// TextHostnames maps each web service to the names taken from the text of its responses over the
+// engagement, current or not: what that service's cap has already spent. Treat it as read-only.
+func (v View) TextHostnames() map[string][]string { return v.r.textHostnames() }
 
 // IPs filters current IP records after unmapping IPv4-mapped addresses. Invalid keys are
 // skipped; results are sorted. keep receives the unmapped address.

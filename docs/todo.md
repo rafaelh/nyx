@@ -28,6 +28,11 @@
   not a regression): after `make threat-data`, the docs don't give the date of the built-in Spamhaus
   asndrop list, 2026-11-24. The fix is to update the five dates in `docs/abusive-networks.md`.
 
+- **Test gaps in the hostnames read from responses.** Nothing pins that header values are read in
+  sorted key order (which decides the names kept near the cap), the service cap's WARN line in
+  plain mode (only the `--json` warnings, and the generic end warning, are checked), or that a job
+  past 10,000 names stops scanning (seen only through "more than 10,000").
+
 - **Test gaps in the records of every name.** A provider range only half in provider space has a
   unit test (`TestRecordObservations_SPFSharedRanges`) but no behaviour test, as the world's
   provider-range fixture can't build one. The rule that hides a netblock candidate inside an
@@ -61,6 +66,25 @@ Confirm each with `/code-review` before fixing.
 
 
 ## Design changes
+
+- **Inexact readings of hostnames in text** (`dnsname.HostnamesIn`). Accepted when it was written,
+  each a candidate for a smarter reader: a legacy three-digit octal escape in a script (`\057`) is
+  read as decimal; `C:\sites\new.example.com` gives `ew.example.com`, and
+  `C:\users\x.example.com` gives nothing (`\u` and `\x` without digits reject); a TXT value's
+  literal backslash arrives doubled and is read through (`C:\\new.example.com` gives
+  `ew.example.com`); an HTML reference without its semicolon reads its digits greedily, so
+  `https:&#x2F&#x2Fapi.example.com` gives `pi.example.com` (`&#x2Fa` is U+02FA); a name written
+  with non-ASCII letters is not read; percent-encoded Chinese text rejects a name it touches,
+  where literal Chinese text separates; a banner that arrives in more than one TCP segment is read
+  from its first read only, and a name that read cut short is taken as it stands
+  (`api.example.com` from `api.example.community`), as only a read that filled the buffer counts as
+  cut.
+- **`crawl` records `url` rows for hosts the text cap left out.** The cap on names taken from a web
+  service's text keeps such a host out of `hostname`, but the crawl's URL list still has its links.
+- **Banner names under a root added later need `--redo ports`,** which connects to every port
+  again. The banner is stored in `open_port`, so an analysis could read it without contact; it
+  would have to write `hostname`, which other analyses read, and the four web procedures have the
+  same `--redo` limit.
 
 - **`addrkind.PublicPrefix` is stricter than `addrkind.Of`.** It calls a prefix not public when any
   non-public special-purpose row overlaps it, so a globally reachable exception inside one

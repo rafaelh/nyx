@@ -11,8 +11,10 @@ import (
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/run"
+	"github.com/rafaelh/nyx/internal/scope"
 )
 
 // Ports completes a TCP handshake to every port-eligible address on every
@@ -44,6 +46,7 @@ func (*Ports) Workers(s config.Settings) int { return s.PortConcurrency }
 type portCheck struct {
 	ap       netip.AddrPort
 	reported bool
+	sc       *scope.Scope // which names in a banner are taken
 }
 
 // recheckSuffix marks the job that settles a port a third party reported after
@@ -58,7 +61,7 @@ const recheckSuffix = "|reported"
 // the reported port. Reports therefore cannot cause a third connection attempt.
 func (*Ports) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 	return func(yield func(run.Job, error) bool) {
-		addrs := eligible(ctx, v)
+		addrs, sc := eligible(ctx, v), v.Scope()
 		reported := map[netip.AddrPort]bool{}
 		for _, rec := range v.Records(kinds.ReportedPort) {
 			if ap, ok := kinds.ParsePortKey(rec.Key); ok {
@@ -78,11 +81,11 @@ func (*Ports) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 				}
 				ap := netip.AddrPortFrom(a, uint16(port))
 				key := ap.String()
-				if !yield(run.Job{Key: key, Input: portCheck{ap, reported[ap]}}, nil) {
+				if !yield(run.Job{Key: key, Input: portCheck{ap, reported[ap], sc}}, nil) {
 					return
 				}
 				if reported[ap] && !settled[ap] && v.Done(key) &&
-					!yield(run.Job{Key: key + recheckSuffix, Input: portCheck{ap, true}}, nil) {
+					!yield(run.Job{Key: key + recheckSuffix, Input: portCheck{ap, true, sc}}, nil) {
 					return
 				}
 			}
@@ -145,9 +148,9 @@ func (*Ports) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Obser
 	}
 	switch r := res.(type) {
 	case egress.Open:
-		return []run.Observation{kinds.OpenPort.Obs(kinds.OpenPortAttrs{
+		return append([]run.Observation{kinds.OpenPort.Obs(kinds.OpenPortAttrs{
 			IP: ap.Addr().String(), Port: int(ap.Port()), Banner: kinds.EncodeBanner(string(r.Banner)),
-		})}, nil
+		})}, bannerNames(r.Banner, in.sc)...), nil
 	case egress.Closed:
 		return outcome(kinds.PortClosed), nil
 	case egress.Filtered:
@@ -156,4 +159,21 @@ func (*Ports) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Obser
 		return nil, fmt.Errorf("%s refused: %s", c.Key, r.Reason)
 	}
 	return nil, fmt.Errorf("%s: unexpected result %T", c.Key, res)
+}
+
+// bannerNames takes the names below an input root that a banner spells, whichever names its
+// address serves (a banner has no host of its own). A banner that filled the one read may have
+// been cut, so a name running into its end is left out. There is no cap: a banner is at most
+// egress.MaxBanner bytes, and the shortest name below a root takes about seven with its
+// separator, so one cannot hold the 1,000 names a web service may give.
+func bannerNames(banner []byte, sc *scope.Scope) []run.Observation {
+	var out []run.Observation
+	seen := map[string]bool{}
+	for n := range dnsname.HostnamesIn(banner, len(banner) == egress.MaxBanner) {
+		if r := sc.RootOf(n); r != "" && r != n && !seen[n] {
+			seen[n] = true
+			out = append(out, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
+		}
+	}
+	return out
 }

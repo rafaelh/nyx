@@ -48,15 +48,15 @@ var procedureHelps = map[string]procedureHelp{
 	"dnshistory":       {"securitytrails", "Addresses each CDN- or WAF-fronted hostname resolved to in the past (SecurityTrails)"},
 	"email":            {"", "Mail posture of each root (MX, SPF, DMARC, MTA-STS, DKIM) and its mail providers"},
 	"nsreverse":        {"securitytrails", "Domains hosted on the name servers and mail hosts the organisation runs itself (SecurityTrails)"},
-	"httpprobe":        {"", "HTTP and HTTPS services on each hostname and open port, as a browser sees them"},
-	"crawl":            {"", "GET-only walk of each web service's own pages, robots.txt and sitemaps"},
+	"httpprobe":        {"", "HTTP and HTTPS services on each hostname and open port, as a browser sees them, and the hostnames their answers name"},
+	"crawl":            {"", "GET-only walk of each web service's own pages, robots.txt and sitemaps, taking the hostnames they name"},
 	"jsparse":          {"", "URLs and hostnames named in the scripts the crawl found"},
 	"identifier-pivot": {"shodan", "Shodan searches for hosts that share a site's analytics IDs or favicon"},
 	"storage":          {"", "Cloud storage buckets that are referenced or guessed, checked anonymously"},
 	"takeover":         {"", "One GET of each provider-hosted site, matched against unclaimed-resource pages"},
 	"sensitive-paths":  {"", "Requests for the sensitive-path list on each web service"},
-	"origincheck":      {"", "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site"},
-	"ports":            {"", "TCP handshakes to the configured ports, keeping any banner sent unprompted"},
+	"origincheck":      {"", "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site, and the hostnames its answer names"},
+	"ports":            {"", "TCP handshakes to the configured ports, keeping any banner sent unprompted and the hostnames it names"},
 }
 
 // proceduresHeading is the heading of the procedures topic.

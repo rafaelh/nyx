@@ -222,3 +222,45 @@ resolvers, so it runs under `--passive` and needs no `--authorised`.
 - **Cost.** About 3 lookups for each name below a root that is not an alias, and 16 more for each
   delegated zone, once per engagement; there is no cap. `--skip dnsrecords` turns it off and leaves
   the roots' lookups, and `--redo dnsrecords` asks every name again.
+
+## Hostnames in responses
+
+nyx takes an in-scope hostname from anywhere in the responses it already receives, not only from
+links: page text and comments, JSON, scripts and header values (a `Content-Security-Policy` entry
+written `*.cdn.example.com` gives `cdn.example.com`). Reading a response sends nothing, and a name
+found this way is resolved, probed and crawled like any other in-scope hostname.
+
+- **What is read.** Every response that `httpprobe` (each redirect hop, the first included),
+  `crawl` (pages of any type and status, same-origin redirect hops, `/robots.txt`, `/sitemap.xml`
+  and sitemap indexes), `jsparse` (every answer to a script URL, a redirect, an error page or
+  markup included) and `origincheck` receive, headers and body, and every banner `ports` reads
+  from an open port, whichever hostnames its address serves. Only the part nyx already reads is
+  searched: a body past its size limit (1 MiB, or 4 MiB for a script) is not, and a name that runs
+  up to the point a limit cut, or to the end of a banner that filled the 1,024-byte read, is left
+  out.
+- **How a name is read.** A name written with escapes is read through them: percent-encoding
+  (`https%3A%2F%2Fapi.example.com`), backslash-escaped slashes (`https:\/\/api.example.com`), JSON
+  and script escapes (`\u002F`, `\x2F`) and HTML character references (`&#x2F;`). Upper case is
+  read as lower case. A name is read whole, so `www.example.com.evil.net` gives nothing.
+- **What is left out.** A name under no input root (it is not a candidate and not a third party;
+  names from links, redirects and certificates still give candidates), an input root itself, the
+  responding host's own name, and a name with an underscore in it (`_dmarc.example.com`). A name
+  written with non-ASCII letters is not read, and a Latin, Greek or Cyrillic letter touching a name
+  leaves it out. The responses to the sensitive-path list and the favicon are not searched, nor the banners
+  only Shodan reports. An excluded name is listed as excluded and never contacted.
+- **The cap.** At most 1,000 distinct names are taken from the responses of one web service over
+  the engagement: its probe, its crawl and the scripts it serves together, a script counting
+  against the origin that serves it. `crawl` and `jsparse` take hostnames only this way, so the
+  hosts of links count too (their URLs are still recorded). Every name read from a service uses a
+  place, one nyx already knew from another source included, and a name once taken keeps its
+  place. A redirect target and a certificate name that `httpprobe` records do not use one. A run
+  that leaves names out ends with one warning per service, giving the number of distinct names
+  left out in that run, or "more than 10,000". An `origincheck` response has a cap of 1,000 of its
+  own, and a banner is too short to reach it.
+- **Kept as records.** Each name taken from a web service is kept as a `text_hostname` record of
+  the service, which `nyx recon export --kind text_hostname` shows; it has no output file.
+- **Authorisation.** All five procedures contact the target, so the reading needs `--authorised`
+  and is off under `--passive`.
+- **A root added later.** A response already read is not read again for a new root: that takes
+  `--redo` of the procedure (`--redo crawl`, say), and `--redo ports` connects to every port
+  again.

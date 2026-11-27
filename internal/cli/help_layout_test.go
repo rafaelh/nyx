@@ -439,7 +439,7 @@ func TestHelp_ProceduresTopicTable(t *testing.T) {
 	if rows != len(defaultProcedureList()) {
 		t.Errorf("%d procedure rows, want %d", rows, len(defaultProcedureList()))
 	}
-	if len(origin) < 2 || strings.Join(origin, " ") != "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site" {
+	if len(origin) < 2 || strings.Join(origin, " ") != "One GET of / to each candidate origin of a CDN- or WAF-fronted hostname, to see whether it serves the site, and the hostnames its answer names" {
 		t.Errorf("origincheck does not wrap within WHAT IT DOES: %q", origin)
 	}
 }
