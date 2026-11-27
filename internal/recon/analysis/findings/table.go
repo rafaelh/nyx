@@ -40,6 +40,7 @@ var table = []Row{
 	{Takeover, "http-fingerprint", High, "a provider-hosted name serves the page an unclaimed resource serves"},
 	{Takeover, "storage-missing", High, "a bucket or account the in-scope CNAME or a page asset names does not exist"},
 	{Takeover, "storage-missing-link", Low, "a missing bucket that is only the target of a plain link"},
+	{Takeover, "dangling-alias", Low, "an alias (CNAME) of an in-scope name leaves the input roots and leads to no address: a stale record, not known to be claimable"},
 	{Storage, "listable", High, "an attributed bucket whose contents anyone can list"},
 	{Storage, "public", Medium, "an attributed bucket with an object anyone can fetch, not listable"},
 	{Storage, "exists", Low, "an attributed bucket that exists and is private"},

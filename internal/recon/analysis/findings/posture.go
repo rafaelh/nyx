@@ -2,6 +2,7 @@ package findings
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/input"
@@ -35,9 +36,25 @@ func (d *calc) webPosture() []Finding {
 		if a.DirectoryListing {
 			add("directory-listing", url+" serves a directory listing")
 		}
-		if a.VersionDisclosure != "" {
-			add("version-disclosure", fmt.Sprintf("%s discloses a version: %s", url, a.VersionDisclosure))
+		if v := disclosedVersions(a.VersionDisclosure); v != "" {
+			add("version-disclosure", fmt.Sprintf("%s discloses a version: %s", url, v))
 		}
 	}
 	return out
+}
+
+// fixedTokens are Server values whose number is part of the product's name and the same on every
+// installation, so it discloses no version: an AWS load balancer of either current kind, and the
+// Windows HTTP API whatever the Windows release.
+var fixedTokens = []string{"awselb/2.0", "microsoft-httpapi/2.0"}
+
+// disclosedVersions drops the fixed tokens from a ";"-joined list of header values.
+func disclosedVersions(joined string) string {
+	var out []string
+	for v := range strings.SplitSeq(joined, ";") {
+		if v != "" && !slices.Contains(fixedTokens, strings.ToLower(strings.TrimSpace(v))) {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, ";")
 }

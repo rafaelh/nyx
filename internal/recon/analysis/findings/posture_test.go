@@ -117,6 +117,37 @@ func TestWebPostureSkipsIPLiteralAndSaaSServices(t *testing.T) {
 	}
 }
 
+// A Server value whose number is part of the product's name discloses no version; a real version
+// beside it is still reported, alone.
+func TestWebPostureFixedServerTokensAreNotVersions(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.host("lb.example.com", "203.0.113.5")
+	f.host("api.example.com", "203.0.113.6")
+	f.host("old.example.com", "203.0.113.7")
+	f.posture("http://lb.example.com", "lb.example.com", "version_disclosure", "awselb/2.0")
+	f.posture("http://api.example.com", "api.example.com", "version_disclosure", "Microsoft-HTTPAPI/2.0")
+	wantSet(t, f.derive(t))
+
+	f.posture("http://old.example.com", "old.example.com", "version_disclosure", "Microsoft-HTTPAPI/2.0;ASP.NET/4.0.30319")
+	got := f.derive(t)
+	wantSet(t, got, "web-posture/version-disclosure=low")
+	if want := "http://old.example.com discloses a version: ASP.NET/4.0.30319"; got[0].Detail != want {
+		t.Errorf("detail = %q, want %q", got[0].Detail, want)
+	}
+}
+
+// A service on a third party's platform that no entry lists produces no posture findings either:
+// the alias of a name under the root leaves the roots.
+func TestWebPostureSkipsUnlistedThirdParty(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.host("learn.example.com", "203.0.113.30")
+	f.cname("learn.example.com", "cl2.vendor-lms.test")
+	f.posture("https://learn.example.com", "learn.example.com", "hsts", false, "version_disclosure", "nginx/1.18.0")
+	wantSet(t, f.derive(t))
+}
+
 // Posture evidence follows current-host visibility.
 func TestWebPostureFollowsScopeAndCurrency(t *testing.T) {
 	t.Parallel()

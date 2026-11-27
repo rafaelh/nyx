@@ -718,17 +718,20 @@ func TestProviderHosts(t *testing.T) {
 	if r := find(rows, "hostname", "dang.example.com"); r == nil || r["provider"] != "azure" || r["resolves"] != "false" {
 		t.Errorf("dangling chain row = %v", r)
 	}
-	if find(rows, "hostname", "plain.example.com") != nil {
-		t.Error("unrelated suffix produced a row")
+	// An alias that leaves the root for a domain no entry lists is a third party's, named by
+	// that domain.
+	if r := find(rows, "hostname", "plain.example.com"); r == nil || r["provider"] != "example.net" || r["service"] != "" ||
+		r["evidence"] != "cname" || r["cname"] != "mail.example.net" || r["resolves"] != "true" {
+		t.Errorf("unlisted third party row = %v", r)
 	}
 	ips := w.table(eng, "ips.csv")
 	if r := find(ips, "ip", "203.0.113.20"); r == nil || r["port_eligible"] != "false" || r["provider"] != "aws" || r["service"] != "CloudFront" {
 		t.Errorf("an address behind a provider CNAME is shared even if its ASN is ordinary: %v", r)
 	}
 	if r := find(ips, "ip", "203.0.113.21"); r == nil || r["port_eligible"] != "true" {
-		t.Errorf("an unrelated CNAME leaves the address eligible: %v", r)
+		t.Errorf("an unlisted third party's CNAME leaves the address eligible: %v", r)
 	}
-	if rows := w.table(eng, "provider-hosts.csv"); len(rows) != 2 {
+	if rows := w.table(eng, "provider-hosts.csv"); len(rows) != 3 {
 		t.Errorf("one row per CNAME match, no duplicates from the address: %v", rows)
 	}
 	if got := w.providerHosts(); !slices.Contains(got, "cdn.example.com|aws") || !slices.Contains(got, "dang.example.com|azure") {

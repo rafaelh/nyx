@@ -240,10 +240,10 @@ func TestDNSRoot_UnmatchedTXT(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	w.dns.TXT("example.com", "v=spf1 -all")
-	w.dns.TXT("example.com", "not-a-google-site-verification=abc")
+	w.dns.TXT("example.com", "not-a-google-site=abc")
 	w.dns.TXT("example.com", "something else")
 	runRoot(t, w)
-	for _, v := range []string{"v=spf1 -all", "not-a-google-site-verification=abc", "something else"} {
+	for _, v := range []string{"v=spf1 -all", "not-a-google-site=abc", "something else"} {
 		found := false
 		for _, r := range w.table(eng, "resolutions.csv") {
 			found = found || r["type"] == "TXT" && r["value"] == v
@@ -254,6 +254,56 @@ func TestDNSRoot_UnmatchedTXT(t *testing.T) {
 	}
 	if got := w.file(eng, "third-parties.csv"); got != "" {
 		t.Errorf("an unmatched TXT inferred a third party:\n%s", got)
+	}
+}
+
+// A TXT record shaped as a vendor's verification record names the vendor even when no prefix
+// lists it, and the token stays out of third-parties.csv.
+func TestDNSRoot_UnlistedVerificationTXT(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.dns.TXT("example.com", "linear-domain-verification=s2pgvu2774jk")
+	w.dns.TXT("example.com", "neat-pulse-domain-verification-rvqZKlX=fb2b2f5a")
+	w.dns.TXT("example.com", "openai-domain-verification=dv-token")
+	runRoot(t, w)
+	var got []string
+	for _, r := range w.table(eng, "third-parties.csv") {
+		if r["mechanism"] != "txt-verification" || r["domain"] != "" || r["root"] != "example.com" {
+			t.Errorf("row = %v", r)
+		}
+		got = append(got, r["provider"])
+	}
+	if want := []string{"Linear", "Neat Pulse", "OpenAI"}; !sameSet(got, want) {
+		t.Errorf("verified platforms = %q, want %q", got, want)
+	}
+	for _, token := range []string{"s2pgvu2774jk", "fb2b2f5a", "dv-token"} {
+		if strings.Contains(w.file(eng, "third-parties.csv"), token) {
+			t.Errorf("third-parties.csv holds the token %s", token)
+		}
+	}
+}
+
+// Route 53 serves a zone from four numbered domains: they are one ns third party, named by the
+// provider, and none of its name servers is looked up as a possible host of the organisation's.
+func TestDNSRoot_Route53IsOneThirdParty(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	for _, ns := range []string{"ns-1340.awsdns-39.org", "ns-1852.awsdns-39.co.uk", "ns-328.awsdns-41.com", "ns-737.awsdns-28.net"} {
+		w.dns.NS("example.com", ns)
+		w.dns.A(ns, "203.0.113.53")
+	}
+	runRoot(t, w)
+	var ns []map[string]string
+	for _, r := range w.table(eng, "third-parties.csv") {
+		if r["mechanism"] == "ns" {
+			ns = append(ns, r)
+		}
+	}
+	if len(ns) != 1 || ns[0]["provider"] != "Amazon Route 53" || ns[0]["domain"] != "" || ns[0]["root"] != "example.com" {
+		t.Errorf("ns third parties = %v, want one row for Amazon Route 53", ns)
+	}
+	if n := w.dns.Count("ns-1340.awsdns-39.org", "A"); n != 0 {
+		t.Errorf("a Route 53 name server was looked up %d times: a managed DNS provider's servers are not the organisation's", n)
 	}
 }
 
@@ -363,8 +413,10 @@ func TestDNSRoot_AliasRootTakesNoTargetRecords(t *testing.T) {
 			t.Errorf("the alias target's %s is recorded as the root's: %v", ty, r)
 		}
 	}
-	if tp := w.table(eng, "third-parties.csv"); len(tp) != 0 {
-		t.Errorf("third-parties.csv = %v", tp)
+	// The alias itself hands the root to its target's domain; nothing else is a third party.
+	tp := w.table(eng, "third-parties.csv")
+	if len(tp) != 1 || tp[0]["mechanism"] != "cname" || tp[0]["domain"] != "cdn-host.test" {
+		t.Errorf("third-parties.csv = %v, want only the alias target's domain", tp)
 	}
 	if c := find(w.table(eng, "candidates.csv"), "value", "192.0.3.0/24"); c != nil {
 		t.Errorf("an address in the alias target's SPF record is a candidate: %v", c)

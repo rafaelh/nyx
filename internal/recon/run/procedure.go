@@ -424,6 +424,10 @@ func (v View) ProviderHosts() []inventory.ProviderHost { return v.inv.ProviderHo
 // host can be a name or IP literal.
 func (v View) SaaSServed(host string) bool { return v.inv.SaaSServed(host) }
 
+// ProviderServed identifies hosting on shared infrastructure of any class: a third party's
+// platform, a CDN or a cloud provider's shared service. host can be a name or IP literal.
+func (v View) ProviderServed(host string) bool { return v.inv.ProviderServed(host) }
+
 // FrontedHostnames returns sorted probe names resolving to a CDN or WAF.
 func (v View) FrontedHostnames() []string {
 	var out []string

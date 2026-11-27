@@ -27,9 +27,11 @@ const (
 )
 
 // ThirdPartyAttrs identifies the root, mechanism, external domain, provider and hop depth. TXT
-// verifications omit the domain and keep tokens only in resolutions.csv. Keys use
-// "<root>|<mechanism>|<name>". SPF/DMARC retain exact domains, MX/SRV use registrable domains,
-// and CNAME uses the SaaS platform suffix.
+// verifications omit the domain and keep tokens only in resolutions.csv, and so does a dependency
+// on a provider that uses many registrable domains (provider.Family), which is one record however
+// many of its domains the root names. Keys use "<root>|<mechanism>|<name>". SPF/DMARC retain exact
+// domains, MX/SRV/NS use registrable domains, and CNAME uses the platform's suffix or, for a
+// platform no entry lists, its registrable domain.
 type ThirdPartyAttrs struct {
 	Root      string `json:"root"`
 	Mechanism string `json:"mechanism"`
@@ -46,11 +48,11 @@ func (a ThirdPartyAttrs) Platform() string {
 	return a.Domain
 }
 
-// thirdPartyKey uses "<root>|<mechanism>|<name>". name is the dependency domain or, for TXT
-// verification, the provider.
+// thirdPartyKey uses "<root>|<mechanism>|<name>". name is the dependency domain or, for a record
+// with none (a TXT verification or a provider family), the provider.
 func thirdPartyKey(a ThirdPartyAttrs) string {
 	name := a.Domain
-	if a.Mechanism == MechanismTXTVerification {
+	if a.Mechanism == MechanismTXTVerification || name == "" {
 		name = a.Provider
 	}
 	return strings.Join([]string{a.Root, a.Mechanism, name}, "|")
@@ -61,8 +63,8 @@ func thirdPartyKey(a ThirdPartyAttrs) string {
 func rebuildThirdParty(key string, a *ThirdPartyAttrs) {
 	var name string
 	fillFromKey(key, &a.Root, &a.Mechanism, &name)
-	switch a.Mechanism {
-	case MechanismTXTVerification:
+	switch {
+	case a.Mechanism == MechanismTXTVerification || provider.Default().IsFamily(name):
 		if a.Provider == "" {
 			a.Provider = name
 		}
@@ -77,8 +79,12 @@ func rebuildThirdParty(key string, a *ThirdPartyAttrs) {
 }
 
 // ThirdPartyObs describes a domain dependency at the given hop depth, adding its known
-// provider. Use ThirdParty.Obs directly for domainless TXT verifications.
+// provider. A domain of a provider family is recorded by the provider alone. Use ThirdParty.Obs
+// directly for domainless TXT verifications.
 func ThirdPartyObs(root, mechanism, domain string, depth int) store.Obs {
+	if family, ok := provider.Default().Family(domain); ok {
+		return ThirdParty.Obs(ThirdPartyAttrs{Root: root, Mechanism: mechanism, Provider: family, Depth: depth})
+	}
 	owner, _ := provider.Default().DomainOwner(domain)
 	return ThirdParty.Obs(ThirdPartyAttrs{Root: root, Mechanism: mechanism, Domain: domain, Provider: owner, Depth: depth})
 }

@@ -62,7 +62,7 @@ func (f *fixture) cname(name, target string) {
 
 func (f *fixture) input(t *testing.T) findings.Input {
 	t.Helper()
-	inv := inventory.New(inventory.Data{Hosts: f.hosts, Resolutions: f.res}, provider.Default())
+	inv := inventory.New(inventory.Data{Hosts: f.hosts, Resolutions: f.res, Roots: []string{"example.com"}}, provider.Default())
 	xs, err := input.ParseExclusions(f.excl)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +109,7 @@ func TestSeverityTable(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"takeover/dns-nxdomain":          "high",
+		"takeover/dangling-alias":        "low",
 		"takeover/http-fingerprint":      "high",
 		"takeover/storage-missing":       "high",
 		"takeover/storage-missing-link":  "low",
@@ -505,17 +506,65 @@ func TestTakeoverDNS(t *testing.T) {
 				f.recs["unresolved"] = nil
 				f.res = append(f.res, inventory.Resolution{Name: "shop.example.com", Type: "A", Value: "203.0.113.1"})
 			},
-			"provider is not marked nxdomain": func(f *fixture) {
-				f.cname("blog.example.com", "acme.cloudfront.net")
-				f.host("blog.example.com")
-				f.recs["unresolved"] = []store.Record{rec("unresolved", "blog.example.com", "rcode", "NXDOMAIN")}
-			},
 			"excluded host": func(f *fixture) { f.excl = []string{"shop.example.com"} },
 		} {
 			f := newFixture()
 			f.host("shop.example.com")
 			f.cname("shop.example.com", "acme.cloudapp.net")
 			f.add(rec("unresolved", "shop.example.com", "rcode", "NXDOMAIN"))
+			mod(f)
+			if got := f.derive(t); len(got) != 0 {
+				t.Errorf("%s: findings = %v", name, summarise(got))
+			}
+		}
+	})
+	// A provider not marked nxdomain, or one no entry lists, cannot be claimed that way: the alias
+	// is a stale record, reported low.
+	t.Run("dangling alias that is not claimable", func(t *testing.T) {
+		f := newFixture()
+		f.host("blog.example.com")
+		f.cname("blog.example.com", "acme.cloudfront.net")
+		f.add(rec("unresolved", "blog.example.com", "rcode", "NXDOMAIN"))
+		f.host("mail-test.example.com")
+		f.cname("mail-test.example.com", "u1.wl.vendor-mail.test")
+		f.add(rec("unresolved", "mail-test.example.com", "rcode", "NODATA"))
+		f.host("shop.example.com") // claimable: reported as a takeover, and only as one
+		f.cname("shop.example.com", "acme.cloudapp.net")
+		f.add(rec("unresolved", "shop.example.com", "rcode", "NXDOMAIN"))
+		got := f.derive(t)
+		wantSet(t, got, "takeover/dangling-alias=low", "takeover/dangling-alias=low", "takeover/dns-nxdomain=high")
+		for _, g := range got {
+			if g.Target != "mail-test.example.com" {
+				continue
+			}
+			if g.Attrs["cname"] != "u1.wl.vendor-mail.test" || g.Attrs["provider"] != "vendor-mail.test" {
+				t.Errorf("attrs = %+v", g.Attrs)
+			}
+			if want := "mail-test.example.com is an alias of u1.wl.vendor-mail.test, which leads to no address"; g.Detail != want {
+				t.Errorf("detail = %q, want %q", g.Detail, want)
+			}
+		}
+	})
+	t.Run("not a dangling alias", func(t *testing.T) {
+		for name, mod := range map[string]func(*fixture){
+			"servfail is no answer": func(f *fixture) {
+				f.recs["unresolved"] = []store.Record{rec("unresolved", "blog.example.com", "rcode", "SERVFAIL")}
+			},
+			"not yet resolved": func(f *fixture) { f.recs["unresolved"] = nil },
+			"it resolves": func(f *fixture) {
+				f.recs["unresolved"] = nil
+				f.res = append(f.res, inventory.Resolution{Name: "blog.example.com", Type: "A", Value: "203.0.113.1"})
+			},
+			"the alias stays under the root": func(f *fixture) {
+				f.res = nil
+				f.cname("blog.example.com", "gone.example.com")
+			},
+			"excluded host": func(f *fixture) { f.excl = []string{"blog.example.com"} },
+		} {
+			f := newFixture()
+			f.host("blog.example.com")
+			f.cname("blog.example.com", "acme.cloudfront.net")
+			f.add(rec("unresolved", "blog.example.com", "rcode", "NXDOMAIN"))
 			mod(f)
 			if got := f.derive(t); len(got) != 0 {
 				t.Errorf("%s: findings = %v", name, summarise(got))

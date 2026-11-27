@@ -49,6 +49,9 @@ type probeInput struct {
 	// taken gives the names already taken from each service's text. A port-detection job
 	// learns its scheme, and so its service, only when it runs.
 	taken map[string][]string
+	// shared says the host is on shared provider infrastructure, where a certificate that does
+	// not name the host is the provider's own: see certAttrs.
+	shared bool
 }
 
 // Jobs starts with hostname ports 80/443, detects protocols on other bannerless open ports,
@@ -61,7 +64,7 @@ func (*Probe) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 		}
 		sc, taken := v.Scope(), v.TextHostnames()
 		emit := func(key string, in probeInput) bool {
-			in.sc, in.taken = sc, taken
+			in.sc, in.taken, in.shared = sc, taken, v.ProviderServed(in.host)
 			return yield(run.Job{Key: key, Input: in}, nil)
 		}
 		for _, h := range v.ProbeHostnames() {
@@ -248,7 +251,7 @@ func (p *Probe) service(ctx context.Context, in probeInput, scheme string, first
 	attrs.BodyLen = len(first.Body)
 	attrs.TLSVersion, attrs.TLSCipher = first.TLSVersion, first.TLSCipher
 	if len(first.PeerCerts) > 0 {
-		certAttrs(&attrs, first, in.host, obs)
+		certAttrs(&attrs, first, in, obs)
 	}
 	ids := newIdentifierSet(attrs.URL, in.host, obs)
 	ids.chain(chain)
@@ -333,8 +336,12 @@ func recordHop(obs *obsSet, self string, last egress.Response, hopURL kinds.URLA
 	return hopIdx
 }
 
-// certAttrs records certificate metadata and other valid DNS names as hostname observations.
-func certAttrs(attrs *kinds.WebServiceAttrs, first egress.Response, host string, obs *obsSet) {
+// certAttrs records certificate metadata and other valid DNS names as hostname observations. A
+// certificate that does not name a host on shared provider infrastructure is the provider's
+// default, and the names beside it are its other customers': only those in scope by their name
+// are taken from it. An address's certificate, and one that names the host, give every name.
+func certAttrs(attrs *kinds.WebServiceAttrs, first egress.Response, in probeInput, obs *obsSet) {
+	host := in.host
 	leaf := first.PeerCerts[0]
 	sans := append([]string(nil), leaf.DNSNames...)
 	for _, ip := range leaf.IPAddresses {
@@ -347,11 +354,15 @@ func certAttrs(attrs *kinds.WebServiceAttrs, first egress.Response, host string,
 	attrs.TLSExpiry = leaf.NotAfter.UTC().Format("2006-01-02")
 	attrs.TLSTrust = first.CertTrust()
 	attrs.TLSSelfSigned = &isSelfSigned
+	_, isIP := input.IPLiteral(host)
+	foreign := in.shared && !isIP && leaf.VerifyHostname(host) != nil
 	for _, name := range leaf.DNSNames {
 		// Wildcard SANs contribute base names; invalid names, IPs and public suffixes
 		// are ignored.
-		if d := input.CleanName(name); d != "" && d != strings.ToLower(host) {
-			obs.add(kinds.Hostname.Obs(d, kinds.HostnameAttrs{}))
+		d := input.CleanName(name)
+		if d == "" || d == strings.ToLower(host) || (foreign && !in.sc.NameInScope(d)) {
+			continue
 		}
+		obs.add(kinds.Hostname.Obs(d, kinds.HostnameAttrs{}))
 	}
 }

@@ -69,6 +69,10 @@ func TestKeyedKinds_KeyAndRebuild(t *testing.T) {
 		{"third_party domain", kinds.ThirdPartyObs("example.com", kinds.MechanismNS, "cloudflare.com", 1),
 			"example.com|ns|cloudflare.com", attrsOf(kinds.ThirdParty),
 			kinds.ThirdPartyAttrs{Root: "example.com", Mechanism: kinds.MechanismNS, Domain: "cloudflare.com", Provider: "Cloudflare"}},
+		// A provider family has many registrable domains and is one record, named by the provider.
+		{"third_party family", kinds.ThirdPartyObs("example.com", kinds.MechanismNS, "awsdns-39.co.uk", 0),
+			"example.com|ns|Amazon Route 53", attrsOf(kinds.ThirdParty),
+			kinds.ThirdPartyAttrs{Root: "example.com", Mechanism: kinds.MechanismNS, Provider: "Amazon Route 53"}},
 	} {
 		if c.obs.Key != c.key {
 			t.Errorf("%s: key = %q, want %q", c.name, c.obs.Key, c.key)

@@ -43,6 +43,9 @@ func (*Host) Budget(s config.Settings) int { return s.Shodan.MaxHosts }
 type hostInput struct {
 	addr netip.Addr
 	sc   *scope.Scope
+	// tenants says every in-scope name on the address is served by a third party's platform:
+	// the other names Shodan lists there are that platform's other customers, not candidates.
+	tenants bool
 }
 
 // Jobs selects sorted eligible addresses outside completed search coverage.
@@ -71,7 +74,9 @@ func (*Host) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 					continue // a complete search would have returned it, or it did
 				}
 			}
-			if !yield(run.Job{Key: a.String(), Input: hostInput{a, sc}, Cost: 1}, nil) {
+			hosts := v.HostsFor(a)
+			tenants := len(hosts) > 0 && !slices.ContainsFunc(hosts, func(h string) bool { return !v.SaaSServed(h) })
+			if !yield(run.Job{Key: a.String(), Input: hostInput{a, sc, tenants}, Cost: 1}, nil) {
 				return
 			}
 		}
@@ -91,8 +96,8 @@ type hostAnswer struct {
 }
 
 // Run completes empty for unknown addresses. TCP services become reports; in-scope names are
-// tied to the address, while other names contribute candidate registrable roots. UDP is
-// ignored.
+// tied to the address, while other names contribute candidate registrable roots, unless the
+// address is a third party's platform (hostInput.tenants). UDP is ignored.
 func (*Host) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
 	in := c.Input.(hostInput)
 	body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
@@ -121,13 +126,18 @@ func (*Host) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observ
 			names = append(names, d.Hostnames...)
 		}
 	}
-	obs = append(obs, nameObs(in.sc, seen, names, in.addr.String())...)
-	return obs, nil
+	found := nameObs(in.sc, seen, names, in.addr.String())
+	if in.tenants {
+		found = slices.DeleteFunc(found, func(o run.Observation) bool { return o.Kind == kinds.Root.Name() })
+	}
+	return append(obs, found...), nil
 }
 
 // nameObs cleans and deduplicates returned names/roots. Hostnames under an input root get optional
-// address pairings; other names, those in scope by address included, contribute candidate roots. seen uses type-prefixed keys to keep
-// both distinct.
+// address pairings; other names, those in scope by address included, contribute candidate roots,
+// unless the name is generic for the address (dnsname.Generic): that is the reverse name its
+// network gives the address, and its domain is the network's. seen uses type-prefixed keys to
+// keep both distinct.
 func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string) []run.Observation {
 	var obs []run.Observation
 	for _, n := range names {
@@ -140,10 +150,17 @@ func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string)
 			if addr != "" {
 				obs = append(obs, kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: addr, Hostname: n, Source: "shodan"}))
 			}
-		} else if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] {
+		} else if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] && !genericFor(n, addr) {
 			seen["root|"+root] = true
 			obs = append(obs, kinds.Root.Obs(root))
 		}
 	}
 	return obs
+}
+
+// genericFor reports whether a name is generic for the address it was returned for, when there is
+// one.
+func genericFor(name, addr string) bool {
+	a, err := netip.ParseAddr(addr)
+	return err == nil && dnsname.Generic(name, a)
 }

@@ -3,6 +3,7 @@ Findings and their default severities (fixed in code, not configurable; the summ
   takeover              http-fingerprint      high    a provider-hosted name serves the page an unclaimed resource serves
   takeover              storage-missing       high    a bucket or account the in-scope CNAME or a page asset names does not exist
   takeover              storage-missing-link  low     a missing bucket that is only the target of a plain link
+  takeover              dangling-alias        low     an alias (CNAME) of an in-scope name leaves the input roots and leads to no address: a stale record, not known to be claimable
   storage               listable              high    an attributed bucket whose contents anyone can list
   storage               public                medium  an attributed bucket with an object anyone can fetch, not listable
   storage               exists                low     an attributed bucket that exists and is private

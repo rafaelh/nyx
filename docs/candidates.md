@@ -40,6 +40,14 @@ provider's sending pool; a name with more than one `v=spf1` record; and any term
 record whose domain is outside scope, which is never asked. Nothing in an `spf` candidate is
 contacted or looked up until you give it as `--cidr`.
 
+A hostname or root under a domain that a known DNS, mail or SaaS provider operates
+(`login.microsoftonline.com`, `acme.zendesk.com`) is not listed and not counted: it is the
+provider's name or a tenant's, never a domain to bring into scope, and the dependency is in
+`third-parties.csv`. `httpprobe` takes no candidate from a certificate that does not name the host
+when the host is on shared provider infrastructure: that certificate is the provider's own, and
+the names on it are its other customers'. A certificate that names the host, and the certificate
+of an address, give all their names.
+
 A netblock candidate that an in-scope netblock contains is not listed, and not counted in the
 summary, whichever source found it: give a wider range as `--cidr` and the candidates inside it
 leave `candidates.csv` on the next run, without `--redo`.

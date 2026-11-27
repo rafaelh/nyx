@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
+	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 )
 
@@ -44,6 +45,7 @@ func (s evidenceSet) add(target, typ, detail string, attrs map[string]any) {
 func (d *calc) takeovers() []Finding {
 	ev := evidenceSet{}
 	d.dnsTakeovers(ev)
+	d.danglingAliases(ev)
 	d.httpTakeovers(ev)
 	d.missingStorage(ev)
 	var out []Finding
@@ -70,6 +72,26 @@ func (d *calc) dnsTakeovers(ev evidenceSet) {
 		ev.add(ph.Hostname, "dns-nxdomain",
 			fmt.Sprintf("%s is an alias of %s (%s %s), which does not exist and can be claimed", ph.Hostname, ph.CNAME, ph.Provider, ph.Service),
 			map[string]any{"service": ph.Service, "cname": ph.CNAME, "provider": ph.Provider})
+	}
+}
+
+// danglingAliases: a name whose alias leaves the input roots and leads to no address, once
+// resolve has found that out. Nothing shows the target can be claimed, so it is a stale record
+// and low; a name dnsTakeovers already reports is left to it.
+func (d *calc) danglingAliases(ev evidenceSet) {
+	unresolved := map[string]bool{} // answered with no address; a SERVFAIL is no answer
+	for _, r := range d.current(kinds.Unresolved) {
+		if rc := kinds.Unresolved.Attrs(r).RCode; rc == "NXDOMAIN" || rc == "NODATA" {
+			unresolved[r.Key] = true
+		}
+	}
+	for _, a := range d.in.Inv.DanglingAliases(d.in.Scope) {
+		if _, claimable := ev[a.Hostname]; claimable || !unresolved[a.Hostname] {
+			continue
+		}
+		ev.add(a.Hostname, "dangling-alias",
+			fmt.Sprintf("%s is an alias of %s, which leads to no address", a.Hostname, a.Target),
+			map[string]any{"cname": a.Target, "provider": dnsname.Registrable(a.Target)})
 	}
 }
 

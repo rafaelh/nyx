@@ -86,6 +86,7 @@ func BuildScope(in input.Parsed, procedures []Procedure, src ScopeSource) (*Buil
 	if err != nil {
 		return nil, err
 	}
+	data.Roots = in.Roots
 	inv := inventory.New(data, provider.Default())
 	lookups, maxNames, err := candidateLookups(src)
 	if err != nil {

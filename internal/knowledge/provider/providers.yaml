@@ -12,11 +12,19 @@
 #   body: <RE2>      identify an unclaimed-resource response
 # Static ranges also identify SaaS reached through apex A records.
 #
+# An alias of a name under an input root whose target is under no root and matches no cname entry
+# is taken as a third party's platform (class saas), named by the target's registrable domain.
+# A cloud platform that runs the target's own workloads therefore needs an entry with no class, or
+# its hosts are neither port-checked nor asked for sensitive paths.
+#
 # txt matches case-insensitive root TXT prefixes for ownership verification. Output names the
-# platform without exposing its token. domains labels external DNS/mail/SaaS dependencies by
-# suffix. NS/MX lookups use registrable domains, so deeper entries cannot match those mechanisms.
-# Route 53's numbered labels cannot use suffix matching. The Salesforce TXT prefix and the
-# documented Squarespace/Wix ASN/range entries have not been rechecked against live data.
+# platform without exposing its token. A value no prefix matches that is shaped
+# "<vendor>-domain-verification=" (or -site-, or neither) names the vendor as written. domains
+# labels external DNS/mail/SaaS dependencies by suffix, or by a pattern (RE2) the registrable
+# domain matches where a provider uses many domains: such a dependency is recorded once, by the
+# provider. NS/MX lookups use registrable domains, so deeper entries cannot match those
+# mechanisms. The Salesforce TXT prefix and the documented Squarespace/Wix ASN/range entries have
+# not been rechecked against live data.
 cname:
   - {suffix: cloudfront.net, provider: aws, service: CloudFront, class: cdn}
   - {suffix: elb.amazonaws.com, provider: aws, service: ELB}
@@ -25,6 +33,10 @@ cname:
   - {suffix: execute-api.amazonaws.com, provider: aws, service: API Gateway}
   - {suffix: elasticbeanstalk.com, provider: aws, service: Elastic Beanstalk, nxdomain: true}
   - {suffix: awsglobalaccelerator.com, provider: aws, service: Global Accelerator}
+  - {suffix: awsapprunner.com, provider: aws, service: App Runner}
+  - {suffix: amplifyapp.com, provider: aws, service: Amplify}
+  - {suffix: on.aws, provider: aws, service: Lambda}
+  - {suffix: amazonaws.com, provider: aws, service: AWS}
   - {suffix: azurewebsites.net, provider: azure, service: App Service, nxdomain: true}
   - {suffix: cloudapp.azure.com, provider: azure, service: Cloud Services, nxdomain: true}
   - {suffix: cloudapp.net, provider: azure, service: Cloud Services, nxdomain: true}
@@ -32,10 +44,18 @@ cname:
   - {suffix: azureedge.net, provider: azure, service: CDN, class: cdn}
   - {suffix: azurefd.net, provider: azure, service: Front Door, class: cdn}
   - {suffix: trafficmanager.net, provider: azure, service: Traffic Manager, nxdomain: true}
+  - {suffix: azurecontainerapps.io, provider: azure, service: Container Apps}
+  - {suffix: azurestaticapps.net, provider: azure, service: Static Web Apps}
+  - {suffix: azure-api.net, provider: azure, service: API Management}
+  - {suffix: core.windows.net, provider: azure, service: Storage}
   - {suffix: appspot.com, provider: gcp, service: App Engine}
   - {suffix: run.app, provider: gcp, service: Cloud Run}
   - {suffix: storage.googleapis.com, provider: gcp, service: Cloud Storage}
   - {suffix: ghs.googlehosted.com, provider: gcp, service: Google Sites}
+  - {suffix: cloudfunctions.net, provider: gcp, service: Cloud Functions}
+  - {suffix: web.app, provider: gcp, service: Firebase Hosting}
+  - {suffix: firebaseapp.com, provider: gcp, service: Firebase Hosting}
+  - {suffix: googleusercontent.com, provider: gcp, service: Compute Engine}
   - {suffix: herokuapp.com, provider: heroku, service: Heroku, body: 'No such app'}
   - {suffix: herokudns.com, provider: heroku, service: Heroku, body: 'No such app'}
   - {suffix: github.io, provider: github, service: Pages, class: saas, body: 'There isn.t a GitHub Pages site here'}
@@ -43,6 +63,11 @@ cname:
   - {suffix: netlify.com, provider: netlify, service: Netlify}
   - {suffix: vercel.app, provider: vercel, service: Vercel}
   - {suffix: vercel-dns.com, provider: vercel, service: Vercel}
+  - {suffix: ondigitalocean.app, provider: digitalocean, service: App Platform}
+  - {suffix: onrender.com, provider: render, service: Render}
+  - {suffix: fly.dev, provider: fly, service: Fly.io}
+  - {suffix: railway.app, provider: railway, service: Railway}
+  - {suffix: oraclecloud.com, provider: oracle, service: Oracle Cloud}
   - {suffix: pages.dev, provider: cloudflare, service: Pages}
   - {suffix: workers.dev, provider: cloudflare, service: Workers}
   - {suffix: cdn.cloudflare.net, provider: cloudflare, service: CDN, class: cdn}
@@ -51,7 +76,11 @@ cname:
   - {suffix: edgekey.net, provider: akamai, service: CDN, class: cdn}
   - {suffix: akamaized.net, provider: akamai, service: CDN, class: cdn}
   - {suffix: edgesuite.net, provider: akamai, service: CDN, class: cdn}
+  - {suffix: akamai.net, provider: akamai, service: CDN, class: cdn}
+  - {suffix: fastlylb.net, provider: fastly, service: CDN, class: cdn}
+  - {suffix: b-cdn.net, provider: bunny, service: CDN, class: cdn}
   - {suffix: incapdns.net, provider: incapsula, service: WAF, class: waf}
+  - {suffix: impervadns.net, provider: incapsula, service: WAF, class: waf}
   - {suffix: sucuri.net, provider: sucuri, service: WAF, class: waf}
   - {suffix: linodeobjects.com, provider: linode, service: Object Storage}
   - {suffix: myshopify.com, provider: shopify, service: Shopify, class: saas, body: 'Sorry, this shop is currently unavailable'}
@@ -110,6 +139,16 @@ txt:
   - {prefix: 'salesforce-domain-verification=', platform: Salesforce}
   - {prefix: 'have-i-been-pwned-verification=', platform: Have I Been Pwned}
   - {prefix: 'webexdomainverification.', platform: Cisco Webex}
+  - {prefix: 'openai-domain-verification=', platform: OpenAI}
+  - {prefix: 'anthropic-domain-verification', platform: Anthropic}
+  - {prefix: 'status-page-domain-verification=', platform: Atlassian Statuspage}
+  - {prefix: 'cloudflare_dashboard_sso=', platform: Cloudflare}
+  - {prefix: 'jamf-site-verification=', platform: Jamf}
+  - {prefix: 'onetrust-domain-verification=', platform: OneTrust}
+  - {prefix: 'knowbe4-site-verification=', platform: KnowBe4}
+  - {prefix: 'teamviewer-sso-verification=', platform: TeamViewer}
+  - {prefix: 'mongodb-site-verification=', platform: MongoDB}
+  - {prefix: 'globalsign-domain-verification=', platform: GlobalSign}
 domains:
   - {suffix: cloudflare.com, provider: Cloudflare}
   - {suffix: domaincontrol.com, provider: GoDaddy}
@@ -132,6 +171,7 @@ domains:
   - {suffix: gandi.net, provider: Gandi}
   - {suffix: he.net, provider: Hurricane Electric}
   - {suffix: ovh.net, provider: OVHcloud}
+  - {pattern: '^awsdns-[0-9]+\.(com|net|org|co\.uk)$', provider: Amazon Route 53}
   # Registrable-domain entries match NS/MX rows as well as deeper SPF/CNAME names.
   - {suffix: google.com, provider: Google}
   - {suffix: googlemail.com, provider: Google}
@@ -163,6 +203,42 @@ domains:
   - {suffix: exacttarget.com, provider: Salesforce}
   - {suffix: hubspot.com, provider: HubSpot}
   - {suffix: hubspotemail.net, provider: HubSpot}
+  - {suffix: hubspot.net, provider: HubSpot}
+  - {suffix: hubapi.com, provider: HubSpot}
+  - {suffix: hs-sites.com, provider: HubSpot}
+  - {suffix: pardot.com, provider: Salesforce}
+  - {suffix: force.com, provider: Salesforce}
+  - {suffix: okta.com, provider: Okta}
+  - {suffix: oktapreview.com, provider: Okta}
+  - {suffix: okta-emea.com, provider: Okta}
+  - {suffix: lync.com, provider: Microsoft 365}
+  - {suffix: microsoftonline.com, provider: Microsoft}
+  - {suffix: office.com, provider: Microsoft 365}
+  - {suffix: live.com, provider: Microsoft}
+  - {suffix: aka.ms, provider: Microsoft}
+  - {suffix: cloudflaressl.com, provider: Cloudflare}
+  - {suffix: clari.com, provider: Clari}
+  - {suffix: windows.net, provider: Microsoft}
+  - {suffix: webflow.com, provider: Webflow}
+  - {suffix: pendo.io, provider: Pendo}
+  - {suffix: receptive.io, provider: Pendo}
+  - {suffix: myabsorb.com, provider: Absorb LMS}
+  - {suffix: myabsorb.eu, provider: Absorb LMS}
+  - {suffix: myabsorb.ca, provider: Absorb LMS}
+  - {suffix: myabsorb.com.au, provider: Absorb LMS}
+  - {suffix: smugmug.com, provider: SmugMug}
+  - {suffix: screenconnect.com, provider: ConnectWise}
+  - {suffix: stspg-customer.com, provider: Atlassian}
+  - {suffix: atlassian.net, provider: Atlassian}
+  - {suffix: groove.co, provider: Groove}
+  - {suffix: greenhouse.io, provider: Greenhouse}
+  - {suffix: dmarcly.com, provider: DMARCLY}
+  - {suffix: freshdesk.com, provider: Freshworks}
+  - {suffix: wordpress.com, provider: WordPress.com}
+  - {suffix: intercom.help, provider: Intercom}
+  - {suffix: helpscoutdocs.com, provider: Help Scout}
+  - {suffix: uservoice.com, provider: UserVoice}
+  - {suffix: gitbook.io, provider: GitBook}
   - {suffix: mktomail.com, provider: Marketo}
   - {suffix: github.io, provider: GitHub}
   - {suffix: myshopify.com, provider: Shopify}

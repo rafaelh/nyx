@@ -217,7 +217,8 @@ func TestEmailThirdParties_DomainUnderInScopeRootIsHidden(t *testing.T) {
 	}
 }
 
-// The cname mechanism lists SaaS chains of in-scope, non-wildcard names only.
+// The cname mechanism lists SaaS chains of in-scope, non-wildcard names only. A chain that leaves
+// the root for a domain no entry lists names that domain too.
 func TestEmailThirdParties_CNAMEMechanism(t *testing.T) {
 	t.Parallel()
 	w := emailWorld(t)
@@ -236,13 +237,13 @@ func TestEmailThirdParties_CNAMEMechanism(t *testing.T) {
 	w.dns.A("w.myshopify.com", "203.0.113.63")
 	w.dns.CNAME("excl.example.com", "ex.zendesk.com")
 	w.dns.A("ex.zendesk.com", "203.0.113.64")
-	w.dns.CNAME("chain.example.com", "hop.example.net") // a chain that ends at a SaaS entry
+	w.dns.CNAME("chain.example.com", "hop.example.net") // an unlisted domain, in a chain that ends at a SaaS entry
 	w.dns.CNAME("hop.example.net", "end.readme.io")
 	w.dns.A("end.readme.io", "203.0.113.65")
 	runRoot(t, w, "--exclude", "excl.example.com")
 
 	rows := tpRows(w, "cname")
-	if got := domains(rows); !slices.Equal(got, []string{"github.io", "myshopify.com", "readme.io"}) {
+	if got := domains(rows); !slices.Equal(got, []string{"example.net", "github.io", "myshopify.com", "readme.io"}) {
 		t.Errorf("cname rows = %v\n%s", got, w.file(eng, "third-parties.csv"))
 	}
 	for d, want := range map[string]string{"github.io": "GitHub", "myshopify.com": "Shopify", "readme.io": "ReadMe"} {

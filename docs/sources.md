@@ -39,7 +39,12 @@ With `keys.shodan`, the `shodan-host` procedure (it runs under `--passive`, and 
 key)` without the key) looks up each address that `ips.csv` marks port-eligible and that is either
 outside every in-scope netblock, or inside one whose `shodan` search stopped at its page cap
 without returning it. It records Shodan's TCP ports and banners, and its hostnames: one under an
-in-scope root becomes a hostname, and any other becomes a candidate root in `candidates.csv`. UDP
+in-scope root becomes a hostname, and any other becomes a candidate root in `candidates.csv`,
+with two exceptions. A name that holds the address it was listed for
+(`ec2-203-0-113-7.compute.amazonaws.com`) is the reverse name its network gave the address, and
+its domain is the network's. And when every in-scope name on the address is one
+[a third party serves](output.md#names-a-third-party-serves), the other names there are that
+party's other customers. Neither gives a candidate. UDP
 services are not recorded. A 404 is an address Shodan does not know: the job completes with
 nothing. The `shodan` netblock search also records the ports it returns, so the addresses it
 returned need no lookup. An engagement that ran `shodan` before it recorded ports gets them only

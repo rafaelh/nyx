@@ -143,12 +143,13 @@ func TestRecordObservations_OwnRecordsOnly(t *testing.T) {
 
 // A row per NS record. An in-scope target under a root is a hostname; a target with a _ label or
 // an excluded target is not; a target outside scope is an ns third party of the name's input
-// root with its registrable domain, at depth 0.
+// root with its registrable domain, at depth 0. Route 53's numbered domains are one third party,
+// named by the provider and with no domain.
 func TestRecordObservations_NSTargets(t *testing.T) {
 	t.Parallel()
 	const name, root = "a.corp.example.com", "corp.example.com"
 	sc := recordScope(t, []string{"example.com", "corp.example.com"}, "ns2.example.com")
-	values := []string{"ns1.corp.example.com", "ns2.example.com", "_ns.example.com", "ns-1.awsdns-01.org", "dns1.other.co.uk"}
+	values := []string{"ns1.corp.example.com", "ns2.example.com", "_ns.example.com", "ns-1.awsdns-01.org", "ns-2.awsdns-39.co.uk", "dns1.other.co.uk"}
 	in := recordInput{name: name, root: root, t: testNSType, sc: sc, shared: noAddrShared}
 	d := decodeObs(recordObservations(in, ownedAnswers(name, "NS", values...)))
 	if got := d.rowValues(t, name, "NS"); !sameStrings(got, values) {
@@ -158,10 +159,20 @@ func TestRecordObservations_NSTargets(t *testing.T) {
 		t.Errorf("hostnames = %q, want %q (not the excluded, _-labelled or outside targets)", d.hostnames, want)
 	}
 	ns := d.thirdParties(kinds.MechanismNS)
-	for _, want := range []string{root + "|awsdns-01.org|0", root + "|other.co.uk|0"} {
+	for _, want := range []string{root + "||0", root + "|other.co.uk|0"} {
 		if !slices.Contains(ns, want) {
 			t.Errorf("ns third parties = %q, want %s", ns, want)
 		}
+	}
+	var route53 []string
+	for _, a := range d.third {
+		if a.Provider == "Amazon Route 53" {
+			route53 = append(route53, kinds.ThirdParty.Key(a))
+		}
+	}
+	slices.Sort(route53)
+	if want := []string{root + "|ns|Amazon Route 53"}; !slices.Equal(slices.Compact(route53), want) {
+		t.Errorf("Route 53 third parties = %q, want the one record %q for both of its domains", route53, want)
 	}
 	if len(d.netblocks)+len(d.other) != 0 {
 		t.Errorf("unexpected observations: netblocks %q, others %q", d.netblocks, d.other)

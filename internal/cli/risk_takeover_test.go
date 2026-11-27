@@ -7,7 +7,8 @@ import (
 	"testing"
 )
 
-// Dangling claimable CNAMEs produce high takeover findings using DNS evidence alone.
+// Dangling claimable CNAMEs produce high takeover findings using DNS evidence alone. An alias
+// that dangles into a provider whose names cannot be claimed is a low dangling alias.
 func TestTakeover_DNSTakeoverPassive(t *testing.T) {
 	t.Parallel()
 	x := newRisk(t, "storage", "takeover", "sensitive-paths")
@@ -19,12 +20,17 @@ func TestTakeover_DNSTakeoverPassive(t *testing.T) {
 	x.mustRun("--passive", "--storage-max-names", "1")
 
 	rows := current(x.rows("risk-takeover.csv"))
-	if len(rows) != 1 {
+	if len(rows) != 2 {
 		t.Fatalf("risk-takeover.csv = %v", x.file(eng, "risk-takeover.csv"))
 	}
-	r := rows[0]
-	if r["target"] != "shop.example.com" || r["type"] != "dns-nxdomain" || r["severity"] != "high" || r["cname"] != "gone.cloudapp.net" || r["service"] != "Cloud Services" {
+	r := find(rows, "target", "shop.example.com")
+	if r == nil || r["type"] != "dns-nxdomain" || r["severity"] != "high" || r["cname"] != "gone.cloudapp.net" || r["service"] != "Cloud Services" {
 		t.Errorf("row = %v", r)
+	}
+	stale := find(rows, "target", "blog.example.com")
+	if stale == nil || stale["type"] != "dangling-alias" || stale["severity"] != "low" || stale["cname"] != "gone.cloudfront.net" ||
+		stale["detail"] != "blog.example.com is an alias of gone.cloudfront.net, which leads to no address" {
+		t.Errorf("row = %v", stale)
 	}
 	if got := x.summaryTargets(); !slices.Equal(got, []string{"shop.example.com=high"}) {
 		t.Errorf("summary = %v (a CloudFront CNAME that dangles is not a claimable provider)", got)

@@ -14,21 +14,21 @@ Everything is in `<output-dir>/<engagement>/`:
 | `unresolved.txt` | In-scope names that did not resolve |
 | `wildcard-excluded.txt` | Names dropped because their domain answers every name (wildcard DNS) |
 | `ips.csv` | Addresses with ASN, owner, hosting provider, service (or, where the provider publishes no service, region), scope, port eligibility and hostnames, then the `registrant`, `registrant_netblock` and `registry` the `rdap` procedure found, then `srv_ports`, the ports SRV records advertise for the address's in-scope hostnames (reported only; never connected to). A published range names the provider even when the owner lookup failed, and takes precedence over the ASN. Cloudflare and Fastly addresses are shared infrastructure and are not port-checked. DigitalOcean addresses and Linode addresses are customers' own machines, except that an address whose origin AS is a CDN's (Linode's list holds some of Akamai's edge space) stays shared, so an in-scope hostname that resolves to one of the others is port-checked: DigitalOcean addresses were skipped as shared hosting before its list was fetched, so the next active run may handshake addresses it previously skipped. An address two providers' lists cover shows both, joined with `;`, and is shared if either is. |
-| `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence |
+| `provider-hosts.csv` | Names that point at shared cloud or SaaS providers, with the evidence. A name whose alias leaves the input roots for a domain nyx has no entry for is listed with that domain as the `provider` and no `service` (see [Names a third party serves](#names-a-third-party-serves)) |
 | `web-services.csv` | Web services found: status, title, server, technologies, redirects, TLS details, web posture evidence and web identifiers |
 | `urls.csv` | URLs from crawling, the scripts of crawled pages and web archives, with status and source |
 | `open-ports.csv` | TCP ports that nyx found open, and ports Shodan reports (see [Shodan per address](sources.md#shodan-per-address)), with the banner, the `source` (`nyx`, `shodan` or `nyx;shodan`), `confirmed` (`yes` when nyx completed a handshake), `shodan_last_seen` (empty on a row only nyx saw), and `product` and `version` where the banner is a recognised SSH, FTP or SMTP banner |
 | `email-posture.csv` | SPF, DMARC and MX results per root domain, then `mta_sts`: `present` when exactly one TXT record at `_mta-sts.<root>` begins `v=STSv1`, `absent` otherwise, and empty for a root without a mail host, then `mx_self_hosted`, the mail hosts the organisation runs itself, joined with `;` |
-| `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx`, `cname` or `srv`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns`, `mx` and `srv`, the platform's name suffix for `cname`), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept). A subdomain's dependencies are listed under its input root: the `ns` and `mx` targets outside scope of a name below a root, its `txt-verification` platforms, and the domains its SPF record names (`spf`, at depth 0 in the record of any name that is asked for its own records, and 1 or more in the record of an in-scope domain reached only through an include or redirect; an included domain whose name is also written in the record is asked as a name, so its domains are at depth 0) |
+| `third-parties.csv` | Organisations a root depends on, with the `root`, the `mechanism` (`ns`, `txt-verification`, `spf`, `dmarc`, `mx`, `cname` or `srv`), the `domain` (as written for `spf` and `dmarc`, the registrable domain for `ns`, `mx` and `srv`, the platform's name suffix for `cname`, or the registrable domain of the alias target for a platform nyx has no entry for), the `provider` (when known) and the `depth` (0 for a domain the root's own records name, 1 for one named by a record that one includes, and so on; always 0 for the other mechanisms, and 0 on a row that is no longer current, whose depth is not kept). A subdomain's dependencies are listed under its input root: the `ns` and `mx` targets outside scope of a name below a root, its `txt-verification` platforms, and the domains its SPF record names (`spf`, at depth 0 in the record of any name that is asked for its own records, and 1 or more in the record of an in-scope domain reached only through an include or redirect; an included domain whose name is also written in the record is asked as a name, so its domains are at depth 0). A provider that serves from many registrable domains is one row with the `provider` and no `domain`: Amazon Route 53's numbered name-server domains are one `ns` row. A `txt-verification` row names the platform of a listed record, or, for a record shaped `<vendor>-domain-verification=…` (or `-site-verification`, or `-verification`) that is not listed, the vendor as the record writes it |
 | `code-mentions.csv` | Files in public GitHub repositories that mention an in-scope root, from the `github` procedure: `repository`, `path`, `url`, the in-scope `hostnames` the match names (`;`-joined) and the `root` searched for. A match that is no longer current keeps only its `url` (see [GitHub code search](sources.md#github-code-search)) |
 | `storage-unattributed.csv` | Guessed cloud-storage buckets that nothing in scope references |
-| `risk-takeover.csv` | Subdomain takeover findings |
+| `risk-takeover.csv` | Subdomain takeover findings, and `dangling-alias` (low): an in-scope name whose alias (CNAME) leaves the input roots and leads to no address. Nothing shows such a target can be claimed, so it is a stale record to remove, not a takeover |
 | `risk-storage.csv` | Cloud-storage findings: buckets that exist, are public or are listable |
-| `risk-sensitive-paths.csv` | Sensitive paths that answered with their expected signature |
+| `risk-sensitive-paths.csv` | Sensitive paths that answered with their expected signature. A name a third party serves is not asked, and an HTTP service that only redirects to the HTTPS service of the same host is not asked as well as that one |
 | `risk-email.csv` | SPF, DMARC and MTA-STS weaknesses (`mta-sts-missing`, low: a root with a mail host that does not publish exactly one MTA-STS policy record) |
 | `risk-ports.csv` | Open ports on the risky-port list, with `confirmed` (`no` for a port only Shodan reports, which is one severity step lower) |
 | `risk-certificates.csv` | Expired, soon-to-expire and self-signed certificates, certificates that do not name the host, and services that negotiate only TLS 1.0 or 1.1 |
-| `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions |
+| `risk-web-posture.csv` | Low findings from web responses: missing HSTS, cookies without `Secure`, directory listings and disclosed versions. `awselb/2.0` and `Microsoft-HTTPAPI/2.0` are the same on every installation and are not disclosed versions |
 | `risk-eol-software.csv` | Web technologies and banners whose version is past the end of security support (`eol`, medium) or within `eol_warn_days` of it (`eol-approaching`, low), with `product`, `version`, `end_date`, `seen` (`web` or `banner`) and `confirmed`; a distribution build or a version only Shodan reports is one step lower |
 | `risk-origin-exposure.csv` | One row per hostname behind a CDN or WAF and address that may be its origin server: the `provider`, the `address`, `found_by` (`historical`, `sibling-certificate`, `sibling-title`, joined with `;`), `confirmed_by` (`title` or `status-body-certificate`) and `confirmed` (`yes` or `no`). Confirmed rows are medium and possible origins low |
 | `risk-abusive-network.csv` | One row per checked address that Spamhaus's DROP lists or ipapi.is's most-abusive lists hold: `ip`, its in-scope `hostnames`, `type` (`drop-network`, high; `drop-asn`, medium; `network`, medium; or `asn`, low, whichever is strongest), the `drop_networks` and `drop_asn` entries (Spamhaus: CIDR, SBL ID and RIR, or AS number, name, country, domain and RIR), the `networks` and `asn` entries with their score tag, abuse score, organisation and type, and the `drop_networks_updated`, `drop_asn_updated`, `networks_updated` and `asns_updated` dates of the lists (see [Abusive networks](abusive-networks.md)) |
@@ -40,6 +40,37 @@ sorted by confidence. Every CSV ends with `current`, `first_seen` and `last_seen
 that were not found by a later run are kept and marked not current. The `.nyx/` directory holds
 the state database and the run lock. Don't edit it. Finding severities are listed by
 `nyx help findings`.
+
+## Names a third party serves
+
+An in-scope name can be handed to somebody else: `support.example.com` is an alias of a help-desk
+vendor, `status.example.com` of a status-page vendor. What answers for such a name is the vendor's
+system, which the organisation cannot fix and which your authorisation may not cover. nyx takes a
+name to be served by a third party when:
+
+- its alias (CNAME) chain reaches a platform nyx lists as SaaS, or its address is in such a
+  platform's ranges; or
+- the name is under an input root, and the first name of its alias chain that is under no input
+  root matches no entry nyx has. The registrable domain of that name is the third party.
+
+A cloud or CDN platform nyx lists (CloudFront, Azure App Service, Azure Container Apps, Heroku and
+the like) runs the organisation's own workload, so a name that points at one is not a third
+party's.
+
+For a name a third party serves, nyx still resolves it, probes it and lists its web service, and:
+
+- asks it for no sensitive paths and parses none of its scripts;
+- reports no web-posture finding and no certificate that does not name the host;
+- lists the third party in `third-parties.csv` (mechanism `cname`) and the name in
+  `provider-hosts.csv`;
+- takes no candidate from a certificate that does not name the host, since the other names on it
+  are the vendor's other customers (see [Ranked candidates](candidates.md)).
+
+The second rule cannot tell a vendor from a domain of the organisation's own that is not in scope:
+`www.example.com` as an alias of `lb.example-hosting.net`. Check the `cname` rows of
+`third-parties.csv` that have no `provider`, and give any domain that is the organisation's as
+another root. Its names are then in scope and nothing above applies to them. The address of a
+name the second rule matched stays port-eligible, as nothing says the address is shared.
 
 ## What changed since the last run
 

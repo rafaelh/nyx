@@ -752,6 +752,40 @@ func TestShodanHost_CandidateRootFromBothIsOneFamily(t *testing.T) {
 	}
 }
 
+// The reverse name a network gives an address holds the address: its domain is the network's and
+// no candidate root. The other names Shodan lists for an address of a third party's platform are
+// that platform's other customers.
+func TestShodanHost_GenericAndTenantNamesAreNotCandidateRoots(t *testing.T) {
+	t.Parallel()
+	p := newPorts(t)
+	f := p.shodan()
+	p.app()
+	p.names("app.example.com", "go.example.com")
+	p.dns.CNAME("go.example.com", "go.vendor-crm.test")
+	p.host("go.vendor-crm.test", "203.0.113.61")
+	p.owner("203.0.113.61", 64500, "ACME-NET")
+	f.setHost(appHost, hostJSON(appHost, []string{"ec2-203-0-113-7.compute.cloud-host.test", "7.113.0.203.static.isp-net.test", "www.other.org"},
+		tcp(8080, "")))
+	f.setHost("203.0.113.61", hostJSON("203.0.113.61", []string{"go.another-tenant.test", "go.example.com"}, tcp(8443, "")))
+	p.mustPassive("--ports", "8080,8443")
+
+	if got := p.lookups(); !slices.Contains(got, "203.0.113.61") {
+		t.Fatalf("precondition: the third party's address was looked up; lookups = %v", got)
+	}
+	cand := p.table(eng, "candidates.csv")
+	for _, v := range []string{"cloud-host.test", "isp-net.test", "another-tenant.test"} {
+		if c := find(cand, "value", v); c != nil {
+			t.Errorf("%s is a candidate root: %v", v, c)
+		}
+	}
+	if c := find(cand, "value", "other.org"); c == nil || c["type"] != "root" {
+		t.Errorf("candidates.csv = %v, want other.org, a name on the organisation's own address", cand)
+	}
+	if p.openRow("203.0.113.61", 8443) == nil {
+		t.Error("the port Shodan reports on the third party's address was dropped with the names")
+	}
+}
+
 // --- The documentation ---
 
 func TestShodanHost_DocsSayWhatItDoes(t *testing.T) {

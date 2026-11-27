@@ -144,13 +144,21 @@ type addrRange struct {
 // txtPrefix is a TXT value prefix (lower case) and the platform it verifies ownership for.
 type txtPrefix struct{ prefix, platform string }
 
+// domainFamily names the provider of registrable domains that share a pattern and no suffix, as
+// Route 53's numbered name-server domains do.
+type domainFamily struct {
+	re       *regexp.Regexp
+	provider string
+}
+
 // DB is the parsed providers.yaml.
 type DB struct {
-	cnames  map[string]Entry // by normalised suffix
-	asns    map[int]struct{ provider, class string }
-	ranges  []addrRange
-	txt     []txtPrefix
-	domains map[string]string // the provider that operates each normalised suffix
+	cnames   map[string]Entry // by normalised suffix
+	asns     map[int]struct{ provider, class string }
+	ranges   []addrRange
+	txt      []txtPrefix
+	domains  map[string]string // the provider that operates each normalised suffix
+	families []domainFamily
 }
 
 var (
@@ -185,7 +193,7 @@ func Parse(b []byte) (*DB, error) {
 			CIDR, Provider, Service, Class string
 		}
 		TXT     []struct{ Prefix, Platform string }
-		Domains []struct{ Suffix, Provider string }
+		Domains []struct{ Suffix, Pattern, Provider string }
 	}
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return nil, err
@@ -221,8 +229,16 @@ func Parse(b []byte) (*DB, error) {
 		db.txt = append(db.txt, txtPrefix{strings.ToLower(t.Prefix), t.Platform})
 	}
 	for _, d := range raw.Domains {
-		if d.Suffix == "" || d.Provider == "" {
-			return nil, fmt.Errorf("domains entry %+v needs a suffix and a provider", d)
+		if (d.Suffix == "") == (d.Pattern == "") || d.Provider == "" {
+			return nil, fmt.Errorf("domains entry %+v needs a provider and either a suffix or a pattern", d)
+		}
+		if d.Pattern != "" {
+			re, err := regexp.Compile(d.Pattern)
+			if err != nil {
+				return nil, fmt.Errorf("domains pattern %q: %w", d.Pattern, err)
+			}
+			db.families = append(db.families, domainFamily{re, d.Provider})
+			continue
 		}
 		if n := dnsname.Normalise(d.Suffix); db.domains[n] == "" {
 			db.domains[n] = d.Provider
@@ -392,7 +408,17 @@ func (db *DB) asnResult(owner Owner) (Result, bool) {
 	return Result{Known: true, Shared: true, Provider: p.provider, Evidence: "asn", Class: p.class}, true
 }
 
-// Verification identifies TXT ownership platforms by case-insensitive prefix.
+// verification reads the vendor from a TXT value shaped "<vendor>-domain-verification=<token>",
+// with "site", "sso" or "idp" in place of "domain", or none of them, and an optional suffix before
+// the "=". The vendor is the shortest run of words that leaves such a tail.
+var verification = regexp.MustCompile(`^([a-z0-9]+(?:[-_][a-z0-9]+)*?)[-_](?:(?:domain|site|sso|idp)[-_])*verification(?:[-_][a-z0-9]+)*=`)
+
+// verificationWords are the words of the tail, which alone name no vendor.
+var verificationWords = []string{"domain", "site", "sso", "idp"}
+
+// Verification identifies TXT ownership platforms by case-insensitive prefix. A value no prefix
+// matches but whose shape is a vendor's verification record names that vendor as written, its
+// words capitalised ("neat-pulse-domain-verification=" gives "Neat Pulse").
 func (db *DB) Verification(value string) (string, bool) {
 	v := strings.ToLower(strings.TrimSpace(value))
 	for _, t := range db.txt {
@@ -400,10 +426,46 @@ func (db *DB) Verification(value string) (string, bool) {
 			return t.platform, true
 		}
 	}
+	if m := verification.FindStringSubmatch(v); m != nil && !slices.Contains(verificationWords, m[1]) {
+		words := strings.FieldsFunc(m[1], func(r rune) bool { return r == '-' || r == '_' })
+		for i, w := range words {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+		return strings.Join(words, " "), true
+	}
 	return "", false
 }
 
-// DomainOwner labels managed dependencies by suffix, respecting DNS label boundaries.
+// DomainOwner labels managed dependencies by suffix, respecting DNS label boundaries, and then by
+// family.
 func (db *DB) DomainOwner(name string) (string, bool) {
-	return longestSuffix(db.domains, dnsname.Normalise(name))
+	if owner, ok := longestSuffix(db.domains, dnsname.Normalise(name)); ok {
+		return owner, true
+	}
+	return db.Family(name)
+}
+
+// Family names the provider whose pattern the name's registrable domain matches. Such a provider
+// uses many registrable domains, so a dependency on it is recorded by the provider, not by one of
+// them.
+func (db *DB) Family(name string) (string, bool) {
+	reg := dnsname.Registrable(name)
+	for _, f := range db.families {
+		if f.re.MatchString(reg) {
+			return f.provider, true
+		}
+	}
+	return "", false
+}
+
+// IsFamily reports whether a family uses this provider name.
+func (db *DB) IsFamily(provider string) bool {
+	return slices.ContainsFunc(db.families, func(f domainFamily) bool { return f.provider == provider })
+}
+
+// ThirdParty is the entry of an alias target no cname entry matches: a SaaS platform named by the
+// target's registrable domain. The caller decides that the target is outside the engagement.
+func ThirdParty(target string) Entry {
+	reg := dnsname.Registrable(target)
+	return Entry{Provider: reg, Suffix: reg, Class: ClassSaaS}
 }

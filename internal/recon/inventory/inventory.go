@@ -83,6 +83,9 @@ type Data struct {
 	Registrations []Registration
 	// ServerAddresses are the addresses of name servers and mail hosts, for SelfHosted only.
 	ServerAddresses []ServerAddress
+	// Roots are the input roots. An alias of a name under one whose target is under none leaves
+	// the engagement: see chainProviders.
+	Roots []string
 }
 
 // ProviderHost is a hostname that is on shared provider infrastructure.
@@ -113,13 +116,14 @@ type IPRow struct {
 
 // Inventory is an immutable derived view of Data.
 type Inventory struct {
-	d    Data
-	db   *provider.DB
-	addr map[string][]netip.Addr // queried name -> addresses
-	cn   map[string][]string     // alias -> targets
-	srv  map[string][]uint16     // SRV target -> advertised ports
-	wo   map[string]bool
-	zone map[string]bool // zones with a current wildcard record
+	d     Data
+	db    *provider.DB
+	roots []string                // the input roots, normalised
+	addr  map[string][]netip.Addr // queried name -> addresses
+	cn    map[string][]string     // alias -> targets
+	srv   map[string][]uint16     // SRV target -> advertised ports
+	wo    map[string]bool
+	zone  map[string]bool // zones with a current wildcard record
 	// cnameShared marks addresses whose hostnames lead to a known provider through CNAMEs.
 	cnameShared map[netip.Addr]provider.Match
 
@@ -152,6 +156,9 @@ func New(d Data, db *provider.DB) *Inventory {
 		wo: map[string]bool{}, zone: map[string]bool{}, closed: map[netip.AddrPort]bool{},
 		class: map[netip.Addr]provider.Result{}, regOf: map[netip.Addr]int{}, cnameShared: map[netip.Addr]provider.Match{}, servers: map[string][]netip.Addr{},
 		hosts: map[*scope.Scope]map[netip.Addr][]string{}, probe: map[*scope.Scope][]string{}, provider: map[*scope.Scope][]ProviderHost{}}
+	for _, r := range d.Roots {
+		i.roots = append(i.roots, dnsname.Normalise(r))
+	}
 	for _, s := range d.ServerAddresses {
 		host := dnsname.Normalise(s.Host)
 		i.servers[host] = append(i.servers[host], s.Addr.Unmap())
@@ -203,30 +210,91 @@ func New(d Data, db *provider.DB) *Inventory {
 }
 
 // chainProviders follows the first CNAME target for up to eight hops, yielding provider suffix
-// matches until the callback stops.
+// matches until the callback stops. Where the chain of a name under an input root first reaches a
+// target under none, and no entry matches that target, its registrable domain is yielded as a
+// third party's platform (provider.ThirdParty): the name has been handed to somebody the table
+// does not know. Unmatched targets after the chain has left the roots yield nothing: they are the
+// internals of whoever the name was handed to, a listed cloud platform included.
 func (i *Inventory) chainProviders(name string, yield func(target string, e provider.Entry) bool) {
-	cur := name
+	i.chainEntries(name, true, yield)
+}
+
+// chainEntries is chainProviders, with the unlisted third party left out unless unlisted is set.
+func (i *Inventory) chainEntries(name string, unlisted bool, yield func(target string, e provider.Entry) bool) {
+	cur, ours := name, unlisted && i.underRoot(name)
 	for range 8 {
 		targets := i.cn[cur]
 		if len(targets) == 0 {
 			return
 		}
+		left := false
 		for _, t := range targets {
-			if e, ok := i.db.CNAMEEntry(t); ok && !yield(t, e) {
+			outside := !i.underRoot(t)
+			left = left || outside
+			e, ok := i.db.CNAMEEntry(t)
+			if !ok && ours && outside {
+				e, ok = provider.ThirdParty(t), true
+			}
+			if ok && !yield(t, e) {
 				return
 			}
 		}
+		ours = ours && !left // past the first target outside the roots, the chain is somebody else's
 		cur = targets[0]
 	}
 }
 
-// chainProvider finds the first provider match along a name's CNAME chain.
+// chainProvider finds the first listed provider along a name's CNAME chain. An unlisted third
+// party is not one: nothing says its addresses are shared, so they stay port-eligible.
 func (i *Inventory) chainProvider(name string) (m provider.Match, ok bool) {
-	i.chainProviders(name, func(_ string, e provider.Entry) bool {
+	i.chainEntries(name, false, func(_ string, e provider.Entry) bool {
 		m, ok = e.Match, true
 		return false
 	})
 	return m, ok
+}
+
+// underRoot reports whether the name is an input root or below one.
+func (i *Inventory) underRoot(name string) bool {
+	name = dnsname.Normalise(name)
+	return slices.ContainsFunc(i.roots, func(r string) bool { return dnsname.Under(name, r) })
+}
+
+// Alias is an in-scope name whose CNAME chain leaves the input roots.
+type Alias struct {
+	Hostname, Target string // Target is the first name of the chain under no root
+}
+
+// DanglingAliases returns, sorted by name, the in-scope names under an input root that are not
+// wildcard-only, have no address and whose CNAME chain leaves the roots: an alias somebody else
+// was meant to answer, which leads nowhere. The caller checks that the name was resolved.
+func (i *Inventory) DanglingAliases(sc *scope.Scope) []Alias {
+	var out []Alias
+	for _, name := range slices.Sorted(maps.Keys(i.cn)) {
+		if len(i.addr[name]) > 0 || i.wo[name] || !i.underRoot(name) || !sc.HostInScope(name) {
+			continue
+		}
+		if t, ok := i.leaves(name); ok {
+			out = append(out, Alias{Hostname: name, Target: t})
+		}
+	}
+	return out
+}
+
+// leaves follows a name's CNAME chain to its first target under no input root.
+func (i *Inventory) leaves(name string) (string, bool) {
+	cur := name
+	for range 8 {
+		targets := i.cn[cur]
+		if len(targets) == 0 {
+			return "", false
+		}
+		if !i.underRoot(targets[0]) {
+			return targets[0], true
+		}
+		cur = targets[0]
+	}
+	return "", false
 }
 
 func parent(name string) string {

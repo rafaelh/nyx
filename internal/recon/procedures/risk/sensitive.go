@@ -9,12 +9,14 @@ import (
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/run"
 )
 
-// SensitivePaths checks configured paths on live non-SaaS services. It stores matching exposure
-// evidence without response bodies.
+// SensitivePaths checks configured paths on live non-SaaS services, once for a host whose HTTP
+// service only redirects to its HTTPS one. It stores matching exposure evidence without response
+// bodies.
 type SensitivePaths struct{}
 
 // NewSensitivePaths returns the sensitive-paths procedure.
@@ -44,8 +46,10 @@ func (*SensitivePaths) Budget(s config.Settings) int { return s.SensitivePathMax
 func (*SensitivePaths) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 	return func(yield func(run.Job, error) bool) {
 		var svcs []pathInput
-		for _, ws := range v.WebServices() {
-			if !v.SaaSServed(ws.Svc.Host) {
+		all := v.WebServices()
+		upgraded := upgradedServices(v, all)
+		for _, ws := range all {
+			if !v.SaaSServed(ws.Svc.Host) && !upgraded[ws.Key] {
 				svcs = append(svcs, pathInput{service: ws.Key, svc: ws.Svc})
 			}
 		}
@@ -67,6 +71,28 @@ func (*SensitivePaths) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, 
 			}
 		}
 	}
+}
+
+// upgradedServices are the HTTP services whose own answer redirects to an HTTPS service of the
+// same host that is itself listed: the paths are asked of that service, so asking this one too
+// would send every request twice.
+func upgradedServices(v run.View, all []run.WebService) map[string]bool {
+	listed := map[string]bool{}
+	for _, ws := range all {
+		listed[ws.Key] = true
+	}
+	out := map[string]bool{}
+	for _, rec := range v.Records(kinds.WebService) {
+		svc, ok := egress.ParseService(rec.Key)
+		if !ok || svc.Scheme != "http" || !listed[rec.Key] {
+			continue
+		}
+		to, ok := egress.ParseService(kinds.WebService.Attrs(rec).Redirect)
+		if ok && to.Scheme == "https" && to.Host == svc.Host && listed[weburl.Origin(to.Scheme, to.Host, to.Port)] {
+			out[rec.Key] = true
+		}
+	}
+	return out
 }
 
 // Run stores sensitive_hit only for the expected status and matcher. Nonmatches, missing

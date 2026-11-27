@@ -177,7 +177,12 @@ or excluded).
 in-scope, candidate or excluded; a candidate whose `candidate_lookup` record has an address in an
 in-scope netblock is in scope by address, `Scope.ByAddress`, while `ClassifyName` judges a name by
 the roots alone), `inventory` (wildcards, provider hosts, port eligibility) and
-`findings` are pure functions of the current records, scope, settings and date. Risk procedures
+`findings` are pure functions of the current records, scope, settings and date. The inventory
+takes a name under an input root whose alias (CNAME) chain first leaves the roots at a target no
+`providers.yaml` cname entry matches as a third party's platform (`provider.ThirdParty`, class
+saas, named by the registrable domain): it is skipped by the checks that skip SaaS and listed as a
+`cname` third party, and its address stays port-eligible. A cloud platform that runs target
+workloads therefore needs a cname entry with no class. Risk procedures
 (`internal/recon/procedures/risk`) store only *evidence* kinds. `internal/recon/analysis/findings` derives findings from
 the evidence that is shown. A finding that is no longer derived stays on record but is marked not
 current. Records keep `first_seen`/`last_seen`/`current` and are never deleted. The findings and

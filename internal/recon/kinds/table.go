@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/knowledge/provider"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/store"
 	"github.com/rafaelh/nyx/internal/scope"
@@ -23,16 +24,28 @@ var (
 	ExcludedKind = define[ExcludedAttrs](Kind{Name: "excluded", Singular: "excluded", place: placeExcluded})
 )
 
-// placeHost places a hostname or root as the scope classifies it.
+// placeHost places a hostname or root as the scope classifies it, leaving a candidate under a
+// known provider's domain unlisted (vendorName).
 func placeHost(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
-	return sc.ClassifyHost(key).Class, true
+	class := sc.ClassifyHost(key).Class
+	return class, class != scope.Candidate || !vendorName(key)
 }
 
 // placeRoot places a root by its name alone: a candidate root in scope by an address of its own
 // stays a candidate root, since passing it as a domain is still how its subdomains are found,
-// while its hostname record is placed in scope.
+// while its hostname record is placed in scope. A candidate under a known provider's domain is
+// unlisted, as a hostname is.
 func placeRoot(sc *scope.Scope, _ *inventory.Inventory, key string) (scope.Class, bool) {
-	return sc.ClassifyName(key).Class, true
+	class := sc.ClassifyName(key).Class
+	return class, class != scope.Candidate || !vendorName(key)
+}
+
+// vendorName reports whether a known DNS, mail or SaaS provider operates the name's domain
+// (provider.DomainOwner). Such a name is the provider's or one of its tenants', never a domain to
+// bring into scope, so it is no candidate; the dependency itself is a third party.
+func vendorName(name string) bool {
+	_, ok := provider.Default().DomainOwner(name)
+	return ok
 }
 
 // placeNetblock includes input and input-derived CIDRs in scope, and classifies other valid
