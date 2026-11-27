@@ -292,7 +292,11 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	defer sigs.stop()
 
 	err := inv.execute(runCtx)
-	inv.writeHints(err)
+	var e *clierr.Error
+	if err != nil {
+		e = inv.toError(err)
+	}
+	inv.writeHints(e)
 	if err == nil {
 		return 0
 	}
@@ -302,13 +306,14 @@ func Execute(ctx context.Context, args []string, d Deps) int {
 	}
 	// PARTIAL means output was already written. A later signal must preserve that outcome
 	// so INTERRUPTED never accompanies partial stdout.
-	var partial *clierr.Error
-	isPartial := errors.As(err, &partial) && partial.Code == clierr.Partial
-	if s != nil && !isPartial {
+	if s != nil && e.Code != clierr.Partial {
 		inv.fw.write(inv.interruptError(s))
 		return signalOf(s).code
 	}
-	e := inv.toError(err)
+	var pe *clierr.PanicError
+	if errors.As(err, &pe) && inv.raw.debug {
+		_, _ = inv.d.Stderr.Write(pe.Stack) // before the error, which stays the last line
+	}
 	inv.fw.write(e)
 	return clierr.ExitCode(e.Code)
 }
@@ -336,14 +341,11 @@ func (inv *invocation) noteNoConfig(configPath string) {
 // writeHints prints config and stale-data hints after command execution and before errors.
 // Usage errors, --json and --quiet suppress these lines. They are not events; JSON receives
 // stale notices as warnings instead.
-func (inv *invocation) writeHints(err error) {
+func (inv *invocation) writeHints(e *clierr.Error) {
 	if (inv.hintNoConfig == "" && len(inv.staleHints) == 0) || inv.sh.json || inv.sh.quiet {
 		return
 	}
-	// Recover panics as unexpected errors without passing through toError, which would
-	// duplicate the debug stack.
-	var pe *clierr.PanicError
-	if err != nil && !errors.As(err, &pe) && inv.toError(err).Code == clierr.InvalidInput {
+	if e != nil && e.Code == clierr.InvalidInput {
 		return
 	}
 	if inv.hintNoConfig != "" {
@@ -405,10 +407,8 @@ func (inv *invocation) toError(err error) *clierr.Error {
 	switch {
 	case errors.As(err, &pe):
 		e = &clierr.Error{Code: clierr.Unexpected, Message: pe.Error()}
-		if inv.raw.debug {
-			_, _ = inv.d.Stderr.Write(pe.Stack) // before the error, which stays the last line
-		} else {
-			e.Hint = "add --debug for the stack trace"
+		if !inv.raw.debug {
+			e.Hint = "add --debug for the stack trace" // Execute writes the stack itself
 		}
 	case errors.As(err, &e):
 	case errors.As(err, &probs):

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -134,10 +135,7 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 	if o.updateThreatData {
 		return runThreatUpdate(ctx, inv)
 	}
-	path := o.configPath
-	if path == "" {
-		path = config.DefaultConfigPath(d.Env)
-	}
+	path := cmp.Or(o.configPath, config.DefaultConfigPath(d.Env))
 	if path == "" {
 		return &clierr.Error{Code: clierr.InvalidInput, Message: "no config file path: neither XDG_CONFIG_HOME nor HOME is set",
 			Hint: "pass --config <file>", Input: map[string][]string{"config": {""}}}
@@ -147,8 +145,6 @@ func runSetup(ctx context.Context, inv *invocation, positional []string, o *setu
 		// Resolve paths from the same working directory as the editor.
 		if cwd, err := d.Getwd(); err == nil {
 			abs = filepath.Join(cwd, path)
-		} else if a, err := filepath.Abs(path); err == nil {
-			abs = a
 		}
 	}
 	if !d.StdinIsTTY() || !inv.st.out.Terminal {

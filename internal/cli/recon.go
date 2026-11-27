@@ -61,7 +61,7 @@ func newReconCommand(inv *invocation) *cobra.Command {
 			annotationFooter: reconFooter,
 		},
 		RunE: func(c *cobra.Command, positional []string) error {
-			return inv.start(c, runRecon(c.Context(), inv, c, positional, names, o))
+			return inv.start(c, runRecon(c.Context(), inv, c, positional, o))
 		},
 	}
 	f := cmd.Flags()
@@ -101,7 +101,7 @@ const reconFooter = `Configuration:
 
 // runRecon collects validation problems before creating state or making requests, then executes
 // the engagement.
-func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, positional, names []string, o *reconOptions) error {
+func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, positional []string, o *reconOptions) error {
 	started := time.Now() // the deadline counts from here; not d.Clock, which tests fix
 	d := inv.d
 	if o.palette {
@@ -113,7 +113,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	inv.noteNoConfig(o.configPath)
 	probs := inv.problems()
 	settings, red := inv.loadSettings(cmd.Flags(), o.configPath, probs)
-	timeout := reconTimeout(probs, cmd, o.timeout)
+	timeout := optionalTimeout(probs, cmd, o.timeout, "--timeout 30m")
 
 	parsed, perr := input.Parse(input.Raw{
 		Domains: positional, DomainsFile: o.domainsFile, Orgs: o.orgs, ASNs: o.asns, CIDRs: o.cidrs,
@@ -130,6 +130,7 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 	}
 	absent, probeErr := probeEngagement(probs, settings.OutputDir, name, given)
 	absent = absent && noInputs
+	names := procedureNames(d.Procedures)
 	if o.redo != "" && !slices.Contains(names, o.redo) {
 		probs.Add("redo", o.redo, fmt.Sprintf("unknown procedure %q for --redo", o.redo), "valid procedures: "+strings.Join(names, ", "))
 	}
@@ -191,15 +192,6 @@ func runRecon(ctx context.Context, inv *invocation, cmd *cobra.Command, position
 		return err
 	}
 	return reportRecon(inv, o, red, res, warnings, deadline)
-}
-
-// reconTimeout accepts a positive --timeout duration or zero when omitted, collecting invalid
-// values as problems.
-func reconTimeout(probs *clierr.Problems, cmd *cobra.Command, value string) time.Duration {
-	if !cmd.Flags().Changed("timeout") {
-		return 0
-	}
-	return parseTimeout(probs, value, "--timeout 30m")
 }
 
 // reconEngagementName uses -e or the first parsed input. Missing both is a validation problem.

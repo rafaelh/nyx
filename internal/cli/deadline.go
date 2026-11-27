@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/rafaelh/nyx/internal/clierr"
 )
 
@@ -45,6 +47,15 @@ func (f rawFlag) Set(s string) error {
 }
 
 func (f rawFlag) Type() string { return f.typ }
+
+// optionalTimeout parses --timeout when it was given and is zero when it was not, collecting an
+// invalid value as a problem.
+func optionalTimeout(probs *clierr.Problems, cmd *cobra.Command, value, example string) time.Duration {
+	if !cmd.Flags().Changed("timeout") {
+		return 0
+	}
+	return parseTimeout(probs, value, example)
+}
 
 // parseTimeout validates a positive duration and adds invalid values to the combined problem
 // list.

@@ -259,13 +259,21 @@ var (
 	})
 )
 
+// The built-in lists' entry counts, for the help and setup labels. They are constants so that
+// building the command tree (every invocation, each Tab completion) doesn't parse the 1.2 MB
+// wordlist; lists_test.go checks them against the parsed lists, so update them with the lists.
+const (
+	builtinWordlistEntries       = 103151
+	builtinSensitivePathsEntries = 268
+)
+
 func builtinLabel(n int) string { return fmt.Sprintf("built-in (%d entries)", n) }
 
 // BuiltinWordlistLabel is "built-in (N entries)".
-func BuiltinWordlistLabel() string { return builtinLabel(len(builtinWordlist())) }
+func BuiltinWordlistLabel() string { return builtinLabel(builtinWordlistEntries) }
 
 // BuiltinSensitivePathsLabel is "built-in (N entries)".
-func BuiltinSensitivePathsLabel() string { return builtinLabel(len(builtinSensitivePaths())) }
+func BuiltinSensitivePathsLabel() string { return builtinLabel(builtinSensitivePathsEntries) }
 
 // dkimSelectors are the DKIM selectors looked up for every root.
 var dkimSelectors = []string{"google", "selector1", "selector2", "k1", "k2", "k3", "default", "dkim", "mail", "s1", "s2", "smtp", "mandrill", "mxvault", "everlytickey1", "everlytickey2", "zendesk1", "zendesk2", "cm", "sig1", "scph1", "mte1"}

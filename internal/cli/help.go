@@ -59,11 +59,10 @@ func newRoot(inv *invocation) *cobra.Command {
 	recon := newReconCommand(inv)
 	recon.AddCommand(newExportCommand(inv))
 	help := newHelpCommand(inv, root)
-	stream := inv.helpStream()
 	root.AddCommand(recon, newCVECommand(inv), newIPCommand(inv), newSetupCommand(inv), newCompletionCommand(inv, root), help,
-		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp, stream),
+		newTopic(inv, "findings", "Finding types and their default severities", findingsHelp),
 		newTopic(inv, "procedures", "The procedures, in run order, and what each one contacts and does",
-			func(s layout.Stream) string { return proceduresHelp(s, inv.d.Procedures) }, stream))
+			func(s layout.Stream) string { return proceduresHelp(s, inv.d.Procedures) }))
 	root.SetHelpCommand(help)
 	root.SetHelpFunc(func(c *cobra.Command, _ []string) { inv.printHelp(root, c) })
 	return root
@@ -609,8 +608,9 @@ func findingsTable(s layout.Stream) layout.Table {
 
 // newTopic creates a help-only command available through nyx help <name>, nyx <name> and
 // --help. render receives the stream selected when building the tree.
-func newTopic(inv *invocation, name, short string, render func(layout.Stream) string, s layout.Stream) *cobra.Command {
+func newTopic(inv *invocation, name, short string, render func(layout.Stream) string) *cobra.Command {
 	cmd := &cobra.Command{Use: name, Short: short}
+	s := inv.helpStream()
 	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
 		inv.showHelp(c, func() string { return render(s) })
 	})

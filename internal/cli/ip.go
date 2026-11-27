@@ -106,14 +106,11 @@ func runIP(ctx context.Context, inv *invocation, cmd *cobra.Command, args []stri
 		probs.Add("fields", n, fmt.Sprintf("field %q is only available with --active", n),
 			iplookup.ValidFields(false)+"; with --active also "+strings.Join(iplookup.ActiveFieldNames(), ", "))
 	}
-	timeoutSet := fs.Changed("timeout")
-	var timeout time.Duration
-	if timeoutSet {
-		timeout = parseTimeout(probs, o.timeout, "--timeout 30s")
-	}
-	// deadlineFor is the deadline of the call for n addresses.
+	timeout := optionalTimeout(probs, cmd, o.timeout, "--timeout 30s")
+	// deadlineFor is the deadline of the call for n addresses. An invalid --timeout has already
+	// returned by the time it is called.
 	deadlineFor := func(n int) time.Time {
-		if timeoutSet {
+		if timeout > 0 {
 			return started.Add(timeout)
 		}
 		return started.Add(iplookup.Deadline(o.active, n))

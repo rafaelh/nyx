@@ -109,11 +109,11 @@ func registerCompletions(root *cobra.Command, inv *invocation) {
 		switch c.CommandPath() {
 		case "nyx recon":
 			c.ValidArgsFunction = noFiles // domains
-			flagValues(c, "redo", func(*cobra.Command) []string { return procedures })
-			flagValues(c, "skip", func(*cobra.Command) []string { return skippable(procedures, requiredProcedures(inv.d.Procedures)) })
+			flagValues(c, "redo", procedures)
+			flagValues(c, "skip", skippable(procedures, requiredProcedures(inv.d.Procedures)))
 			dirValues(c, "output-dir")
 		case "nyx recon export":
-			flagValues(c, "kind", func(*cobra.Command) []string { return exportKinds() })
+			flagValues(c, "kind", exportKinds())
 			dirValues(c, "output-dir")
 		case "nyx cve":
 			c.ValidArgsFunction = noFiles // CVE IDs
@@ -142,9 +142,9 @@ func ipFieldChoices(c *cobra.Command) []string {
 }
 
 // flagValues completes a flag that takes one value from choices.
-func flagValues(c *cobra.Command, flag string, choices func(*cobra.Command) []string) {
-	mustRegister(c, flag, func(c *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return choices(c), cobra.ShellCompDirectiveNoFileComp
+func flagValues(c *cobra.Command, flag string, choices []string) {
+	mustRegister(c, flag, func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return choices, cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

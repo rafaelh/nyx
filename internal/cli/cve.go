@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -160,10 +161,7 @@ func cveView(probs *clierr.Problems, o *cveOptions, fields cve.Fields, known boo
 func cveKey(env config.Env, settings config.Settings, configPath string) (key, authHint string) {
 	secret, _ := settings.Key("nvd") // a blank key is checked after trimming
 	if k := strings.TrimSpace(secret.Reveal()); k != "" {
-		if configPath == "" {
-			configPath = config.DefaultConfigPath(env)
-		}
-		return k, "check keys.nvd in " + configPath
+		return k, "check keys.nvd in " + cmp.Or(configPath, config.DefaultConfigPath(env))
 	}
 	return "", ""
 }

@@ -17,23 +17,17 @@ const maxListedEngagements = 10
 // gets a hint explaining how to start one.
 func engagementNotFound(outputDir, name, given string, canStart bool) *clierr.Error {
 	names := engagement.List(outputDir)
-	var hint string
-	switch {
-	case len(names) == 0:
-		hint = "no engagements in " + outputDir
-	default:
+	hint, start := "no engagements in "+outputDir, "; give domains, --org, --asn or --cidr to start one"
+	if len(names) > 0 {
 		listed := names[:min(len(names), maxListedEngagements)]
 		hint = "engagements in " + outputDir + ": " + strings.Join(listed, ", ")
 		if more := len(names) - len(listed); more > 0 {
 			hint += fmt.Sprintf(" and %d more", more)
 		}
+		start = "; or give domains, --org, --asn or --cidr to start one"
 	}
 	if canStart {
-		if len(names) == 0 {
-			hint += "; give domains, --org, --asn or --cidr to start one"
-		} else {
-			hint += "; or give domains, --org, --asn or --cidr to start one"
-		}
+		hint += start
 	}
 	return &clierr.Error{Code: clierr.NotFound, Message: fmt.Sprintf("no engagement named %q in %s", name, outputDir),
 		Hint: hint, Input: map[string][]string{"engagement": {given}}}

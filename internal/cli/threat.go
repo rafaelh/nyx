@@ -185,15 +185,15 @@ type threatList struct {
 	Removed    int    `json:"removed"`
 }
 
-// threatSourceError builds the same source error for result fields and meta.errors.
-func threatSourceError(s threatdata.SourceResult, red *config.Redactor) errorLine {
+// threatSourceError builds the same source error for result fields and meta.errors. The update
+// uses no keys, so there is nothing to redact.
+func threatSourceError(s threatdata.SourceResult) errorLine {
 	return newErrorLine(&clierr.Error{Code: s.Code, Message: s.Reason, Hint: "can be updated " + nextUpdate(s),
-		Input: s.Source, Transient: s.Transient}, red)
+		Input: s.Source, Transient: s.Transient}, nil)
 }
 
 // writeThreatEnvelope emits one compact JSON update result.
 func writeThreatEnvelope(w io.Writer, res threatdata.Result) error {
-	red := config.NewRedactor()
 	env := threatEnvelope{Meta: threatMeta{Errors: []errorLine{}, Warnings: []string{}}}
 	env.Data.Sources = make([]threatSource, len(res.Sources))
 	for i, s := range res.Sources {
@@ -203,7 +203,7 @@ func writeThreatEnvelope(w io.Writer, res threatdata.Result) error {
 			out.Copyright, out.Terms = &s.Copyright, &s.Terms
 		}
 		if s.Outcome == threatdata.Failed {
-			e := threatSourceError(s, red)
+			e := threatSourceError(s)
 			out.Error = &e
 			env.Meta.Errors = append(env.Meta.Errors, e)
 		}
@@ -232,16 +232,22 @@ func listStatus(l threatdata.ListResult, source threatdata.SourceResult) string 
 	return ""
 }
 
+// sourcesByName indexes an update's source results by source name.
+func sourcesByName(res threatdata.Result) map[string]threatdata.SourceResult {
+	sources := make(map[string]threatdata.SourceResult, len(res.Sources))
+	for _, s := range res.Sources {
+		sources[s.Source] = s
+	}
+	return sources
+}
+
 // listChange formats added/removed counts for a replaced list.
 func listChange(l threatdata.ListResult) string { return fmt.Sprintf("(+%d, -%d)", l.Added, l.Removed) }
 
 // writeThreatLines prints old/new dates and counts for replaced lists, or status for unchanged
 // ones, followed by Spamhaus credit.
 func writeThreatLines(w io.Writer, res threatdata.Result) error {
-	sources := map[string]threatdata.SourceResult{}
-	for _, s := range res.Sources {
-		sources[s.Source] = s
-	}
+	sources := sourcesByName(res)
 	var b strings.Builder
 	srcWidth, listWidth := 0, 0
 	for _, l := range res.Lists {
@@ -269,6 +275,9 @@ func writeThreatLines(w io.Writer, res threatdata.Result) error {
 // downloads always emit warnings, including --quiet. Staleness goes to JSON warnings or a
 // deferred human hint printed by Execute.
 func (inv *invocation) loadThreat(em report.Emitter, warnings *report.Warnings, read func(source string) bool) threatdata.Set {
+	if !read(threatdata.Spamhaus) && !read(threatdata.Ipapi) {
+		return threatdata.Set{} // nothing would match against the lists, so skip decoding them
+	}
 	set := newThreatKeeper(inv.d).load()
 	for _, w := range set.Warnings {
 		if read(w.Source) {

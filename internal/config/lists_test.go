@@ -45,7 +45,7 @@ func TestBuiltinWordlist(t *testing.T) {
 		}
 	}
 	if got := config.BuiltinWordlistLabel(); got != fmt.Sprintf("built-in (%d entries)", len(words)) {
-		t.Errorf("label = %q", got)
+		t.Errorf("label = %q: update the entry count in config.go to match the list", got)
 	}
 }
 
@@ -145,7 +145,7 @@ func TestBuiltinSensitivePathsSamples(t *testing.T) {
 		}
 	}
 	if got := config.BuiltinSensitivePathsLabel(); got != fmt.Sprintf("built-in (%d entries)", len(entries)) {
-		t.Errorf("label = %q", got)
+		t.Errorf("label = %q: update the entry count in config.go to match the list", got)
 	}
 }
 

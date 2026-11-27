@@ -116,10 +116,7 @@ func (k threatKeeper) ThreatData() []setup.ThreatList {
 // UpdateThreatData shares command update logic and converts results into list rows.
 func (k threatKeeper) UpdateThreatData(ctx context.Context) setup.ThreatResult {
 	res := k.update(ctx)
-	sources := map[string]threatdata.SourceResult{}
-	for _, s := range res.Sources {
-		sources[s.Source] = s
-	}
+	sources := sourcesByName(res)
 	byList := map[string]threatdata.ListResult{}
 	for _, l := range res.Lists {
 		byList[l.Source+"/"+l.List] = l
