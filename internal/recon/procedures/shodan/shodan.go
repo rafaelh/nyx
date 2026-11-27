@@ -109,15 +109,17 @@ func (*Procedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error
 }
 
 type search struct {
-	Matches []struct {
-		IPStr     string   `json:"ip_str"`
-		Port      int      `json:"port"`
-		Transport string   `json:"transport"`
-		Data      string   `json:"data"`
-		Timestamp string   `json:"timestamp"`
-		Hostnames []string `json:"hostnames"`
-	} `json:"matches"`
-	Total int `json:"total"`
+	Matches []match `json:"matches"`
+	Total   int     `json:"total"`
+}
+
+type match struct {
+	IPStr     string   `json:"ip_str"`
+	Port      int      `json:"port"`
+	Transport string   `json:"transport"`
+	Data      string   `json:"data"`
+	Timestamp string   `json:"timestamp"`
+	Hostnames []string `json:"hostnames"`
 }
 
 // Run searches net:<cidr>, recording addresses, names, TCP services and whether the page cap
@@ -142,31 +144,7 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 			return nil, fmt.Errorf("shodan %s: unreadable response: %w", c.Key, err)
 		}
 		for _, m := range r.Matches {
-			a, ok := input.IPLiteral(m.IPStr)
-			if !ok {
-				continue // no address to record its services or names against
-			}
-			ip := a.String()
-			if !seen["ip|"+ip] {
-				seen["ip|"+ip] = true
-				obs = append(obs, kinds.IP.Obs(ip))
-			}
-			if o, ok := reportedPort(ip, m.Port, m.Transport, m.Data, m.Timestamp); ok && !seen["port|"+o.Key] {
-				seen["port|"+o.Key] = true
-				obs = append(obs, o)
-			}
-			for _, h := range m.Hostnames {
-				h = dnsname.Normalise(h)
-				if h == "" {
-					continue
-				}
-				back := kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: ip, Hostname: h, Source: "shodan"})
-				if seen[back.Key] {
-					continue
-				}
-				seen[back.Key] = true
-				obs = append(obs, kinds.Hostname.Obs(h, kinds.HostnameAttrs{}), back)
-			}
+			obs = recordMatch(obs, seen, m)
 		}
 		got += len(r.Matches)
 		if len(r.Matches) == 0 || got >= r.Total {
@@ -176,4 +154,34 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 	}
 	// Warn when the page cap leaves fewer read matches than the reported total.
 	return append(obs, kinds.ShodanNetblock.Obs(c.Key, kinds.ShodanNetblockAttrs{Truncated: !complete})), nil
+}
+
+// recordMatch appends the address, TCP service and names of one search match not already in seen.
+func recordMatch(obs []run.Observation, seen map[string]bool, m match) []run.Observation {
+	a, ok := input.IPLiteral(m.IPStr)
+	if !ok {
+		return obs // no address to record its services or names against
+	}
+	ip := a.String()
+	if !seen["ip|"+ip] {
+		seen["ip|"+ip] = true
+		obs = append(obs, kinds.IP.Obs(ip))
+	}
+	if o, ok := reportedPort(ip, m.Port, m.Transport, m.Data, m.Timestamp); ok && !seen["port|"+o.Key] {
+		seen["port|"+o.Key] = true
+		obs = append(obs, o)
+	}
+	for _, h := range m.Hostnames {
+		h = dnsname.Normalise(h)
+		if h == "" {
+			continue
+		}
+		back := kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: ip, Hostname: h, Source: "shodan"})
+		if seen[back.Key] {
+			continue
+		}
+		seen[back.Key] = true
+		obs = append(obs, kinds.Hostname.Obs(h, kinds.HostnameAttrs{}), back)
+	}
+	return obs
 }
