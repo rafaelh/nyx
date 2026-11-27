@@ -39,8 +39,11 @@ type storageInput struct {
 }
 
 var (
-	safeName      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,254}$`)
-	safeContainer = regexp.MustCompile(`^[A-Za-z0-9$][A-Za-z0-9_-]{0,62}$`)
+	safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,254}$`)
+	// safeContainer follows Azure's container naming rules (3-63 lower-case letters, digits and
+	// single hyphens, starting and ending with a letter or digit) plus the system containers, so
+	// a referenced name Azure rejects with 400 is not asked on every run.
+	safeContainer = regexp.MustCompile(`^(?:\$root|\$web|\$logs|[a-z0-9][a-z0-9-]{1,61}[a-z0-9])$`)
 	regionRE      = regexp.MustCompile(`^[a-z0-9-]+$`)
 )
 
@@ -91,7 +94,7 @@ func bucketJobs(v run.View, refs []cloudstorage.Reference, emit storageEmit) boo
 func containerJobs(v run.View, refs []cloudstorage.Reference, emit storageEmit) bool {
 	for _, acct := range existingAccounts(v) {
 		for _, c := range accountContainers(acct, refs) {
-			if safeContainer.MatchString(c) && !emit(cloudstorage.Key(cloudstorage.Azure, acct, c), storageInput{kind: "container", provider: cloudstorage.Azure, name: acct, container: c}) {
+			if safeContainer.MatchString(c) && !strings.Contains(c, "--") && !emit(cloudstorage.Key(cloudstorage.Azure, acct, c), storageInput{kind: "container", provider: cloudstorage.Azure, name: acct, container: c}) {
 				return false
 			}
 		}
@@ -326,7 +329,7 @@ func list(ctx context.Context, e egress.Clients, in storageInput) ([]run.Observa
 
 // object sends one anonymous HEAD for an object: it is public if that succeeds.
 func object(ctx context.Context, e egress.Clients, in storageInput) ([]run.Observation, error) {
-	resp, _, err := request(ctx, e, "HEAD", in, func(r string) string { return objectURL(in, r) })
+	resp, region, err := request(ctx, e, "HEAD", in, func(r string) string { return objectURL(in, r) })
 	if err != nil {
 		return nil, err
 	}
@@ -341,6 +344,6 @@ func object(ctx context.Context, e egress.Clients, in storageInput) ([]run.Obser
 	bucket := cloudstorage.Key(in.provider, in.name, in.container)
 	return []run.Observation{kinds.StorageObject.Obs(bucket+"/"+in.object, kinds.StorageObjectAttrs{
 		Bucket: bucket, Provider: in.provider, Name: in.name, Container: in.container, Object: in.object,
-		Public: public, URL: objectURL(in, in.region),
+		Public: public, URL: objectURL(in, region),
 	})}, nil
 }

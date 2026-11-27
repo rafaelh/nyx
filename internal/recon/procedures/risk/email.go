@@ -52,14 +52,15 @@ func (*Email) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error] {
 	})
 }
 
-// txt treats NXDOMAIN/NODATA as empty and timeout/SERVFAIL as errors.
+// txt treats NXDOMAIN/NODATA as empty and a timeout, SERVFAIL or any other failure rcode as
+// an error, so a resolver failure is never read as a missing record.
 func txt(ctx context.Context, e egress.Clients, name string) ([]string, error) {
 	res, err := e.DNS.Query(ctx, name, egress.TypeTXT)
 	if err != nil {
 		return nil, err
 	}
-	if res.RCode == egress.RCodeServFail {
-		return nil, fmt.Errorf("%s: SERVFAIL", name)
+	if err := rcodeErr(name, "TXT", res.RCode); err != nil {
+		return nil, err
 	}
 	var out []string
 	for _, a := range res.Answers {
@@ -127,14 +128,26 @@ func (*Email) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Obser
 	return obs, nil
 }
 
-// mxHosts returns the root's mail hosts, sorted. A timeout or SERVFAIL is an error.
+// rcodeErr is nil for an answer (NOERROR) or NXDOMAIN, and an error for any other rcode.
+func rcodeErr(name, qtype string, rcode int) error {
+	switch rcode {
+	case egress.RCodeSuccess, egress.RCodeNXDomain:
+		return nil
+	case egress.RCodeServFail:
+		return fmt.Errorf("%s %s: SERVFAIL", name, qtype)
+	}
+	return fmt.Errorf("%s %s: DNS rcode %d", name, qtype, rcode)
+}
+
+// mxHosts returns the root's mail hosts, sorted. A timeout, SERVFAIL or other failure rcode is
+// an error.
 func mxHosts(ctx context.Context, e egress.Clients, root string) ([]string, error) {
 	mx, err := e.DNS.Query(ctx, root, egress.TypeMX)
 	if err != nil {
 		return nil, err
 	}
-	if mx.RCode == egress.RCodeServFail {
-		return nil, fmt.Errorf("%s MX: SERVFAIL", root)
+	if err := rcodeErr(root, "MX", mx.RCode); err != nil {
+		return nil, err
 	}
 	var hosts []string
 	for _, a := range mx.Answers {

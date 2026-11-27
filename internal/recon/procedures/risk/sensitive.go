@@ -121,7 +121,7 @@ func (*SensitivePaths) Run(ctx context.Context, c run.Job, e egress.Clients) ([]
 // bodySize prefers Content-Length for capped bodies when valid, otherwise reports the read
 // length with "+" for unknown totals.
 func bodySize(r egress.Response) kinds.Size {
-	if len(r.Body) < egress.MaxTargetBody {
+	if !r.Truncated {
 		return kinds.SizeOf(int64(len(r.Body)))
 	}
 	if n, err := strconv.ParseInt(r.HeaderValue("Content-Length"), 10, 64); err == nil && n >= int64(len(r.Body)) {
