@@ -1,5 +1,6 @@
 // Package reverseip is the reverseip procedure: the other hostnames that point at
-// each dedicated address nyx has recorded.
+// each port-eligible address nyx has recorded (one inside an in-scope netblock, or a
+// dedicated one an in-scope hostname uses).
 package reverseip
 
 import (
@@ -97,7 +98,7 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 		return nil, fmt.Errorf("reverseip %s: %w", in.addr, err)
 	}
 	if f.over(in.max) {
-		run.Warnf(ctx, "reverseip %s: %d registrable domains, more than reverseip.max_domains (%d): treated as shared hosting, nothing recorded",
+		run.Warnf(ctx, "reverseip %s: at least %d registrable domains, more than reverseip.max_domains (%d): treated as shared hosting, nothing recorded",
 			in.addr, len(f.domains), in.max)
 		return nil, nil
 	}
