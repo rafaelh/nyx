@@ -126,41 +126,40 @@ func (*Host) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observ
 			names = append(names, d.Hostnames...)
 		}
 	}
-	found := nameObs(in.sc, seen, names, in.addr.String())
+	found := nameObs(in.sc, seen, names, in.addr, true)
 	if in.tenants {
 		found = slices.DeleteFunc(found, func(o run.Observation) bool { return o.Kind == kinds.Root.Name() })
 	}
 	return append(obs, found...), nil
 }
 
-// nameObs cleans and deduplicates returned names/roots. Hostnames under an input root get optional
-// address pairings; other names, those in scope by address included, contribute candidate roots,
-// unless the name is generic for the address (dnsname.Generic): that is the reverse name its
-// network gives the address, and its domain is the network's. seen uses type-prefixed keys to
-// keep both distinct.
-func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr string) []run.Observation {
+// nameObs cleans and deduplicates the names Shodan returned for addr. A name under an input root
+// is a hostname, paired with addr when pair is set; an excluded name is a hostname too (recorded
+// as excluded), as reverseip records one. Other names, those in scope by address included,
+// contribute candidate roots, unless the name is generic for addr (dnsname.Generic): that is the
+// reverse name its network gives the address, and its domain is the network's. seen uses
+// type-prefixed keys to keep both distinct.
+func nameObs(sc *scope.Scope, seen map[string]bool, names []string, addr netip.Addr, pair bool) []run.Observation {
 	var obs []run.Observation
 	for _, n := range names {
 		if n = input.CleanName(n); n == "" || seen["name|"+n] {
 			continue
 		}
 		seen["name|"+n] = true
-		if sc.NameInScope(n) {
+		switch sc.ClassifyName(n).Class {
+		case scope.InScope:
 			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
-			if addr != "" {
-				obs = append(obs, kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: addr, Hostname: n, Source: "shodan"}))
+			if pair {
+				obs = append(obs, kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: addr.String(), Hostname: n, Source: "shodan"}))
 			}
-		} else if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] && !genericFor(n, addr) {
-			seen["root|"+root] = true
-			obs = append(obs, kinds.Root.Obs(root))
+		case scope.Excluded:
+			obs = append(obs, kinds.Hostname.Obs(n, kinds.HostnameAttrs{}))
+		case scope.Candidate:
+			if root, ok := dnsname.ETLDPlusOne(n); ok && !seen["root|"+root] && !dnsname.Generic(n, addr) {
+				seen["root|"+root] = true
+				obs = append(obs, kinds.Root.Obs(root))
+			}
 		}
 	}
 	return obs
-}
-
-// genericFor reports whether a name is generic for the address it was returned for, when there is
-// one.
-func genericFor(name, addr string) bool {
-	a, err := netip.ParseAddr(addr)
-	return err == nil && dnsname.Generic(name, a)
 }

@@ -24,7 +24,7 @@
   `shodan-dns`, which lists each in-scope root's subdomains and their A, AAAA, CNAME, MX and NS records; it costs
   one Shodan query credit per result page, for each root. `keys.censys` is a Censys personal access
   token and searches certificates for names under each root. `keys.chaos` is a ProjectDiscovery
-  Chaos key. A 401, 403 or 429 stops that procedure for the run (`shodan-host` too). Each of these three follows result pages
+  Chaos key. A 401, 403 or 429 stops that procedure for the run (`shodan-host` too), and so does a 402 (spent query credits) for the Shodan searches. Each of these three follows result pages
   up to `shodan_dns.max_pages`, `censys.max_pages` or `chaos.max_pages` (default 10; raising one
   repeats the procedure's jobs, and reaching one is a warning). Chaos answers with the
   whole list in one page, so its cap is not reached. `certspotter` takes an

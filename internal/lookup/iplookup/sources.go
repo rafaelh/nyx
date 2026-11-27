@@ -95,14 +95,14 @@ func (g *guard) state(host string) *hostState {
 
 func (g *guard) isLatched(host string) bool { return g.state(host).latched.Load() }
 
-// latch suppresses the host for this call and warns once.
+// latch suppresses the host for this call and warns once. A spent HackerTarget quota is silent:
+// reverse IP falls back to PTR records.
 func (g *guard) latch(host string) {
 	if !g.state(host).latched.CompareAndSwap(false, true) {
 		return
 	}
 	switch host {
 	case ipsource.HackerTargetHost:
-		g.warn("HackerTarget quota is spent (the quota resets daily): reverse IP is not asked again in this call")
 	case hostInternetDB:
 		g.warn(hostInternetDB + " refused with HTTP 429: InternetDB is not asked again in this call")
 	case hostRIPEstat:
@@ -234,12 +234,6 @@ func (s *state) httpFailure(ctx context.Context, src Source, err error) Failure 
 	var limited *ipsource.RateLimitedError
 	var transport *transportError
 	switch {
-	case src == SourceHackerTarget && errors.Is(err, ipsource.ErrQuota), src == SourceHackerTarget && errors.As(err, &latched):
-		msg := "HackerTarget quota is spent"
-		if latched != nil {
-			msg = "not asked: quota spent earlier in this call"
-		}
-		return Failure{Source: src, Code: clierr.RateLimited, Message: msg, Quota: true}
 	case errors.As(err, &latched):
 		return Failure{Source: src, Code: clierr.RateLimited, Message: latchedMessage, Transient: true}
 	case errors.As(err, &limited):
@@ -352,16 +346,26 @@ func (s *state) rdap(ctx context.Context, rec *Record, addr netip.Addr) *Failure
 
 // ptr asks the public resolvers for the address's reverse names.
 func (s *state) ptr(ctx context.Context, rec *Record, addr netip.Addr) *Failure {
-	res, err := s.cfg.DNS.Query(ctx, dnsname.ReverseName(addr), egress.TypePTR)
+	names, err := s.ptrNames(ctx, addr)
 	if err != nil {
 		f := dnsFailure(ctx, SourcePTR, err)
 		return &f
 	}
+	rec.PTR = names
+	return nil
+}
+
+// ptrNames asks the public resolvers for the address's PTR records, as dig -x does, and returns
+// them cleaned, deduplicated and sorted. NXDOMAIN is an answer of no names.
+func (s *state) ptrNames(ctx context.Context, addr netip.Addr) ([]string, error) {
+	res, err := s.cfg.DNS.Query(ctx, dnsname.ReverseName(addr), egress.TypePTR)
+	if err != nil {
+		return nil, err
+	}
 	switch res.RCode {
 	case egress.RCodeSuccess, egress.RCodeNXDomain:
 	default:
-		f := dnsFailure(ctx, SourcePTR, fmt.Errorf("resolver answered rcode %d", res.RCode))
-		return &f
+		return nil, fmt.Errorf("resolver answered rcode %d", res.RCode)
 	}
 	names := []string{}
 	for _, a := range res.Answers {
@@ -373,8 +377,7 @@ func (s *state) ptr(ctx context.Context, rec *Record, addr netip.Addr) *Failure 
 		}
 	}
 	slices.Sort(names)
-	rec.PTR = names
-	return nil
+	return names, nil
 }
 
 // cleanPTRName decodes DNS escapes and rejects resulting control characters, which cannot be
@@ -538,15 +541,24 @@ func (s *state) internetdb(ctx context.Context, rec *Record, addr netip.Addr) *F
 // names provide useful evidence.
 func hackerTargetApplies(addr netip.Addr, shared bool) bool { return addr.Is4() && !shared }
 
-// hackerTarget asks for the names that point at the address.
+// hackerTarget asks for the names that point at the address. Once the quota is spent (this
+// request's reply, or an earlier one's latch) it asks the public resolvers for the address's PTR
+// names instead, with no warning and no failure: only a failed PTR query leaves the reverse IP
+// unknown.
 func (s *state) hackerTarget(ctx context.Context, rec *Record, addr netip.Addr) *Failure {
 	s.htMu.Lock()
-	defer s.htMu.Unlock()
 	names, err := ipsource.HackerTargetReverse(ctx, s.guard, addr) // a latched host is the guard's error
-	if err != nil {
-		if errors.Is(err, ipsource.ErrQuota) {
-			s.guard.latch(ipsource.HackerTargetHost)
+	s.htMu.Unlock()
+	var latched *latchedError
+	if err != nil && (errors.Is(err, ipsource.ErrQuota) || errors.As(err, &latched)) {
+		s.guard.latch(ipsource.HackerTargetHost)
+		if names, err = s.ptrNames(ctx, addr); err != nil {
+			f := dnsFailure(ctx, SourceHackerTarget, err)
+			f.Message = "HackerTarget quota is spent and the PTR lookup failed: " + f.Message
+			return &f
 		}
+	}
+	if err != nil {
 		f := s.httpFailure(ctx, SourceHackerTarget, err)
 		return &f
 	}

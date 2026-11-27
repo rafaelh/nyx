@@ -850,7 +850,6 @@ type ipFailureCase struct {
 	name, source  string
 	codes         []string // the codes the failure may have
 	transient     bool
-	quota         bool     // a spent quota: listed in the record, and the call still succeeds
 	timeout       string   // --timeout, "" for none
 	keys          []string // null in the record
 	alsoDependent []string // keys of other sources that depend on the failing one, which are not compared
@@ -869,19 +868,14 @@ func (c ipFailureCase) run(t *testing.T) {
 	if c.timeout != "" {
 		args = append(args, "--timeout", c.timeout)
 	}
-	var rec ipRecord
-	if c.quota {
-		rec = w.record(args...)
-	} else {
-		env, _ := w.partial(args...)
-		if len(env.Records) != 1 {
-			t.Fatalf("records %s", w.h.stdout.String())
-		}
-		rec = env.Records[0]
+	env, _ := w.partial(args...)
+	if len(env.Records) != 1 {
+		t.Fatalf("records %s", w.h.stdout.String())
 	}
+	rec := env.Records[0]
 	f := rec.failureOf(c.source)
-	if !slices.Contains(c.codes, f.Code) || f.Transient != c.transient || f.Quota != c.quota || f.Message == "" {
-		t.Errorf("failure %+v, want code in %v, transient %v, quota %v", f, c.codes, c.transient, c.quota)
+	if !slices.Contains(c.codes, f.Code) || f.Transient != c.transient || f.Quota || f.Message == "" {
+		t.Errorf("failure %+v, want code in %v, transient %v, not a quota", f, c.codes, c.transient)
 	}
 	if len(c.alsoDependent) == 0 && len(rec.failures()) != 1 {
 		t.Errorf("failures %+v", rec.failures())
@@ -927,15 +921,15 @@ func ipHTTPFailures() []ipFailureCase {
 			{"truncated", []string{"UPSTREAM_ERROR", "NETWORK_ERROR"}, "", ipTruncated(), false},
 			{"hang", []string{"TIMEOUT"}, "800ms", ipHang(), false},
 		} {
+			if s.source == "hackertarget" && m.name == "429" {
+				continue // HackerTarget's 429 is its spent quota, which falls back to PTR (ip_outcome_test.go)
+			}
 			c := ipFailureCase{name: s.label + " " + m.name, source: s.source, codes: m.codes, transient: true, timeout: m.timeout, keys: s.keys}
 			h := m.handler
 			if m.malformed {
 				h = ipReply(200, s.malformed)
 			}
 			c.breakIt = func(w *ipWorld) { s.set(w, h) }
-			if s.source == "hackertarget" && m.name == "429" {
-				c.quota, c.transient = true, false // HackerTarget's 429 is its spent quota
-			}
 			out = append(out, c)
 		}
 	}

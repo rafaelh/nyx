@@ -619,7 +619,10 @@ func TestLatch_TheBootstrapHost(t *testing.T) {
 	}
 }
 
-func TestLatch_HackerTargetQuota(t *testing.T) {
+// A spent HackerTarget quota is silent and not a failure: that address and every later one take their
+// reverse IP names from the address's PTR records, as dig -x finds them. Only a failed PTR
+// query leaves them unknown, as a failure of that query.
+func TestLatch_HackerTargetQuotaFallsBackToPTR(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name  string
@@ -630,30 +633,55 @@ func TestLatch_HackerTargetQuota(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			w := newWorld(t, false, "reverse_ip")
+			w := newWorld(t, false, "reverse_ip,reverse_ip_count")
 			as := manyAddrs(4)
 			for _, a := range as {
 				w.ownedBy(a, 15169, "8.8.4.0/24", "GOOGLE")
 				w.http.set(hackerTargetURL(a), tc.reply)
 			}
+			w.dns.set(ptrName(as[0]), egress.TypePTR, ptrAnswer("b.example.org.", "A.Example.org.", "a.example.org."))
+			w.dns.set(ptrName(as[1]), egress.TypePTR, ptrAnswer("c.example.org."))
+			// as[2] has no PTR record (NXDOMAIN); the query for as[3] fails.
+			w.dns.setErr(ptrName(as[3]), egress.TypePTR, errors.New("connection refused"))
 			res := w.lookup(as...)
 			if n := w.http.count("https://api.hackertarget.com"); n != 1 {
 				t.Errorf("%d requests reached hackertarget, want 1", n)
 			}
+			want := map[string][]string{as[0]: {"a.example.org", "b.example.org"}, as[1]: {"c.example.org"}, as[2]: {}}
 			for _, r := range res {
-				f, ok := failureOf(r.Record, SourceHackerTarget)
-				if !ok || f.Code != clierr.RateLimited || !f.Quota || f.Transient || f.Message == "" {
-					t.Errorf("%s failure = %+v (%v), want a quota RATE_LIMITED that is not transient", r.Record.Address, f, ok)
-				}
-				if r.Record.ReverseIP != nil || r.Record.ReverseIPCount != nil {
-					t.Errorf("%s has reverse ip data", r.Record.Address)
-				}
+				checkPTRFallback(t, r.Record, want[r.Record.Address], r.Record.Address == as[3])
 			}
 			got := w.warnings()
-			if len(got) != 1 || !strings.Contains(got[0], "quota resets daily") {
-				t.Errorf("warnings = %q, want one saying the quota resets daily", got)
+			if len(got) != 0 {
+				t.Errorf("warnings = %q, want none: a spent quota is silent", got)
 			}
 		})
+	}
+}
+
+// checkPTRFallback checks one record after a spent HackerTarget quota: reverse IP holds want
+// with no failure, or, when the PTR query failed, is unknown with a failure naming it.
+func checkPTRFallback(t *testing.T, rec Record, want []string, ptrFailed bool) {
+	t.Helper()
+	a := rec.Address
+	f, failed := failureOf(rec, SourceHackerTarget)
+	if ptrFailed {
+		if !failed || f.Quota || !f.Transient || f.Code != clierr.NetworkError || !strings.Contains(f.Message, "PTR") {
+			t.Errorf("%s failure = %+v (%v), want a transient NETWORK_ERROR naming the PTR lookup", a, f, failed)
+		}
+		if rec.ReverseIP != nil || rec.ReverseIPCount != nil {
+			t.Errorf("%s has reverse ip data after a failed PTR lookup", a)
+		}
+		return
+	}
+	if failed {
+		t.Errorf("%s failure = %+v, want none: a spent quota is not a failure", a, f)
+	}
+	if !slices.Equal(rec.ReverseIP, want) || rec.ReverseIP == nil {
+		t.Errorf("%s reverse_ip = %#v, want %#v", a, rec.ReverseIP, want)
+	}
+	if c := rec.ReverseIPCount; c == nil || *c != len(want) {
+		t.Errorf("%s reverse_ip_count = %v, want %d", a, c, len(want))
 	}
 }
 

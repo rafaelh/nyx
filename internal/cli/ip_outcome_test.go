@@ -248,9 +248,9 @@ func TestIPTime_RDAPRateLimitLatchesThatRegistryOnly(t *testing.T) {
 	}
 }
 
-// HackerTarget quota exhaustion stops later calls and warns once. Quota failures remain visible
-// but do not fail the batch or suggest immediate retry.
-func TestIPTime_HackerTargetQuotaLatches(t *testing.T) {
+// HackerTarget quota exhaustion stops later calls, silently. That address and every later one
+// take reverse_ip from its PTR records instead, with no failure, and the call succeeds.
+func TestIPTime_HackerTargetQuotaFallsBackToPTR(t *testing.T) {
 	t.Parallel()
 	for _, reply := range []struct {
 		name string
@@ -269,16 +269,20 @@ func TestIPTime_HackerTargetQuotaLatches(t *testing.T) {
 					}
 					reply.h(rw, r)
 				})
-				env := w.lookup("8.8.4.1", "8.8.4.2", "8.8.4.3", "8.8.4.4")
+				addrs := []string{"8.8.4.1", "8.8.4.2", "8.8.4.3", "8.8.4.4"}
+				for _, a := range addrs {
+					w.ptr(a, ipoPTRName(a))
+				}
+				env := w.lookup(addrs...)
 				if got := w.ht.count(); got != answeredFirst+1 {
 					t.Errorf("HackerTarget was asked %d times, want %d: not again once the quota is spent", got, answeredFirst+1)
 				}
-				names, quota := ipoCountQuota(t, env.Records)
-				if names != answeredFirst || quota != 4-answeredFirst {
-					t.Errorf("%d records with names, %d with a quota failure; want %d and %d", names, quota, answeredFirst, 4-answeredFirst)
+				names, fromPTR := ipoCountFallback(t, env.Records)
+				if names != answeredFirst || fromPTR != 4-answeredFirst {
+					t.Errorf("%d records with HackerTarget names, %d with PTR names; want %d and %d", names, fromPTR, answeredFirst, 4-answeredFirst)
 				}
-				if len(env.Meta.Warnings) != 1 || !strings.Contains(env.Meta.Warnings[0], "resets daily") {
-					t.Errorf("warnings %q, want one that says the quota resets daily", env.Meta.Warnings)
+				if len(env.Meta.Warnings) != 0 {
+					t.Errorf("warnings %q, want none: a spent quota is silent", env.Meta.Warnings)
 				}
 				if len(env.Meta.Errors) != 0 {
 					t.Errorf("meta.errors %+v", env.Meta.Errors)
@@ -288,27 +292,30 @@ func TestIPTime_HackerTargetQuotaLatches(t *testing.T) {
 	}
 }
 
-// ipoCountQuota requires every record to contain either reverse names or a quota failure.
-func ipoCountQuota(t *testing.T, records []ipRecord) (names, quota int) {
+// ipoPTRName is the PTR name the quota tests script for an address.
+func ipoPTRName(addr string) string { return "ptr-" + strings.ReplaceAll(addr, ".", "-") + ".example.net" }
+
+// ipoCountFallback requires every record to have no hackertarget failure and either
+// HackerTarget's reverse names or its own PTR name, with a matching count.
+func ipoCountFallback(t *testing.T, records []ipRecord) (names, fromPTR int) {
 	t.Helper()
 	for _, r := range records {
-		fs := ipoFailuresOf(r, "hackertarget")
-		if len(fs) == 0 {
+		if fs := ipoFailuresOf(r, "hackertarget"); len(fs) != 0 {
+			t.Errorf("%s: failures %+v, want none: a spent quota is not a failure", r.address(), fs)
+		}
+		switch got := r.strs("reverse_ip"); {
+		case slices.Equal(got, []string{"x.example.org", "y.example.org"}):
 			names++
-			if !slices.Equal(r.strs("reverse_ip"), []string{"x.example.org", "y.example.org"}) {
-				t.Errorf("%s: %s", r.address(), r.raw)
-			}
-			continue
+		case slices.Equal(got, []string{ipoPTRName(r.address())}):
+			fromPTR++
+		default:
+			t.Errorf("%s: %s", r.address(), r.raw)
 		}
-		quota++
-		if len(fs) != 1 || fs[0].Code != "RATE_LIMITED" || !fs[0].Quota || fs[0].Transient {
-			t.Errorf("%s: failures %+v, want one RATE_LIMITED quota failure that is not transient", r.address(), fs)
-		}
-		if !r.isNull("reverse_ip") || !r.isNull("reverse_ip_count") {
-			t.Errorf("%s: reverse_ip %v, reverse_ip_count %v, want null", r.address(), r.m["reverse_ip"], r.m["reverse_ip_count"])
+		if n, ok := r.m["reverse_ip_count"].(float64); !ok || int(n) != len(r.strs("reverse_ip")) {
+			t.Errorf("%s: reverse_ip_count %v, want %d", r.address(), r.m["reverse_ip_count"], len(r.strs("reverse_ip")))
 		}
 	}
-	return names, quota
+	return names, fromPTR
 }
 
 // Default batch pacing separates InternetDB starts by one second and RIPEstat starts by a
@@ -452,9 +459,9 @@ func TestIPOutcome_EveryInputSucceedingExitsZero(t *testing.T) {
 	}
 }
 
-// HackerTarget quota-only failures remain in records/warnings while the command succeeds,
-// including with a minimal source selection.
-func TestIPOutcome_QuotaFailuresAloneExitZero(t *testing.T) { // mutation target
+// A spent HackerTarget quota gives no warning and no failure: reverse_ip comes from the
+// address's PTR records, and the command succeeds, including with a minimal source selection.
+func TestIPOutcome_SpentQuotaExitsZeroWithPTRNames(t *testing.T) { // mutation target
 	t.Parallel()
 	for _, c := range []struct {
 		name  string
@@ -479,16 +486,17 @@ func TestIPOutcome_QuotaFailuresAloneExitZero(t *testing.T) { // mutation target
 			}
 			if jsonMode {
 				env := w.h.ipEnvelope()
-				if len(env.Records) != 2 || len(env.Meta.Errors) != 0 || len(env.Meta.Warnings) != 1 {
+				if len(env.Records) != 2 || len(env.Meta.Errors) != 0 || len(env.Meta.Warnings) != 0 {
 					t.Errorf("%s: %d records, meta %+v", c.name, len(env.Records), env.Meta)
 				}
 				for _, r := range env.Records {
-					if f := r.failureOf("hackertarget"); !f.Quota || f.Transient || f.Code != "RATE_LIMITED" {
+					want := []string{"host-" + strings.ReplaceAll(r.address(), ".", "-") + ".example.net"} // the seeded PTR name
+					if len(ipoFailuresOf(r, "hackertarget")) != 0 || !slices.Equal(r.strs("reverse_ip"), want) {
 						t.Errorf("%s: %s", c.name, r.raw)
 					}
 				}
-			} else if warns := w.h.logMsgs("WARN"); len(warns) != 1 || !strings.Contains(warns[0], "resets daily") {
-				t.Errorf("%s: WARN lines %q", c.name, warns)
+			} else if warns := w.h.logMsgs("WARN"); len(warns) != 0 {
+				t.Errorf("%s: WARN lines %q, want none", c.name, warns)
 			}
 		}
 	}
@@ -1058,7 +1066,9 @@ func TestIPRender_ErrorLinesFollowTheRecordsAndWarningsGoToStderr(t *testing.T) 
 		w.seed("8.8.4.1")
 		w.seed("8.8.4.2")
 		w.idb.set("8.8.4.2", ipStatus(500))
-		w.ht.setAll(ipReply(200, ipoExceeded))
+		// A 429 from the registry that holds only 8.8.4.2 gives a WARN line and latches no other address.
+		w.route("8.8.4.2/32", hostRIPE)
+		w.rdap[hostRIPE].setAll(ipStatus(http.StatusTooManyRequests))
 		return w
 	}
 
@@ -1068,12 +1078,12 @@ func TestIPRender_ErrorLinesFollowTheRecordsAndWarningsGoToStderr(t *testing.T) 
 	if !strings.Contains(out, "8.8.4.1 [public]") || !strings.Contains(out, "8.8.4.2 [public]") {
 		t.Errorf("stdout lacks the records:\n%s", out)
 	}
-	for _, bad := range []string{"error:", "WARN", "hint:", "resets daily"} {
+	for _, bad := range []string{"error:", "WARN", "hint:", "refused"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("stdout holds %q:\n%s", bad, out)
 		}
 	}
-	if warns := w.h.logMsgs("WARN"); len(warns) != 1 || !strings.Contains(warns[0], "resets daily") {
+	if warns := w.h.logMsgs("WARN"); len(warns) != 1 || !strings.Contains(warns[0], hostRIPE) {
 		t.Errorf("WARN lines %q", warns)
 	}
 	if inputs, _ := ipoRetry(t, f.hint); !slices.Equal(inputs, []string{"8.8.4.2"}) || !f.transient {

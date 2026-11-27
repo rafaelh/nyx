@@ -127,11 +127,14 @@ func (*Pivot) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Obser
 	var obs []run.Observation
 	seen := map[string]bool{}
 	for _, m := range r.Matches {
-		if a, ok := input.IPLiteral(m.IPStr); ok && !seen["ip|"+a.String()] {
+		a, ok := input.IPLiteral(m.IPStr)
+		if ok && !seen["ip|"+a.String()] {
 			seen["ip|"+a.String()] = true
 			obs = append(obs, kinds.IP.Obs(a.String()))
 		}
-		obs = append(obs, nameObs(in.sc, seen, m.Hostnames, "")...)
+		// The match's address only tells nameObs which names are its network's reverse names:
+		// they are not paired with it, as it is not the organisation's.
+		obs = append(obs, nameObs(in.sc, seen, m.Hostnames, a, false)...)
 	}
 	return obs, nil
 }

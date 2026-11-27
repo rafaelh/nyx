@@ -69,7 +69,9 @@ func (*DNS) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observa
 	out := &dnsObs{in: in, seen: map[string]bool{}}
 	for page := 1; ; page++ {
 		q := url.Values{"page": {strconv.Itoa(page)}}
-		body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
+		// Each page spends a query credit: an exhausted allowance (402) stops the procedure for
+		// the run.
+		body, err := httpsrc.GetCredits(ctx, e, egress.ThirdPartyRequest{
 			Method: "GET", URL: "https://api.shodan.io/dns/domain/" + url.PathEscape(in.root) + "?" + q.Encode(), KeySource: "shodan", KeyParam: "key",
 		})
 		if errors.Is(err, httpsrc.ErrNotFound) {

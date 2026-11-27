@@ -15,8 +15,9 @@
 // Network matches always answer for public addresses; ASN matches depend on Cymru.
 //
 // A Failure records a source that failed, timed out, was rate-limited or was skipped after an
-// earlier refusal. Empty replies and 404s count as answers. HackerTarget quota failures remain
-// in records but do not affect batch success. Remote probe outcomes, including closed ports and
+// earlier refusal. Empty replies and 404s count as answers. Once HackerTarget's quota is spent,
+// reverse_ip and reverse_ip_count come from the address's PTR records (as dig -x finds them)
+// without a warning, and no failure is recorded unless that PTR query fails. Remote probe outcomes, including closed ports and
 // non-TLS services, are results; local probe failures are source failures. contacted means
 // --active sent traffic; not_contacted explains skipped contact.
 //

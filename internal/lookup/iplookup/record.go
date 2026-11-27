@@ -49,8 +49,9 @@ type Failure struct {
 	Code      clierr.Code `json:"code"`
 	Message   string      `json:"message"`
 	Transient bool        `json:"transient"`
-	// Quota marks HackerTarget allowance exhaustion. It does not make the address fail and
-	// is not retryable until the allowance resets.
+	// Quota marks a spent source allowance. It does not make the address fail and is not
+	// retryable until the allowance resets. No source sets it now (a spent HackerTarget quota
+	// falls back to PTR records), but the key is part of the stable record.
 	Quota bool `json:"quota"`
 }
 
