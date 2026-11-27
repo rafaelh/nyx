@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -47,6 +48,17 @@ func (orgProcedure) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, err
 	return run.JobsOf(v.Inputs().Orgs, func(o string) run.Job { return run.Job{Key: o, Input: o} })
 }
 
+// searchable reports whether org has a word to search by once legal suffixes are left out, and
+// warns when it has none: searching "Pty Ltd" would match unrelated organisations (and, for a
+// paid source, spend a credit on them).
+func (s orgProcedure) searchable(ctx context.Context, org string) bool {
+	if len(orgname.Tokens(org)) > 0 {
+		return true
+	}
+	run.Warnf(ctx, "%s: %q has no words to search by once legal suffixes are left out, so it is not searched", s.name, org)
+	return false
+}
+
 func rootObs(names []string) []run.Observation {
 	seen := map[string]bool{}
 	var obs []run.Observation
@@ -54,6 +66,9 @@ func rootObs(names []string) []run.Observation {
 		n = dnsname.Normalise(strings.TrimPrefix(strings.TrimSpace(n), "*."))
 		if n == "" || strings.ContainsAny(n, "*@/: ") {
 			continue
+		}
+		if _, err := netip.ParseAddr(n); err == nil {
+			continue // an address, whose last two octets would pass for a registrable domain
 		}
 		root, ok := dnsname.ETLDPlusOne(n)
 		if !ok || seen[root] {
@@ -77,7 +92,10 @@ func NewCTOrg() *CTOrg {
 }
 
 // Run searches crt.sh by organisation (O=) and reduces the names to registrable domains.
-func (*CTOrg) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+func (p *CTOrg) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+	if !p.searchable(ctx, c.Key) {
+		return nil, nil
+	}
 	body, err := httpsrc.Crtsh(ctx, e, url.Values{"O": {c.Key}})
 	if err != nil {
 		return nil, fmt.Errorf("ct-org %s: %w", c.Key, err)
@@ -112,12 +130,15 @@ func NewWhoisXML() *WhoisXML {
 func (*WhoisXML) Paid() {}
 
 // Run buys the reverse WHOIS result for the organisation. The client puts the key in the body.
-func (*WhoisXML) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+func (p *WhoisXML) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+	if !p.searchable(ctx, c.Key) {
+		return nil, nil
+	}
 	body, _ := json.Marshal(map[string]any{
 		"mode":             "purchase",
 		"basicSearchTerms": map[string]any{"include": []string{c.Key}},
 	})
-	out, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
+	out, err := httpsrc.GetCredits(ctx, e, egress.ThirdPartyRequest{
 		Method: "POST", URL: "https://reverse-whois.whoisxmlapi.com/api/v2", Body: body, ContentType: "application/json",
 		KeySource: "whoisxml", KeyBodyField: "apiKey",
 	})
@@ -147,8 +168,8 @@ func NewOrgASN() *OrgASN {
 
 // Run follows matching organisation ASNs to announced prefixes, applying the shared word rule
 // to ASN holders.
-func (*OrgASN) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
-	if len(orgname.Tokens(c.Key)) == 0 {
+func (p *OrgASN) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observation, error) {
+	if !p.searchable(ctx, c.Key) {
 		return nil, nil
 	}
 	q := url.Values{"resource": {c.Key}, "limit": {"50"}, "sourceapp": {"nyx"}}
@@ -168,20 +189,36 @@ func (*OrgASN) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Obse
 			} `json:"categories"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &sc); err != nil || sc.Status != "ok" {
-		return nil, fmt.Errorf("org-asn %s: unreadable RIPEstat response", c.Key)
+	if err := json.Unmarshal(body, &sc); err != nil {
+		return nil, fmt.Errorf("org-asn %s: unreadable RIPEstat response: %w", c.Key, err)
+	}
+	if sc.Status != "ok" {
+		return nil, fmt.Errorf("org-asn %s: RIPEstat status %q", c.Key, sc.Status)
 	}
 	var asns []string
+	seen := map[string]bool{}
+	truncated := false
 	org := orgname.New(c.Key)
 	for _, cat := range sc.Data.Categories {
 		if cat.Category != "ASNs" {
 			continue
 		}
 		for _, s := range cat.Suggestions {
-			if org.Matches(s.Description) && len(asns) < maxASNsPerOrg {
-				asns = append(asns, strings.ToUpper(s.Value))
+			asn := strings.ToUpper(strings.TrimSpace(s.Value))
+			if asn == "" || seen[asn] || !org.Matches(s.Description) {
+				continue
 			}
+			if len(asns) == maxASNsPerOrg {
+				truncated = true
+				break
+			}
+			seen[asn] = true
+			asns = append(asns, asn)
 		}
+	}
+	if truncated {
+		run.Warnf(ctx, "org-asn: RIPEstat matched more than %d autonomous systems for %q; the first %d are kept",
+			maxASNsPerOrg, c.Key, maxASNsPerOrg)
 	}
 	var obs []run.Observation
 	for _, asn := range asns {
