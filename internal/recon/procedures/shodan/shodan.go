@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
 	"github.com/rafaelh/nyx/internal/recon/analysis/candidates"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
@@ -128,7 +129,9 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 	complete := false
 	for page := 1; page <= maxPages; page++ {
 		q := url.Values{"query": {"net:" + c.Key}, "page": {strconv.Itoa(page)}}
-		body, err := httpsrc.Get(ctx, e, egress.ThirdPartyRequest{
+		// Pages past the first spend query credits, so an exhausted allowance (402) stops the
+		// procedure for the run, as it does identifier-pivot.
+		body, err := httpsrc.GetCredits(ctx, e, egress.ThirdPartyRequest{
 			Method: "GET", URL: "https://api.shodan.io/shodan/host/search?" + q.Encode(), KeySource: "shodan", KeyParam: "key",
 		})
 		if err != nil {
@@ -139,11 +142,16 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 			return nil, fmt.Errorf("shodan %s: unreadable response: %w", c.Key, err)
 		}
 		for _, m := range r.Matches {
-			if m.IPStr != "" && !seen["ip|"+m.IPStr] {
-				seen["ip|"+m.IPStr] = true
-				obs = append(obs, kinds.IP.Obs(m.IPStr))
+			a, ok := input.IPLiteral(m.IPStr)
+			if !ok {
+				continue // no address to record its services or names against
 			}
-			if o, ok := reportedPort(m.IPStr, m.Port, m.Transport, m.Data, m.Timestamp); ok && !seen["port|"+o.Key] {
+			ip := a.String()
+			if !seen["ip|"+ip] {
+				seen["ip|"+ip] = true
+				obs = append(obs, kinds.IP.Obs(ip))
+			}
+			if o, ok := reportedPort(ip, m.Port, m.Transport, m.Data, m.Timestamp); ok && !seen["port|"+o.Key] {
 				seen["port|"+o.Key] = true
 				obs = append(obs, o)
 			}
@@ -152,7 +160,7 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 				if h == "" {
 					continue
 				}
-				back := kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: m.IPStr, Hostname: h, Source: "shodan"})
+				back := kinds.IPHostname.Obs(kinds.IPHostnameAttrs{IP: ip, Hostname: h, Source: "shodan"})
 				if seen[back.Key] {
 					continue
 				}
