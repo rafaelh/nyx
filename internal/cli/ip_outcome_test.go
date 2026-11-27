@@ -398,19 +398,33 @@ func checkOnlyHungInternetDBTimedOut(t *testing.T, env ipEnvelope, hung string) 
 	}
 }
 
-// With no --timeout, the deadline for one address in the default mode is six seconds.
-func TestIPTime_TheDefaultDeadlineForOneAddressIsSixSeconds(t *testing.T) {
+// With no --timeout, the deadline for one address in the default mode is twelve seconds, longer
+// than one source's 10s request timeout.
+func TestIPTime_TheDefaultDeadlineForOneAddressIsTwelveSeconds(t *testing.T) {
 	t.Parallel()
 	w := newIPWorld(t)
 	w.h.eopts.HTTPTimeout = time.Minute
 	w.idb.setAll(ipHang())
 	start := time.Now()
 	env, _ := w.partial("8.8.4.4")
-	if el := time.Since(start); el < 5500*time.Millisecond || el > 9*time.Second {
-		t.Errorf("the call took %v, want about 6s", el)
+	if el := time.Since(start); el < 11500*time.Millisecond || el > 15*time.Second {
+		t.Errorf("the call took %v, want about 12s", el)
 	}
 	if f := env.Records[0].failureOf("internetdb"); f.Code != "TIMEOUT" || !f.Transient {
 		t.Errorf("failure %+v", f)
+	}
+}
+
+// A source that outlasts its request timeout, well before the call's deadline, is a transient
+// TIMEOUT, not a network error.
+func TestIPTime_ARequestTimeoutIsATimedOutFailure(t *testing.T) {
+	t.Parallel()
+	w := newIPWorld(t)
+	w.h.eopts.HTTPTimeout = 200 * time.Millisecond
+	w.idb.setAll(ipHang())
+	env, _ := w.partial("8.8.4.4", "--timeout", "30s")
+	if f := env.Records[0].failureOf("internetdb"); f.Code != "TIMEOUT" || !f.Transient || !strings.HasPrefix(f.Message, "timed out: ") {
+		t.Errorf("failure %+v, want a transient TIMEOUT", f)
 	}
 }
 

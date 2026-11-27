@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -686,6 +687,35 @@ func TestThirdPartyKeyScrubbedFromErrors(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), tc.leak) {
 			t.Errorf("%s: error must be scrubbed: %v", name, err)
 		}
+	}
+}
+
+// Scrubbing keeps whether a request timed out or was cancelled, without the key.
+func TestThirdPartyScrubbedErrorKeepsTimeoutAndCancellation(t *testing.T) {
+	t.Parallel()
+	const key = "KEY-12345"
+	hang := func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	c := thirdPartyServer(t, hang, egress.Options{HTTPTimeout: 50 * time.Millisecond,
+		Keys: map[string]config.Secret{"src": config.Secret(key)}, Redactor: config.NewRedactor(key)})
+	req := egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/x", KeySource: "src", KeyParam: "key"}
+	var to interface{ Timeout() bool }
+
+	_, err := c.Do(context.Background(), req)
+	if err == nil || strings.Contains(err.Error(), key) {
+		t.Fatalf("timeout: error must be scrubbed: %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &to) || !to.Timeout() {
+		t.Errorf("timeout: %v is not recognisable as a timeout", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+	_, err = c.Do(ctx, req)
+	if err == nil || strings.Contains(err.Error(), key) {
+		t.Fatalf("cancelled: error must be scrubbed: %v", err)
+	}
+	if !errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, &to) && to.Timeout() {
+		t.Errorf("cancelled: %v should be a cancellation and not a timeout", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -110,8 +111,10 @@ func TestThirdPartyTimeout(t *testing.T) {
 		}
 		_, _ = w.Write([]byte("slow"))
 	}, egress.Options{HTTPTimeout: 30 * time.Millisecond})
-	if _, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/"}); err == nil {
-		t.Error("the default timeout should apply")
+	_, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/"})
+	var to interface{ Timeout() bool }
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &to) || !to.Timeout() {
+		t.Errorf("the default timeout should apply and be recognisable as a timeout: %v", err)
 	}
 	resp, err := c.Do(context.Background(), egress.ThirdPartyRequest{Method: "GET", URL: "https://api.example.net/", Timeout: 5 * time.Second})
 	if err != nil || string(resp.Body) != "slow" {
