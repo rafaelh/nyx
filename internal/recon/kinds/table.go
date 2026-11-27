@@ -96,7 +96,7 @@ var (
 	IPOwner       = define[IPOwnerAttrs](Kind{Name: "ip_owner"})
 	NetblockOwner = define[NetblockOwnerAttrs](Kind{Name: "netblock_owner"})
 	IPHostname    = defineJoined(Kind{Name: "ip_hostname"}, ipHostnameFields)
-	ProviderRange = define[ProviderRangeAttrs](Kind{Name: "provider_range"})
+	ProviderRange = defineJoined(Kind{Name: "provider_range"}, providerRangeFields)
 )
 
 // ResolutionAttrs describes a DNS answer keyed "<name>|<TYPE>|<value>". Types include host
@@ -143,6 +143,11 @@ type ProviderRangeAttrs struct {
 	Prefix   string `json:"prefix"`
 	Service  string `json:"service"`
 	Region   string `json:"region"`
+}
+
+// providerRangeFields make the key "<provider>|<prefix>|<service>".
+func providerRangeFields(a *ProviderRangeAttrs) []*string {
+	return []*string{&a.Provider, &a.Prefix, &a.Service}
 }
 
 // Web.

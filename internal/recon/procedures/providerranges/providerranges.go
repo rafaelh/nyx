@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -56,6 +57,10 @@ func (*Procedure) Configured(run.Env) (bool, string) { return true, "" }
 // cannot be skipped.
 func (*Procedure) Required() {}
 
+// RetiresUnlistedJobs: the ranges of a list nyx no longer fetches stop being current, rather
+// than classifying addresses forever from an engagement's first download.
+func (*Procedure) RetiresUnlistedJobs() {}
+
 // Sources are the hosts the lists are fetched from.
 func (*Procedure) Sources() []string {
 	var hosts []string
@@ -82,21 +87,42 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 	return l.observations(body)
 }
 
+// Prefixes wider than these are not a provider's published range but a broken or hostile list:
+// one would classify every address as that provider's, overriding every other rule.
+const minBits4, minBits6 = 8, 16
+
+// usablePrefix parses a published prefix, writing an IPv4-mapped one as IPv4 (as addresses are
+// unmapped when matched) and refusing one wider than minBits4 or minBits6.
+func usablePrefix(s string) (netip.Prefix, bool) {
+	p, err := input.ParseCIDR(s)
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	if p.Addr().Is4In6() {
+		if p.Bits() < 96 {
+			return netip.Prefix{}, false
+		}
+		p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+	}
+	if p.Addr().Is4() {
+		return p, p.Bits() >= minBits4
+	}
+	return p, p.Bits() >= minBits6
+}
+
 // observations skips invalid prefixes and rejects bodies leaving no usable ranges.
 func (l list) observations(body []byte) ([]run.Observation, error) {
-	entries, err := l.parse(body)
+	entries, err := l.parse(bytes.TrimPrefix(body, []byte("\xef\xbb\xbf")))
 	if err != nil {
 		return nil, fmt.Errorf("%s ranges: unreadable response: %w", l.provider, err)
 	}
 	var obs []run.Observation
 	for _, e := range entries {
-		p, err := input.ParseCIDR(e.prefix)
-		if err != nil {
+		p, ok := usablePrefix(e.prefix)
+		if !ok {
 			continue
 		}
-		prefix := p.String()
-		key := l.provider + "|" + prefix + "|" + e.service
-		obs = append(obs, kinds.ProviderRange.Obs(key, kinds.ProviderRangeAttrs{Provider: l.provider, Prefix: prefix, Service: e.service, Region: e.region}))
+		obs = append(obs, kinds.ProviderRange.Obs(kinds.ProviderRangeAttrs{Provider: l.provider, Prefix: p.String(), Service: e.service, Region: e.region}))
 	}
 	if len(obs) == 0 {
 		return nil, fmt.Errorf("%s ranges: the response holds no ranges", l.provider)
@@ -162,13 +188,18 @@ func parseLines(body []byte) ([]rangeEntry, error) {
 	var out []rangeEntry
 	for _, line := range lines {
 		f := strings.Split(line, ",")
-		e := rangeEntry{prefix: strings.TrimSpace(f[0])}
+		e := rangeEntry{prefix: csvField(f[0])}
 		if len(f) > 2 {
-			e.region = strings.TrimSpace(f[2])
+			e.region = csvField(f[2])
 		}
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// csvField trims a geofeed field and the double quotes RFC 4180 lets it carry.
+func csvField(s string) string {
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s), `"`))
 }
 
 func parseFastly(body []byte) ([]rangeEntry, error) {

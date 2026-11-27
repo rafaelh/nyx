@@ -181,6 +181,50 @@ func TestParsers_SkipsUnparseableLines(t *testing.T) {
 	}
 }
 
+// A prefix wide enough to cover most of the internet is not a published range; an
+// IPv4-mapped one is stored as IPv4, which is how addresses are matched.
+func TestParsers_RefuseOverwidePrefixesAndUnmap(t *testing.T) {
+	t.Parallel()
+	obs, err := listFor(t, "cloudflare-v4").observations([]byte("0.0.0.0/0\n10.0.0.0/7\n10.0.0.0/8\n::/0\n2000::/3\n2001:db8::/16\n::ffff:192.0.2.0/120\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prefixes []string
+	for _, r := range got(t, obs) {
+		prefixes = append(prefixes, r.prefix)
+	}
+	if want := []string{"10.0.0.0/8", "2001::/16", "192.0.2.0/24"}; !slices.Equal(prefixes, want) {
+		t.Errorf("prefixes = %v, want %v", prefixes, want)
+	}
+	if _, err := listFor(t, "cloudflare-v4").observations([]byte("0.0.0.0/0\n::/0\n")); err == nil {
+		t.Error("a list of only overwide prefixes gave no error")
+	}
+}
+
+// A byte-order mark does not cost a text list its first range or fail a JSON list, and a
+// geofeed's quoted fields are read without their quotes.
+func TestParsers_ByteOrderMarkAndQuotedFields(t *testing.T) {
+	t.Parallel()
+	obs, err := listFor(t, "cloudflare-v4").observations([]byte("\xef\xbb\xbf173.245.48.0/20\n103.21.244.0/22\n"))
+	if err != nil || len(obs) != 2 {
+		t.Errorf("text with a BOM: %d observations, %v; want 2", len(obs), err)
+	}
+	if _, err := listFor(t, "fastly").observations([]byte("\xef\xbb\xbf" + `{"addresses":["23.235.32.0/20"]}`)); err != nil {
+		t.Errorf("JSON with a BOM: %v", err)
+	}
+	obs, err = listFor(t, "linode").observations([]byte(`"72.14.177.0/24","US","US-TX","Richardson",` + "\n"))
+	if err != nil || !slices.Equal(got(t, obs), []rng{{"linode", "72.14.177.0/24", "", "US-TX"}}) {
+		t.Errorf("quoted geofeed: %+v %v", got(t, obs), err)
+	}
+}
+
+func TestProcedure_RetiresListsNoLongerFetched(t *testing.T) {
+	t.Parallel()
+	if _, ok := any(New()).(run.Retiring); !ok {
+		t.Error("providerranges does not retire the jobs of lists it no longer fetches")
+	}
+}
+
 func TestProcedure_OneJobPerList(t *testing.T) {
 	t.Parallel()
 	var keys []string
