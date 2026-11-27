@@ -36,6 +36,12 @@ semantic
   info
   muted
   example
+  alert
+  tld
+  domain
+  subdomain
+  dot
+  separator
 setup
   pointer
   name

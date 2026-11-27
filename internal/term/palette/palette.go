@@ -256,7 +256,9 @@ var fgGroups = []fgGroup{
 		{"SEPARATOR", fgOnly([3]uint8{74, 79, 92}, 90)},
 	}},
 	// Semantic text roles use base-style foregrounds. Muted uses timestamp grey; example
-	// uses warm amber for help invocations.
+	// uses warm amber for help invocations; alert is setup's bad red, for a heading that draws
+	// attention; tld, domain and subdomain colour a hostname's last three labels, dot the dots
+	// between them, and separator the commas between a list's entries.
 	{Semantic, []fgEntry{
 		{"success", styleNamed("PASS").fgStyle},
 		{"error", styleNamed("ERROR").fgStyle},
@@ -264,6 +266,12 @@ var fgGroups = []fgGroup{
 		{"info", styleNamed("INFO").fgStyle},
 		{"muted", timestamp},
 		{"example", fgOnly(example, 93)},
+		{"alert", bad},
+		{"tld", violet},
+		{"domain", lavender},
+		{"subdomain", fgOnly([3]uint8{159, 112, 169}, 35)},
+		{"dot", fgOnly([3]uint8{207, 207, 222}, 37)},
+		{"separator", faint},
 	}},
 	// Setup roles distinguish selected and dim rows. faint de-emphasises unset/skipped
 	// content; help styles descriptions; key uses example amber for shortcuts.
@@ -271,22 +279,28 @@ var fgGroups = []fgGroup{
 		{"pointer", fgOnly(green, 92)},
 		{"name", fgOnly([3]uint8{128, 255, 234}, 96)},
 		{"name-dim", fgOnly([3]uint8{3, 106, 150}, 36)},
-		{"value", fgOnly([3]uint8{149, 128, 255}, 95)},
+		{"value", violet},
 		{"value-dim", fgOnly([3]uint8{100, 74, 201}, 35)},
-		{"faint", fgOnly([3]uint8{69, 65, 88}, 90)},
-		{"help", fgOnly([3]uint8{121, 112, 169}, 37)},
+		{"faint", faint},
+		{"help", lavender},
 		{"key", fgOnly(example, 93)},
 		{"good", fgOnly(green, 92)},
-		{"bad", fgOnly([3]uint8{163, 20, 77}, 31)},
+		{"bad", bad},
 		{"caution", fgOnly([3]uint8{255, 255, 128}, 33)},
 	}},
 }
 
 // example colours help invocations and setup shortcuts; green marks selections and accepted
-// keys.
+// keys; bad marks setup's rejections and alert headings; violet and lavender, setup's values and
+// help, also mark a hostname's TLD and domain; faint, setup's unset values, also marks a list's
+// commas.
 var (
-	example = [3]uint8{255, 202, 128}
-	green   = [3]uint8{138, 255, 128}
+	example  = [3]uint8{255, 202, 128}
+	green    = [3]uint8{138, 255, 128}
+	bad      = fgOnly([3]uint8{163, 20, 77}, 31)
+	violet   = fgOnly([3]uint8{149, 128, 255}, 95)
+	lavender = fgOnly([3]uint8{121, 112, 169}, 37)
+	faint    = fgOnly([3]uint8{69, 65, 88}, 90)
 )
 
 func entriesOf(g Group) []fgEntry {

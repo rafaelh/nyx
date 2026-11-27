@@ -76,6 +76,61 @@ func TestRender_TerminalGolden(t *testing.T) {
 	golden(t, "terminal.txt", got)
 }
 
+// A terminal wide enough for two columns lays the labelled sections out in them, the lists
+// beneath at the full width.
+func TestRender_TerminalWideGolden(t *testing.T) {
+	t.Parallel()
+	got := renderTo(t, []Record{full(), private()}, "all", true, stream(true, palette.None, 2*minColumn+gutter))
+	golden(t, "terminal-wide.txt", got)
+}
+
+// Two columns need room for both: a narrower terminal, or a word too long to wrap that would push
+// them past the width, gives one.
+func TestRender_TwoColumnsOnlyWhenTheyFit(t *testing.T) {
+	t.Parallel()
+	wide := 2*minColumn + gutter
+	twoColumns := regexp.MustCompile(`(?m)^Owner +Location$`)
+	if got := renderTo(t, []Record{full()}, "all", true, stream(true, palette.None, wide)); !twoColumns.MatchString(got) {
+		t.Errorf("%d cells: one column:\n%s", wide, got)
+	}
+	if got := renderTo(t, []Record{full()}, "all", true, stream(true, palette.None, wide-1)); !strings.Contains(got, "\nOwner\n") {
+		t.Errorf("%d cells: not one column:\n%s", wide-1, got)
+	}
+	r := full()
+	r.PTR = []string{"ec2-203-0-113-9.ap-southeast-2.compute.internal.a-very-long-label.example.com"}
+	got := renderTo(t, []Record{r}, "all", true, stream(true, palette.None, wide))
+	if !strings.Contains(got, "\nOwner\n") || !strings.Contains(got, "  PTR  "+r.PTR[0]+"\n") {
+		t.Errorf("a long name: not one column:\n%s", got)
+	}
+	if got := renderTo(t, []Record{r}, "all", true, stream(true, palette.None, 140)); !twoColumns.MatchString(got) {
+		t.Errorf("a long name with room for it: one column:\n%s", got)
+	}
+}
+
+// The threat-data headings are in setup's red, and the others are not.
+func TestRender_AlertHeadingsAreRed(t *testing.T) {
+	t.Parallel()
+	r := full()
+	r.AbusiveNetworks = []abusive.NetworkMatch{{Network: "203.0.113.0/24", ScoreTag: "High", AbuseScore: 50, Org: "O", OrgType: "isp", Updated: "2026-11-21"}}
+	r.AbusiveASN = []abusive.ASNMatch{{ASN: 64500, ScoreTag: "High", AbuseScore: 50, Org: "O", OrgType: "isp", Updated: "2026-11-21"}}
+	r.DropASN = []spamhaus.ASNMatch{{ASN: 64500, Updated: dropASNDate}}
+	for _, term := range []bool{false, true} {
+		for _, width := range []int{80, 2*minColumn + gutter} {
+			for _, d := range []palette.Depth{palette.Color16, palette.Color256, palette.TrueColor} {
+				got := renderTo(t, []Record{r}, "all", true, stream(term, d, width))
+				for _, h := range []string{"Abusive networks", "Abusive ASN", "Spamhaus DROP networks", "Spamhaus ASN-DROP"} {
+					if !strings.Contains(got, d.BoldText(palette.Semantic, "alert", h)) {
+						t.Errorf("terminal=%v width %d depth %d: %s is not red: %q", term, width, d, h, got)
+					}
+				}
+				if strings.Contains(got, d.BoldText(palette.Semantic, "alert", "Owner")) || strings.Contains(got, d.BoldText(palette.Semantic, "alert", "Ports")) {
+					t.Errorf("terminal=%v width %d depth %d: another heading is red: %q", term, width, d, got)
+				}
+			}
+		}
+	}
+}
+
 var sgr = regexp.MustCompile("\x1b\\[[0-9;]*m")
 
 func strip(s string) string { return sgr.ReplaceAllString(s, "") }
@@ -84,21 +139,23 @@ func strip(s string) string { return sgr.ReplaceAllString(s, "") }
 func TestRender_ColourOnlyAddsTheStyle(t *testing.T) {
 	t.Parallel()
 	for _, terminal := range []bool{false, true} {
-		plain := renderTo(t, []Record{full(), private()}, "all", true, stream(terminal, palette.None, 80))
-		for _, d := range []palette.Depth{palette.Color16, palette.Color256, palette.TrueColor} {
-			got := renderTo(t, []Record{full(), private()}, "all", true, stream(terminal, d, 80))
-			if strip(got) != plain {
-				t.Errorf("terminal=%v depth %d: without its codes the layout differs\n got:\n%s\nwant:\n%s", terminal, d, strip(got), plain)
+		for _, width := range []int{80, 2*minColumn + gutter} {
+			plain := renderTo(t, []Record{full(), private()}, "all", true, stream(terminal, palette.None, width))
+			for _, d := range []palette.Depth{palette.Color16, palette.Color256, palette.TrueColor} {
+				got := renderTo(t, []Record{full(), private()}, "all", true, stream(terminal, d, width))
+				if strip(got) != plain {
+					t.Errorf("terminal=%v depth %d: without its codes the layout differs\n got:\n%s\nwant:\n%s", terminal, d, strip(got), plain)
+				}
+				if !strings.Contains(got, d.Bold("Owner")) && !strings.Contains(got, d.BoldText(palette.Semantic, "info", "Owner")) {
+					t.Errorf("terminal=%v depth %d: the heading is not styled: %q", terminal, d, got)
+				}
+				if !strings.Contains(got, d.BoldText(palette.Semantic, "example", "203.0.113.9")) {
+					t.Errorf("terminal=%v depth %d: the address is not bold amber: %q", terminal, d, got)
+				}
 			}
-			if !strings.Contains(got, d.Bold("Owner")) && !strings.Contains(got, d.BoldText(palette.Semantic, "info", "Owner")) {
-				t.Errorf("terminal=%v depth %d: the heading is not styled: %q", terminal, d, got)
+			if strings.Contains(plain, "\x1b") {
+				t.Errorf("terminal=%v: an escape at depth None", terminal)
 			}
-			if !strings.Contains(got, d.Bold("203.0.113.9")) {
-				t.Errorf("terminal=%v depth %d: the address is not bold: %q", terminal, d, got)
-			}
-		}
-		if strings.Contains(plain, "\x1b") {
-			t.Errorf("terminal=%v: an escape at depth None", terminal)
 		}
 	}
 }
@@ -119,20 +176,25 @@ func TestRender_OnlyTheSelectedSections(t *testing.T) {
 	for _, term := range []bool{false, true} {
 		got := renderTo(t, []Record{r}, "asn,geo_country", false, stream(term, palette.None, 100))
 		if term {
-			want := "203.0.113.9 (a.example.com, b.example.com) [documentation]\n\nOwner\n  ASN  AS64500\n\nLocation\n  Country  AU\n\nFailures\n  none\n"
+			want := "203.0.113.9 (a.example.com, b.example.com) [documentation]\n\nOwner\n  ASN  AS64500\n\nLocation\n  Country  AU\n"
 			if got != want {
 				t.Errorf("terminal: got %q, want %q", got, want)
 			}
 			continue
 		}
-		want := "203.0.113.9 (a.example.com, b.example.com) [documentation]\n\nOwner\nASN: AS64500\n\nLocation\nCountry: AU\n\nFailures\nnone\n"
+		want := "203.0.113.9 (a.example.com, b.example.com) [documentation]\n\nOwner\nASN: AS64500\n\nLocation\nCountry: AU\n"
 		if got != want {
 			t.Errorf("plain: got %q, want %q", got, want)
 		}
 	}
-	// Nothing selected: the header and the failures, which are always there.
+	// Nothing selected: the header and the failures, which are always there when there are any.
 	got := renderTo(t, []Record{private()}, "", false, stream(false, palette.None, 100))
-	if want := "10.0.0.1 [private]\n\nFailures\nnone\n"; got != want {
+	if want := "10.0.0.1 [private]\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	r.AddFailure(Failure{Source: SourceRIPEstat, Code: clierr.Timeout, Message: "late", Transient: true})
+	got = renderTo(t, []Record{r}, "", false, stream(false, palette.None, 100))
+	if want := "203.0.113.9 (a.example.com, b.example.com) [documentation]\n\nFailures\n- ripestat: late (TIMEOUT, transient)\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	// Active sections never appear without --active.
@@ -146,28 +208,22 @@ func TestRender_OnlyTheSelectedSections(t *testing.T) {
 
 func TestRender_EmptyAndUnknownValues(t *testing.T) {
 	t.Parallel()
-	// A non-public address's keys are empty: none.
-	got := renderTo(t, []Record{private()}, "all", true, stream(false, palette.None, 100))
-	for _, want := range []string{"ASN: none", "PTR: none", "Ports: none", "Count: none", "Names: none", "\nNot contacted\nnone\n", "\nPorts\nnone\n", "\nTLS\nnone\n", "\nWeb\nnone\n", "\nFailures\nnone\n"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("lacks %q:\n%s", want, got)
+	// A non-public address's keys are empty, so every value and section is left out.
+	for _, term := range []bool{false, true} {
+		got := renderTo(t, []Record{private()}, "all", true, stream(term, palette.None, 2*minColumn+gutter))
+		if want := "10.0.0.1 [private]\n"; got != want {
+			t.Errorf("terminal=%v: got %q, want %q", term, got, want)
 		}
 	}
-	// A value from a source that failed is unknown, and one from a source that did not is none.
+	// A value from a source that failed is unknown, and one from a source that did not is left out.
 	r := Record{Address: "1.1.1.1", Hostnames: []string{}, Kind: "public", RDAPOrg: nil, PTR: []string{}}
 	r.AddFailure(Failure{Source: SourceCymru, Code: clierr.Timeout, Message: "no answer before the deadline", Transient: true})
 	r.AddFailure(Failure{Source: SourceHackerTarget, Code: clierr.RateLimited, Message: "quota spent", Quota: true})
-	got = renderTo(t, []Record{r}, "asn,provider,rdap_org,ptr,reverse_ip,reverse_ip_count", false, stream(false, palette.None, 100))
+	got := renderTo(t, []Record{r}, "asn,provider,rdap_org,ptr,reverse_ip,reverse_ip_count", false, stream(false, palette.None, 100))
 	want := `1.1.1.1 [public]
 
 Owner
 ASN: unknown
-
-Registration
-Organisation: none
-
-Names
-PTR: none
 
 Provider
 Provider: unknown
@@ -188,10 +244,13 @@ Failures
 	r = Record{Address: "1.1.1.1", Hostnames: []string{}, Kind: "public", ASN: new(uint32(64500)), ReverseIP: []string{}, ReverseIPCount: new(0)}
 	r.AddFailure(Failure{Source: SourceCymru, Code: clierr.Timeout, Message: "no answer before the deadline", Transient: true})
 	got = renderTo(t, []Record{r}, "asn,as_name,provider,reverse_ip_count", false, stream(false, palette.None, 100))
-	for _, line := range []string{"ASN: AS64500", "Name: unknown", "Provider: none", "Count: 0"} {
+	for _, line := range []string{"ASN: AS64500", "Name: unknown", "Count: 0"} {
 		if !strings.Contains(got, line+"\n") {
 			t.Errorf("lacks %q:\n%s", line, got)
 		}
+	}
+	if strings.Contains(got, "Provider") {
+		t.Errorf("shows the empty provider:\n%s", got)
 	}
 }
 
@@ -201,7 +260,7 @@ func TestRender_RecordsAreSeparatedByABlankLine(t *testing.T) {
 	b.Address = "10.0.0.2"
 	for _, term := range []bool{false, true} {
 		got := renderTo(t, []Record{a, b}, "", false, stream(term, palette.None, 100))
-		if !strings.Contains(got, "none\n\n10.0.0.2 [private]\n") {
+		if got != "10.0.0.1 [private]\n\n10.0.0.2 [private]\n" {
 			t.Errorf("terminal=%v: %q", term, got)
 		}
 	}
@@ -339,12 +398,6 @@ Abusive ASN
 - AS64050: Very High, 100%, BGP Network Limited (Spamhaus ASN-DROP), updated 2026-11-20
 `},
 		{"nothing matches", pubRec([]abusive.NetworkMatch{}, []abusive.ASNMatch{}), `34.68.34.70 [public]
-
-Abusive networks
-none
-
-Abusive ASN
-none
 `},
 		{"team cymru failed", pubRec(nets[:1], nil, Failure{Source: SourceCymru, Code: clierr.Timeout, Message: "no answer before the deadline", Transient: true}), `34.68.34.70 [public]
 
@@ -355,12 +408,6 @@ Abusive ASN
 unknown
 `},
 		{"a non-public address", func() Record { r := private(); r.AbusiveNetworks, r.AbusiveASN = nil, nil; return r }(), `10.0.0.1 [private]
-
-Abusive networks
-none
-
-Abusive ASN
-none
 `},
 	} {
 		for _, term := range []bool{false, true} {
@@ -454,7 +501,8 @@ func TestRender_DropSections(t *testing.T) {
 	}
 }
 
-// An empty DROP key reads none, and drop_asn reads unknown when Team Cymru failed to give the AS.
+// An empty DROP key is left out with its heading, and drop_asn reads unknown when Team Cymru
+// failed to give the AS.
 func TestRender_DropEmptyAndUnknown(t *testing.T) {
 	t.Parallel()
 	one := []spamhaus.NetworkMatch{{CIDR: "34.68.34.64/27", SBLID: "SBL697779", RIR: "arin", Updated: dropV4Date}}
@@ -467,26 +515,27 @@ func TestRender_DropEmptyAndUnknown(t *testing.T) {
 	}
 	cymru := Failure{Source: SourceCymru, Code: clierr.Timeout, Message: "no answer before the deadline", Transient: true}
 	for _, c := range []struct {
-		name          string
-		rec           Record
-		none, unknown int // more than the record shows with neither key selected
+		name     string
+		rec      Record
+		unknown  int // more than the record shows with neither key selected
+		spamhaus bool
 	}{
-		{"nothing matches", pubRec([]spamhaus.NetworkMatch{}, []spamhaus.ASNMatch{}), 2, 0},
-		{"team cymru failed", pubRec(one, nil, cymru), 0, 1},
-		{"a non-public address", func() Record { r := private(); r.DropNetworks, r.DropASN = nil, nil; return r }(), 2, 0},
+		{"nothing matches", pubRec([]spamhaus.NetworkMatch{}, []spamhaus.ASNMatch{}), 0, false},
+		{"team cymru failed", pubRec(one, nil, cymru), 1, true},
+		{"a non-public address", func() Record { r := private(); r.DropNetworks, r.DropASN = nil, nil; return r }(), 0, false},
 	} {
 		for _, term := range []bool{false, true} {
 			s := stream(term, palette.None, 200)
 			got := renderTo(t, []Record{c.rec}, "drop_networks,drop_asn", false, s)
 			base := renderTo(t, []Record{c.rec}, "", false, s)
-			if n := countLines(got, "none") - countLines(base, "none"); n != c.none {
-				t.Errorf("terminal=%v, %s: %d more none lines, want %d:\n%s", term, c.name, n, c.none, got)
+			if countLines(got, "none") != 0 {
+				t.Errorf("terminal=%v, %s: a none line:\n%s", term, c.name, got)
 			}
 			if n := countLines(got, "unknown") - countLines(base, "unknown"); n != c.unknown {
 				t.Errorf("terminal=%v, %s: %d more unknown lines, want %d:\n%s", term, c.name, n, c.unknown, got)
 			}
-			if !strings.Contains(got, "Spamhaus") {
-				t.Errorf("terminal=%v, %s: Spamhaus is not named:\n%s", term, c.name, got)
+			if strings.Contains(got, "Spamhaus") != c.spamhaus {
+				t.Errorf("terminal=%v, %s: Spamhaus named %v, want %v:\n%s", term, c.name, !c.spamhaus, c.spamhaus, got)
 			}
 		}
 	}
@@ -505,6 +554,36 @@ func TestRender_DropTextIsSanitised(t *testing.T) {
 		}
 		if !strings.Contains(got, "SBL5") || !strings.Contains(got, "34.68.34.0/24") {
 			t.Errorf("terminal=%v: the match is not shown: %q", term, got)
+		}
+	}
+}
+
+// A terminal makes a list's separating commas faint, and each hostname's dots pale and its TLD,
+// the domain under it and the one under that coloured by level.
+func TestRender_ListsAreColoured(t *testing.T) {
+	t.Parallel()
+	r := full()
+	r.ReverseIP = []string{"000721.cn.trustexporter.com", "a.b.example.co.uk", "example.com.", "com"}
+	d := palette.TrueColor
+	role := func(name string) func(string) string {
+		return func(s string) string { return d.Text(palette.Semantic, name, s) }
+	}
+	sep, dot, tld, dom, sub := role("separator")(", "), role("dot")("."), role("tld"), role("domain"), role("subdomain")
+	got := renderTo(t, []Record{r}, "reverse_ip,internetdb_ports", false, stream(true, d, 200))
+	for _, want := range []string{
+		"000721" + dot + sub("cn") + dot + dom("trustexporter") + dot + tld("com") + sep +
+			"a" + dot + "b" + dot + sub("example") + dot + dom("co") + dot + tld("uk") + sep +
+			dom("example") + dot + tld("com") + dot + sep + tld("com") + "\n",
+		"22" + sep + "443",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lacks %q:\n%q", want, got)
+		}
+	}
+	// Plain output and a terminal without colour are unchanged.
+	for _, term := range []bool{false, true} {
+		if got := renderTo(t, []Record{r}, "reverse_ip", false, stream(term, palette.None, 200)); !strings.Contains(got, "000721.cn.trustexporter.com, a.b.example.co.uk, example.com., com\n") {
+			t.Errorf("terminal=%v: %q", term, got)
 		}
 	}
 }

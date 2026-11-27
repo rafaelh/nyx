@@ -853,12 +853,14 @@ func TestIPRender_ActiveRecordHasPortsTLSAndWeb(t *testing.T) {
 			body[section] = append(body[section], l)
 		}
 	}
-	want := []string{"Owner", "Registration", "Names", "Provider", "Location", "Exposure", "Reverse IP", "Abusive networks", "Abusive ASN", "Spamhaus DROP networks", "Spamhaus ASN-DROP", "Not contacted", "Ports", "TLS", "Web", "Failures"}
+	// The empty sections (no provider, no threat-data match, nothing skipped, no failure) are
+	// left out.
+	want := []string{"Owner", "Registration", "Names", "Location", "Exposure", "Reverse IP", "Ports", "TLS", "Web"}
 	if !slices.Equal(titles, want) {
 		t.Errorf("sections %v, want %v", titles, want)
 	}
-	if !slices.Equal(body["Not contacted"], []string{"none"}) {
-		t.Errorf("Not contacted: %q", body["Not contacted"])
+	if strings.Contains(out, "none") {
+		t.Errorf("a none value is shown:\n%s", out)
 	}
 	has := func(sec string, parts ...string) bool {
 		return slices.ContainsFunc(body[sec], func(l string) bool {
@@ -878,9 +880,6 @@ func TestIPRender_ActiveRecordHasPortsTLSAndWeb(t *testing.T) {
 		if !has(c.sec, c.parts...) {
 			t.Errorf("%s has no item with %q:\n%s", c.sec, c.parts, strings.Join(body[c.sec], "\n"))
 		}
-	}
-	if !slices.Equal(body["Failures"], []string{"none"}) {
-		t.Errorf("Failures: %q", body["Failures"])
 	}
 }
 
@@ -914,7 +913,7 @@ func TestIPRender_TerminalLayout(t *testing.T) {
 		t.Errorf("header %q", ls[0])
 	}
 	// Each heading stands alone at the margin, with rows beneath it that are indented.
-	for _, title := range []string{"Owner", "Registration", "Names", "Provider", "Location", "Exposure", "Reverse IP", "Failures"} {
+	for _, title := range []string{"Owner", "Registration", "Names", "Location", "Exposure", "Reverse IP"} {
 		i := slices.Index(ls, title)
 		if i < 1 || ls[i-1] != "" || i+1 >= len(ls) || !strings.HasPrefix(ls[i+1], "  ") {
 			t.Errorf("the heading %q is not set apart above indented rows:\n%s", title, out)

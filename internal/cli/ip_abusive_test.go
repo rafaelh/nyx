@@ -300,8 +300,8 @@ func TestIPAbusive_SnapshotTextIsSanitised(t *testing.T) {
 	}
 }
 
-// The human layout: a line for each match, none, unknown when Team Cymru failed, and none for a
-// non-public address.
+// The human layout: a line for each match, unknown when Team Cymru failed, and nothing when no
+// entry matches or the address is not public.
 func TestIPAbusive_HumanLayout(t *testing.T) {
 	t.Parallel()
 	args := []string{"--fields", "abusive_networks,abusive_asn"}
@@ -316,12 +316,13 @@ func TestIPAbusive_HumanLayout(t *testing.T) {
 	for _, want := range []string{
 		"Abusive networks\n- 93.184.216.32/28: Very High, 100%, Inner, Org & Co (hosting), updated 2026-11-21\n- 93.184.216.0/24: High, 80.5%, Outer Org (isp), updated 2026-11-21\n",
 		"Abusive ASN\n- AS64050: Very High, 99.25%, Bad AS Pty Ltd (Spamhaus ASN-DROP), updated 2026-11-20\n",
-		"8.8.4.4 [public]\n\nAbusive networks\nnone\n\nAbusive ASN\nnone\n",
-		"10.0.0.1 [private]\n\nAbusive networks\nnone\n\nAbusive ASN\nnone\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks\n%s\nin\n%s", want, out)
 		}
+	}
+	if !strings.HasSuffix(out, "\n\n8.8.4.4 [public]\n\n10.0.0.1 [private]\n") {
+		t.Errorf("the records without a match are not their headers alone:\n%s", out)
 	}
 	// Team Cymru failing reads unknown.
 	w2 := newIPWorld(t)

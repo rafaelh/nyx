@@ -14,17 +14,18 @@ import (
 )
 
 // Render writes selected record sections, separating addresses with blank lines. Empty values
-// display as none; failed-source values display as unknown with details under Failures. Source
-// and target text is cleaned before wrapping, then coloured. Terminal output adds aligned
-// labels and headings; plain output uses the stream width. The CLI writes errors and warnings
-// separately.
+// are left out, and a section left with nothing is left out with its heading; failed-source
+// values display as unknown with details under Failures. Source and target text is cleaned
+// before wrapping, then coloured. Terminal output adds aligned labels and headings, in two
+// columns when the terminal is wide enough; plain output uses the stream width. The CLI writes
+// errors and warnings separately.
 func Render(w io.Writer, recs []Projected, s layout.Stream) error {
 	if len(recs) == 0 {
 		return nil
 	}
 	blocks := make([]string, len(recs))
 	if s.Terminal {
-		tr := termRenderer{s: s.Fixed()} // so every record has one width
+		tr := termRenderer{d: s.Depth, width: s.Cols()} // so every record has one width
 		for i, p := range recs {
 			blocks[i] = tr.record(p)
 		}
@@ -45,19 +46,24 @@ const (
 	rowText         // a line of text
 )
 
-// row is one line of a section, its text already cleaned.
+// row is one line of a section, its text already cleaned. A list's value keeps its entries so a
+// terminal can colour them, and says whether they are hostnames.
 type row struct {
 	kind         int
 	label, value string
+	entries      []string
+	hosts        bool
 }
 
-// section is a titled group of rows.
+// section is a titled group of rows. An alert section's heading is coloured to draw attention.
 type section struct {
 	title string
 	rows  []row
+	alert bool
 }
 
-// none and unknown distinguish empty successful values from failed sources.
+// none and unknown distinguish empty successful values from failed sources. A none value is
+// never shown.
 const (
 	none    = "none"
 	unknown = "unknown"
@@ -100,8 +106,8 @@ func (b body) str(key string, p *string) string {
 	return none
 }
 
-// list joins entries with commas or displays the empty/unknown placeholder.
-func (b body) list(key string, items []string) string {
+// list is a labelled row of entries joined with commas, or of the empty/unknown placeholder.
+func (b body) list(key, label string, items []string, hosts bool) row {
 	var cleaned []string
 	for _, it := range items {
 		if v := sanitize.Squash(it); v != "" {
@@ -109,9 +115,9 @@ func (b body) list(key string, items []string) string {
 		}
 	}
 	if len(cleaned) == 0 {
-		return b.empty(key)
+		return row{kind: rowField, label: label, value: b.empty(key)}
 	}
-	return strings.Join(cleaned, ", ")
+	return row{kind: rowField, label: label, value: strings.Join(cleaned, ", "), entries: cleaned, hosts: hosts}
 }
 
 func (b body) sections() []section {
@@ -119,12 +125,22 @@ func (b body) sections() []section {
 	var out []section
 	add := func(title string, rows []row) {
 		if len(rows) > 0 {
-			out = append(out, section{title, rows})
+			out = append(out, section{title: title, rows: rows})
+		}
+	}
+	alert := func(title string, rows []row) {
+		if len(rows) > 0 {
+			out = append(out, section{title: title, rows: rows, alert: true})
 		}
 	}
 	field := func(rows *[]row, key, label, value string) {
-		if has(key) {
-			*rows = append(*rows, row{rowField, label, value})
+		if has(key) && value != none {
+			*rows = append(*rows, row{kind: rowField, label: label, value: value})
+		}
+	}
+	list := func(rows *[]row, key, label string, items []string, hosts bool) {
+		if r := b.list(key, label, items, hosts); has(key) && r.value != none {
+			*rows = append(*rows, r)
 		}
 	}
 	var owner []row
@@ -144,7 +160,7 @@ func (b body) sections() []section {
 	add("Registration", registration)
 
 	var names []row
-	field(&names, "ptr", "PTR", b.list("ptr", rec.PTR))
+	list(&names, "ptr", "PTR", rec.PTR, true)
 	add("Names", names)
 
 	var provider []row
@@ -165,11 +181,11 @@ func (b body) sections() []section {
 	if rec.InternetDBPorts == nil {
 		ports = nil
 	}
-	field(&exposure, "internetdb_ports", "Ports", b.list("internetdb_ports", ports))
-	field(&exposure, "internetdb_hostnames", "Hostnames", b.list("internetdb_hostnames", rec.InternetDBHostnames))
-	field(&exposure, "internetdb_tags", "Tags", b.list("internetdb_tags", rec.InternetDBTags))
-	field(&exposure, "internetdb_cpes", "CPEs", b.list("internetdb_cpes", rec.InternetDBCPEs))
-	field(&exposure, "internetdb_vulns", "Vulns", b.list("internetdb_vulns", rec.InternetDBVulns))
+	list(&exposure, "internetdb_ports", "Ports", ports, false)
+	list(&exposure, "internetdb_hostnames", "Hostnames", rec.InternetDBHostnames, true)
+	list(&exposure, "internetdb_tags", "Tags", rec.InternetDBTags, false)
+	list(&exposure, "internetdb_cpes", "CPEs", rec.InternetDBCPEs, false)
+	list(&exposure, "internetdb_vulns", "Vulns", rec.InternetDBVulns, false)
 	add("Exposure", exposure)
 
 	var reverse []row
@@ -178,36 +194,36 @@ func (b body) sections() []section {
 		count = strconv.Itoa(*rec.ReverseIPCount)
 	}
 	field(&reverse, "reverse_ip_count", "Count", count)
-	field(&reverse, "reverse_ip", "Names", b.list("reverse_ip", rec.ReverseIP))
+	list(&reverse, "reverse_ip", "Names", rec.ReverseIP, true)
 	add("Reverse IP", reverse)
 
 	if has("abusive_networks") {
-		add("Abusive networks", b.items("abusive_networks", len(rec.AbusiveNetworks), rec.AbusiveNetworks == nil, func(i int) string {
+		alert("Abusive networks", b.items("abusive_networks", len(rec.AbusiveNetworks), rec.AbusiveNetworks == nil, func(i int) string {
 			m := rec.AbusiveNetworks[i]
 			return matchLine(m.Network, m.ScoreTag, m.AbuseScore, m.Org, m.OrgType, m.Updated)
 		}))
 	}
 	if has("abusive_asn") {
-		add("Abusive ASN", b.items("abusive_asn", len(rec.AbusiveASN), rec.AbusiveASN == nil, func(i int) string {
+		alert("Abusive ASN", b.items("abusive_asn", len(rec.AbusiveASN), rec.AbusiveASN == nil, func(i int) string {
 			m := rec.AbusiveASN[i]
 			return matchLine("AS"+strconv.Itoa(m.ASN), m.ScoreTag, m.AbuseScore, m.Org, m.OrgType, m.Updated)
 		}))
 	}
 	if has("drop_networks") {
-		add("Spamhaus DROP networks", b.items("drop_networks", len(rec.DropNetworks), rec.DropNetworks == nil, func(i int) string {
+		alert("Spamhaus DROP networks", b.items("drop_networks", len(rec.DropNetworks), rec.DropNetworks == nil, func(i int) string {
 			m := rec.DropNetworks[i]
 			return dropLine(m.CIDR, m.Updated, m.SBLID, m.RIR)
 		}))
 	}
 	if has("drop_asn") {
-		add("Spamhaus ASN-DROP", b.items("drop_asn", len(rec.DropASN), rec.DropASN == nil, func(i int) string {
+		alert("Spamhaus ASN-DROP", b.items("drop_asn", len(rec.DropASN), rec.DropASN == nil, func(i int) string {
 			m := rec.DropASN[i]
 			return dropLine("AS"+strconv.Itoa(m.ASN), m.Updated, m.ASName, m.Country, m.Domain, m.RIR)
 		}))
 	}
 
-	if has("not_contacted") {
-		add("Not contacted", []row{{rowText, "", b.str("not_contacted", rec.NotContacted)}})
+	if v := b.str("not_contacted", rec.NotContacted); has("not_contacted") && v != none {
+		add("Not contacted", []row{{kind: rowText, value: v}})
 	}
 	if has("ports") {
 		add("Ports", b.items("ports", len(rec.Ports), rec.Ports == nil, func(i int) string { return portLine(rec.Ports[i]) }))
@@ -224,19 +240,18 @@ func (b body) sections() []section {
 	return out
 }
 
-// items formats list entries or an empty/unknown placeholder. A failed source's nil list
+// items formats list entries, or no rows for an empty list. A failed source's nil list
 // displays as unknown.
 func (b body) items(key string, n int, nilList bool, line func(int) string) []row {
 	if n == 0 {
-		word := none
-		if nilList {
-			word = b.empty(key)
+		if nilList && b.empty(key) == unknown {
+			return []row{{kind: rowText, value: unknown}}
 		}
-		return []row{{rowText, "", word}}
+		return nil
 	}
 	rows := make([]row, n)
 	for i := range rows {
-		rows[i] = row{rowItem, "", sanitize.Squash(line(i))}
+		rows[i] = row{kind: rowItem, value: sanitize.Squash(line(i))}
 	}
 	return rows
 }
@@ -318,7 +333,7 @@ func failureLine(f Failure) string {
 }
 
 // header separates the address from its contributing hostnames and kind so the address can be
-// styled independently.
+// styled independently: bold, in the amber of help's examples.
 func header(rec *Record) (address, rest string) {
 	rest = ""
 	if len(rec.Hostnames) > 0 {
@@ -341,9 +356,13 @@ func (r plainRenderer) record(p Projected) string {
 	rec := p.rec
 	address, rest := header(&rec)
 	lines := r.hang("", 0, address+rest)
-	lines[0] = r.d.Bold(address) + strings.TrimPrefix(lines[0], address)
+	lines[0] = r.d.BoldText(palette.Semantic, "example", address) + strings.TrimPrefix(lines[0], address)
 	for _, s := range (body{&rec, p.f.Has}).sections() {
-		lines = append(lines, "", r.d.Bold(s.title))
+		title := r.d.Bold(s.title)
+		if s.alert {
+			title = r.d.BoldText(palette.Semantic, "alert", s.title)
+		}
+		lines = append(lines, "", title)
 		for _, row := range s.rows {
 			switch row.kind {
 			case rowField:
@@ -384,48 +403,179 @@ func (r plainRenderer) hang(prefix string, first int, text string) []string {
 }
 
 // termRenderer lays out headed sections with two-space indentation, aligned labels and wrapped
-// text.
+// text. The labelled sections that lead a record go in two columns when the width allows.
 type termRenderer struct {
-	s layout.Stream // its width fixed for the whole write
+	d     palette.Depth
+	width int // fixed for the whole write
 }
 
 // indent is the indentation of every line of a section's body.
 const indent = 2
 
+// Two columns are each at least minColumn cells, gutter cells apart. The default width, used
+// when no width is known, gives one column.
+const (
+	minColumn = 50
+	gutter    = 4
+)
+
 func (r termRenderer) record(p Projected) string {
 	rec := p.rec
 	address, rest := header(&rec)
-	bold := r.s.Depth.Bold
-	spans := []layout.Span{{Text: address, Style: bold, Keep: true}, {Text: rest}}
-	lines := layout.Wrap(spans, r.s.Cols(), 0, indent, layout.Spaces)
-	for _, s := range (body{&rec, p.f.Has}).sections() {
+	style := func(x string) string { return r.d.BoldText(palette.Semantic, "example", x) }
+	spans := []layout.Span{{Text: address, Style: style, Keep: true}, {Text: rest}}
+	lines := layout.Wrap(spans, r.width, 0, indent, layout.Spaces)
+	secs := (body{&rec, p.f.Has}).sections()
+	if cols, n := r.columns(secs); n > 0 {
+		lines = append(append(lines, ""), cols...)
+		secs = secs[n:]
+	}
+	for _, s := range secs {
 		lines = append(lines, "")
-		lines = append(lines, layout.Heading(r.s, s.title, false)...)
-		lines = append(lines, r.rows(s.rows)...)
+		lines = append(lines, r.section(s, r.width)...)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// rows lays a section's rows out, its labelled values aligned in one column.
-func (r termRenderer) rows(rows []row) []string {
+// columns lays the leading sections that hold only labelled values down a left column and
+// then a right one, split where the taller column is shortest (the left on a tie), and returns
+// the lines and how many sections they hold. It returns none when fewer than two such sections
+// lead, when the width allows one column, or when a word too long to wrap would push the
+// columns past the width. Lists are left to span the width, as their lines are long.
+func (r termRenderer) columns(secs []section) ([]string, int) {
+	n := 0
+	for n < len(secs) && !slices.ContainsFunc(secs[n].rows, func(x row) bool { return x.kind != rowField }) {
+		n++
+	}
+	if n < 2 || r.width < 2*minColumn+gutter {
+		return nil, 0
+	}
+	w := (r.width - gutter) / 2
+	blocks := make([][]string, n)
+	for i, s := range secs[:n] {
+		blocks[i] = r.section(s, w)
+	}
+	split, tallest := 0, 0
+	for k := 1; k < n; k++ {
+		if h := max(height(blocks[:k]), height(blocks[k:])); split == 0 || h <= tallest {
+			split, tallest = k, h
+		}
+	}
+	left, right := stack(blocks[:split]), stack(blocks[split:])
+	lw := max(w, widest(left))
+	if lw+gutter+widest(right) > r.width {
+		return nil, 0
+	}
+	out := make([]string, max(len(left), len(right)))
+	for i := range out {
+		if i < len(left) {
+			out[i] = left[i]
+		}
+		if i < len(right) && right[i] != "" {
+			out[i] = layout.PadRight(out[i], lw+gutter) + right[i]
+		}
+	}
+	return out, n
+}
+
+// height is the lines blocks take stacked with a blank line between each.
+func height(blocks [][]string) int {
+	h := len(blocks) - 1
+	for _, b := range blocks {
+		h += len(b)
+	}
+	return h
+}
+
+// stack joins blocks with a blank line between each.
+func stack(blocks [][]string) []string {
+	var out []string
+	for i, b := range blocks {
+		if i > 0 {
+			out = append(out, "")
+		}
+		out = append(out, b...)
+	}
+	return out
+}
+
+// widest is the cell width of the longest line.
+func widest(lines []string) int {
+	w := 0
+	for _, l := range lines {
+		w = max(w, layout.Measure(l))
+	}
+	return w
+}
+
+// section lays out a heading, in bold info or, for an alert, in setup's red, then its rows,
+// their labelled values aligned in one column and everything wrapped at width.
+func (r termRenderer) section(s section, width int) []string {
+	role := "info"
+	if s.alert {
+		role = "alert"
+	}
+	style := func(x string) string { return r.d.BoldText(palette.Semantic, role, x) }
+	out := layout.Wrap([]layout.Span{{Text: s.title, Style: style}}, width, 0, 0, layout.Spaces)
 	longest := 0
-	for _, row := range rows {
+	for _, row := range s.rows {
 		if row.kind == rowField {
 			longest = max(longest, layout.Measure(row.label))
 		}
 	}
-	var out []string
-	for _, row := range rows {
+	pad := strings.Repeat(" ", indent)
+	for _, row := range s.rows {
 		switch row.kind {
 		case rowField:
-			out = append(out, layout.Labelled(r.s, indent, longest, layout.Field{Label: row.label, Value: row.value})...)
+			head := pad + r.d.Bold(row.label) + strings.Repeat(" ", longest-layout.Measure(row.label)+2)
+			out = append(out, layout.Hang(head, r.value(row), width, layout.Spaces)...)
 		case rowItem:
-			out = append(out, layout.Hang("  - ", layout.Plain(row.value), r.s.Cols(), layout.Spaces)...)
+			out = append(out, layout.Hang(pad+"- ", layout.Plain(row.value), width, layout.Spaces)...)
 		default:
-			out = append(out, layout.Hang(strings.Repeat(" ", indent), layout.Plain(row.value), r.s.Cols(), layout.Spaces)...)
+			out = append(out, layout.Hang(pad, layout.Plain(row.value), width, layout.Spaces)...)
 		}
 	}
 	return out
+}
+
+// levelRoles colour a hostname's TLD, the domain under it and the one under that.
+var levelRoles = [3]string{"tld", "domain", "subdomain"}
+
+// value is a row's value as spans: a list's separating commas faint, and each hostname's dots
+// pale and its last three labels coloured by level, so the entries of a long list stand apart.
+func (r termRenderer) value(x row) []layout.Span {
+	if len(x.entries) == 0 {
+		return layout.Plain(x.value)
+	}
+	role := func(name string) func(string) string {
+		return func(s string) string { return r.d.Text(palette.Semantic, name, s) }
+	}
+	var spans []layout.Span
+	for i, e := range x.entries {
+		if i > 0 {
+			spans = append(spans, layout.Span{Text: ", ", Style: role("separator")})
+		}
+		if !x.hosts {
+			spans = append(spans, layout.Span{Text: e})
+			continue
+		}
+		name, dotted := strings.CutSuffix(e, ".")
+		labels := strings.Split(name, ".")
+		for j, l := range labels {
+			if j > 0 {
+				spans = append(spans, layout.Span{Text: ".", Style: role("dot")})
+			}
+			span := layout.Span{Text: l}
+			if level := len(labels) - 1 - j; level < len(levelRoles) {
+				span.Style = role(levelRoles[level])
+			}
+			spans = append(spans, span)
+		}
+		if dotted {
+			spans = append(spans, layout.Span{Text: ".", Style: role("dot")})
+		}
+	}
+	return spans
 }
 
 // matchLine formats an abuse-list match and its date. Snapshot text is cleaned like any

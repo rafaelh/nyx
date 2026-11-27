@@ -13,13 +13,13 @@ func TestDeadline(t *testing.T) {
 		addresses int
 		want      time.Duration
 	}{
-		{"one address", false, 1, 6 * time.Second},
-		{"two addresses", false, 2, 7250 * time.Millisecond},
-		{"the cap", false, 256, 6*time.Second + 255*1250*time.Millisecond},
+		{"one address", false, 1, 12 * time.Second},
+		{"two addresses", false, 2, 13250 * time.Millisecond},
+		{"the cap", false, 256, 12*time.Second + 255*1250*time.Millisecond},
 		{"one address, active", true, 1, 30 * time.Second},
 		{"two addresses, active", true, 2, 32 * time.Second},
 		{"the cap, active", true, 256, 30*time.Second + 255*2*time.Second},
-		{"none counts as one", false, 0, 6 * time.Second},
+		{"none counts as one", false, 0, 12 * time.Second},
 		{"negative counts as one, active", true, -4, 30 * time.Second},
 	}
 	for _, c := range cases {

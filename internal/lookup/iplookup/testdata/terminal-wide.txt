@@ -1,0 +1,38 @@
+203.0.113.9 (a.example.com, b.example.com) [documentation]
+
+Owner                                                 Location
+  ASN     AS64500                                       Country  AU
+  Name    EXAMPLE-AS, ZZ                                City     unknown
+  Prefix  203.0.113.0/24
+                                                      Exposure
+Registration                                            Ports  22, 443
+  Netblock      203.0.113.0/24                          Tags   cloud
+  Organisation  Example <Org> & Co                      Vulns  CVE-2024-3094
+  Registry      ARIN
+                                                      Reverse IP
+Names                                                   Count  1
+  PTR  host.example.com                                 Names  x.example.com
+
+Provider
+  Provider  Example Cloud
+  Class     hyperscaler
+
+Spamhaus DROP networks
+  - 203.0.113.0/24: SBL5, arin, updated 2026-10-01T08:30:05Z
+
+Ports
+  - 22 open: SSH-2.0-x
+  - 25 closed
+
+TLS
+  - 443 a.example.com: ok; issuer Test CA; expires 2027-01-01; names a.example.com
+  - 465 no server name: not-tls
+
+Web
+  - 443 https://a.example.com/: ok; status 301; server nginx; title "Hi"; redirects to
+    https://a.example.com/x
+
+Failures
+  - ripestat: late (TIMEOUT, transient)
+
+10.0.0.1 [private]

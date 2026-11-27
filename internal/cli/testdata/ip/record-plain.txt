@@ -13,10 +13,6 @@ Registry: arin
 Names
 PTR: host-8-8-4-4.example.net
 
-Provider
-Provider: none
-Class: none
-
 Location
 Country: AU
 City: Sydney
@@ -31,18 +27,3 @@ Vulns: CVE-2021-41773
 Reverse IP
 Count: 2
 Names: a.8-8-4-4.example.org, b.8-8-4-4.example.org
-
-Abusive networks
-none
-
-Abusive ASN
-none
-
-Spamhaus DROP networks
-none
-
-Spamhaus ASN-DROP
-none
-
-Failures
-none

@@ -35,7 +35,7 @@ const (
 	ipDNSTimeout     = 2 * time.Second
 	ipConnectTimeout = 3 * time.Second
 	ipBannerWait     = 2 * time.Second
-	ipHTTPTimeout    = 5 * time.Second
+	ipHTTPTimeout    = 10 * time.Second
 	ipRatePerHost    = 10
 )
 

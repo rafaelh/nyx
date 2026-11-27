@@ -239,7 +239,29 @@ func (t *thirdParty) newRequest(ctx context.Context, r ThirdPartyRequest, u *url
 	return hreq, nil
 }
 
-// scrub removes key values from an error, including the URL net/http embeds.
+// scrub removes key values from an error, including the URL net/http embeds. It keeps whether
+// the request timed out or was cancelled, which callers classify, but not the original chain,
+// whose messages could still hold a key.
 func (t *thirdParty) scrub(err error) error {
-	return errors.New(t.e.opts.Redactor.Redact(err.Error()))
+	s := &scrubbedError{msg: t.e.opts.Redactor.Redact(err.Error())}
+	var to interface{ Timeout() bool }
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		s.cause, s.timeout = context.DeadlineExceeded, true
+	case errors.Is(err, context.Canceled):
+		s.cause = context.Canceled
+	}
+	s.timeout = s.timeout || errors.As(err, &to) && to.Timeout()
+	return s
 }
+
+// scrubbedError is a third-party request's error with key values removed from its message.
+type scrubbedError struct {
+	msg     string
+	cause   error // context.DeadlineExceeded, context.Canceled or nil
+	timeout bool
+}
+
+func (e *scrubbedError) Error() string { return e.msg }
+func (e *scrubbedError) Unwrap() error { return e.cause }
+func (e *scrubbedError) Timeout() bool { return e.timeout }

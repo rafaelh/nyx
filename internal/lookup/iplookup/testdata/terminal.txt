@@ -22,30 +22,16 @@ Location
   City     unknown
 
 Exposure
-  Ports      22, 443
-  Hostnames  none
-  Tags       cloud
-  CPEs       none
-  Vulns      CVE-2024-3094
+  Ports  22, 443
+  Tags   cloud
+  Vulns  CVE-2024-3094
 
 Reverse IP
   Count  1
   Names  x.example.com
 
-Abusive networks
-  none
-
-Abusive ASN
-  none
-
 Spamhaus DROP networks
   - 203.0.113.0/24: SBL5, arin, updated 2026-10-01T08:30:05Z
-
-Spamhaus ASN-DROP
-  none
-
-Not contacted
-  none
 
 Ports
   - 22 open: SSH-2.0-x
@@ -64,62 +50,3 @@ Failures
   - ripestat: late (TIMEOUT, transient)
 
 10.0.0.1 [private]
-
-Owner
-  ASN     none
-  Name    none
-  Prefix  none
-
-Registration
-  Netblock      none
-  Organisation  none
-  Registry      none
-
-Names
-  PTR  none
-
-Provider
-  Provider  none
-  Class     none
-
-Location
-  Country  none
-  City     none
-
-Exposure
-  Ports      none
-  Hostnames  none
-  Tags       none
-  CPEs       none
-  Vulns      none
-
-Reverse IP
-  Count  none
-  Names  none
-
-Abusive networks
-  none
-
-Abusive ASN
-  none
-
-Spamhaus DROP networks
-  none
-
-Spamhaus ASN-DROP
-  none
-
-Not contacted
-  none
-
-Ports
-  none
-
-TLS
-  none
-
-Web
-  none
-
-Failures
-  none

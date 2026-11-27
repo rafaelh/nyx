@@ -262,12 +262,27 @@ func TestCategoryTables(t *testing.T) {
 	if got := len(palette.Labels(palette.Severity)); got != 5 {
 		t.Errorf("%d severity labels, want 5", got)
 	}
-	if got := palette.Names(palette.Semantic); len(got) != 6 {
+	if got := palette.Names(palette.Semantic); len(got) != 12 {
 		t.Errorf("semantic names = %v", got)
 	}
 	for _, d := range []palette.Depth{palette.TrueColor, palette.Color256, palette.Color16} {
 		if d.Text(palette.Semantic, "muted", "x") != d.Text(palette.Chrome, "TIMESTAMP", "x") {
 			t.Errorf("depth %d: muted is not the timestamp grey", d)
+		}
+		if d.Text(palette.Semantic, "alert", "x") != d.Text(palette.Setup, "bad", "x") {
+			t.Errorf("depth %d: alert is not setup's bad red", d)
+		}
+		if d.Text(palette.Semantic, "tld", "x") != d.Text(palette.Setup, "value", "x") || d.Text(palette.Semantic, "domain", "x") != d.Text(palette.Setup, "help", "x") {
+			t.Errorf("depth %d: tld and domain are not setup's value and help", d)
+		}
+		if d.Text(palette.Semantic, "separator", "x") != d.Text(palette.Setup, "faint", "x") {
+			t.Errorf("depth %d: separator is not setup's faint", d)
+		}
+		if got, want := palette.TrueColor.Text(palette.Semantic, "subdomain", "x"), "\x1b[38;2;159;112;169mx\x1b[0m"; got != want {
+			t.Errorf("subdomain = %q, want %q (#9F70A9)", got, want)
+		}
+		if got, want := palette.TrueColor.Text(palette.Semantic, "dot", "x"), "\x1b[38;2;207;207;222mx\x1b[0m"; got != want {
+			t.Errorf("dot = %q, want %q (#CFCFDE)", got, want)
 		}
 	}
 	if got := palette.Names(palette.Method); len(got) != 5 {
