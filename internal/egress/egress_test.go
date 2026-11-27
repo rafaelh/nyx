@@ -99,6 +99,22 @@ func TestResolverTimeoutIsError(t *testing.T) {
 	}
 }
 
+func TestDNSWithTimeoutWaitsLongerThanDNSTimeout(t *testing.T) {
+	t.Parallel()
+	d := egresstest.NewDNS(t)
+	d.TXT("slow.example.com", "answer")
+	d.Slow(300*time.Millisecond, "slow.example.com")
+	e := egress.New(egress.Options{ResolverAddrs: []string{d.Addr}, DNSTimeout: 100 * time.Millisecond, RateDNS: 1000})
+
+	if _, err := e.Clients(false, nil).DNS.Query(context.Background(), "slow.example.com", mdns.TypeTXT); err == nil {
+		t.Fatal("the default resolver answered within DNSTimeout; the fixture is not slow enough")
+	}
+	res, err := e.DNSWithTimeout(2*time.Second).Query(context.Background(), "slow.example.com", mdns.TypeTXT)
+	if err != nil || len(res.Answers) != 1 || res.Answers[0].Value != "answer" {
+		t.Errorf("DNSWithTimeout: %+v %v", res, err)
+	}
+}
+
 func TestResolverHasNoZoneTransfer(t *testing.T) {
 	t.Parallel()
 	tt := reflect.TypeFor[egress.Resolver]()

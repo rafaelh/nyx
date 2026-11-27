@@ -33,6 +33,7 @@ var ipStdin = stdinWords{none: "no inputs given: pass one or more addresses, hos
 // Paces and timeouts of the sources nyx ip asks, applied where the base options leave them unset.
 const (
 	ipDNSTimeout     = 2 * time.Second
+	ipCymruTimeout   = 5 * time.Second // asn.cymru.com is often slow to answer a cold resolver
 	ipConnectTimeout = 3 * time.Second
 	ipBannerWait     = 2 * time.Second
 	ipHTTPTimeout    = 10 * time.Second
@@ -196,6 +197,7 @@ func ipConfig(base egress.Options, fields iplookup.Fields, red *config.Redactor,
 	e := egress.New(o)
 	clients := e.Clients(false, iplookup.SourceHosts())
 	cfg := iplookup.Config{Fields: fields, ThirdParty: clients.ThirdParty, DNS: clients.DNS, Local: e.Local(),
+		Cymru:        e.DNSWithTimeout(cmp.Or(base.DNSTimeout, ipCymruTimeout)),
 		ProbeOptions: o, Abusive: threat.Abusive, Drop: &threat.Drop}
 	cfg.Warn = report.Say(em, "warning")
 	return cfg

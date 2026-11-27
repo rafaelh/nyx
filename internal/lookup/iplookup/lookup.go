@@ -26,6 +26,9 @@ type Config struct {
 	// DNS is the public resolver set; Local is this machine's resolver.
 	DNS   egress.Resolver
 	Local egress.LocalResolver
+	// Cymru is the public resolver set for Cymru's zones, which can answer more slowly than
+	// DNS waits; nil uses DNS.
+	Cymru egress.Resolver
 	// ProbeOptions builds per-address active clients with a policy limited to that address.
 	ProbeOptions egress.Options
 	// Abusive supplies local matching data; nil uses the embedded snapshot without

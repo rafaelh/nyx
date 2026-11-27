@@ -268,10 +268,18 @@ func (s *state) get(ctx context.Context, src Source, u string) (body []byte, f *
 	return nil, &fail
 }
 
+// cymru is the resolver for Cymru's zones.
+func (s *state) cymru() egress.Resolver {
+	if s.cfg.Cymru != nil {
+		return s.cfg.Cymru
+	}
+	return s.cfg.DNS
+}
+
 // origin looks up the announcing AS with Cymru. Failed lookups leave ownership unknown;
 // successful no-owner replies leave it unknown without a failure.
 func (s *state) origin(ctx context.Context, rec *Record, addr netip.Addr) (provider.Owner, *Failure) {
-	o, found, err := ipsource.Origin(ctx, s.cfg.DNS, addr)
+	o, found, err := ipsource.Origin(ctx, s.cymru(), addr)
 	if err != nil {
 		f := dnsFailure(ctx, SourceCymru, err)
 		return provider.Owner{}, &f
@@ -315,7 +323,7 @@ func (s *state) asName(ctx context.Context, asn int) (string, error) {
 	if e.done {
 		return e.name, nil
 	}
-	name, err := ipsource.ASName(ctx, s.cfg.DNS, asn)
+	name, err := ipsource.ASName(ctx, s.cymru(), asn)
 	if err == nil {
 		e.name, e.done = name, true
 	}

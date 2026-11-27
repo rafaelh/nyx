@@ -238,6 +238,12 @@ func wait(ctx context.Context, l *rate.Limiter) error {
 	return err
 }
 
+// DNSWithTimeout is the public resolver set with its own timeout for each resolver it asks, for
+// a zone that answers more slowly than Options.DNSTimeout allows. It shares the DNS pacing.
+func (e *Egress) DNSWithTimeout(timeout time.Duration) Resolver {
+	return &resolver{e: e, timeout: timeout}
+}
+
 // Clients selects source clients and grants target clients only when authorised by procedure
 // contact type.
 func (e *Egress) Clients(target bool, sources []string) Clients {

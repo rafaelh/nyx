@@ -1,11 +1,13 @@
 package egress
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/miekg/dns"
 	"github.com/rafaelh/nyx/internal/knowledge/dnsname"
@@ -69,7 +71,10 @@ type Resolver interface {
 	Query(ctx context.Context, name string, qtype uint16) (DNSResult, error)
 }
 
-type resolver struct{ e *Egress }
+type resolver struct {
+	e       *Egress
+	timeout time.Duration // per resolver attempt; zero uses Options.DNSTimeout
+}
 
 func (r *resolver) Query(ctx context.Context, name string, qtype uint16) (DNSResult, error) {
 	if qtype == dns.TypeAXFR || qtype == dns.TypeIXFR {
@@ -82,15 +87,16 @@ func (r *resolver) Query(ctx context.Context, name string, qtype uint16) (DNSRes
 	m.SetQuestion(dns.Fqdn(name), qtype)
 	m.RecursionDesired = true
 
+	timeout := cmp.Or(r.timeout, r.e.opts.DNSTimeout)
 	addrs := r.e.opts.ResolverAddrs
 	start := int(r.e.rr.Add(1)) % len(addrs)
 	var last *dns.Msg
 	var lastErr error
 	for i := range addrs {
 		addr := addrs[(start+i)%len(addrs)]
-		resp, err := exchange(ctx, &dns.Client{Timeout: r.e.opts.DNSTimeout}, m, addr)
+		resp, err := exchange(ctx, &dns.Client{Timeout: timeout}, m, addr)
 		if err == nil && resp.Truncated {
-			resp, err = exchange(ctx, &dns.Client{Net: "tcp", Timeout: r.e.opts.DNSTimeout}, m, addr)
+			resp, err = exchange(ctx, &dns.Client{Net: "tcp", Timeout: timeout}, m, addr)
 		}
 		if err != nil {
 			if ctx.Err() != nil {
