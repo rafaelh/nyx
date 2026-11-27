@@ -30,8 +30,8 @@ const (
 
 // Procedure searches SecurityTrails for domains sharing self-hosted name servers or MX hosts with
 // in-scope roots. Managed providers and shared/unknown-owner addresses provide no ownership
-// signal. Results are candidate roots with shared-ns/shared-mx evidence; they are not resolved
-// or contacted.
+// signal. Results are candidate roots with shared-ns/shared-mx evidence; they are never
+// contacted (while a netblock is in scope, in-netblock looks them up through public resolvers).
 //
 // Servers exceeding nsreverse.max_domains are discarded as shared hosting. The first-page total
 // avoids extra requests. The cap is in job keys; scope and later self-hosting changes do not
@@ -117,7 +117,7 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 		// small.
 		seen += len(names)
 		if n := max(total, seen); n > s.max {
-			run.Warnf(ctx, "nsreverse %s: %d domains, more than nsreverse.max_domains (%d): treated as shared hosting, nothing recorded",
+			run.Warnf(ctx, "nsreverse %s: at least %d domains, more than nsreverse.max_domains (%d): treated as shared hosting, nothing recorded",
 				s.host, n, s.max)
 			obs = nil
 			return true
