@@ -73,7 +73,11 @@ func Candidates(fronts []Front, hist []HistoricalAddr, services []Service, inv *
 		}
 		match := sibs.matches(f)
 		for _, i := range slices.Sorted(maps.Keys(match)) {
-			for _, a := range addrs[sibs.names[i]] {
+			name := sibs.names[i]
+			for _, a := range addrs[name] {
+				if sc.InScopeByAddress(name) && !sc.InScopeIP(a) {
+					continue // a name in scope by address is the organisation's only inside its netblocks
+				}
 				if match[i]&byCert != 0 {
 					c.add(a, siblingCertificate)
 				}

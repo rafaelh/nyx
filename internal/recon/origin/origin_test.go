@@ -313,3 +313,25 @@ func TestCertNames(t *testing.T) {
 		}
 	}
 }
+
+// A sibling in scope only by its address gives its addresses inside the in-scope netblocks, not
+// its others, which are not the organisation's.
+func TestCandidates_ByAddressSiblingOnlyInsideTheNetblocks(t *testing.T) {
+	t.Parallel()
+	w := standard()
+	w.host("acme-hosting.net", "198.51.100.11", "203.0.113.70")
+	w.owner(64500, "203.0.113.70")
+	w.d.Ranges = provider.NewRanges([]provider.Range{{Prefix: netip.MustParsePrefix("104.16.0.0/13"), Provider: "cloudflare"}})
+	inv := inventory.New(w.d, provider.Default())
+	sc := scope.New(scope.Config{Roots: []string{"example.com"}, Netblocks: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
+		Resolutions: inv.Addrs(), WildcardOnly: inv.WildcardOnly(),
+		Lookups: map[string][]netip.Addr{"acme-hosting.net": {ip("198.51.100.11"), ip("203.0.113.70")}}, MaxNamesPerAddress: 100})
+	if !sc.InScopeByAddress("acme-hosting.net") {
+		t.Fatal("acme-hosting.net is not in scope by address")
+	}
+	svcs := []origin.Service{{Host: "acme-hosting.net", Names: []string{"www.example.com"}}}
+	got := addrs(origin.Candidates(front, nil, svcs, inv, sc, 5))
+	if !slices.Equal(got, []string{"198.51.100.11"}) {
+		t.Errorf("candidates = %v, want only the address inside the netblock", got)
+	}
+}

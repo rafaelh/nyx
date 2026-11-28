@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/rafaelh/nyx/internal/knowledge/weburl"
 	"github.com/rafaelh/nyx/internal/recon/inventory"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/store"
@@ -73,13 +74,13 @@ func Pairs(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility, rec
 				names = append(names, n)
 			}
 		}
-		services = append(services, Service{Host: a.Host, Title: a.Title, Names: names})
+		services = append(services, Service{Host: a.Host, Title: ownTitle(a), Names: names})
 		if a.Scheme == "https" && a.Port == 443 {
 			probes[a.Host] = a
 		}
 	}
 	for i := range fronts {
-		fronts[i].Title = probes[fronts[i].Host].Title
+		fronts[i].Title = ownTitle(probes[fronts[i].Host])
 	}
 	// Only fronted in-scope hosts need history for candidate selection.
 	var hist []HistoricalAddr
@@ -99,6 +100,16 @@ func Pairs(sc *scope.Scope, inv *inventory.Inventory, vis *kinds.Visibility, rec
 		out[i] = Pair{Candidate: c, Probe: Probe{Status: p.Status, Title: p.Title, BodyLen: p.BodyLen}, CertSubject: p.TLSSubject}
 	}
 	return out
+}
+
+// ownTitle is the service's title when its page is the host's own, and "" when the probe followed
+// a redirect to another host: that page's title is the other host's, so matching it would pair
+// a redirector with the site it sends visitors to.
+func ownTitle(a kinds.WebServiceAttrs) string {
+	if a.FinalURL != "" && !strings.EqualFold(weburl.HostOfURL(a.FinalURL), a.Host) {
+		return ""
+	}
+	return a.Title
 }
 
 // Answers indexes current origin_check evidence by host/address pair.
