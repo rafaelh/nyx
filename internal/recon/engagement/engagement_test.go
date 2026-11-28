@@ -53,6 +53,11 @@ func TestRefusesNonEngagement(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(dir, ".nyx")); serr == nil {
 		t.Error("must not create .nyx in a foreign dir")
 	}
+
+	file := writeFile(t, t.TempDir(), "plain.txt")
+	if _, err := open(t, file); !errors.As(err, &ne) || ne.Dir != file {
+		t.Errorf("open of a regular file: err = %v, want NotEngagementError", err)
+	}
 }
 
 // .nyx with a lock but no DB (crash during creation) is adopted.
@@ -269,6 +274,7 @@ func TestProbe(t *testing.T) {
 		{"stray file and no .nyx", stray, engagement.Foreign},
 		{"regular file", regular, engagement.Foreign},
 		{".nyx without a state database", hollow, engagement.Absent},
+		{".nyx that is a regular file", filepath.Dir(writeFile(t, mkdir(t, base, "flat"), ".nyx")), engagement.Foreign},
 		{"closed engagement", done, engagement.Exists},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

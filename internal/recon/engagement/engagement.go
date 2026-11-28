@@ -49,16 +49,14 @@ type Engagement struct {
 
 // Open creates or opens the engagement in dir and takes its lock.
 func Open(dir string, o Options) (*Engagement, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
+	// Probe before creating anything, so a regular file at dir is refused as foreign.
 	if state, err := Probe(dir); err != nil {
 		return nil, err
 	} else if state == Foreign {
 		return nil, &NotEngagementError{Dir: dir}
 	}
 	marker := filepath.Join(dir, ".nyx")
-	if err := os.MkdirAll(marker, 0o755); err != nil {
+	if err := os.MkdirAll(marker, 0o755); err != nil { // creates dir too
 		return nil, err
 	}
 	lock, err := os.OpenFile(filepath.Join(marker, "lock"), os.O_CREATE|os.O_RDWR, 0o600)
@@ -114,7 +112,7 @@ const (
 	// Exists: the directory holds an engagement's state database.
 	Exists
 	// Foreign: the path is not a directory, or is a directory with entries and
-	// no .nyx, so nyx will not use it.
+	// no .nyx directory, so nyx will not use it.
 	Foreign
 )
 
@@ -141,18 +139,23 @@ func Probe(dir string) (State, error) {
 	case !fi.IsDir():
 		return Foreign, nil
 	}
-	if _, err := os.Stat(statePath(dir)); err == nil {
-		return Exists, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Absent, err
-	}
-	// A .nyx with no state database is an engagement that never finished
-	// being created, which Open adopts.
-	if _, err := os.Lstat(filepath.Join(dir, ".nyx")); err == nil {
+	switch nyx, err := os.Stat(filepath.Join(dir, ".nyx")); {
+	case err == nil && !nyx.IsDir():
+		// A .nyx that is not a directory holds no state; stat'ing through it would fail.
+		return Foreign, nil
+	case err == nil:
+		if _, err := os.Stat(statePath(dir)); err == nil {
+			return Exists, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return Absent, err
+		}
+		// A .nyx with no state database is an engagement that never finished
+		// being created, which Open adopts.
 		return Absent, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+	case !errors.Is(err, os.ErrNotExist):
 		return Absent, err
 	}
+	// No .nyx directory (a dangling .nyx link is an entry, so foreign below).
 	f, err := os.Open(dir)
 	if err != nil {
 		return Absent, err
@@ -229,7 +232,7 @@ func (e *Engagement) Inputs() (input.Parsed, error) {
 // InputExclusion is the stored input kind of an exclusion.
 const InputExclusion = "exclude"
 
-// ParseInputs groups stored inputs by kind, in their stored order.
+// ParseInputs groups stored inputs by kind, keeping the order of rows within each kind.
 func ParseInputs(rows []store.Input) input.Parsed {
 	var p input.Parsed
 	fields := inputFields(&p)
