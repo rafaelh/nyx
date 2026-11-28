@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -265,9 +266,17 @@ func newInvocation(d Deps, args []string) *invocation {
 func (inv *invocation) loadSettings(fs *pflag.FlagSet, configPath string, probs *clierr.Problems) (config.Settings, *config.Redactor) {
 	settings, err := config.Load(fs, configPath, inv.d.Env)
 	probs.Merge(err)
-	red := config.NewRedactor(settings.KeyValues()...)
+	red := keyRedactor(settings.KeyValues())
 	inv.fw.setRedactor(red)
 	return settings, red
+}
+
+// keyRedactor masks values longest first: masking a key that is part of a longer one first
+// would leave the rest of the longer key in the text.
+func keyRedactor(values []string) *config.Redactor {
+	vals := slices.Clone(values)
+	slices.SortStableFunc(vals, func(a, b string) int { return len(b) - len(a) })
+	return config.NewRedactor(vals...)
 }
 
 // Execute runs the invocation and owns error printing and exit-code selection. Commands return

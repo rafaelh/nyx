@@ -84,11 +84,9 @@ func (s *secrets) add(vs ...string) {
 		}
 	}
 	if len(s.values) > n || n == 0 {
-		// Mask longest values first: masking a typed prefix first would expose the rest
-		// of the key.
-		vals := slices.Clone(s.values)
-		slices.SortStableFunc(vals, func(a, b string) int { return len(b) - len(a) })
-		s.inv.fw.setRedactor(config.NewRedactor(vals...))
+		// keyRedactor masks longest values first, so a typed prefix cannot expose the
+		// rest of the key.
+		s.inv.fw.setRedactor(keyRedactor(s.values))
 	}
 }
 

@@ -45,6 +45,14 @@ func isSharedCluster(a string) bool {
 	return true
 }
 
+// helpValue reports whether a is --help=<value> with a true value, so --help=false asks for no
+// help.
+func helpValue(a string) bool {
+	v, ok := strings.CutPrefix(a, "--help=")
+	b, err := strconv.ParseBool(v)
+	return ok && err == nil && b
+}
+
 // isFlag reports whether a is a flag token; "-" and "--" are not.
 func isFlag(a string) bool { return strings.HasPrefix(a, "-") && a != "-" && a != "--" }
 
@@ -94,7 +102,7 @@ func classify(args []string, root *cobra.Command) scan {
 			continue
 		}
 		if isShared(a) {
-			help = help || a == "--help" || strings.HasPrefix(a, "--help=") || isSharedCluster(a) && strings.Contains(a, "h")
+			help = help || a == "--help" || helpValue(a) || isSharedCluster(a) && strings.Contains(a, "h")
 			continue
 		}
 		first = i
