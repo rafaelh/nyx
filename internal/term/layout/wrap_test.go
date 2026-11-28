@@ -132,6 +132,14 @@ func TestWrap_LongWordBroken(t *testing.T) {
 		[]string{"abcdef", "  ghij", "  kl"})
 	checkLines(t, "after a prefix", wrapPlain("abcdefgh", 6, 4, 4, layout.Spaces),
 		[]string{"ab", "    cd", "    ef", "    gh"})
+	checkLines(t, "indent past the width overflows a word at a time", wrapPlain("hello world", 5, 6, 6, layout.Spaces),
+		[]string{"hello", "      world"})
+	checkLines(t, "wide rune with one cell left starts a fresh line", wrapPlain("日本語", 5, 4, 0, layout.Spaces),
+		[]string{"", "日本", "語"})
+	checkLines(t, "carried space gives way to a word that fits", wrapPlain("ab  cd", 2, 0, 0, layout.Spaces),
+		[]string{"ab", "cd"})
+	checkLines(t, "newline in a kept span", layout.Wrap([]layout.Span{{Text: "a\nb", Keep: true}}, 10, 0, 0, layout.Spaces),
+		[]string{"a", "b"})
 
 	cvss := "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
 	got := wrapPlain(cvss, 20, 0, 0, layout.Spaces)

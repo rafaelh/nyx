@@ -16,9 +16,9 @@ func TestSquash(t *testing.T) {
 
 func TestText(t *testing.T) {
 	t.Parallel()
-	in := "ok\x1b[31m red\x1b]0;title\x07 \x00bell\x07 tab\there \u202e bidi"
+	in := "ok\x1b[31m red\x1b]0;title\x07 \x00bell\x07 tab\there \u202e\u061c bidi"
 	got := sanitize.Text(in)
-	for _, bad := range []string{"\x1b", "\x07", "\x00", "\t", "\u202e", "[31m", "title"} {
+	for _, bad := range []string{"\x1b", "\x07", "\x00", "\t", "\u202e", "\u061c", "[31m", "title"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("%q survived in %q", bad, got)
 		}
@@ -27,5 +27,12 @@ func TestText(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("visible text %q lost: %q", want, got)
 		}
+	}
+}
+
+func TestLine(t *testing.T) {
+	t.Parallel()
+	if got, want := sanitize.Line("a\vb\fc\u0085d\u2028e\u2029f"), "a b c d e f"; got != want {
+		t.Errorf("Line = %q, want %q", got, want)
 	}
 }

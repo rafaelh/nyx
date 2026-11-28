@@ -11,7 +11,7 @@ func TestQuote(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{
 		"example.com": "example.com", "--engagement=acme": "--engagement=acme", "a/b,c:d@e%f+g_h": "a/b,c:d@e%f+g_h",
-		"": "''", "Acme Pty": "'Acme Pty'", "it's": `'it'\''s'`, "$HOME": "'$HOME'", "a*": "'a*'", "née": "'née'",
+		"": "''", "Acme Pty": "'Acme Pty'", "it's": `'it'\''s'`, "$HOME": "'$HOME'", "a*": "'a*'", "née": "'née'", "=ls": "'=ls'",
 	} {
 		if got := shellquote.Quote(in); got != want {
 			t.Errorf("Quote(%q) = %s, want %s", in, got, want)

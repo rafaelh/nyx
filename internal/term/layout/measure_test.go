@@ -29,6 +29,8 @@ func TestMeasure(t *testing.T) {
 		{"box drawing counts one", "┌─┐", 3},
 		{"mixed", "ab日\x1b[1mc\x1b[0m", 5},
 		{"unfinished escape counts nothing", "a\x1b[1", 1},
+		{"osc hyperlink counts its text", "\x1b]8;;http://x\x1b\\link\x1b]8;;\x07", 4},
+		{"word joiner and bom count zero", "a\u2060\ufeffb", 2},
 	}
 	for _, c := range cases {
 		if got := layout.Measure(c.in); got != c.want {

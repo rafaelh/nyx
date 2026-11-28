@@ -95,61 +95,83 @@ func (w word) plain() string {
 }
 
 func tokenise(spans []Span) []tok {
-	var out []tok
-	var cur word
-	flush := func() {
-		if len(cur.frags) == 0 {
-			return
-		}
-		for _, f := range cur.frags {
-			cur.w += f.w
-			cur.whole = cur.whole || f.keep
-		}
-		cur.whole = cur.whole || Protected(cur.plain())
-		out = append(out, tok{kind: tWord, word: cur})
-		cur = word{}
-	}
+	var z tokeniser
 	for i, sp := range spans {
 		si := i
 		if sp.Style == nil {
 			si = -1
 		}
 		if sp.Keep {
-			if sp.Text == "" {
-				continue
-			}
-			text := sp.Text
-			if sp.Style != nil {
-				text = sp.Style(text)
-			}
-			cur.frags = append(cur.frags, frag{text: sp.Text, si: si, w: Measure(text), keep: true})
+			z.keep(sp, si)
+		} else {
+			z.text(sp.Text, si)
+		}
+	}
+	z.flush()
+	return z.out
+}
+
+// tokeniser gathers the fragments of the current word until a space or newline ends it.
+type tokeniser struct {
+	out []tok
+	cur word
+}
+
+func (z *tokeniser) flush() {
+	if len(z.cur.frags) == 0 {
+		return
+	}
+	for _, f := range z.cur.frags {
+		z.cur.w += f.w
+		z.cur.whole = z.cur.whole || f.keep
+	}
+	z.cur.whole = z.cur.whole || Protected(z.cur.plain())
+	z.out = append(z.out, tok{kind: tWord, word: z.cur})
+	z.cur = word{}
+}
+
+// keep adds an unbreakable span. A newline in it still forces a break, so no line holds one.
+func (z *tokeniser) keep(sp Span, si int) {
+	for k, part := range strings.Split(sp.Text, "\n") {
+		if k > 0 {
+			z.flush()
+			z.out = append(z.out, tok{kind: tNL})
+		}
+		if part == "" {
 			continue
 		}
-		start := 0
-		emit := func(end int) {
-			if end > start {
-				t := sp.Text[start:end]
-				cur.frags = append(cur.frags, frag{text: t, si: si, w: Measure(t)})
-			}
+		styled := part
+		if sp.Style != nil {
+			styled = sp.Style(part)
 		}
-		for j := range len(sp.Text) {
-			c := sp.Text[j]
-			if c != ' ' && c != '\n' {
-				continue
-			}
-			emit(j)
-			flush()
-			if c == ' ' {
-				out = append(out, tok{kind: tSpace, sp: frag{text: " ", si: si, w: 1}})
-			} else {
-				out = append(out, tok{kind: tNL})
-			}
-			start = j + 1
-		}
-		emit(len(sp.Text))
+		z.cur.frags = append(z.cur.frags, frag{text: part, si: si, w: Measure(styled), keep: true})
 	}
-	flush()
-	return out
+}
+
+// text splits a breakable span at spaces and newlines.
+func (z *tokeniser) text(text string, si int) {
+	start := 0
+	emit := func(end int) {
+		if end > start {
+			t := text[start:end]
+			z.cur.frags = append(z.cur.frags, frag{text: t, si: si, w: Measure(t)})
+		}
+	}
+	for j := range len(text) {
+		c := text[j]
+		if c != ' ' && c != '\n' {
+			continue
+		}
+		emit(j)
+		z.flush()
+		if c == ' ' {
+			z.out = append(z.out, tok{kind: tSpace, sp: frag{text: " ", si: si, w: 1}})
+		} else {
+			z.out = append(z.out, tok{kind: tNL})
+		}
+		start = j + 1
+	}
+	emit(len(text))
 }
 
 // unit is an indivisible wrapping group: one word, or in Commas mode all words through the next
@@ -255,6 +277,12 @@ func (e *engine) place(u unit) {
 			return
 		}
 		if !e.content {
+			// Spaces carried over from a break give way to a word that fits without them,
+			// so it is not split only to keep them.
+			if len(e.pending) > 0 && e.curW+u.w <= e.width {
+				e.pending = nil
+				continue
+			}
 			break
 		}
 		// Consume only the break space, preserving additional whitespace.
@@ -317,6 +345,17 @@ func (e *engine) hardBreak(w word) {
 		}
 		avail := e.width - e.curW
 		if total <= avail {
+			e.addCells(rs)
+			e.content = true
+			return
+		}
+		if avail < rs[0].w && e.curW > e.rest && e.width-e.rest >= rs[0].w {
+			e.newLine() // the first rune fits on a fresh line but not after this prefix
+			continue
+		}
+		if avail <= 0 {
+			// An indent at or past the width leaves no room at all: overflow the word
+			// rather than set one rune a line.
 			e.addCells(rs)
 			e.content = true
 			return

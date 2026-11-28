@@ -13,7 +13,7 @@ var (
 )
 
 // lineBreaks preserves word boundaries when Line removes line endings.
-var lineBreaks = strings.NewReplacer("\n", " ", "\r", " ")
+var lineBreaks = strings.NewReplacer("\n", " ", "\r", " ", "\v", " ", "\f", " ", "\u0085", " ", "\u2028", " ", "\u2029", " ")
 
 // Line also replaces line breaks with spaces for single-line display.
 func Line(s string) string { return Text(lineBreaks.Replace(s)) }
@@ -32,7 +32,7 @@ func Text(s string) string {
 		switch {
 		case r == '\t':
 			return ' '
-		case unicode.IsControl(r), r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200E, r == 0x200F:
+		case unicode.IsControl(r), r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200E, r == 0x200F, r == 0x061C:
 			return -1
 		}
 		return r

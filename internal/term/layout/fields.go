@@ -23,6 +23,6 @@ func Fields(s Stream, indent int, fields []Field) []string {
 // its value two cells after a label of longest cells and wrapped beneath itself at the
 // stream's width.
 func Labelled(s Stream, indent, longest int, f Field) []string {
-	head := strings.Repeat(" ", indent) + s.Depth.Bold(f.Label) + strings.Repeat(" ", longest-Measure(f.Label)+2)
+	head := strings.Repeat(" ", indent) + s.Depth.Bold(f.Label) + strings.Repeat(" ", max(longest, Measure(f.Label))-Measure(f.Label)+2)
 	return Hang(head, Plain(f.Value), s.Cols(), Spaces)
 }
