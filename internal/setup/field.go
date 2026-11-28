@@ -93,8 +93,9 @@ func (f *field) view(width int) (string, int) {
 	cells := f.cells()
 	// One cell stays free after the text for the cursor.
 	room := max(width-1, 1)
-	start := 0
-	for start < f.cur && cellWidth(cells[start:f.cur]) > room-1 {
+	start, before := 0, cellWidth(cells[:f.cur])
+	for start < f.cur && before > room-1 {
+		before -= cells[start].w
 		start++
 	}
 	var sb strings.Builder

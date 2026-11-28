@@ -109,3 +109,39 @@ func TestStore_SaveReplacesARecordInPlace(t *testing.T) {
 		t.Errorf("file:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestStore_SaveReplacesAKeyTestsEntryItCannotRead(t *testing.T) {
+	t.Parallel()
+	for name, tests := range map[string]string{
+		"a scalar":        "key_tests: none\n",
+		"a list":          "key_tests: [a, b]\n",
+		"a source scalar": "key_tests:\n  shodan: accepted\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t, new("keys:\n  shodan: "+shodanKey+"\n"+tests))
+			out := w.save(w.open(), setup.Edits{Records: map[string]setup.KeyRecord{
+				"shodan": {Result: setup.RecordAccepted, Day: recordDay},
+			}})
+			if got := out.Keys["shodan"].Record; got == nil || got.Result != setup.RecordAccepted {
+				t.Errorf("record read back = %+v\nfile:\n%s", got, w.contents())
+			}
+		})
+	}
+}
+
+func TestStore_OverwriteKeepsNoRecordForAKeyChangedOnDisk(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, new("keys:\n  shodan: "+shodanKey+"\n"))
+	w.open()
+	w.write("keys:\n  shodan: changed-elsewhere-999\n")
+	out, err := w.store.Overwrite(setup.Edits{Records: map[string]setup.KeyRecord{
+		"shodan": {Result: setup.RecordAccepted, Day: recordDay},
+	}})
+	if err != nil {
+		t.Fatalf("Overwrite: %v", err)
+	}
+	if got := out.Keys["shodan"].Record; got != nil {
+		t.Errorf("the key written elsewhere was given the tested key's record %+v\nfile:\n%s", got, w.contents())
+	}
+}

@@ -26,6 +26,10 @@ const (
 // defaultTestTimeout is how long a key test may take.
 const defaultTestTimeout = 15 * time.Second
 
+// minTyped is the fewest runes of a partly typed or abandoned entry that are masked as a key.
+// Shorter text would mask common letters everywhere, as configedit's minRedacted avoids.
+const minTyped = 4
+
 type tabID int
 
 // The tabs, in the order they are shown.
@@ -305,7 +309,9 @@ func (m *model) scrub(s string) string {
 		for _, v := range m.seen {
 			vals = append(vals, v.Reveal())
 		}
-		vals = append(vals, m.typing.Reveal())
+		if len([]rune(m.typing.Reveal())) >= minTyped {
+			vals = append(vals, m.typing.Reveal())
+		}
 		// Mask longer secrets before shorter substrings can split them.
 		slices.SortFunc(vals, func(a, b string) int { return len(b) - len(a) })
 		m.red, m.redSeen, m.redTyping = config.NewRedactor(vals...), len(m.seen), m.typing
@@ -705,13 +711,14 @@ func (m *model) typed() {
 	}
 	v := config.Secret(m.ed.f.text())
 	m.typing = v
-	if len([]rune(v.Reveal())) >= 4 && strings.TrimSpace(v.Reveal()) != "" && m.o.OnSecret != nil {
+	if len([]rune(v.Reveal())) >= minTyped && strings.TrimSpace(v.Reveal()) != "" && m.o.OnSecret != nil {
 		m.o.OnSecret(v.Reveal())
 	}
 }
 
+// endEdit registers an abandoned entry long enough to be a key; accept registers the key itself.
 func (m *model) endEdit() {
-	if m.typing != "" {
+	if len([]rune(m.typing.Reveal())) >= minTyped {
 		m.secret(m.typing)
 	}
 	m.typing = ""

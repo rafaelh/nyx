@@ -295,6 +295,14 @@ func (s *Store) records(doc *Doc, edits setup.Edits) error {
 		case key == "":
 			doc.Clear(at)
 		case ok:
+			// Other commands accept anything under key_tests and setup ignores what it
+			// cannot read, so an entry that is not a block of settings is replaced.
+			for _, k := range []string{recordsKey, at} {
+				if n := doc.Lookup(k).Node; n != nil && n.Kind != yaml.MappingNode &&
+					(n.Kind != yaml.ScalarNode || n.Tag != "!!null") {
+					doc.Clear(k)
+				}
+			}
 			for _, f := range [][2]string{
 				{"result", rec.Result}, {"date", rec.Day.Format(recordDay)}, {"key", fingerprint(key)},
 			} {
@@ -506,7 +514,35 @@ func (s *Store) Overwrite(edits setup.Edits) (setup.Snapshot, error) {
 	if _, serr := s.snapshot(data, absent); err != nil || serr != nil {
 		data = nil
 	}
-	return s.apply(setup.Snapshot{}, data, edits)
+	return s.apply(setup.Snapshot{}, data, s.currentRecords(edits, data))
+}
+
+// currentRecords drops the test records of keys that were not edited but changed on disk since
+// setup last read the file: a record describes the key setup tested, and records write the
+// fingerprint of the key the file holds.
+func (s *Store) currentRecords(edits setup.Edits, data []byte) setup.Edits {
+	if len(edits.Records) == 0 {
+		return edits
+	}
+	key := func(src []byte, name string) string {
+		doc, err := Parse(src)
+		if err != nil {
+			return ""
+		}
+		text := ""
+		if n := doc.Lookup(setup.KeyPrefix + name).Node; n != nil {
+			text, _ = DecodedText(n)
+		}
+		return text
+	}
+	recs := maps.Clone(edits.Records)
+	for name := range recs {
+		if _, set := edits.Set[setup.KeyPrefix+name]; !set && key(s.last, name) != key(data, name) {
+			delete(recs, name)
+		}
+	}
+	edits.Records = recs
+	return edits
 }
 
 // apply writes the requested edits, saves the document atomically and reads it back.
@@ -521,6 +557,14 @@ func (s *Store) apply(prev setup.Snapshot, data []byte, edits setup.Edits) (setu
 		}
 		out, err := doc.Bytes()
 		if err != nil {
+			return prev, &SaveError{Path: s.path, Err: err}
+		}
+		// Refuse a document that would not open again, so a failed save leaves the file as
+		// it was rather than writing it and then reporting a failure.
+		if _, err := s.snapshot(out, false); err != nil {
+			if fe, ok := errors.AsType[*setup.FileError](err); ok {
+				err = errors.New(strings.Join(fe.Problems, "; "))
+			}
 			return prev, &SaveError{Path: s.path, Err: err}
 		}
 		if err := Save(s.path, out, SaveOptions{NoFsync: s.o.NoFsync, Rename: s.o.Rename}); err != nil {

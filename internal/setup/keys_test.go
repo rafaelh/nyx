@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -229,4 +230,18 @@ func TestKeysTab_PastedTextThatIsNotValidUTF8IsRefused(t *testing.T) {
 	mustHave(t, h.view(), "not valid UTF-8")
 	h.paste("abcdef")
 	mustHave(t, lineFor(h.view(), "securitytrails"), "••••••")
+}
+
+func TestKeysTab_AShortAbandonedEntryIsNotMaskedAsAKey(t *testing.T) {
+	t.Parallel()
+	h := newTH(t, newFake())
+	h.press("enter")
+	h.typ("e")
+	h.press("esc")
+	if slices.Contains(h.secrets, "e") {
+		t.Errorf("an abandoned one-rune entry was registered as a key: %q", h.secrets)
+	}
+	if got := h.m.text("Saved the file"); got != "Saved the file" {
+		t.Errorf("text = %q: a short abandoned entry masks its letters everywhere", got)
+	}
 }

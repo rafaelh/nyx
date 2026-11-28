@@ -205,6 +205,23 @@ func TestDoc_ClearRemovesAllCaseVariantsAndEmptyBlocks(t *testing.T) {
 	}), "x_other: 1\n")
 }
 
+func TestDoc_ReplacingOrClearingAnAnchoredValueKeepsItsAliasesValues(t *testing.T) {
+	t.Parallel()
+	src := "rate:\n  per_host: &r 5\n  per_source: *r # same\n"
+	for name, f := range map[string]func(d *configedit.Doc){
+		"set":   func(d *configedit.Doc) { set(t, d, "rate.per_host", "7") },
+		"clear": func(d *configedit.Doc) { d.Clear("rate.per_host") },
+	} {
+		out := edit(t, src, f)
+		if _, err := configedit.Parse([]byte(out)); err != nil {
+			t.Fatalf("%s: the saved file cannot be read back: %v\n%s", name, err, out)
+		}
+		if !strings.Contains(out, "per_source: 5 # same\n") {
+			t.Errorf("%s: the alias lost its value or comment:\n%s", name, out)
+		}
+	}
+}
+
 func TestDoc_SetListWritesABlockSequenceAndKeepsItemComments(t *testing.T) {
 	t.Parallel()
 	same(t, edit(t, "skip: DNS,ports # why\nconcurrency: 4\n", func(d *configedit.Doc) {

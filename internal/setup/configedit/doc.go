@@ -265,11 +265,49 @@ func (d *Doc) set(key string, build func(old *yaml.Node) *yaml.Node) error {
 		// Keep the comment beside the sequence key rather than its first item.
 		cur.Content[first].LineComment, n.LineComment = n.LineComment, ""
 	}
+	d.detach(old)
 	cur.Content[first+1] = n
 	for _, j := range slices.Backward(idxs[1:]) {
+		d.detach(cur.Content[j+1])
 		cur.Content = slices.Delete(cur.Content, j, j+2)
 	}
 	return nil
+}
+
+// detach keeps the rest of the document readable when n is about to be replaced or removed:
+// each alias elsewhere of an anchor within n becomes a copy of the node it names, so the other
+// settings keep their values and the file names no anchor it no longer defines.
+func (d *Doc) detach(n *yaml.Node) {
+	anchored := map[*yaml.Node]bool{}
+	var mark func(x *yaml.Node)
+	mark = func(x *yaml.Node) {
+		if x.Anchor != "" {
+			anchored[x] = true
+		}
+		for _, c := range x.Content {
+			mark(c)
+		}
+	}
+	mark(n)
+	if len(anchored) == 0 {
+		return
+	}
+	var fix func(x *yaml.Node)
+	fix = func(x *yaml.Node) {
+		if x == n {
+			return
+		}
+		if x.Kind == yaml.AliasNode && anchored[x.Alias] {
+			cp := *x.Alias
+			cp.Anchor = ""
+			cp.HeadComment, cp.LineComment, cp.FootComment = x.HeadComment, x.LineComment, x.FootComment
+			*x = cp
+		}
+		for _, c := range x.Content {
+			fix(c)
+		}
+	}
+	fix(d.doc)
 }
 
 // Clear removes a key, its case variants and comments, and newly empty parent blocks. It
@@ -301,6 +339,8 @@ func (d *Doc) removePair(m *yaml.Node, i int) {
 			d.doc.HeadComment = hc
 		}
 	}
+	d.detach(m.Content[i])
+	d.detach(m.Content[i+1])
 	m.Content = slices.Delete(m.Content, i, i+2)
 }
 
