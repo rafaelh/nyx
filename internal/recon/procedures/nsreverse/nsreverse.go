@@ -22,7 +22,8 @@ import (
 // limits.
 const maxPages = 100
 
-// The roles of a server, and the evidence source each gives its candidates.
+// The roles of a server: the SecurityTrails filter field and the job key's first part. A role's
+// candidates get the evidence source "shared-<role>".
 const (
 	roleNS = "ns"
 	roleMX = "mx"
@@ -64,8 +65,10 @@ func (*Procedure) Jobs(_ context.Context, v run.View) iter.Seq2[run.Job, error] 
 	var servers []server
 	seen := map[string]bool{}
 	add := func(role, host string) {
-		host = dnsname.Normalise(host)
-		if k := role + "|" + host; host != "" && !seen[k] && v.SelfHosted(host) {
+		// The host comes from the target's DNS: a name that is not a valid hostname (a "|"
+		// would split the job key in Evidence) is never searched.
+		host, err := input.ParseHostname(host, false)
+		if k := role + "|" + host; err == nil && !seen[k] && v.SelfHosted(host) {
 			seen[k] = true
 			servers = append(servers, server{role, host, limit})
 		}
