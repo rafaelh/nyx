@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"strings"
 	"time"
@@ -25,8 +26,12 @@ func Configured(e run.Env, name string, keyed bool) (bool, string) {
 }
 
 // Crtsh queries crt.sh's JSON API for unexpired, deduplicated certificates
-// matching q. crt.sh is slow on large result sets, hence the long timeout.
+// matching q. crt.sh is slow on large result sets, hence the long timeout. q is not modified.
 func Crtsh(ctx context.Context, c egress.Clients, q url.Values) ([]byte, error) {
+	q = maps.Clone(q)
+	if q == nil {
+		q = url.Values{}
+	}
 	q.Set("output", "json")
 	q.Set("exclude", "expired")
 	q.Set("deduplicate", "Y")
@@ -48,8 +53,8 @@ func GetQuota(ctx context.Context, c egress.Clients, req egress.ThirdPartyReques
 	return get(ctx, c, req, 429)
 }
 
-// GetCredits additionally maps keyed 402 responses to run.ErrQuota, stopping credit-exhausted
-// searches until a later run.
+// GetCredits additionally maps 402 responses (keyed or not) to run.ErrQuota, stopping
+// credit-exhausted searches until a later run.
 func GetCredits(ctx context.Context, c egress.Clients, req egress.ThirdPartyRequest) ([]byte, error) {
 	return get(ctx, c, req, 402)
 }
@@ -87,12 +92,17 @@ func body(req egress.ThirdPartyRequest, resp egress.ThirdPartyResponse, spent in
 	return resp.Body, nil
 }
 
-// JoinLabels expands relative subdomain labels. Empty and bare-wildcard labels denote the root
-// and add no new name.
+// JoinLabels expands relative subdomain labels. Empty and bare-wildcard labels, and the root
+// itself, denote the root and add no new name. A label that is already a name under the root
+// is kept as it is rather than having the root appended a second time.
 func JoinLabels(root string, labels []string) []string {
 	var names []string
 	for _, l := range labels {
-		if l = strings.TrimSuffix(strings.TrimSpace(l), "."); l == "" || l == "*" {
+		if l = strings.TrimSuffix(strings.TrimSpace(l), "."); l == "" || l == "*" || strings.EqualFold(l, root) {
+			continue
+		}
+		if n := len(l) - len(root); n > 1 && l[n-1] == '.' && strings.EqualFold(l[n:], root) {
+			names = append(names, l)
 			continue
 		}
 		names = append(names, l+"."+root)

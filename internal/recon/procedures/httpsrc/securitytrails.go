@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 
@@ -44,8 +45,11 @@ func SecurityTrailsDomains(ctx context.Context, c egress.Clients, field, value s
 				Hostname string `json:"hostname"`
 			} `json:"records"`
 		}
-		if err := json.Unmarshal(raw, &r); err != nil || r.Records == nil {
-			return errors.New("unreadable SecurityTrails response")
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return fmt.Errorf("unreadable SecurityTrails response: %w", err)
+		}
+		if r.Records == nil {
+			return errors.New("unreadable SecurityTrails response: no records list")
 		}
 		names := make([]string, len(r.Records))
 		for i, rec := range r.Records {
@@ -54,7 +58,7 @@ func SecurityTrailsDomains(ctx context.Context, c egress.Clients, field, value s
 		if page(r.RecordCount, names) || n >= max(r.Pages, r.Meta.TotalPages) {
 			return nil
 		}
-		if n == maxPages {
+		if n >= maxPages {
 			run.Warnf(ctx, "%s: SecurityTrails result truncated after %d pages", who, n)
 			return nil
 		}
