@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/rafaelh/nyx/internal/knowledge/cloudstorage"
@@ -169,10 +170,14 @@ func (d *calc) storage() []Finding {
 		if len(by) > 5 {
 			by = by[:5]
 		}
+		listableCell := "" // unknown
+		if a.Listable != nil {
+			listableCell = strconv.FormatBool(*a.Listable)
+		}
 		out = append(out, newFinding(category, typ, Severity(category, typ), url,
 			fmt.Sprintf("%s bucket %s is %s", provider, url, typ),
 			map[string]any{
-				"provider": provider, "name": name, "url": url, "exists": "true", "public": pub, "listable": fmt.Sprint(listable),
+				"provider": provider, "name": name, "url": url, "exists": "true", "public": pub, "listable": listableCell,
 				"object_count": a.ObjectCount, "first_keys": strings.Join(a.FirstKeys, ";"), "referenced_by": strings.Join(by, ";"),
 			}))
 	}

@@ -192,7 +192,7 @@ func abusiveFinding(a netip.Addr, hostnames []string, m abusiveMatches) Finding 
 			"networks_updated": netDate, "asns_updated": asnDate, "entry": entry, "org": org})
 }
 
-// rirText formats an optional registry in parentheses without empty punctuation.
+// rirText formats an optional registry (or other field) in parentheses without empty punctuation.
 func rirText(rir string) string {
 	if rir == "" {
 		return ""
@@ -212,10 +212,10 @@ func joinNonBlank(parts []string, sep string) string {
 
 // entryText formats a match for a risk-file cell.
 func entryText(entry, tag string, score float64, org, typ string) string {
-	return fmt.Sprintf("%s %s %s%% %s (%s)", entry, tag, abusive.ScoreText(score), org, typ)
+	return spaced(entry, tag, abusive.ScoreText(score)+"%", org, rirText(typ))
 }
 
 // entryDetail formats match details with the source-list date.
 func entryDetail(entry, tag string, score float64, org, typ, updated string) string {
-	return fmt.Sprintf("%s (%s, %s%%, %s, %s, list of %s)", entry, tag, abusive.ScoreText(score), org, typ, updated)
+	return entry + " (" + commas(tag, abusive.ScoreText(score)+"%", org, typ, "list of "+updated) + ")"
 }

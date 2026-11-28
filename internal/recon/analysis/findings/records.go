@@ -172,7 +172,7 @@ func (f Finding) Key() string {
 }
 
 // ParseKey reads the category, type and target from a finding's record key. A
-// takeover or origin-exposure key carries no type.
+// takeover, origin-exposure or abusive-network key carries no type.
 func ParseKey(key string) (category, typ, target string) {
 	category, rest, _ := strings.Cut(key, "|")
 	if c := categoryOf(category); c.parse != nil {
