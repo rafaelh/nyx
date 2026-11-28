@@ -137,3 +137,22 @@ func TestDanglingAliases(t *testing.T) {
 		t.Errorf("DanglingAliases = %+v, want %+v", got, want)
 	}
 }
+
+// A hop with two targets leaves the roots when either is under none, as chainProviders takes it.
+func TestDanglingAliases_AnyTargetOfAHop(t *testing.T) {
+	t.Parallel()
+	d := inventory.Data{Roots: []string{"example.com"}, Hosts: []inventory.Host{{Name: "two.example.com", Producers: []string{"crtsh"}}}}
+	d.Resolutions = []inventory.Resolution{
+		{Name: "two.example.com", Type: "CNAME", Value: "inner.example.com"},
+		{Name: "two.example.com", Type: "CNAME", Value: "x.vendor-two.test"},
+	}
+	inv := inventory.New(d, provider.Default())
+	got := inv.DanglingAliases(thirdPartyScope(inv))
+	want := []inventory.Alias{{Hostname: "two.example.com", Target: "x.vendor-two.test"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("DanglingAliases = %+v, want %+v", got, want)
+	}
+	if !inv.SaaSServed("two.example.com") {
+		t.Error("SaaSServed(two.example.com) = false, want true")
+	}
+}

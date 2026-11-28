@@ -88,7 +88,8 @@ type Data struct {
 	Roots []string
 }
 
-// ProviderHost is a hostname that is on shared provider infrastructure.
+// ProviderHost is a hostname on provider infrastructure, or one an unlisted third party serves
+// (provider.ThirdParty: cname evidence whose addresses are not taken to be shared).
 type ProviderHost struct {
 	Hostname, Provider, Service string
 	Evidence                    string // cname, range or asn
@@ -281,7 +282,8 @@ func (i *Inventory) DanglingAliases(sc *scope.Scope) []Alias {
 	return out
 }
 
-// leaves follows a name's CNAME chain to its first target under no input root.
+// leaves follows a name's CNAME chain to its first target under no input root. Like chainEntries,
+// it checks every target of a hop and follows the first.
 func (i *Inventory) leaves(name string) (string, bool) {
 	cur := name
 	for range 8 {
@@ -289,8 +291,10 @@ func (i *Inventory) leaves(name string) (string, bool) {
 		if len(targets) == 0 {
 			return "", false
 		}
-		if !i.underRoot(targets[0]) {
-			return targets[0], true
+		for _, t := range targets {
+			if !i.underRoot(t) {
+				return t, true
+			}
 		}
 		cur = targets[0]
 	}
@@ -615,8 +619,9 @@ func (i *Inventory) SaaSServed(host string) bool {
 	return ok
 }
 
-// ProviderServed identifies shared hosting of any class, including CDN and SaaS, using CNAMEs
-// or address ownership. IP literals use address evidence alone.
+// ProviderServed identifies provider hosting of any class, including CDN and SaaS and an unlisted
+// third party a name's alias leaves the roots for, using CNAMEs or address ownership. IP literals
+// use address evidence alone.
 func (i *Inventory) ProviderServed(host string) bool {
 	_, ok := i.served(host,
 		func(provider.Entry) bool { return true },
