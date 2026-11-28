@@ -60,7 +60,10 @@ func (r *Runner) result() Result {
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	recs, _ := r.records(kinds.Finding.Name())
+	recs, err := r.records(kinds.Finding.Name())
+	if err != nil {
+		r.warn("reading %s records: %v", kinds.Finding.Name(), err)
+	}
 	ranked := r.rankedCandidates()
 	sum := report.Summary{
 		Engagement: filepath.Base(r.cfg.Engagement.Dir()), Directory: dir,
@@ -93,7 +96,10 @@ func (r *Runner) notConfigured() []report.ProcedureReason {
 // rankedCandidates builds the summary list with the scope input needed to promote each
 // candidate.
 func (r *Runner) rankedCandidates() []report.CandidateRow {
-	recs, _ := r.currentRecords(kinds.CandidateRank)
+	recs, err := r.currentRecords(kinds.CandidateRank)
+	if err != nil {
+		r.warn("reading %s records: %v", kinds.CandidateRank.Name(), err)
+	}
 	ranked := make([]candidates.Ranked, len(recs))
 	for i, rec := range recs {
 		a := kinds.CandidateRank.Attrs(rec)
@@ -159,6 +165,9 @@ func (r *Runner) hostsInScopeByAddress() int {
 	if built == nil {
 		return 0
 	}
-	recs, _ := r.records(kinds.Hostname.Name())
+	recs, err := r.records(kinds.Hostname.Name())
+	if err != nil {
+		r.warn("reading %s records: %v", kinds.Hostname.Name(), err)
+	}
 	return len(kinds.ByAddressHosts(built.Scope, recs))
 }

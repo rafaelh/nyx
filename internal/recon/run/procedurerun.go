@@ -54,7 +54,10 @@ func (r *Runner) newProcedureRun(ctx context.Context, s Procedure) (*procedureRu
 	if err != nil {
 		return nil, err
 	}
-	pend, _ := r.st.PendingRedo()
+	pend, err := r.st.PendingRedo()
+	if err != nil {
+		return nil, err
+	}
 	sr := &procedureRun{r: r, ctx: withWarner(ctx, r.warn), s: s, name: name, done: done,
 		redoPending: slices.Contains(pend, name)}
 	sr.clients = r.cfg.Egress.Clients(s.Contact() == Target, s.Sources())
@@ -143,6 +146,7 @@ func (sr *procedureRun) runOne(c Job) {
 			r.aborted[name] = err
 		}
 		r.mu.Unlock()
+		r.debugFailure(name, c.Key, err)
 		sr.abortFail(c.Key, err)
 		return
 	}
@@ -240,10 +244,10 @@ func (sr *procedureRun) withinBudget(c Job) bool {
 }
 
 // sweep finishes redo and retires obsolete jobs, returning whether records changed. It waits
-// for successful enumeration: otherwise it could remove evidence for jobs that were never
-// listed because of the error.
+// for successful enumeration, with no failed read through the pass's view: otherwise it could
+// remove evidence for jobs that were never listed because of the error.
 func (sr *procedureRun) sweep() (bool, error) {
-	if sr.enumFailed {
+	if sr.enumFailed || sr.view.incomplete() {
 		return false, nil
 	}
 	r := sr.r

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
@@ -224,6 +225,9 @@ type recordCache struct {
 	hosts map[netip.Addr][]string // probe hostnames by address, indexed lazily
 	// doneBy holds other procedures' completed job keys, in stored form, loaded on first use.
 	doneBy map[string]map[string]struct{}
+	// readFailed records that a read answered empty after a store error, so the jobs listed
+	// from this view may be incomplete.
+	readFailed atomic.Bool
 }
 
 // View exposes the store and scope as of one procedure pass. Records are cached for that pass;
@@ -254,6 +258,7 @@ func (v View) DoneBy(procedure, key string) bool {
 		var err error
 		if done, err = v.r.st.Completed(procedure); err != nil {
 			v.r.warn("reading %s's completed jobs: %v", procedure, err)
+			v.cache.readFailed.Store(true)
 			done = nil
 		}
 		v.cache.doneBy[procedure] = done
@@ -264,6 +269,10 @@ func (v View) DoneBy(procedure, key string) bool {
 
 // Scope returns the scope snapshot for this pass.
 func (v View) Scope() *scope.Scope { return v.sc }
+
+// incomplete reports whether a read through this view failed, so that what it listed may be
+// short.
+func (v View) incomplete() bool { return v.cache.readFailed.Load() }
 
 // Warn reports a non-fatal procedure problem. Each distinct warning text appears once per run, even
 // across repeated passes.
@@ -286,6 +295,7 @@ func (v View) Records(k kinds.Named) []store.Record {
 	out, err := v.r.currentRecords(k)
 	if err != nil {
 		v.r.warn("reading %s records: %v", kind, err)
+		v.cache.readFailed.Store(true)
 		return nil
 	}
 	v.cache.m[kind] = out
@@ -294,7 +304,13 @@ func (v View) Records(k kinds.Named) []store.Record {
 
 // TextHostnames maps each web service to the names taken from the text of its responses over the
 // engagement, current or not: what that service's cap has already spent. Treat it as read-only.
-func (v View) TextHostnames() map[string][]string { return v.r.textHostnames() }
+func (v View) TextHostnames() map[string][]string {
+	m, err := v.r.textHostnames()
+	if err != nil {
+		v.cache.readFailed.Store(true)
+	}
+	return m
+}
 
 // IPs filters current IP records after unmapping IPv4-mapped addresses. Invalid keys are
 // skipped; results are sorted. keep receives the unmapped address.
@@ -396,6 +412,7 @@ func (v View) Observers(k kinds.Named) map[string][]Observer {
 	m, err := v.r.st.Observed(k.Name())
 	if err != nil {
 		v.r.warn("reading %s's supporting jobs: %v", k.Name(), err)
+		v.cache.readFailed.Store(true)
 		return nil
 	}
 	target := map[string]bool{}
@@ -481,7 +498,8 @@ type OpenPort struct {
 	Banner string
 }
 
-// OpenPorts returns current open ports sorted by address and port, skipping invalid keys.
+// OpenPorts returns current open ports sorted by their address:port text (so 10.0.0.10 comes
+// before 10.0.0.2), skipping invalid keys.
 func (v View) OpenPorts() []OpenPort {
 	var out []OpenPort
 	for _, rec := range v.Records(kinds.OpenPort) {

@@ -16,6 +16,7 @@ package run
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -608,6 +609,11 @@ func (r *Runner) count(procedure string, f func(*procedureStats)) {
 // event.
 func (r *Runner) failJob(procedure, key string, err error) {
 	r.recordFailure(procedure, key, false)
+	r.debugFailure(procedure, key, err)
+}
+
+// debugFailure logs a job's failure at debug level, with the stack of a panic.
+func (r *Runner) debugFailure(procedure, key string, err error) {
 	r.emit("debug", map[string]any{"message": fmt.Sprintf("%s job %s failed: %s", procedure, key, err)})
 	if p, ok := errors.AsType[*jobPanic](err); ok {
 		for line := range strings.SplitSeq(strings.TrimRight(string(p.stack), "\n"), "\n") {
@@ -791,7 +797,20 @@ func (r *Runner) snapshot(b *Built) (output.Snapshot, error) {
 // storeAnalysis writes an analysis's observations under its own name, with no job. It skips
 // writes when both the date and records match *last, and reports whether it wrote anything.
 func (r *Runner) storeAnalysis(name string, obs []store.Obs, last *[sha256.Size]byte) (bool, error) {
-	sum := sha256.Sum256(fmt.Append(nil, r.today(), obs))
+	// JSON, unlike fmt's %v, encodes the values unambiguously, so a changed string cannot hash
+	// like the old records.
+	h := sha256.New()
+	enc := json.NewEncoder(h)
+	if err := enc.Encode(r.today()); err != nil {
+		return false, err
+	}
+	for _, o := range obs {
+		if err := enc.Encode([]any{o.Kind, o.Key, o.Attrs}); err != nil {
+			return false, err
+		}
+	}
+	var sum [sha256.Size]byte
+	h.Sum(sum[:0])
 	if sum == *last {
 		return false, nil
 	}
@@ -849,15 +868,16 @@ func (r *Runner) cached(kind string) (recordsCache, error) {
 
 // textHostnames indexes every text_hostname record, current or not, by its service, and caches
 // the index until the kind's version changes, so the procedures that read it share one build.
-// Treat the returned map as read-only.
-func (r *Runner) textHostnames() map[string][]string {
+// Treat the returned map as read-only. On a store error it warns once and returns what it read
+// with the error.
+func (r *Runner) textHostnames() (map[string][]string, error) {
 	kind := kinds.TextHostname.Name()
 	ver := r.st.KindVersion(kind)
 	r.recMu.Lock()
 	c := r.textNames
 	r.recMu.Unlock()
 	if c.m != nil && c.ver == ver {
-		return c.m
+		return c.m, nil
 	}
 	recs, err := r.records(kind)
 	if err != nil {
@@ -873,7 +893,7 @@ func (r *Runner) textHostnames() map[string][]string {
 		r.textNames = textNamesCache{ver: ver, m: idx}
 		r.recMu.Unlock()
 	}
-	return idx
+	return idx, err
 }
 
 // observers caches completed jobs supporting each record until the kind's version changes.
