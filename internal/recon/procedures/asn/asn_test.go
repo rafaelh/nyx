@@ -86,3 +86,18 @@ func TestZeroPrefixesIsAResult(t *testing.T) {
 		t.Errorf("%+v %v", obs, err)
 	}
 }
+
+// A prefix is recorded once and in its masked form; an entry that is not a prefix is no record.
+func TestPrefixesAreCanonical(t *testing.T) {
+	t.Parallel()
+	c, _ := clients(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok","data":{"prefixes":[{"prefix":"192.0.2.7/24"},{"prefix":"192.0.2.0/24"},{"prefix":"not a prefix"},{"prefix":" 2001:DB8::/32 "}]}}`))
+	})
+	obs, err := asn.New().Run(context.Background(), run.Job{Key: "AS1", Input: "AS1"}, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 2 || obs[0].Key != "192.0.2.0/24" || obs[1].Key != "2001:db8::/32" {
+		t.Errorf("obs = %+v", obs)
+	}
+}
