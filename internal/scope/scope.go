@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"fmt"
 	"iter"
+	"maps"
 	"net/netip"
 	"slices"
 
@@ -71,7 +72,7 @@ type Scope struct {
 }
 
 func New(c Config) *Scope {
-	s := &Scope{roots: normaliseAll(c.Roots), netblocks: c.Netblocks, blockSet: map[netip.Prefix]bool{},
+	s := &Scope{roots: normaliseAll(c.Roots), netblocks: slices.Clone(c.Netblocks), blockSet: map[netip.Prefix]bool{},
 		resolved: map[string][]netip.Addr{}, exclAddrs: map[netip.Addr]string{}, hostAddrs: map[netip.Addr]bool{},
 		asns: map[string]bool{}}
 	for _, a := range c.ASNs {
@@ -93,12 +94,15 @@ func New(c Config) *Scope {
 			s.exclHosts = append(s.exclHosts, e)
 		}
 	}
-	for h, addrs := range c.Resolutions {
-		h = dnsname.Normalise(h)
+	// In name order, so an address of several excluded hosts gets the same reason on every build.
+	for _, name := range slices.Sorted(maps.Keys(c.Resolutions)) {
+		h, addrs := dnsname.Normalise(name), c.Resolutions[name]
 		s.resolved[h] = addrs
 		if e, ok := s.matchName(h); ok {
 			for _, a := range addrs {
-				s.exclAddrs[a] = fmt.Sprintf("address %s of excluded host %s (matched %s)", a, h, e.Entry)
+				if _, seen := s.exclAddrs[a]; !seen {
+					s.exclAddrs[a] = fmt.Sprintf("address %s of excluded host %s (matched %s)", a, h, e.Entry)
+				}
 			}
 		}
 	}
@@ -131,14 +135,20 @@ func (s *Scope) promote(lookups map[string][]netip.Addr, max int) {
 	if len(s.netblocks) == 0 {
 		return
 	}
-	names := map[string][]netip.Addr{}
-	listed := map[netip.Addr]int{} // the looked-up names of each in-netblock address
+	names := map[string][]netip.Addr{} // each name's addresses, once each
 	for h, addrs := range lookups {
 		h = dnsname.Normalise(h)
 		if _, ok := s.matchName(h); ok || s.RootOf(h) != "" {
 			continue
 		}
-		names[h] = addrs
+		for _, a := range addrs {
+			if !slices.Contains(names[h], a) {
+				names[h] = append(names[h], a)
+			}
+		}
+	}
+	listed := map[netip.Addr]int{} // the looked-up names of each in-netblock address
+	for _, addrs := range names {
 		for _, a := range addrs {
 			if s.InScopeIP(a) {
 				listed[a]++
@@ -198,7 +208,9 @@ func (s *Scope) cidrOf(a netip.Addr) (input.Exclusion, bool) {
 func (s *Scope) HostInScope(host string) bool { return s.ClassifyHost(host).Class == InScope }
 
 // Addrs returns the addresses a hostname resolves to, by its normalised name.
-func (s *Scope) Addrs(host string) []netip.Addr { return s.resolved[dnsname.Normalise(host)] }
+func (s *Scope) Addrs(host string) []netip.Addr {
+	return slices.Clone(s.resolved[dnsname.Normalise(host)])
+}
 
 // ClassifyHost applies name exclusions and excluded resolved CIDRs before classifying a name as
 // in scope (under an input root, or by an address of its candidate lookup) or a candidate.
@@ -246,8 +258,12 @@ func (s *Scope) RootOf(host string) string {
 	return best
 }
 
-// InScopeIP reports whether the address is inside an in-scope netblock.
+// InScopeIP reports whether the address is inside an in-scope netblock. A zoned address is in
+// none, as netip.Prefix.Contains has it.
 func (s *Scope) InScopeIP(a netip.Addr) bool {
+	if !a.IsValid() || a.Zone() != "" {
+		return false
+	}
 	for _, bits := range s.blockBits {
 		if p, err := a.Prefix(bits); err == nil && s.blockSet[p] {
 			return true
@@ -343,18 +359,26 @@ const (
 )
 
 func (s *Scope) portVerdict(a netip.Addr, owner Owner) portVerdict {
+	var shared, known, asked bool
+	ownerOf := func() (bool, bool) { // owner is asked at most once
+		if !asked {
+			shared, known = owner(a)
+			asked = true
+		}
+		return shared, known
+	}
 	if cidr, ex := s.excluded(a); ex {
 		if cidr {
 			return portExcluded
 		}
-		if shared, _ := owner(a); !shared {
+		if shared, _ := ownerOf(); !shared {
 			return portExcluded
 		}
 	}
 	if s.InScopeIP(a) {
 		return portEligible
 	}
-	if shared, known := owner(a); shared || !known {
+	if shared, known := ownerOf(); shared || !known {
 		return portShared
 	}
 	if s.hostAddrs[a] {
@@ -391,7 +415,7 @@ func (s *Scope) DialAddrs(host string) []netip.Addr {
 	if !s.InScopeByAddress(host) {
 		return addrs
 	}
-	return slices.DeleteFunc(slices.Clone(addrs), func(a netip.Addr) bool { return !s.InScopeIP(a) })
+	return slices.DeleteFunc(addrs, func(a netip.Addr) bool { return !s.InScopeIP(a) })
 }
 
 // Netblocks returns the in-scope netblocks.

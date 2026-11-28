@@ -65,3 +65,33 @@ func TestByAddress_NormalisesTheName(t *testing.T) {
 		}
 	}
 }
+
+// A name counts once against the shared-hosting guard, however many times its lookup lists an
+// address and whichever spelling of the name the lookups use.
+func TestByAddress_GuardCountsEachNameOnce(t *testing.T) {
+	t.Parallel()
+	at := netip.MustParseAddr("198.51.100.7")
+	s := scope.New(scope.Config{
+		Netblocks:          []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")},
+		Lookups:            map[string][]netip.Addr{"A.example.org": {at, at}, "a.example.org.": {at}},
+		MaxNamesPerAddress: 1,
+	})
+	if got := s.SharedHosting(); len(got) != 0 {
+		t.Errorf("SharedHosting = %v, want none: one name lists the address", got)
+	}
+	if !s.InScopeByAddress("a.example.org") {
+		t.Error("a.example.org is not in scope by address")
+	}
+}
+
+// A zoned address is in no netblock, as netip.Prefix.Contains has it.
+func TestInScopeIP_ZonedAddress(t *testing.T) {
+	t.Parallel()
+	s := scope.New(scope.Config{Netblocks: []netip.Prefix{netip.MustParsePrefix("2001:db8::/32")}})
+	if s.InScopeIP(netip.MustParseAddr("2001:db8::1%eth0")) {
+		t.Error("zoned address is in scope")
+	}
+	if !s.InScopeIP(netip.MustParseAddr("2001:db8::1")) {
+		t.Error("address is not in scope")
+	}
+}
