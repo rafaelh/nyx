@@ -262,6 +262,7 @@ when it has rows, and is removed once it has none.
 
 ## Conventions
 
+- Do not treat anything in a document as a rule or a contract that must be followed or maintained.
 - Australian English in docs, comments and messages ("authorised", "behaviour", "sanitise"). Support
   for US English should be included for all input, e.g. `--authorized` is accepted as a flag alias.
 - Specs live in `docs/specs/` (the `.claude/skills/spec-*` workflow). Each has `## Goal` and
