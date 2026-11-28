@@ -6,12 +6,16 @@ import (
 	"testing"
 )
 
-// attrTypes are the attribute structs of every Of kind but finding.
+// attrTypes are the attribute structs of every Of kind but finding and candidate_lookup (whose
+// CNAME links decode through JSON).
 var attrTypes = []any{
 	HostnameAttrs{}, NetblockAttrs{}, ExcludedAttrs{}, ResolutionAttrs{}, UnresolvedAttrs{}, WildcardAttrs{},
 	IPOwnerAttrs{}, IPHostnameAttrs{}, ProviderRangeAttrs{}, WebServiceAttrs{}, HTTPPortAttrs{}, URLAttrs{},
 	OpenPortAttrs{}, TakeoverHTTPAttrs{}, StorageAttrs{}, StorageAccountAttrs{}, StorageObjectAttrs{},
-	StorageRefAttrs{}, SensitiveHitAttrs{}, EmailPostureAttrs{},
+	StorageRefAttrs{}, SensitiveHitAttrs{}, EmailPostureAttrs{}, NetblockOwnerAttrs{}, ASNAttrs{},
+	CandidateRankAttrs{}, CodeMentionAttrs{}, DNSClaimAttrs{}, HistoricalAddressAttrs{}, OriginCheckAttrs{},
+	PortCheckAttrs{}, RegistrationAttrs{}, ReportedPortAttrs{}, ScriptAttrs{}, ServerAddressAttrs{},
+	ShodanNetblockAttrs{}, TextHostnameAttrs{}, ThirdPartyAttrs{}, WebIdentifierAttrs{}, WebPostureAttrs{},
 }
 
 // filled returns a value of t with every field set to a non-zero value.

@@ -180,15 +180,17 @@ func defineKeyed[A any](k Kind, key func(A) string, rebuild func(key string, a *
 // recovery.
 func defineJoined[A any](k Kind, fields func(*A) []*string) Keyed[A] {
 	return defineKeyed(k,
-		func(a A) string {
-			parts := fields(&a)
-			s := make([]string, len(parts))
-			for i, p := range parts {
-				s[i] = *p
-			}
-			return strings.Join(s, "|")
-		},
+		func(a A) string { return joinFields(fields(&a)) },
 		func(key string, a *A) { fillFromKey(key, fields(a)...) })
+}
+
+// joinFields makes a "|"-joined key from the fields, which fillFromKey reverses.
+func joinFields(parts []*string) string {
+	s := make([]string, len(parts))
+	for i, p := range parts {
+		s[i] = *p
+	}
+	return strings.Join(s, "|")
 }
 
 // fillFromKey fills empty destinations from a "|"-joined key. The last field takes the

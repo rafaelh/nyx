@@ -96,13 +96,13 @@ func setter(t reflect.Type) func(reflect.Value, any) {
 				v.SetBool(b)
 			}
 		}
-	case t.Kind() == reflect.Pointer && t.Elem().Kind() == reflect.Bool:
+	case t == reflect.TypeFor[*bool](): // exactly: a named type would make Set panic
 		return func(v reflect.Value, x any) {
 			if b, ok := x.(bool); ok {
 				v.Set(reflect.ValueOf(&b))
 			}
 		}
-	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.String:
+	case t == reflect.TypeFor[[]string]():
 		return func(v reflect.Value, x any) {
 			list, ok := x.([]any)
 			if !ok {

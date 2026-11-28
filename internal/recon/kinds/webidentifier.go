@@ -1,10 +1,23 @@
 package kinds
 
+import "github.com/rafaelh/nyx/internal/knowledge/weburl"
+
 // WebIdentifier stores a tracking ID, favicon hash or root-page copyright line for related-site
 // discovery. Keys use "<service>|<type>|<value>". Probe and crawl observations merge normally,
-// keeping an identifier current while either sees it. Visibility follows the host's scope.
-var WebIdentifier = defineJoined(Kind{Name: "web_identifier", HostAttr: "host"},
-	func(a *WebIdentifierAttrs) []*string { return []*string{&a.Service, &a.Type, &a.Value} })
+// keeping an identifier current while either sees it. Visibility follows the host's scope; the key
+// does not carry the host, so a non-current record takes it from the service origin.
+var WebIdentifier = defineKeyed(Kind{Name: "web_identifier", HostAttr: "host"},
+	func(a WebIdentifierAttrs) string { return joinFields(webIdentifierFields(&a)) },
+	func(key string, a *WebIdentifierAttrs) {
+		fillFromKey(key, webIdentifierFields(a)...)
+		if a.Host == "" {
+			a.Host = weburl.HostOfURL(a.Service)
+		}
+	})
+
+func webIdentifierFields(a *WebIdentifierAttrs) []*string {
+	return []*string{&a.Service, &a.Type, &a.Value}
+}
 
 // The types of web identifier.
 const (

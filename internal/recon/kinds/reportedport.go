@@ -33,21 +33,24 @@ func ParsePortKey(key string) (netip.AddrPort, bool) {
 	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), true
 }
 
-// portKey formats the canonical address/port key, including brackets for IPv6.
+// portKey formats the canonical address/port key, including brackets for IPv6. The address is
+// unmapped, as ParsePortKey unmaps it, so one port has one key.
 func portKey(ip string, port int) string {
 	if addr, err := netip.ParseAddr(ip); err == nil && port >= 0 && port <= 0xffff {
-		return netip.AddrPortFrom(addr, uint16(port)).String()
+		return netip.AddrPortFrom(addr.Unmap(), uint16(port)).String()
 	}
 	return ip + ":" + strconv.Itoa(port)
 }
 
-// rebuildPort sets an empty *ip and *port from a port key.
+// rebuildPort sets an empty *ip and a zero *port from a port key.
 func rebuildPort(key string, ip *string, port *int) {
-	if *ip != "" {
+	if *ip != "" && *port != 0 {
 		return
 	}
 	if ap, ok := ParsePortKey(key); ok {
-		*ip = ap.Addr().String()
+		if *ip == "" {
+			*ip = ap.Addr().String()
+		}
 		if *port == 0 {
 			*port = int(ap.Port())
 		}
