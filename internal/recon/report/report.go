@@ -39,7 +39,7 @@ func (e redacting) Emit(ev Event) {
 	e.next.Emit(ev)
 }
 
-// Forward only the requested event type.
+// Only forwards to next the events of the requested type.
 func Only(typ string, next Emitter) Emitter { return only{typ, next} }
 
 type only struct {

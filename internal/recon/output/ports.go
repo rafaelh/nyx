@@ -50,17 +50,28 @@ func portsByKey(s Snapshot, vis *kinds.Visibility) map[netip.AddrPort]*portSourc
 	}
 	for _, r := range s.of(kinds.OpenPort) {
 		if ap, ok := kinds.ParsePortKey(r.Key); ok && vis.Shown(kinds.OpenPort, r) {
-			entry(ap).open = &r
+			e := entry(ap)
+			e.open = preferCurrent(e.open, &r)
 		}
 	}
 	for _, r := range s.of(kinds.ReportedPort) {
 		// Use eligibility rather than full visibility so confirmed-closed reports
 		// remain as historical rows.
 		if ap, ok := kinds.ParsePortKey(r.Key); ok && s.Inv.PortEligible(ap.Addr(), s.Scope) {
-			entry(ap).reports = &r
+			e := entry(ap)
+			e.reports = preferCurrent(e.reports, &r)
 		}
 	}
 	return byKey
+}
+
+// preferCurrent picks between two records whose keys parse to one address/port (an IPv4-mapped
+// key and its unmapped form), keeping a current one over one no longer current.
+func preferCurrent(have, r *store.Record) *store.Record {
+	if have != nil && have.Current && !r.Current {
+		return have
+	}
+	return r
 }
 
 // row formats one address/port with its known hostnames.

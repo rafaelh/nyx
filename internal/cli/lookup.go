@@ -153,5 +153,8 @@ func writeEnvelope[T any](inv *invocation, data []T, metaErrs []*clierr.Error, w
 	for i, e := range metaErrs {
 		env.Meta.Errors[i] = newErrorLine(e, red)
 	}
+	for i, w := range env.Meta.Warnings {
+		env.Meta.Warnings[i] = red.Redact(w) // again after sanitisation, which can rejoin a key
+	}
 	return lineEncoder(inv.d.Stdout).Encode(env)
 }

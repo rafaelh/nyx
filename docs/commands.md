@@ -109,8 +109,8 @@ calls and takes no `--timeout`. Without the flag a run takes as long as it needs
   jobs, if any (`; failed jobs: crtsh 2, shodan 14`). A job is completed when it ran and
   finished in this run, whether it succeeded or failed; a job a procedure abandoned without running it
   is failed but not completed. The same counts are `meta.deadline_exceeded`, `meta.jobs_completed`
-  and `meta.jobs_cancelled` in the envelope, and the human summary ends with `Stopped by the
-  deadline: N jobs completed, M cancelled`. The error has one of two hints:
+  and `meta.jobs_cancelled` in the envelope, and the human summary's first block has the line
+  `Stopped by the deadline: N jobs completed, M cancelled`. The error has one of two hints:
   - **To carry on.** The hint is your own invocation, shell-quoted, with `--redo` and its value left
     out and every other argument kept, `--timeout` included. Run it to do the cancelled jobs and
     the rest. The error is marked transient.

@@ -30,7 +30,11 @@ func emailPostureRows(s Snapshot) []Row {
 			continue
 		}
 		a := kinds.EmailPosture.Attrs(r)
-		rows = append(rows, recordRow(r, r.Key, a.MX, a.SPF, strconv.Itoa(a.SPFLookups), a.DMARC, a.DMARCPolicy, a.DKIMSelectors, a.MTASTS,
+		lookups := strconv.Itoa(a.SPFLookups)
+		if !r.Current { // a record no longer current has lost its count
+			lookups = ""
+		}
+		rows = append(rows, recordRow(r, r.Key, a.MX, a.SPF, lookups, a.DMARC, a.DMARCPolicy, a.DKIMSelectors, a.MTASTS,
 			selfHostedMX(s, a.MX)))
 	}
 	return rows

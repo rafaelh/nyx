@@ -37,11 +37,12 @@ func (a CandidateLookupAttrs) Addresses() []netip.Addr {
 }
 
 // ByAddressHosts returns the current hostname records in scope by an address of their candidate
-// lookup: the hostname rows of scope.csv and the summary's count.
+// lookup: the hostname rows of scope.csv and the summary's count. A name its resolved addresses
+// exclude is left out, as ClassifyHost excludes it.
 func ByAddressHosts(sc *scope.Scope, hostnames []store.Record) []store.Record {
 	var out []store.Record
 	for _, r := range hostnames {
-		if r.Current && sc.InScopeByAddress(r.Key) {
+		if r.Current && sc.InScopeByAddress(r.Key) && sc.HostInScope(r.Key) {
 			out = append(out, r)
 		}
 	}

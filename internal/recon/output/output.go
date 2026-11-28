@@ -169,7 +169,7 @@ func (w *Writer) renderFile(tmp string, f File, snap Snapshot) error {
 func listedRows(rows []Row) []Row {
 	var listed []Row
 	for _, r := range rows {
-		if r.Current && len(r.Cells) > 0 {
+		if r.Current && len(r.Cells) > 0 && r.Cells[0] != "" {
 			listed = append(listed, r)
 		}
 	}
@@ -270,7 +270,7 @@ var webServiceColumns = []string{"url", "host", "port", "scheme", "status", "tit
 // webServiceCells follows webServiceColumns order. Nil posture leaves its cells blank for older
 // engagements until httpprobe is redone. ids supplies identifier cells.
 func webServiceCells(key string, a kinds.WebServiceAttrs, p *kinds.WebPostureAttrs, ids [4]string) []string {
-	cells := []string{key, a.Host, strconv.Itoa(a.Port), a.Scheme, strconv.Itoa(a.Status), a.Title, a.Server, a.Technologies,
+	cells := []string{key, a.Host, nonZero(a.Port), a.Scheme, nonZero(a.Status), a.Title, a.Server, a.Technologies,
 		a.Redirect, a.FinalURL, a.TLSSubject, a.TLSSANs, a.TLSIssuer, a.TLSExpiry, a.TLSVersion, a.TLSCipher, kinds.TLSTrust(a)}
 	if p == nil {
 		cells = append(cells, "", "", "", "")
@@ -314,6 +314,14 @@ func identifierCells(s Snapshot) map[string][4]string {
 		out[service] = cells
 	}
 	return out
+}
+
+// nonZero writes n, or a blank cell for zero: a record no longer current has lost its numbers.
+func nonZero(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }
 
 func yesNo(b bool) string {
@@ -482,8 +490,12 @@ func resolutionRows(s Snapshot) []Row {
 		}
 		at[r.Key] = len(rows)
 		if _, host, ok := strings.Cut(a.Value, " "); a.Type == "MX" && ok {
-			// A claim of a mail host holds the host without its preference.
-			at[kinds.DNSClaim.Key(kinds.DNSClaimAttrs{Name: a.Name, Type: a.Type, Value: host})] = len(rows)
+			// A claim of a mail host holds the host without its preference. Several preferences
+			// can name one host: keep a current row over one no longer current.
+			claim := kinds.DNSClaim.Key(kinds.DNSClaimAttrs{Name: a.Name, Type: a.Type, Value: host})
+			if j, seen := at[claim]; !seen || !rows[j].Current {
+				at[claim] = len(rows)
+			}
 		}
 		rows = append(rows, recordRow(r, a.Name, a.Type, a.Value, "resolve", selfHosted, "", ""))
 	}
