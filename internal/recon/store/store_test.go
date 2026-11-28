@@ -516,6 +516,13 @@ func TestObservers(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("after a redo, before the jobs run again: %v", got)
 	}
+	// Observed still lists the stale observations a redo has unmarked.
+	got, err = s.Observed("root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want(got, "x.org", "whoisxml/Acme")
+	want(got, "y.org", "whoisxml/Acme")
 	s.Complete("whoisxml", "Acme", obs("root", "x.org")) // y.org is no longer found
 	mustFlush(t, s)
 	if _, err := s.FinishRedo("whoisxml", map[string]struct{}{"Acme": {}}); err != nil {

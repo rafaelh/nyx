@@ -164,14 +164,23 @@ func (w *writeStmts) in(tx *sql.Tx) txStmts {
 func Open(path string, o Options) (*Store, error) {
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(10000)")
-	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
+	// A write transaction takes the write lock when it begins. A deferred one that reads first
+	// fails with SQLITE_BUSY_SNAPSHOT, which the busy timeout does not retry, if another
+	// connection commits before its first write. Read-only transactions still begin deferred.
+	q.Add("_txlock", "immediate")
 	db, err := sql.Open("sqlite", dsn(path, q))
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(8)
 	if err := initDB(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("state database %s: %w", path, err)
+	}
+	// WAL mode is stored in the file, so it is set only once the file is known to be nyx's:
+	// a foreign database is rejected unchanged.
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("state database %s: %w", path, err)
 	}
@@ -407,6 +416,9 @@ func (s *Store) Close() error {
 		close(s.ch)
 		s.chMu.Unlock()
 		s.wg.Wait()
+		if err == nil { // an op queued after the flush may have failed
+			err = s.firstErr()
+		}
 		s.stmts.close()
 		if cerr := s.db.Close(); err == nil {
 			err = cerr
@@ -675,8 +687,15 @@ type Reader struct{ q querier }
 // Records includes current and non-current records. Current observations merge field by field
 // in procedure order, with later procedures winning. Producers not in order (the analyses and the
 // guard) sort first, so a procedure wins a field it also sets.
+// It reads the records and their observations in one snapshot, so a commit between the two
+// queries cannot pair a record's current flag with another moment's observations.
 func (s *Store) Records(kind string, order []string) ([]Record, error) {
-	return Reader{s.db}.Records(kind, order)
+	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return Reader{tx}.Records(kind, order)
 }
 
 // Records reads all records of a kind using this reader's snapshot; see Store.Records.
@@ -761,30 +780,20 @@ type Observer struct{ Procedure, JobKey string }
 // Redo removes completion markers before replacing old observations, so those stale
 // observations do not count as current support.
 func (s *Store) Observers(kind string) (map[string][]Observer, error) {
-	type row struct {
-		key string
-		o   Observer
-	}
-	rows, err := queryAll(s.db, func(r *sql.Rows) (w row, err error) {
-		err = r.Scan(&w.key, &w.o.Procedure, &w.o.JobKey)
-		return w, err
-	}, `SELECT o.key, o.producer, o.job_key FROM observations o
+	return s.observerMap(`SELECT o.key, o.producer, o.job_key FROM observations o
 		JOIN jobs j ON j.procedure = o.producer AND j.key = o.job_key
 		WHERE o.kind = ? ORDER BY o.key, o.producer, o.job_key`, kind)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string][]Observer{}
-	for _, w := range rows {
-		out[w.key] = append(out[w.key], w.o)
-	}
-	return out, nil
 }
 
 // Observed lists the producer and job of every stored observation of a kind by record key,
 // whether or not the job is still marked complete (a redo clears the marks before its jobs run
 // again), ordered by producer and job key.
 func (s *Store) Observed(kind string) (map[string][]Observer, error) {
+	return s.observerMap("SELECT key, producer, job_key FROM observations WHERE kind = ? ORDER BY key, producer, job_key", kind)
+}
+
+// observerMap groups the (record key, producer, job key) rows query returns by record key.
+func (s *Store) observerMap(query, kind string) (map[string][]Observer, error) {
 	type row struct {
 		key string
 		o   Observer
@@ -792,7 +801,7 @@ func (s *Store) Observed(kind string) (map[string][]Observer, error) {
 	rows, err := queryAll(s.db, func(r *sql.Rows) (w row, err error) {
 		err = r.Scan(&w.key, &w.o.Procedure, &w.o.JobKey)
 		return w, err
-	}, "SELECT key, producer, job_key FROM observations WHERE kind = ? ORDER BY key, producer, job_key", kind)
+	}, query, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,6 +1068,10 @@ func writeShown(tx *sql.Tx, old map[shownKey]ShownRow, rows []ShownRow) error {
 // Shown returns the baseline sorted by kind and key, plus whether one has ever been saved. An
 // empty saved baseline differs from an older engagement with no baseline.
 func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
+	// Hold the cache lock while reading, so a concurrent SaveShown cannot commit between the
+	// read and the caching and leave a stale baseline cached.
+	s.shownMu.Lock()
+	defer s.shownMu.Unlock()
 	var day string
 	switch err := s.db.QueryRow("SELECT value FROM meta WHERE key=?", shownMeta).Scan(&day); {
 	case errors.Is(err, sql.ErrNoRows):
@@ -1078,9 +1091,7 @@ func (s *Store) Shown() (rows []ShownRow, saved bool, err error) {
 		return nil, false, err
 	}
 	// Copy rows so callers cannot change the cached baseline used by SaveShown.
-	s.shownMu.Lock()
 	s.shown, s.shownKnown = slices.Clone(rows), true
-	s.shownMu.Unlock()
 	return rows, true, nil
 }
 
