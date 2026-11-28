@@ -16,6 +16,7 @@ import (
 
 	"github.com/rafaelh/nyx/internal/config"
 	"github.com/rafaelh/nyx/internal/egress"
+	"github.com/rafaelh/nyx/internal/input"
 	"github.com/rafaelh/nyx/internal/recon/kinds"
 	"github.com/rafaelh/nyx/internal/recon/procedures/httpsrc"
 	"github.com/rafaelh/nyx/internal/recon/run"
@@ -101,13 +102,12 @@ func (*Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.O
 	return obs, nil
 }
 
-// historyAddr accepts global-unicast addresses matching the requested A/AAAA family.
+// historyAddr accepts unzoned global-unicast addresses matching the requested A/AAAA family.
 func historyAddr(typ, s string) (netip.Addr, bool) {
-	a, err := netip.ParseAddr(s)
-	if err != nil || !a.IsGlobalUnicast() {
+	a, ok := input.IPLiteral(s)
+	if !ok || !a.IsGlobalUnicast() {
 		return netip.Addr{}, false
 	}
-	a = a.Unmap()
 	if (typ == "a") != a.Is4() {
 		return netip.Addr{}, false
 	}
@@ -164,7 +164,11 @@ func fetch(ctx context.Context, e egress.Clients, host, typ string) ([]record, e
 		}
 		var h history
 		if err := json.Unmarshal(raw, &h); err != nil {
-			return nil, errors.New("unreadable SecurityTrails response")
+			return nil, fmt.Errorf("unreadable SecurityTrails response: %w", err)
+		}
+		// A body without the list is not an empty history: completing on it would never ask again.
+		if h.Records == nil {
+			return nil, errors.New("unreadable SecurityTrails response: no records list")
 		}
 		out = append(out, h.Records...)
 		if page >= h.Pages {

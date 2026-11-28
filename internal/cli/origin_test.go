@@ -65,7 +65,7 @@ func (f *stHistory) serve(rw http.ResponseWriter, r *http.Request) {
 	}
 	key := parts[2] + "/" + parts[4]
 	f.asked = append(f.asked, key)
-	var records []map[string]any
+	records := []map[string]any{}
 	for _, rec := range f.records[key] {
 		field := "ip"
 		if parts[4] == "aaaa" {
