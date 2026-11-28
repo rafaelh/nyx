@@ -54,7 +54,8 @@ func (*Wildcard) Jobs(ctx context.Context, v run.View) iter.Seq2[run.Job, error]
 }
 
 // wildcardZones are the zones the wildcard procedure checks: every input root and every parent
-// of a resolved in-scope name, down to its registrable domain, that is in scope.
+// of a resolved in-scope name, down to its registrable domain, that is in scope or under an input
+// root.
 func wildcardZones(v run.View) map[string]bool {
 	zones := map[string]bool{}
 	for _, r := range v.Inputs().Roots {
@@ -75,8 +76,11 @@ func wildcardZones(v run.View) map[string]bool {
 			zones[p] = true
 		}
 	}
-	// A sub-root's parents are not ours to probe.
-	maps.DeleteFunc(zones, func(z string, _ bool) bool { return !v.Scope().HostInScope(z) })
+	// A sub-root's parents are not ours to probe. A zone under a root that is itself excluded (by
+	// its exact name or its addresses) is still checked: its in-scope children are guessed and
+	// learned from, and its wildcard's answers must be known first.
+	sc := v.Scope()
+	maps.DeleteFunc(zones, func(z string, _ bool) bool { return !sc.HostInScope(z) && sc.RootOf(z) == "" })
 	return zones
 }
 

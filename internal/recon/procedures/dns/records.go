@@ -187,8 +187,8 @@ func recordHost(sc *scope.Scope, host string) bool {
 }
 
 // target records a host a record points at: a hostname when recordHost accepts it, otherwise,
-// when a mechanism is given, a third party of the root by its registrable domain. An address
-// written where a name belongs is neither.
+// when a mechanism is given, a third party of the root by its registrable domain, unless that is
+// the root's own. An address written where a name belongs is neither.
 func (in recordInput) target(mechanism, host string) []run.Observation {
 	host = dnsname.Normalise(host)
 	if _, err := netip.ParseAddr(host); err == nil || host == "" {
@@ -200,7 +200,11 @@ func (in recordInput) target(mechanism, host string) []run.Observation {
 	case mechanism == "":
 		return nil
 	}
-	return []run.Observation{kinds.ThirdPartyObs(in.root, mechanism, dnsname.Registrable(host), 0)}
+	domain := dnsname.Registrable(host)
+	if domain == dnsname.Registrable(in.root) { // the root's own registrable domain is no third party
+		return nil
+	}
+	return []run.Observation{kinds.ThirdPartyObs(in.root, mechanism, domain, 0)}
 }
 
 // owned returns the values of the records of the asked type that the name owns: an alias's answer

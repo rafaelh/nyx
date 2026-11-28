@@ -98,12 +98,15 @@ func lowerWords(s config.Settings) []string {
 }
 
 // rootWords are the labels a root job tries directly under each root: the valid words of the
-// lower-cased wordlist (a word that is not a valid label gives no name) and the well-known labels.
+// lower-cased wordlist (a word that is not a valid label gives no name) and the well-known labels,
+// each once, so a word listed twice or in two cases is neither asked nor charged twice.
 func rootWords(words []string) []string {
-	valid := slices.DeleteFunc(slices.Clone(words), func(w string) bool { return !dnsname.ValidLabel(w) })
-	for _, l := range wellKnownLabels {
-		if !slices.Contains(valid, l) {
-			valid = append(valid, l)
+	var valid []string
+	seen := map[string]bool{}
+	for _, w := range slices.Concat(words, wellKnownLabels) {
+		if !seen[w] && dnsname.ValidLabel(w) {
+			seen[w] = true
+			valid = append(valid, w)
 		}
 	}
 	return valid

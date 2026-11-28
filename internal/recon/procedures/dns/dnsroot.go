@@ -117,7 +117,7 @@ func runSRV(ctx context.Context, in recordInput, e egress.Clients) ([]run.Observ
 			continue
 		}
 		for _, a := range res.Answers {
-			if a.Type != "SRV" {
+			if a.Type != "SRV" || a.Name != name { // an alias's answer carries its target's records
 				continue
 			}
 			_, target, ok := dnsname.SRV(a.Value)

@@ -53,8 +53,8 @@ func (*RDNS) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run.Observ
 			continue
 		}
 		host := dnsname.Normalise(a.Value)
-		if host == "" || seen[host] {
-			continue
+		if _, err := netip.ParseAddr(host); err == nil || host == "" || seen[host] {
+			continue // an address written where a name belongs is no hostname
 		}
 		seen[host] = true
 		obs = append(obs,
