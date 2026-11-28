@@ -9,12 +9,15 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"math"
 	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/rafaelh/nyx/internal/egress"
 	scopeinput "github.com/rafaelh/nyx/internal/input"
@@ -108,7 +111,7 @@ func (s *Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run
 	seen := map[string]bool{}  // match URLs
 	named := map[string]bool{} // hostnames already observed
 	for read, page := 0, 1; read < in.max && page <= lastPage; page++ {
-		res, err := search(ctx, e, in.root, page)
+		res, err := search(ctx, e, in.root, page, min(perPage, in.max))
 		if err != nil {
 			return nil, fmt.Errorf("github %s: %w", in.root, err)
 		}
@@ -119,15 +122,17 @@ func (s *Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run
 		read += len(items)
 		for _, it := range items {
 			u := sanitize.Text(it.HTMLURL)
-			if u == "" || seen[u] {
+			if seen[u] {
 				continue
 			}
-			seen[u] = true
 			names := in.hostnames(it)
-			obs = append(obs, kinds.CodeMention.Obs(u, kinds.CodeMentionAttrs{
-				Root: in.root, Repository: sanitize.Text(it.Repository.FullName), Path: sanitize.Text(it.Path),
-				Hostnames: strings.Join(names, ";"),
-			}))
+			if u != "" { // a match without a URL has no row, but its names are still names
+				seen[u] = true
+				obs = append(obs, kinds.CodeMention.Obs(u, kinds.CodeMentionAttrs{
+					Root: in.root, Repository: sanitize.Text(it.Repository.FullName), Path: sanitize.Text(it.Path),
+					Hostnames: strings.Join(names, ";"),
+				}))
+			}
 			for _, n := range names {
 				if !named[n] {
 					named[n] = true
@@ -145,8 +150,8 @@ func (s *Procedure) Run(ctx context.Context, c run.Job, e egress.Clients) ([]run
 // search retries the same page for rate limits lifting within maxWait. A 401 or unhandled
 // 403/429 aborts the procedure. Other statuses, truncation and invalid responses remain retryable
 // job failures.
-func search(ctx context.Context, e egress.Clients, root string, page int) (searchResult, error) {
-	q := url.Values{"q": {`"` + root + `"`}, "per_page": {strconv.Itoa(perPage)}, "page": {strconv.Itoa(page)}}
+func search(ctx context.Context, e egress.Clients, root string, page, per int) (searchResult, error) {
+	q := url.Values{"q": {`"` + root + `"`}, "per_page": {strconv.Itoa(per)}, "page": {strconv.Itoa(page)}}
 	req := egress.ThirdPartyRequest{
 		Method: "GET", URL: "https://api.github.com/search/code?" + q.Encode(),
 		KeySource: "github", KeyHeader: "Authorization", KeyPrefix: "Bearer ",
@@ -187,7 +192,8 @@ func search(ctx context.Context, e egress.Clients, root string, page int) (searc
 func resetWait(resp egress.ThirdPartyResponse, now time.Time) (wait time.Duration, ok bool) {
 	if v := resp.HeaderValue("Retry-After"); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
-			return max(time.Duration(secs)*time.Second, time.Second), true
+			// Capped before the multiplication, which would overflow to a short wait.
+			return max(time.Duration(min(secs, math.MaxInt32))*time.Second, time.Second), true
 		}
 	}
 	if resp.HeaderValue("X-RateLimit-Remaining") != "0" {
@@ -212,6 +218,12 @@ func (in input) hostnames(it match) []string {
 		for _, loc := range tokens.FindAllStringIndex(m.Fragment, -1) {
 			tok := unescaped(m.Fragment, loc[0], m.Fragment[loc[0]:loc[1]])
 			if !strings.Contains(tok, ".") { // a plain word; no name under a root
+				continue
+			}
+			// A token that runs on from a non-ASCII letter, as "cher.example.com" in
+			// "bücher.example.com", is the tail of a longer name, not a name.
+			if r, _ := utf8.DecodeLastRuneInString(m.Fragment[:loc[0]]); r >= utf8.RuneSelf &&
+				(unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r)) {
 				continue
 			}
 			n := scopeinput.CleanName(strings.Trim(tok, ".-"))
